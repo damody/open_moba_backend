@@ -1,0 +1,33 @@
+[package]
+name = "specs_td"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[features]
+simd = ["vek/platform_intrinsics"]
+
+[dependencies]
+rayon = { version = "1.5" }
+itertools = "0.10"
+log = { version = "0.4", features = ["std"] }
+log4rs = "1.0"
+
+serde = { version = "1", features = ["derive"] }
+serde_derive = "1"
+failure = "0.1"
+failure_derive = "0.1"
+futures = "0.3"
+chrono = { version = "0.4", features = ["serde"] }
+specs = { git = "https://github.com/amethyst/specs.git", features = ["serde", "storage-event-control", "derive", "shred-derive"]}
+# specs-idvs = { git = "https://gitlab.com/veloren/specs-idvs.git", rev = "ab50313983a4c42d170eb96bbfb87aa5604c1dd4" }
+vek = { version = "=0.15.7", features = ["serde"] }
+num_cpus = "1.0"
+hashbrown = "0.12"
+tracing = { version = "0.1", default-features = false }
+tracy-client = { version = "0.12.0", optional = true }
+spin_sleep = "1.0"
+ordered-float = "2.10"
+instant-distance = "0.5.0"
+rand = "0.8"
