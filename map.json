@@ -1,0 +1,45 @@
+{
+    "Path":[
+        {"Name":"path1", "Points":["c1","c2","c3","c4","c5"]},
+        {"Name":"path2", "Points":["c1","c4","c3","c2","c5"]}
+    ],
+    "Creep":[
+        {"Name":"cp1", "Class":"creep1",
+         "DefendPhysic":3,"DefendMagic":3,
+         "HP":100, "MoveSpeed":1},
+        {"Name":"cp2", "Class":"creep2", 
+         "DefendPhysic":0,"DefendMagic":0,
+         "HP":10, "MoveSpeed":5}
+    ],
+    "CheckPoint":[
+        {"Name":"c1", "Class":"Start", "X":0, "Y":0},
+        {"Name":"c2", "Class":"CheckPoint", "X":0, "Y":10},
+        {"Name":"c3", "Class":"CheckPoint", "X":10, "Y":20},
+        {"Name":"c4", "Class":"CheckPoint", "X":0, "Y":30},
+        {"Name":"c5", "Class":"End", "X":0, "Y":40}
+    ],
+    "Tower":[
+        {"Name":"arrow", "Range":7, "Attack":
+         {"Class":"Line", "AttackSpeed":0.5, "Physic":3, "Magic":1, 
+          "Real":0}
+        }
+    ],
+    "CreepWave":[
+        {"Name":"Wave1", "StartTime":5, "Detail":[
+            {"Path":"path1", "Creeps":[
+                {"Time":0, "Creep":"cp1"},
+                {"Time":2, "Creep":"cp2"},
+                {"Time":4, "Creep":"cp2"},
+                {"Time":6, "Creep":"cp2"},
+                {"Time":8, "Creep":"cp2"}
+                ]
+            },
+            {"Path":"path2", "Creeps":[
+                {"Time":0, "Creep":"cp1"},
+                {"Time":5, "Creep":"cp1"},
+                {"Time":10, "Creep":"cp1"}
+                ]
+            }
+        ]}
+    ]
+}

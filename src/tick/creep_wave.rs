@@ -1,0 +1,84 @@
+use rayon::iter::IntoParallelRefIterator;
+use specs::{
+    shred::{ResourceId, World}, Entities, Join, LazyUpdate, Read, ReadExpect, ReadStorage, SystemData,
+    Write, WriteStorage, ParJoin, 
+};
+use std::{thread, ops::Deref, collections::BTreeMap};
+use crate::comp::*;
+use crate::uid::{Uid, UidAllocator};
+use specs::prelude::ParallelIterator;
+use specs::saveload::MarkerAllocator;
+use vek::Vec2;
+
+#[derive(SystemData)]
+pub struct CreepWaveRead<'a> {
+    entities: Entities<'a>,
+    time: Read<'a, Time>,
+    dt: Read<'a, DeltaTime>,
+    creep_emiters: Read<'a, BTreeMap<String, CreepEmiter>>,
+    paths: Read<'a, BTreeMap<String, Path>>,
+    check_points : Read<'a, BTreeMap<String, CheckPoint>>,
+}
+
+#[derive(SystemData)]
+pub struct CreepWaveWrite<'a> {
+    outcomes: Write<'a, Vec<Outcome>>,
+    cur_creep_wave: Write<'a, CurrentCreepWave>,
+    creep_waves: Write<'a, Vec<CreepWave>>,
+}
+
+#[derive(Default)]
+pub struct Sys;
+
+impl<'a> System<'a> for Sys {
+    type SystemData = (
+        CreepWaveRead<'a>,
+        CreepWaveWrite<'a>,
+    );
+
+    const NAME: &'static str = "creep_wave";
+
+    fn run(_job: &mut Job<Self>, (tr, mut tw): Self::SystemData) {
+        let totaltime = tr.time.0;
+        let dt = tr.dt.0;
+        let mut cw = tw.cur_creep_wave;
+        if  cw.wave < tw.creep_waves.len() {
+            if let Some(w) = tw.creep_waves.get(cw.wave) {
+                if w.time < totaltime as f32 {
+                    if cw.path.len() == 0 { // 第一次進來這波怪要初始化
+                        cw.path.resize(w.path_creeps.len(), 0);
+                    }
+                    let mut is_end = true;
+                    for (i, pc) in w.path_creeps.iter().enumerate() {
+                        let cur_path_idx = cw.path[i];
+                        if cur_path_idx < pc.creeps.len() {
+                            is_end = false;
+                            if pc.creeps[cur_path_idx].time + w.time < totaltime as f32 {
+                                // 增加creep
+                                let cp = tr.creep_emiters.get(&pc.creeps[cur_path_idx].name);
+                                let path = tr.paths.get(&pc.path_name);
+                                if let (Some(cp), Some(path)) = (cp, path) {
+                                    let cpoint = path.check_points.get(0);
+                                    if let Some(ct) = cpoint {
+                                        let cp0 = Outcome::Creep {
+                                            pos: ct.pos.clone(),
+                                            creep: cp.root.clone(),
+                                            cdata: cp.property.clone(),
+                                        };
+                                        log::info!("w.time {} totaltime {}", w.time, totaltime);
+                                        log::info!("{:?}", cp0);
+                                        tw.outcomes.push(cp0);
+                                    }
+                                }
+                                cw.path[i] += 1;
+                            }
+                        }
+                    }
+                    if is_end {
+                        cw.wave += 1;
+                    }
+                }
+            }
+        }
+    }
+}
