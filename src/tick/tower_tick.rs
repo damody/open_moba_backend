@@ -33,33 +33,32 @@ impl<'a> System<'a> for Sys {
     );
 
     const NAME: &'static str = "tower";
-    const PHASE: Phase = Phase::Apply;
 
     fn run(_job: &mut Job<Self>, (tr, mut tw): Self::SystemData) {
         let time = tr.time.0;
         let dt = tr.dt.0;
         let mut outcomes = (
             &tr.entities,
-            &tr.uids,
             &tr.towers,
             &mut tw.propertys,
             &tr.pos,
         )
             .par_join()
-            .filter(|(e, u, t, pp, p)| t.lv > 0 )
+            .filter(|(e, t, pp, p)| t.lv > 0 )
             .map_init(
                 || {
                     prof_span!(guard, "tower update rayon job");
                     guard
                 },
-                |_guard, (_, uid, tower, property, pos)| {
+                |_guard, (e, tower, property, pos)| {
                     let mut outcomes:Vec<Outcome> = Vec::new();
                     if property.asd_count < property.asd {
                         property.asd_count += dt;
                     }
                     if property.asd_count >= property.asd && tower.nearby_creeps.len() > 0 {
                         property.asd_count -= property.asd;
-                        outcomes.push(Outcome::ProjectileLine2 { pos: pos.0.clone(), source: Some(uid.clone()), target: Some(tower.nearby_creeps[0]) });
+                        
+                        outcomes.push(Outcome::ProjectileLine2 { pos: pos.0.clone(), source: Some(e.clone()), target: Some(tower.nearby_creeps[0]) });
                     }
                     (outcomes)
                 },

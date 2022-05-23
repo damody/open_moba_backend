@@ -9,9 +9,10 @@ use chrono::{NaiveDateTime, Local};
 mod comp;
 mod sync;
 mod tick;
+mod ue4;
 use comp::*;
 use std::{
-    i32,
+    i32,fs,
     ops::{Deref, DerefMut},
     sync::{mpsc, Arc},
     time::{Instant, Duration},
@@ -24,6 +25,8 @@ use specs::{
     storage::{MaskedStorage as EcsMaskedStorage, Storage as EcsStorage},
     Component, DispatcherBuilder, Entity as EcsEntity, WorldExt,
 };
+use serde_json::{self, json};
+use crate::ue4::import_map::CreepWaveData;
 
 const TPS: u64 = 10;
 
@@ -39,7 +42,10 @@ fn read_input() -> String {
 
 fn main() -> std::result::Result<(), Error> {
     log4rs::init_file("log4rs.yml", Default::default()).unwrap();
-    let mut state = State::new();
+    let map_json = fs::read_to_string("map.json")
+        .expect("Something went wrong reading the file");
+    let creep_wave: CreepWaveData = serde_json::from_str(&map_json)?;
+    let mut state = State::new(creep_wave);
     let mut clock = Clock::new(Duration::from_secs_f64(1.0 / TPS as f64));
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || {

@@ -183,7 +183,6 @@ impl<'a> System<'a> for Sys {
     );
 
     const NAME: &'static str = "interpolation";
-    const PHASE: Phase = Phase::Apply;
 
     fn run(_job: &mut Job<Self>, (data, mut pos, mut vel): Self::SystemData) {
         let time = data.time.0;

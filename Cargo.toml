@@ -15,12 +15,13 @@ log = { version = "0.4", features = ["std"] }
 log4rs = "1.0"
 
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 serde_derive = "1"
 failure = "0.1"
 failure_derive = "0.1"
 futures = "0.3"
 chrono = { version = "0.4", features = ["serde"] }
-specs = { git = "https://github.com/amethyst/specs.git", features = ["serde", "storage-event-control", "derive", "shred-derive"]}
+specs = { path = "../specs", features = ["serde", "storage-event-control", "derive", "shred-derive"]}
 # specs-idvs = { git = "https://gitlab.com/veloren/specs-idvs.git", rev = "ab50313983a4c42d170eb96bbfb87aa5604c1dd4" }
 vek = { version = "=0.15.7", features = ["serde"] }
 num_cpus = "1.0"
@@ -31,3 +32,6 @@ spin_sleep = "1.0"
 ordered-float = "2.10"
 instant-distance = "0.5.0"
 rand = "0.8"
+
+[profile.release]
+debug = true

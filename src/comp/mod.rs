@@ -11,6 +11,7 @@ pub mod base;
 pub mod tower;
 pub mod clock;
 pub mod creep;
+pub mod check_point;
 
 pub use self::{
     phys::*,
@@ -26,4 +27,5 @@ pub use self::{
     tower::*,
     creep::*,
     clock::*,
+    check_point::*,
 };

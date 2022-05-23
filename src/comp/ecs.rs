@@ -19,14 +19,6 @@ pub enum ParMode {
     Exact(u32),
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub enum Phase {
-    Create,
-    Review,
-    Apply,
-}
-
-
 #[derive(Default, Debug, Clone)]
 pub struct CpuTimeline {
     /// measurements for a System
@@ -225,7 +217,6 @@ pub fn gen_stats(
 /// ```
 pub trait System<'a> {
     const NAME: &'static str;
-    const PHASE: Phase;
 
     type SystemData: specs::SystemData<'a>;
     fn run(job: &mut Job<Self>, data: Self::SystemData);

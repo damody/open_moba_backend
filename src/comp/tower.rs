@@ -1,5 +1,5 @@
 use specs::storage::VecStorage;
-use specs::{Component, FlaggedStorage, NullStorage};
+use specs::{Component, FlaggedStorage, NullStorage, Entity as  EcsEntity};
 use crate::ProjectileConstructor;
 use crate::Uid;
 
@@ -7,7 +7,7 @@ use crate::Uid;
 pub struct Tower {
     pub lv: i32,
     pub projectile_kind: ProjectileConstructor,
-    pub nearby_creeps: Vec<Uid>,
+    pub nearby_creeps: Vec<EcsEntity>,
 }
 
 impl Component for Tower {

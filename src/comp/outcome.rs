@@ -1,4 +1,4 @@
-use crate::{comp, uid::Uid};
+use crate::{comp, uid::Uid, Creep, CProperty};
 use hashbrown::HashSet;
 use serde::{Deserialize, Serialize};
 use vek::*;
@@ -9,13 +9,8 @@ use std::ops::DerefMut;
 
 use super::Projectile;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub enum Outcome {
-    ProjectileLine {
-        pos: Vec2<f32>,
-        vel: Vec2<f32>,
-        source: Option<Uid>,
-    },
     Damage {
         pos: Vec2<f32>,
         phys: f32,
@@ -25,64 +20,36 @@ pub enum Outcome {
         target: Uid,
     },
     // not yet used
-    Explosion {
-        pos: Vec2<f32>,
-        radius: f32,
-    },
-    Projectile {
-        pos: Vec2<f32>,
-        source: Option<Uid>,
-        target: Option<Uid>,
-        flytime: f32,
-    },
     ProjectileLine2 {
         pos: Vec2<f32>,
-        source: Option<Uid>,
-        target: Option<Uid>,
-    },
-    ProjectileHit {
-        pos: Vec2<f32>,
-        vel: Vec2<f32>,
-        source: Option<Uid>,
-        target: Option<Uid>,
-    },
-    Beam {
-        pos: Vec2<f32>,
-        dst: Vec2<f32>,
-    },
-    ExpChange {
-        uid: Uid,
-        exp: u32,
-    },
-    ComboChange {
-        uid: Uid,
-        combo: u32,
+        source: Option<EcsEntity>,
+        target: Option<EcsEntity>,
     },
     Death {
         pos: Vec2<f32>,
-        uid: Uid,
+        ent: EcsEntity,
     },
+    Creep {
+        pos: Vec2<f32>,
+        creep: Creep,
+        cdata: CProperty,
+    }
 }
 // 位置是更新用的
 // 需要讓玩家更新的事件才需要位置
+/*
 impl Outcome {
     pub fn get_pos(&self) -> Option<Vec2<f32>> {
         match self {
-            Outcome::Explosion { pos, .. }
-            | Outcome::Projectile { pos, .. }
-            | Outcome::ProjectileLine { pos, .. }
+            Outcome::ProjectileLine { pos, .. }
             | Outcome::ProjectileLine2 { pos, .. }
             | Outcome::ProjectileHit { pos, .. }
-            | Outcome::Beam { pos, .. }
             | Outcome::Damage { pos, .. }
             | Outcome::Death { pos, .. } => Some(pos.clone()),
-            Outcome::ExpChange { .. } 
-            | Outcome::Damage { .. } 
-            | Outcome::Death { .. } 
-            | Outcome::ComboChange { .. } => None,
+            Outcome::Death { .. }  => None,
         }
     }
-}
+}*/
 
 #[derive(Clone, Debug)]
 pub enum ServerEvent {

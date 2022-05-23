@@ -3,16 +3,18 @@ use specs::{Component, FlaggedStorage, NullStorage};
 use specs::Entity as EcsEntity;
 use super::uid::Uid;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct Creep {
-    pub lv: i32,
+    pub class: String,
+    pub path: String,
+    pub pidx: i16,
 }
 
 impl Component for Creep {
     type Storage = VecStorage<Self>;
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct CProperty {
     pub hp: f32,  // 血量
     pub msd: f32, // 移動速度
@@ -24,10 +26,36 @@ impl Component for CProperty {
     type Storage = VecStorage<Self>;
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
+pub struct CreepEmiter {
+    pub root: Creep,
+    pub property: CProperty,
+}
+#[derive(Clone, Debug, Default)]
+pub struct CurrentCreepWave {
+    pub wave: usize,
+    pub path: Vec<usize>,
+}
+#[derive(Clone, Debug)]
+pub struct CreepWave {
+    pub time: f32,
+    pub path_creeps: Vec<PathCreeps>,
+}
+#[derive(Clone, Debug)]
+pub struct PathCreeps {
+    pub creeps: Vec<CreepEmit>,
+    pub path_name: String,
+}
+#[derive(Clone, Debug)]
+pub struct CreepEmit {
+    pub time: f32,
+    pub name: String,
+}
+
+#[derive(Clone, Debug)]
 pub struct TakenDamage {
     pub phys: f32,
     pub magi: f32,
     pub real: f32,
-    pub uid: Uid,
+    pub ent: EcsEntity,
 }
