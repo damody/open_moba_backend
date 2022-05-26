@@ -8,7 +8,7 @@ use specs::{
 };
 use std::sync::Arc;
 use vek::*;
-use crate::comp::*;
+use crate::{comp::*, msg::MqttMsg};
 use super::last::Last;
 use std::time::{Instant};
 use core::{convert::identity, time::Duration};
@@ -24,11 +24,12 @@ use crate::ue4::import_map::CreepWaveData;
 use specs::saveload::MarkerAllocator;
 use rand::{thread_rng, Rng};
 use rand::distributions::{Alphanumeric, Uniform, Standard};
-
+use crossbeam_channel::{bounded, select, tick, Receiver, Sender};
 
 pub struct State {
     ecs: specs::World,
     cw: CreepWaveData,
+    mqtx: Sender<MqttMsg>,
     // Avoid lifetime annotation by storing a thread pool instead of the whole dispatcher
     thread_pool: Arc<ThreadPool>,
 }
@@ -39,7 +40,7 @@ const DAY_CYCLE_FACTOR: f64 = 24.0 * 1.0;
 const MAX_DELTA_TIME: f32 = 1.0;
 
 impl State {
-    pub fn new(pcw: CreepWaveData) -> Self {
+    pub fn new(pcw: CreepWaveData, mqtx: Sender<MqttMsg>) -> Self {
         let thread_pool = Arc::new(
             ThreadPoolBuilder::new()
                 .num_threads(num_cpus::get())
@@ -50,6 +51,7 @@ impl State {
         let mut res = Self {
             ecs: Self::setup_ecs_world(&thread_pool),
             cw: pcw,
+            mqtx: mqtx.clone(),
             thread_pool,
         };
         res.init_creep_wave();
@@ -57,6 +59,7 @@ impl State {
         res
     }
     fn init_creep_wave(&mut self) {
+        self.ecs.insert(self.mqtx.clone());
         let cps = {
             let mut cps = self.ecs.get_mut::<BTreeMap::<String, CheckPoint>>().unwrap();
             for p in self.cw.CheckPoint.iter() {
@@ -149,11 +152,12 @@ impl State {
             .with(Tower{lv:1, projectile_kind: ProjectileConstructor::Arrow{}, nearby_creeps: vec![]})
             .with(TProperty::new(10, 1., 2., 0.1, 30.))
             .build();
+            /*
         ecs.create_entity()
             .with(Pos(Vec2::new(0.,10.)))
             .with(Creep{class: "cp1".to_owned(), path: "path1".to_owned(), pidx: 0})
             .with(CProperty{hp:100., msd:0.5, def_physic: 1., def_magic: 2.})
-            .build();
+            .build();*/
     }
     
     /// Get a reference to the internal ECS world.

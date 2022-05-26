@@ -7,7 +7,7 @@ use super::uid::Uid;
 pub struct Creep {
     pub class: String,
     pub path: String,
-    pub pidx: i16,
+    pub pidx: usize,
 }
 
 impl Component for Creep {

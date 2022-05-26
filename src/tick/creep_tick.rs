@@ -3,9 +3,11 @@ use specs::{
     shred::{ResourceId, World}, Entities, Join, LazyUpdate, Read, ReadExpect, ReadStorage, SystemData,
     Write, WriteStorage, ParJoin, 
 };
+use std::{thread, ops::Deref, collections::BTreeMap};
+use std::ops::Sub;
 use crate::comp::*;
-use specs::prelude::ParallelIterator;
 use crate::uid::{Uid, UidAllocator};
+use specs::prelude::ParallelIterator;
 use specs::saveload::MarkerAllocator;
 
 #[derive(SystemData)]
@@ -13,13 +15,14 @@ pub struct CreepRead<'a> {
     entities: Entities<'a>,
     time: Read<'a, Time>,
     dt: Read<'a, DeltaTime>,
-    uids: ReadStorage<'a, Uid>,
-    creeps : ReadStorage<'a, Creep>,
-    pos : ReadStorage<'a, Pos>,
+    paths: Read<'a, BTreeMap<String, Path>>,
+    check_points : Read<'a, BTreeMap<String, CheckPoint>>,
 }
 
 #[derive(SystemData)]
 pub struct CreepWrite<'a> {
+    creeps : WriteStorage<'a, Creep>,
+    pos : WriteStorage<'a, Pos>,
     cpropertys : WriteStorage<'a, CProperty>,
     outcomes: Write<'a, Vec<Outcome>>,
     taken_damages: Write<'a, Vec<TakenDamage>>,
@@ -35,26 +38,40 @@ impl<'a> System<'a> for Sys {
     );
 
     const NAME: &'static str = "creep";
-    
+
     fn run(_job: &mut Job<Self>, (tr, mut tw): Self::SystemData) {
         let time = tr.time.0;
         let dt = tr.dt.0;
         let mut outcomes = (
             &tr.entities,
-            &tr.uids,
-            &tr.creeps,
-            &tr.pos,
-            &tw.cpropertys,
+            &mut tw.creeps,
+            &mut tw.pos,
+            &mut tw.cpropertys,
         )
             .par_join()
-            .filter(|(e, u, t, p, cp)| true )
+            .filter(|(e, t, p, cp)| true )
             .map_init(
                 || {
                     prof_span!(guard, "creep update rayon job");
                     guard
                 },
-                |_guard, (_, uid, creep, pos, cp)| {
+                |_guard, (e, creep, pos, cp)| {
                     let mut outcomes:Vec<Outcome> = Vec::new();
+                    if let Some(path) = tr.paths.get(&creep.path) {
+                        if let Some(p) = path.check_points.get(creep.pidx) {
+                            let target_point = p.pos;
+                            if target_point.distance_squared(pos.0) > (cp.msd*cp.msd) {
+                                let mut v = target_point.sub(&pos.0);
+                                v.normalize();
+                                v = v * cp.msd * dt;
+                                pos.0 = pos.0 + v;
+                            } else {
+                                pos.0 = target_point;
+                                creep.pidx += 1;
+                            }
+                            log::warn!("{:?} pos {:?}", e, pos.0);
+                        }
+                    }
                     (outcomes)
                 },
             )

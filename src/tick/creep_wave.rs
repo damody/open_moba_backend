@@ -60,9 +60,11 @@ impl<'a> System<'a> for Sys {
                                 if let (Some(cp), Some(path)) = (cp, path) {
                                     let cpoint = path.check_points.get(0);
                                     if let Some(ct) = cpoint {
+                                        let mut cpp = cp.root.clone();
+                                        cpp.path = pc.path_name.clone();
                                         let cp0 = Outcome::Creep {
                                             pos: ct.pos.clone(),
-                                            creep: cp.root.clone(),
+                                            creep: cpp,
                                             cdata: cp.property.clone(),
                                         };
                                         log::info!("w.time {} totaltime {}", w.time, totaltime);
