@@ -18,20 +18,14 @@ appenders:
 
 # Set the default logging level to "warn" and attach the "stdout" appender to the root
 root:
-  level: trace
+  level: info
   appenders:
     - stdout
     - requests
 
 loggers:
-  # Raise the maximum log level for events sent to the "app::backend::db" logger to "info"
-  app::backend::db:
-    level: info
-
-  # Route log events sent to the "app::requests" logger to the "requests" appender,
-  # and *not* the normal appenders installed at the root
-  app::requests:
-    level: info
+  app::stdout:
+    level: error
     appenders:
       - requests
     additive: false

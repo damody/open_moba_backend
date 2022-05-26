@@ -1,3 +1,4 @@
+[server]
 MAP = "map.json"
 MAX_PLAYER = 10000
 SERVER_IP = "203.204.228.101"

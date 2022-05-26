@@ -2,8 +2,9 @@ use specs::storage::VecStorage;
 use specs::{Component, FlaggedStorage, NullStorage};
 use specs::Entity as EcsEntity;
 use super::uid::Uid;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Creep {
     pub class: String,
     pub path: String,
@@ -14,7 +15,7 @@ impl Component for Creep {
     type Storage = VecStorage<Self>;
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CProperty {
     pub hp: f32,  // 血量
     pub msd: f32, // 移動速度

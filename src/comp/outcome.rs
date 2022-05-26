@@ -9,6 +9,13 @@ use std::ops::DerefMut;
 
 use super::Projectile;
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct CreepData {
+    pub pos: Vec2<f32>,
+    pub creep: Creep,
+    pub cdata: CProperty,
+}
+
 #[derive(Clone, Debug)]
 pub enum Outcome {
     Damage {
@@ -30,9 +37,7 @@ pub enum Outcome {
         ent: EcsEntity,
     },
     Creep {
-        pos: Vec2<f32>,
-        creep: Creep,
-        cdata: CProperty,
+        cd: CreepData,
     }
 }
 // 位置是更新用的

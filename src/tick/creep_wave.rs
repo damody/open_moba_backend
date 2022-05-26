@@ -9,6 +9,9 @@ use crate::uid::{Uid, UidAllocator};
 use specs::prelude::ParallelIterator;
 use specs::saveload::MarkerAllocator;
 use vek::Vec2;
+use crossbeam_channel::{Receiver, Sender};
+use crate::msg::MqttMsg;
+use serde_json::json;
 
 #[derive(SystemData)]
 pub struct CreepWaveRead<'a> {
@@ -25,6 +28,7 @@ pub struct CreepWaveWrite<'a> {
     outcomes: Write<'a, Vec<Outcome>>,
     cur_creep_wave: Write<'a, CurrentCreepWave>,
     creep_waves: Write<'a, Vec<CreepWave>>,
+    mqtx: Write<'a, Vec<Sender<MqttMsg>>>,
 }
 
 #[derive(Default)]
@@ -41,6 +45,7 @@ impl<'a> System<'a> for Sys {
     fn run(_job: &mut Job<Self>, (tr, mut tw): Self::SystemData) {
         let totaltime = tr.time.0;
         let dt = tr.dt.0;
+        let tx = tw.mqtx.get(0).unwrap().clone();
         let mut cw = tw.cur_creep_wave;
         if  cw.wave < tw.creep_waves.len() {
             if let Some(w) = tw.creep_waves.get(cw.wave) {
@@ -62,14 +67,15 @@ impl<'a> System<'a> for Sys {
                                     if let Some(ct) = cpoint {
                                         let mut cpp = cp.root.clone();
                                         cpp.path = pc.path_name.clone();
-                                        let cp0 = Outcome::Creep {
+                                        let cp0 = CreepData {
                                             pos: ct.pos.clone(),
                                             creep: cpp,
                                             cdata: cp.property.clone(),
                                         };
                                         log::info!("w.time {} totaltime {}", w.time, totaltime);
                                         log::info!("{:?}", cp0);
-                                        tw.outcomes.push(cp0);
+                                        tx.send(MqttMsg { topic: "td/all/res".to_owned(), msg: json!(cp0).to_string(), ..Default::default() });
+                                        tw.outcomes.push(Outcome::Creep { cd: cp0 });
                                     }
                                 }
                                 cw.path[i] += 1;

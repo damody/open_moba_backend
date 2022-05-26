@@ -59,7 +59,7 @@ impl State {
         res
     }
     fn init_creep_wave(&mut self) {
-        self.ecs.insert(self.mqtx.clone());
+        self.ecs.insert(vec![self.mqtx.clone()]);
         let cps = {
             let mut cps = self.ecs.get_mut::<BTreeMap::<String, CheckPoint>>().unwrap();
             for p in self.cw.CheckPoint.iter() {
@@ -147,11 +147,19 @@ impl State {
     }
     
     fn create_test_scene(ecs: &mut specs::World) {
-        ecs.create_entity()
-            .with(Pos(Vec2::new(0.,0.)))
-            .with(Tower{lv:1, projectile_kind: ProjectileConstructor::Arrow{}, nearby_creeps: vec![]})
-            .with(TProperty::new(10, 1., 2., 0.1, 30.))
-            .build();
+        let mut count = 0;
+        for x in (0..10000).step_by(10) {
+            for y in (0..10000).step_by(10) {
+                count += 1;
+                ecs.create_entity()
+                .with(Pos(Vec2::new(x as f32,y as f32)))
+                .with(Tower{lv:1, projectile_kind: ProjectileConstructor::Arrow{}, nearby_creeps: vec![]})
+                .with(TProperty::new(10, 1., 2., 0.1, 30.))
+                .build();    
+            }    
+        }
+        log::warn!("count {}", count);
+        
             /*
         ecs.create_entity()
             .with(Pos(Vec2::new(0.,10.)))
@@ -260,8 +268,8 @@ impl State {
                         sevents.push(ServerEvent::ProjectileLine{pos: pos.clone(), vel: v, 
                             p: t.projectile_kind.create_projectile(e1.clone(), tp.atk_physic, tp.range)});
                     }
-                    Outcome::Creep { pos, creep, cdata } => {
-                        self.ecs.create_entity().with(Pos(pos)).with(creep).with(cdata).build();
+                    Outcome::Creep { cd } => {
+                        self.ecs.create_entity().with(Pos(cd.pos)).with(cd.creep).with(cd.cdata).build();
                     }
                     _=>{}
                 }

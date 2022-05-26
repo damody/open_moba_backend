@@ -69,7 +69,6 @@ impl<'a> System<'a> for Sys {
                                 pos.0 = target_point;
                                 creep.pidx += 1;
                             }
-                            log::warn!("{:?} pos {:?}", e, pos.0);
                         }
                     }
                     (outcomes)
