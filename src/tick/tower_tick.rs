@@ -1,4 +1,5 @@
 
+use instant_distance::Point;
 use specs::{
     shred::{ResourceId, World}, Entities, Join, LazyUpdate, Read, ReadExpect, ReadStorage, SystemData,
     Write, WriteStorage, ParJoin, 
@@ -57,8 +58,13 @@ impl<'a> System<'a> for Sys {
                     }
                     if property.asd_count >= property.asd && tower.nearby_creeps.len() > 0 {
                         property.asd_count -= property.asd;
-                        
-                        outcomes.push(Outcome::ProjectileLine2 { pos: pos.0.clone(), source: Some(e.clone()), target: Some(tower.nearby_creeps[0]) });
+                        let e = tower.nearby_creeps[0];
+                        let ncp = tr.pos.get(e);
+                        if let Some(ncp) = ncp {
+                            if ncp.0.distance_squared(pos.0) < (property.range*property.range) {
+                                outcomes.push(Outcome::ProjectileLine2 { pos: pos.0.clone(), source: Some(e.clone()), target: Some(tower.nearby_creeps[0]) });
+                            }
+                        }
                     }
                     (outcomes)
                 },
