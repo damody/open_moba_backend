@@ -1,0 +1,94 @@
+use crossbeam_channel::{bounded, select, tick, Receiver, Sender};
+use failure::Error;
+use log::*;
+use math::round;
+use rust_decimal::Decimal;
+use serde_derive::{Deserialize, Serialize};
+
+use std::cell::RefCell;
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::hash::Hash;
+use std::io;
+use std::rc::Rc;
+use std::time::{Duration, Instant, SystemTime};
+
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct MqttMsg {
+    pub topic: String,
+    pub msg: String,
+    pub time: SystemTime,
+}
+
+impl Default for MqttMsg {
+    fn default() -> MqttMsg {
+        MqttMsg {
+            topic: "".to_owned(),
+            msg: "".to_owned(),
+            time: SystemTime::now(),
+        }
+    }
+}
+
+use serde_json::ser::Formatter;
+pub mod Serializer {
+    use super::{io, F32Formatter, Formatter};
+
+    /// Creates a new JSON serializer.
+    #[inline]
+    pub fn new<W>(writer: W) -> serde_json::ser::Serializer<W, F32Formatter>
+    where
+        W: io::Write,
+    {
+        with_formatter(writer, F32Formatter)
+    }
+
+    /// Creates a new JSON visitor whose output will be written to the writer
+    /// specified.
+    #[inline]
+    pub fn with_formatter<W, F>(writer: W, formatter: F) -> serde_json::ser::Serializer<W, F>
+    where
+        W: io::Write,
+        F: Formatter,
+    {
+        serde_json::ser::Serializer::with_formatter(writer, formatter)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct F32Formatter;
+
+impl Formatter for F32Formatter {
+    #[inline]
+    fn write_f32<W: ?Sized>(&mut self, writer: &mut W, value: f32) -> io::Result<()>
+    where
+        W: io::Write,
+    {
+        let nearest_int = value.round() as i64;
+        if value == (nearest_int as f32) {
+            serde_json::ser::CompactFormatter.write_i64(writer, nearest_int)
+        } else {
+            write!(writer, "{}", round::floor(value.into(), 3))
+        }
+    }
+
+    #[inline]
+    fn write_f64<W: ?Sized>(&mut self, writer: &mut W, value: f64) -> io::Result<()>
+    where
+        W: io::Write,
+    {
+        let nearest_int = value.round() as i64;
+        if value == (nearest_int as f64) {
+            serde_json::ser::CompactFormatter.write_i64(writer, nearest_int)
+        } else {
+            write!(writer, "{}", round::floor(value.into(), 3))
+        }
+    }
+}
+
+impl F32Formatter {
+    /// Construct a pretty printer formatter that defaults to using two spaces for indentation.
+    pub fn new() -> Self {
+        F32Formatter {}
+    }
+}
