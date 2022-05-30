@@ -35,7 +35,7 @@ use crate::ue4::import_map::CreepWaveData;
 use rumqttc::{Client, Connection, MqttOptions, QoS};
 use crossbeam_channel::{bounded, select, tick, Receiver, Sender};
 
-const TPS: u64 = 10;
+const TPS: u64 = 5;
 
 fn create_mqtt_client(server_addr: String, server_port: String, client_id: String, sub: bool) -> Result<(Client, Connection), Error> {
     let mut mqtt_options = MqttOptions::new(client_id.as_str(), server_addr.as_str(), server_port.parse::<u16>()?);

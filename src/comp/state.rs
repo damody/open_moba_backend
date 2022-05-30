@@ -13,13 +13,16 @@ use super::last::Last;
 use std::time::{Instant};
 use core::{convert::identity, time::Duration};
 use failure::{err_msg, Error};
+use instant_distance::{HnswMap};
 
 use crate::tick::*;
 use crate::sync::*;
 use crate::sync::interpolation::*;
 use crate::Outcome;
-use crate::ProjectileConstructor;
+use crate::Projectile;
+
 use crate::ue4::import_map::CreepWaveData;
+use serde_json::json;
 
 use specs::saveload::MarkerAllocator;
 use rand::{thread_rng, Rng};
@@ -55,7 +58,7 @@ impl State {
             thread_pool,
         };
         res.init_creep_wave();
-        Self::create_test_scene(&mut res.ecs);
+        res.create_test_scene();
         res
     }
     fn init_creep_wave(&mut self) {
@@ -126,8 +129,6 @@ impl State {
         ecs.insert(Time(0.0));
         ecs.insert(DeltaTime(0.0));
         ecs.insert(PlayerEntity(None));
-        ecs.insert(EventBus::<ServerEvent>::default());
-
         ecs.insert(Tick(0));
         ecs.insert(TickStart(Instant::now()));
         ecs.insert(SysMetrics::default());
@@ -138,29 +139,31 @@ impl State {
         ecs.insert(BTreeMap::<String, CreepEmiter>::new());
         ecs.insert(BTreeMap::<String, Path>::new());
         ecs.insert(BTreeMap::<String, CheckPoint>::new());
+        ecs.insert(Vec::<HnswMap<Pos, EcsEntity>>::new());
+        ecs.insert(Searcher::default());
         let e = ecs.entities_mut().create();
-        ecs.insert(vec![instant_distance::Builder::default().build(vec![Pos(Vec2::new(0.,0.))], vec![e])]);
 
         // Set starting time for the server.
         ecs.write_resource::<TimeOfDay>().0 = 0.0;
         ecs
     }
     
-    fn create_test_scene(ecs: &mut specs::World) {
+    fn create_test_scene(&mut self) {
         let mut count = 0;
+        let mut ocs = self.ecs.get_mut::<Vec<Outcome>>().unwrap();
         for x in (0..10000).step_by(10) {
-            for y in (0..10000).step_by(10) {
+            for y in (0..1000).step_by(10) {
                 count += 1;
-                ecs.create_entity()
-                .with(Pos(Vec2::new(x as f32,y as f32)))
-                .with(Tower{lv:1, projectile_kind: ProjectileConstructor::Arrow{}, nearby_creeps: vec![]})
-                .with(TProperty::new(10, 1., 2., 0.1, 30.))
-                .build();    
+                ocs.push(Outcome::Tower { td: TowerData {
+                    pos: Vec2::new(x as f32, y as f32),
+                    range: 20.,
+                    tdata: TProperty::new(10, 3., 1., 1.),
+                } });
             }    
         }
         log::warn!("count {}", count);
         
-            /*
+        /*
         ecs.create_entity()
             .with(Pos(Vec2::new(0.,10.)))
             .with(Creep{class: "cp1".to_owned(), path: "path1".to_owned(), pidx: 0})
@@ -235,7 +238,6 @@ impl State {
         Ok(())
     }
     pub fn process_outcomes(&mut self) -> Result<(), Error> {
-        let mut sevents = vec![];
         let mut remove_uids = vec![];
         {
             let mut ocs = self.ecs.get_mut::<Vec<Outcome>>().unwrap();
@@ -245,44 +247,71 @@ impl State {
                 match out {
                     Outcome::Death { pos: p, ent: e } => {
                         remove_uids.push(e);
+                        let creeps = self.ecs.read_storage::<Creep>();
+                        let towers = self.ecs.read_storage::<Tower>();
+                        let projs = self.ecs.read_storage::<Projectile>();
+                        let t = if let Some(_) = creeps.get(e) {
+                            "creep"
+                        } else if let Some(_) = towers.get(e) {
+                            "tower"
+                        } else if let Some(_) = projs.get(e) {
+                            "projectle"
+                        } else { "" };
+                        if t != "" {
+                            //self.mqtx.send(MqttMsg::new_s("td/all/res", t, "D", json!({"id": e.id()})));
+                        }
                     }
                     Outcome::ProjectileLine2{ pos, source, target } => { 
                         let mut e1 = source.ok_or(err_msg("err"))?;
                         let mut e2 = target.ok_or(err_msg("err"))?;
-                        
-                        let positions = self.ecs.read_storage::<Pos>();
-                        let tower = self.ecs.read_storage::<Tower>();
-                        let tproperty = self.ecs.read_storage::<TProperty>();
-                        
-                        let p1 = positions.get(e1).ok_or(err_msg("err"))?;
-                        let p2 = positions.get(e2).ok_or(err_msg("err"))?;
-                        let t = tower.get(e1).ok_or(err_msg("err"))?;
-                        let tp = tproperty.get(e1).ok_or(err_msg("err"))?;
-                        
-                        let mut v = p2.0 - p1.0;
-                        let mut rng = thread_rng();
-                        let scale: Uniform<f32> = Uniform::new_inclusive(1., 2.);
-                        let mut roll_scale = (&mut rng).sample_iter(scale);
-                        
-                        let v = v * roll_scale.next().unwrap();
-                        sevents.push(ServerEvent::ProjectileLine{pos: pos.clone(), vel: v, 
-                            p: t.projectile_kind.create_projectile(e1.clone(), tp.atk_physic, tp.range)});
+                        let v = {
+                            let positions = self.ecs.read_storage::<Pos>();
+                            let tower = self.ecs.read_storage::<Tower>();
+                            let tproperty = self.ecs.read_storage::<TProperty>();
+                            
+                            let p1 = positions.get(e1).ok_or(err_msg("err"))?;
+                            let p2 = positions.get(e2).ok_or(err_msg("err"))?;
+                            let t = tower.get(e1).ok_or(err_msg("err"))?;
+                            let tp = tproperty.get(e1).ok_or(err_msg("err"))?;
+                            
+                            let mut v = p2.0 - p1.0;
+                            let mut rng = thread_rng();
+                            let scale: Uniform<f32> = Uniform::new_inclusive(1., 2.);
+                            let mut roll_scale = (&mut rng).sample_iter(scale);
+                            
+                            let v = v * roll_scale.next().unwrap();
+                            v
+                        };
+                        let ntarget = if let Some(t) = target {
+                            t.id()
+                        } else { 0 };
+                        let e = self.ecs.create_entity().with(Pos(pos)).with(Vel(v))
+                            .with(Projectile { time_left: 3., owner: e1.clone(), target: target, radius: 0. }).build();
+                        let mut pjs = json!(ProjectileData {
+                            id: e.id(), pos: pos.clone(), vel: v.clone(),
+                            time_left: 3., owner: e1.id(), target: ntarget, radius: 0.,
+                        });
+                        //self.mqtx.try_send(MqttMsg::new_s("td/all/res", "projectile", "C", json!(pjs)));
                     }
                     Outcome::Creep { cd } => {
-                        self.ecs.create_entity().with(Pos(cd.pos)).with(cd.creep).with(cd.cdata).build();
+                        let mut cjs = json!(cd);
+                        let e = self.ecs.create_entity().with(Pos(cd.pos)).with(cd.creep).with(cd.cdata).build();
+                        cjs.as_object_mut().unwrap().insert("id".to_owned(), json!(e.id()));
+                        //self.mqtx.try_send(MqttMsg::new_s("td/all/res", "creep", "C", json!(cjs)));
+                    }
+                    Outcome::Tower { td } => {
+                        let mut cjs = json!(td);
+                        let e = self.ecs.create_entity().with(Pos(td.pos)).with(Tower::new(td.range)).with(td.tdata).build();
+                        cjs.as_object_mut().unwrap().insert("id".to_owned(), json!(e.id()));
+                        //self.mqtx.try_send(MqttMsg::new_s("td/all/res", "tower", "C", json!(cjs)));
+                        self.ecs.get_mut::<Vec<HnswMap<Pos, EcsEntity>>>().unwrap().clear();
+                        self.ecs.get_mut::<Searcher>().unwrap().tower.needsort = true;
                     }
                     _=>{}
                 }
             }
         }
         self.ecs.delete_entities(&remove_uids[..]);
-        for s in sevents {
-            match s {
-                ServerEvent::ProjectileLine { pos, vel, p } => {
-                    self.ecs.create_entity().with(Pos(pos)).with(Vel(vel)).with(p).build();
-                }
-            }
-        }
         self.ecs.write_resource::<Vec<Outcome>>().clear();
         Ok(())
     }

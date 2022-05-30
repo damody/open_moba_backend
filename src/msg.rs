@@ -11,6 +11,7 @@ use std::hash::Hash;
 use std::io;
 use std::rc::Rc;
 use std::time::{Duration, Instant, SystemTime};
+use serde_json::json;
 
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -19,7 +20,44 @@ pub struct MqttMsg {
     pub msg: String,
     pub time: SystemTime,
 }
-
+impl MqttMsg {
+    pub fn new(topic: &String, t: &String, a: &String, v: serde_json::Value) -> MqttMsg {
+        #[derive(Serialize, Deserialize)]
+        struct ResData {
+            t: String,
+            a: String,
+            d: serde_json::Value,
+        };
+        let res = ResData {
+            t: t.clone(),
+            a: a.clone(),
+            d: v,
+        };
+        MqttMsg {
+            topic: topic.to_owned(),
+            msg: json!(res).to_string(),
+            time: SystemTime::now(),
+        }
+    }
+    pub fn new_s<'a>(topic: &'a str, t: &'a str, a: &'a str, v: serde_json::Value) -> MqttMsg {
+        #[derive(Serialize, Deserialize)]
+        struct ResData {
+            t: String,
+            a: String,
+            d: serde_json::Value,
+        };
+        let res = ResData {
+            t: t.to_owned(),
+            a: a.to_owned(),
+            d: v,
+        };
+        MqttMsg {
+            topic: topic.to_owned(),
+            msg: json!(res).to_string(),
+            time: SystemTime::now(),
+        }
+    }
+}
 impl Default for MqttMsg {
     fn default() -> MqttMsg {
         MqttMsg {

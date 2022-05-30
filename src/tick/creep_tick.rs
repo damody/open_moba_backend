@@ -69,6 +69,9 @@ impl<'a> System<'a> for Sys {
                                 pos.0 = target_point;
                                 creep.pidx += 1;
                             }
+                        } else {
+                            // creep 到終點了
+                            outcomes.push(Outcome::Death { pos: pos.0, ent: e });
                         }
                     }
                     (outcomes)

@@ -1,20 +1,31 @@
 use specs::storage::VecStorage;
 use specs::{Component, FlaggedStorage, NullStorage, Entity as  EcsEntity};
-use crate::ProjectileConstructor;
-use crate::Uid;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug)]
 pub struct Tower {
-    pub lv: i32,
-    pub projectile_kind: ProjectileConstructor,
-    pub nearby_creeps: Vec<EcsEntity>,
+    pub range: f32, // 射程
+    pub nearby_creeps: Vec<NearbyEnt>,
+}
+impl Tower {
+    pub fn new(range: f32) -> Self {
+        Self {
+            range: range,
+            nearby_creeps: vec![],
+        }
+    }
+}
+#[derive(Clone, Debug)]
+pub struct NearbyEnt {
+    pub ent: EcsEntity,
+    pub dis: f32,
 }
 
 impl Component for Tower {
     type Storage = VecStorage<Self>;
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub struct TProperty {
     pub base_hp: i32,  // hp
     pub cur_hp: i32,  // hp
@@ -25,11 +36,10 @@ pub struct TProperty {
     pub atk_magic: f32, // 魔攻
     pub asd: f32, // 每幾秒攻擊一次
     pub asd_count: f32,
-    pub range: f32, // 射程
 }
 
 impl TProperty {
-    pub fn new(hp: i32, patk: f32, matk: f32, asd: f32, range: f32) -> Self {
+    pub fn new(hp: i32, patk: f32, matk: f32, asd: f32) -> Self {
         Self {
             base_hp: hp,
             cur_hp: hp,
@@ -40,7 +50,6 @@ impl TProperty {
             atk_magic: matk,
             asd: asd,
             asd_count: 0.,
-            range: range,
         }
     }
 }

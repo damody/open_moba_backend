@@ -1,4 +1,5 @@
-use crate::{comp, uid::Uid, Creep, CProperty};
+use crate::{comp, uid::Uid, Creep, CProperty, TProperty};
+use super::Projectile;
 use hashbrown::HashSet;
 use serde::{Deserialize, Serialize};
 use vek::*;
@@ -6,15 +7,9 @@ use specs::Entity as EcsEntity;
 use std::collections::VecDeque;
 use std::sync::Mutex;
 use std::ops::DerefMut;
-
-use super::Projectile;
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct CreepData {
-    pub pos: Vec2<f32>,
-    pub creep: Creep,
-    pub cdata: CProperty,
-}
+use std::cmp::Ordering;
+use voracious_radix_sort::{Radixable, RadixSort};
+use crate::Tower;
 
 #[derive(Clone, Debug)]
 pub enum Outcome {
@@ -26,7 +21,6 @@ pub enum Outcome {
         source: Uid,
         target: Uid,
     },
-    // not yet used
     ProjectileLine2 {
         pos: Vec2<f32>,
         source: Option<EcsEntity>,
@@ -38,75 +32,285 @@ pub enum Outcome {
     },
     Creep {
         cd: CreepData,
-    }
-}
-// 位置是更新用的
-// 需要讓玩家更新的事件才需要位置
-/*
-impl Outcome {
-    pub fn get_pos(&self) -> Option<Vec2<f32>> {
-        match self {
-            Outcome::ProjectileLine { pos, .. }
-            | Outcome::ProjectileLine2 { pos, .. }
-            | Outcome::ProjectileHit { pos, .. }
-            | Outcome::Damage { pos, .. }
-            | Outcome::Death { pos, .. } => Some(pos.clone()),
-            Outcome::Death { .. }  => None,
-        }
-    }
-}*/
-
-#[derive(Clone, Debug)]
-pub enum ServerEvent {
-    ProjectileLine {
-        pos: Vec2<f32>,
-        vel: Vec2<f32>,
-        p: Projectile,
     },
+    Tower {
+        td: TowerData,
+    }
 }
 
-pub struct EventBus<E> {
-    queue: Mutex<VecDeque<E>>,
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct CreepData {
+    pub pos: Vec2<f32>,
+    pub creep: Creep,
+    pub cdata: CProperty,
 }
 
-impl<E> Default for EventBus<E> {
-    fn default() -> Self {
-        Self {
-            queue: Mutex::new(VecDeque::new()),
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct TowerData {
+    pub pos: Vec2<f32>,
+    pub range: f32,
+    pub tdata: TProperty,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct PosXIndex {
+    pub e: EcsEntity,
+    pub p: Vec2<f32>,
+}
+#[derive(Copy, Clone, Debug)]
+pub struct PosYIndex {
+    pub e: EcsEntity,
+    pub p: Vec2<f32>,
+}
+impl PartialOrd for PosXIndex {
+    fn partial_cmp(&self, other: &PosXIndex) -> Option<Ordering> {
+        self.p.x.partial_cmp(&other.p.x)
+    }
+}
+impl PartialEq for PosXIndex {
+    fn eq(&self, other: &Self) -> bool {
+        self.p.x == other.p.x
+    }
+}
+impl Radixable<f32> for PosXIndex {
+    type Key = f32;
+    #[inline]
+    fn key(&self) -> Self::Key {
+        self.p.x
+    }
+}
+impl PartialOrd for PosYIndex {
+    fn partial_cmp(&self, other: &PosYIndex) -> Option<Ordering> {
+        self.p.y.partial_cmp(&other.p.y)
+    }
+}
+impl PartialEq for PosYIndex {
+    fn eq(&self, other: &Self) -> bool {
+        self.p.y == other.p.y
+    }
+}
+impl Radixable<f32> for PosYIndex {
+    type Key = f32;
+    #[inline]
+    fn key(&self) -> Self::Key {
+        self.p.y
+    }
+}
+#[derive(Copy, Clone, Debug)]
+pub struct DisIndex {
+    pub e: EcsEntity,
+    pub dis: f32,
+}
+impl Eq for DisIndex {}
+impl Ord for DisIndex {
+    fn cmp(&self, other: &Self) -> Ordering{
+        self.dis.partial_cmp(&other.dis).unwrap()
+    }
+}
+impl PartialOrd for DisIndex {
+    fn partial_cmp(&self, other: &DisIndex) -> Option<Ordering> {
+        self.dis.partial_cmp(&other.dis)
+    }
+}
+impl PartialEq for DisIndex {
+    fn eq(&self, other: &Self) -> bool {
+        self.dis == other.dis
+    }
+}
+impl Radixable<f32> for DisIndex {
+    type Key = f32;
+    #[inline]
+    fn key(&self) -> Self::Key {
+        self.dis
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct DisIndex2 {
+    pub e: EcsEntity,
+    pub p: Vec2<f32>,
+}
+impl Eq for DisIndex2 {}
+impl Ord for DisIndex2 {
+    fn cmp(&self, other: &Self) -> Ordering{
+        self.e.cmp(&other.e)
+    }
+}
+impl PartialOrd for DisIndex2 {
+    fn partial_cmp(&self, other: &DisIndex2) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl PartialEq for DisIndex2 {
+    fn eq(&self, other: &Self) -> bool {
+        self.e == other.e
+    }
+}
+impl Radixable<u32> for DisIndex2 {
+    type Key = u32;
+    #[inline]
+    fn key(&self) -> Self::Key {
+        self.e.id()
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Searcher {
+    pub tower: PosData,
+    pub creep: PosData,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct PosData {
+    pub xpos: Vec<PosXIndex>,
+    pub ypos: Vec<PosYIndex>,
+    pub needsort: bool,
+}
+impl PosData {
+    pub fn new() -> PosData {
+        PosData {
+            xpos: vec![],
+            ypos: vec![],
+            needsort: false,
         }
     }
-}
-
-impl<E> EventBus<E> {
-    pub fn emitter(&self) -> Emitter<E> {
-        Emitter {
-            bus: self,
-            events: VecDeque::new(),
+    
+    pub fn SearchNN_XY(&self, pos: Vec2<f32>, radius: f32, n: usize) -> Vec<DisIndex> {
+        let r2 = radius*radius;
+        let mut res = vec![];
+        let mut res1 = vec![];
+        let mut res2 = vec![];
+        let xp = self.xpos.binary_search_by(|data| data.p.x.partial_cmp(&pos.x).unwrap());
+        let xidx = match xp {
+            Ok(x) => {
+                x
+            }
+            Err(x) => {
+                x
+            }
+        };
+        let mut loffset = 0;
+        let mut roffset = 1;
+        loop {
+            if let Some(p) = self.xpos.get((xidx as i32 - loffset) as usize) {
+                if (p.p.x - pos.x).abs() < radius {
+                    res1.push(DisIndex2 { e: p.e, p: p.p });
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+            loffset += 1;
         }
+        loop {
+            if let Some(p) = self.xpos.get((xidx as i32 + roffset) as usize) {
+                if (p.p.x - pos.x).abs() < radius {
+                    res1.push(DisIndex2 { e: p.e, p: p.p });
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+            roffset += 1;
+        }
+        let yp = self.ypos.binary_search_by(|data| data.p.y.partial_cmp(&pos.y).unwrap());
+        let yidx = match yp {
+            Ok(y) => {
+                y
+            }
+            Err(y) => {
+                y
+            }
+        };
+        let mut loffset = 0;
+        let mut roffset = 1;
+        loop {
+            if let Some(p) = self.ypos.get((yidx as i32 - loffset) as usize) {
+                if (p.p.y - pos.y).abs() < radius {
+                    res2.push(DisIndex2 { e: p.e, p: p.p });
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+            loffset += 1;
+        }
+        loop {
+            if let Some(p) = self.ypos.get((yidx as i32 + roffset) as usize) {
+                if (p.p.y - pos.y).abs() < radius {
+                    res2.push(DisIndex2 { e: p.e, p: p.p });
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+            roffset += 1;
+        }
+        res1.voracious_sort();
+        res2.voracious_sort();
+        let mut ary = [res1.iter(), res2.iter()];
+        let intersection_iter = 
+            sorted_intersection::SortedIntersection::new(&mut ary);
+        for p in intersection_iter {
+            let dis = p.p.distance_squared(pos);
+            if dis < r2 {
+                res.push(DisIndex { e: p.e, dis: dis });
+            }
+        }
+        res.voracious_sort();
+        res.truncate(n);
+        res
     }
-
-    pub fn emit_now(&self, event: E) { self.queue.lock().unwrap().push_back(event); }
-
-    pub fn recv_all(&self) -> impl ExactSizeIterator<Item = E> {
-        std::mem::take(self.queue.lock().unwrap().deref_mut()).into_iter()
+    pub fn SearchNN_X(&self, pos: Vec2<f32>, radius: f32, n: usize) -> Vec<DisIndex> {
+        let r2 = radius*radius;
+        let mut res = vec![];
+        let xp = self.xpos.binary_search_by(|data| data.p.x.partial_cmp(&pos.x).unwrap());
+        let xidx = match xp {
+            Ok(x) => {
+                x
+            }
+            Err(x) => {
+                x
+            }
+        };
+        let mut loffset = 0;
+        let mut roffset = 1;
+        loop {
+            if let Some(p) = self.xpos.get((xidx as i32 - loffset) as usize) {
+                if (p.p.x - pos.x).abs() < radius {
+                    let dis = p.p.distance_squared(pos);
+                    if dis < r2 {
+                        res.push(DisIndex { e: p.e, dis: dis });
+                    }
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+            loffset += 1;
+        }
+        loop {
+            if let Some(p) = self.xpos.get((xidx as i32 + roffset) as usize) {
+                if (p.p.x - pos.x).abs() < radius {
+                    let dis = p.p.distance_squared(pos);
+                    if dis < r2 {
+                        res.push(DisIndex { e: p.e, dis: dis });
+                    }
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+            roffset += 1;
+        }
+        res.sort_unstable();
+        res.truncate(n);
+        res
     }
 }
-
-pub struct Emitter<'a, E> {
-    bus: &'a EventBus<E>,
-    events: VecDeque<E>,
-}
-
-impl<'a, E> Emitter<'a, E> {
-    pub fn emit(&mut self, event: E) { self.events.push_back(event); }
-
-    pub fn append(&mut self, other: &mut VecDeque<E>) { self.events.append(other) }
-
-    // TODO: allow just emitting the whole vec of events at once? without copying
-    pub fn append_vec(&mut self, vec: Vec<E>) { self.events.extend(vec) }
-}
-
-impl<'a, E> Drop for Emitter<'a, E> {
-    fn drop(&mut self) { self.bus.queue.lock().unwrap().append(&mut self.events); }
-}
-

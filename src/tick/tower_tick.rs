@@ -7,7 +7,9 @@ use specs::{
 use crate::comp::*;
 use specs::prelude::ParallelIterator;
 use vek::*;
-
+use std::{
+    time::{Duration, Instant},
+};
 #[derive(SystemData)]
 pub struct TowerRead<'a> {
     entities: Entities<'a>,
@@ -16,6 +18,7 @@ pub struct TowerRead<'a> {
     uids: ReadStorage<'a, Uid>,
     towers : ReadStorage<'a, Tower>,
     pos : ReadStorage<'a, Pos>,
+    searcher : Read<'a, Searcher>,
 }
 
 #[derive(SystemData)]
@@ -38,6 +41,7 @@ impl<'a> System<'a> for Sys {
     fn run(_job: &mut Job<Self>, (tr, mut tw): Self::SystemData) {
         let time = tr.time.0;
         let dt = tr.dt.0;
+        let time1 = Instant::now();
         let mut outcomes = (
             &tr.entities,
             &tr.towers,
@@ -45,7 +49,6 @@ impl<'a> System<'a> for Sys {
             &tr.pos,
         )
             .par_join()
-            .filter(|(e, t, pp, p)| t.lv > 0 )
             .map_init(
                 || {
                     prof_span!(guard, "tower update rayon job");
@@ -56,13 +59,16 @@ impl<'a> System<'a> for Sys {
                     if property.asd_count < property.asd {
                         property.asd_count += dt;
                     }
-                    if property.asd_count >= property.asd && tower.nearby_creeps.len() > 0 {
-                        property.asd_count -= property.asd;
-                        let e = tower.nearby_creeps[0];
-                        let ncp = tr.pos.get(e);
-                        if let Some(ncp) = ncp {
-                            if ncp.0.distance_squared(pos.0) < (property.range*property.range) {
-                                outcomes.push(Outcome::ProjectileLine2 { pos: pos.0.clone(), source: Some(e.clone()), target: Some(tower.nearby_creeps[0]) });
+                    if property.asd_count >= property.asd {
+                        let time2 = Instant::now();
+                        let elpsed = time2.duration_since(time1);
+                        if elpsed.as_secs_f32() < 0.05 {
+                            let creeps = tr.searcher.creep.SearchNN_XY(pos.0, tower.range, 1);
+                            if creeps.len() > 0 {
+                                property.asd_count -= property.asd;
+                                outcomes.push(Outcome::ProjectileLine2 { pos: pos.0.clone(), source: Some(e.clone()), target: Some(creeps[0].e) });
+                            } else {
+                                property.asd_count = property.asd - fastrand::u8(..) as f32 * 0.01;
                             }
                         }
                     }
@@ -84,6 +90,9 @@ impl<'a> System<'a> for Sys {
                     outcomes_a
                 },
             );
+        let time2 = Instant::now();
+        let elpsed = time2.duration_since(time1);
+        log::info!("tower update time {:?}", elpsed);
         tw.outcomes.append(&mut outcomes);
     }
 }

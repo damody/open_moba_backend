@@ -25,7 +25,7 @@
         }
     ],
     "CreepWave":[
-        {"Name":"Wave1", "StartTime":5, "Detail":[
+        {"Name":"Wave1", "StartTime":1, "Detail":[
             {"Path":"path1", "Creeps":[
                 {"Time":0, "Creep":"cp1"},
                 {"Time":2, "Creep":"cp2"},

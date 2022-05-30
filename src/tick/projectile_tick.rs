@@ -14,7 +14,7 @@ pub struct ProjectileRead<'a> {
     time: Read<'a, Time>,
     dt: Read<'a, DeltaTime>,
     vel : ReadStorage<'a, Vel>,
-    hmap: Read<'a, Vec<HnswMap<Pos, EcsEntity>>>,
+    searcher : Read<'a, Searcher>,
 }
 
 #[derive(SystemData)]
@@ -58,12 +58,13 @@ impl<'a> System<'a> for Sys {
                     let mut taken_damages:Vec<TakenDamage> = Vec::new();
                     pos.0 += vel.0 * dt;
                     proj.time_left -= dt;
-                    let mut search = Search::default();
-                    if let Some(map) = tr.hmap.first() {
-                        let closest_point = map.search(&pos, &mut search).next();
-                        if let Some(c) = closest_point {
-                            if c.distance < 50. {
-                                taken_damages.push(TakenDamage{ent: c.value.clone(), phys:5., magi:3., real:0. });
+                    if proj.time_left <= 0. {
+                        outcomes.push(Outcome::Death { pos: pos.0.clone(), ent: e.clone() });
+                    } else {
+                        if proj.radius > 1. {
+                            let creeps = tr.searcher.creep.SearchNN_X(pos.0, proj.radius, 1);
+                            if creeps.len() > 0 {
+                                taken_damages.push(TakenDamage{ent: creeps[0].e.clone(), phys:5., magi:3., real:0. });
                                 outcomes.push(Outcome::Death { pos: pos.0.clone(), ent: e.clone() });
                             }
                         }

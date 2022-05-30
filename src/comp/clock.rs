@@ -113,7 +113,7 @@ impl Clock {
         drop(guard);
         // Attempt to sleep to fill the gap.
         if let Some(sleep_dur) = self.target_dt.checked_sub(busy_delta) {
-            log::info!("busy_delta {:?}", busy_delta);
+            //log::info!("busy_delta {:?}", busy_delta);
             spin_sleep::sleep(sleep_dur);
         }
 

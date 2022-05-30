@@ -67,15 +67,19 @@ impl<'a> System<'a> for Sys {
                                     if let Some(ct) = cpoint {
                                         let mut cpp = cp.root.clone();
                                         cpp.path = pc.path_name.clone();
-                                        let cp0 = CreepData {
-                                            pos: ct.pos.clone(),
-                                            creep: cpp,
-                                            cdata: cp.property.clone(),
-                                        };
+                                        
                                         log::info!("w.time {} totaltime {}", w.time, totaltime);
-                                        log::info!("{:?}", cp0);
-                                        tx.send(MqttMsg { topic: "td/all/res".to_owned(), msg: json!(cp0).to_string(), ..Default::default() });
-                                        tw.outcomes.push(Outcome::Creep { cd: cp0 });
+                                        for x in (0..100).step_by(1) {
+                                            for y in (0..100).step_by(1) {
+                                                let cp0 = CreepData {
+                                                    pos: ct.pos.clone() + Vec2::new(x as f32, y as f32),
+                                                    creep: cpp.clone(),
+                                                    cdata: cp.property.clone(),
+                                                };
+                                                tw.outcomes.push(Outcome::Creep { cd: cp0 });
+                                            }    
+                                        }
+                                        
                                     }
                                 }
                                 cw.path[i] += 1;
