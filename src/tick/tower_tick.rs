@@ -63,7 +63,7 @@ impl<'a> System<'a> for Sys {
                         let time2 = Instant::now();
                         let elpsed = time2.duration_since(time1);
                         if elpsed.as_secs_f32() < 0.05 {
-                            let creeps = tr.searcher.creep.SearchNN_XY(pos.0, tower.range, 1);
+                            let creeps = tr.searcher.creep.SearchNN_XY(pos.0, property.range, 1);
                             if creeps.len() > 0 {
                                 property.asd_count -= property.asd;
                                 outcomes.push(Outcome::ProjectileLine2 { pos: pos.0.clone(), source: Some(e.clone()), target: Some(creeps[0].e) });
@@ -92,8 +92,7 @@ impl<'a> System<'a> for Sys {
             );
         let time2 = Instant::now();
         let elpsed = time2.duration_since(time1);
-        log::info!("tower update time {:?}", elpsed);
-        tw.outcomes.append(&mut outcomes);
+        log::info!("tower update1 time {:?}", elpsed);
     }
 }
 

@@ -8,7 +8,6 @@ use specs::{
 use crate::comp::*;
 use crate::comp::phys::*;
 use specs::prelude::ParallelIterator;
-use instant_distance::{Builder, Search, HnswMap};
 use std::{
     time::{Duration, Instant},
 };
@@ -26,7 +25,6 @@ pub struct NearbyRead<'a> {
 #[derive(SystemData)]
 pub struct NearbyWrite<'a> {
     entities: Entities<'a>,
-    hmap: Write<'a, Vec<HnswMap<Pos, EcsEntity>>>,
     towers : WriteStorage<'a, Tower>,
     searcher: Write<'a, Searcher>,
 }
@@ -132,17 +130,6 @@ impl<'a> System<'a> for Sys {
                 let elpsed = time2.duration_since(time1);
                 log::info!("build Sort pos time {:?}", elpsed);
             }
-            /*if tw.hmap.len() == 0 {
-                log::warn!("Rebuild Hnsw map");
-                let time1 = Instant::now();
-                // 需要重建搜尋樹
-                
-                let map = Builder::default().build(pos, ents);
-                tw.hmap.push(map);
-                let time2 = Instant::now();
-                let elpsed = time2.duration_since(time1);
-                log::info!("build Hnsw map time {:?}", elpsed);
-            }*/
         }
         /*
         // 更新 Sort2 nearby_creeps
@@ -243,57 +230,6 @@ impl<'a> System<'a> for Sys {
         let elpsed = time2.duration_since(time1);
         log::info!("Sort1 search time {:?}", elpsed);
 
-        let time1 = Instant::now();
-        // 肯定會有建好的hnsw map
-        let map = tw.hmap.get(0).unwrap();
-        // Hnsw 更新 nearby_creeps
-        (
-            &tr.entities,
-            &tr.pos,
-            &mut tw.towers,
-        )
-            .par_join()
-            .for_each_init(
-                || {
-                    prof_span!(guard, "nearby update rayon job");
-                    guard
-                },
-                |_guard, (ent, pos, tower)| {
-                    tower.nearby_creeps.clear();
-                },
-            );
-        for (ent, pos, creeps) in
-        (
-            &tr.entities,
-            &tr.pos,
-            &tr.creeps,
-        )
-            .join(){
-                let mut search = Search::default();
-                let closest_point = map.search(&pos, &mut search).next();
-                if let Some(c) = closest_point {
-                    if let Some(t) = tw.towers.get_mut(*c.value) {
-                        if let Some(p) = tr.pos.get(*c.value) {
-                            let creep_dis = pos.0.distance_squared(p.0);
-                            t.nearby_creeps.push(NearbyEnt { ent: ent, dis: creep_dis });
-                        }
-                    }
-                }
-            };
-            for (ent, pos, tower) in
-            (
-                &tr.entities,
-                &tr.pos,
-                &tw.towers,
-            )
-                .join(){
-                if ent.id() < 1000 && tower.nearby_creeps.len() > 0 {
-                    log::info!("{} {}", ent.id(), tower.nearby_creeps.len());
-                }
-            };
-        let time2 = Instant::now();
-        let elpsed = time2.duration_since(time1);
-        log::info!("Hnsw search time {:?}", elpsed);
         */
     }
 }

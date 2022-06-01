@@ -14,6 +14,7 @@ mod msg;
 use crate::msg::MqttMsg;
 pub mod config;
 use crate::config::server_config::CONFIG;
+use uuid::Uuid;
 
 use comp::*;
 use std::{
@@ -42,7 +43,7 @@ fn create_mqtt_client(server_addr: String, server_port: String, client_id: Strin
     mqtt_options.set_keep_alive(Duration::from_secs(10));
     mqtt_options.set_request_channel_capacity(10000);
     mqtt_options.set_clean_session(true);
-    let (mut mqtt_cli, mut connection) = Client::new(mqtt_options.clone(), 100);
+    let (mut mqtt_cli, mut connection) = Client::new(mqtt_options.clone(), 100000);
     if sub {
         mqtt_cli.subscribe("td/+/send", QoS::AtMostOnce).unwrap();
     }
@@ -71,6 +72,7 @@ async fn main() -> std::result::Result<(), Error> {
     let mqtt_url = "tcp://".to_owned() + &server_addr + ":" + &server_port;
     let (mqtx, rx): (Sender<MqttMsg>, Receiver<MqttMsg>) = bounded(10000);
     pub_mqtt_loop(server_addr.clone(), server_port.clone(), rx.clone(), client_id.clone());
+    thread::sleep(Duration::from_millis(1000));
     // 初始化怪物波次
     let creep_wave: CreepWaveData = serde_json::from_str(&map_json)?;
     // 初始化 ECS
@@ -106,89 +108,100 @@ impl DateTimeNow for NaiveDateTime {
     }
 }
 
+fn generate_client_id() -> String {
+    let s = format!("td_{}", Uuid::new_v4().as_simple());
+    (&s[..3]).to_string()
+}
+
 fn pub_mqtt_loop(server_addr: String, server_port: String, rx1: Receiver<MqttMsg>, client_id: String) {
-    thread::spawn(move || -> Result<(), Error> {
-        let update = tick(Duration::from_millis(100));
-        let mut msgs: Vec<MqttMsg> = vec![];
-        loop {
-            let (mut mqtt2, mut connection) = create_mqtt_client(server_addr.clone(), server_port.clone(), client_id.clone()+"_pub", false)?;
-            let (btx, brx): (Sender<bool>, Receiver<bool>) = bounded(10);
-            thread::spawn(move || {
-                for (i, notification) in connection.iter().enumerate() {
-                    thread::sleep(Duration::from_millis(1));
-                    if let Ok(x) = notification {
-                    } else {
-                        btx.try_send(true).unwrap();
-                        break;
-                    }
-                }
-            });
+    for n in 0..1 {
+        let server_addr = server_addr.clone();
+        let server_port = server_port.clone();
+        let rx1 = rx1.clone();
+        thread::spawn(move || -> Result<(), Error> {
+            let update = tick(Duration::from_millis(100));
+            let mut msgs: Vec<MqttMsg> = vec![];
             loop {
-                select! {
-                    recv(update) -> d => {
-                        let mut i: usize = 0;
-                        loop {
-                            if msgs.len() <= i {
-                                break;
-                            }
-                            let diff = msgs[i].time.duration_since(SystemTime::now());
-                            let mut difftime = 0;
-                            match diff {
-                                Ok(n) => { difftime = n.as_micros(); },
-                                Err(_) => {},
-                            }
-                            if difftime == 0 {
-                                let msg_res = mqtt2.publish(msgs[i].topic.clone(), QoS::AtMostOnce, false, msgs[i].msg.clone());
-                                match msg_res {
-                                    Ok(_) =>{},
-                                    Err(x) => {
-                                        warn!("??? {}", x);
-                                    }
-                                }
-                                msgs.remove(i);
-                            } else {
-                                i += 1;
-                            }
+                let (mut mqtt2, mut connection) = create_mqtt_client(server_addr.clone(), server_port.clone(), generate_client_id(), false)?;
+                let (btx, brx): (Sender<bool>, Receiver<bool>) = bounded(10);
+                thread::spawn(move || {
+                    for (i, notification) in connection.iter().enumerate() {
+                        thread::sleep(Duration::from_millis(1));
+                        if let Ok(x) = notification {
+                        } else {
+                            btx.try_send(true).unwrap();
+                            break;
                         }
-                    },
-                    recv(brx) -> d => {
-                        break;
-                    },
-                    recv(rx1) -> d => {
-                        let handle = || -> Result<(), Error>
-                        {
-                            if let Ok(d) = d {
-                                let diff = d.time.duration_since(SystemTime::now());
+                    }
+                });
+                loop {
+                    select! {
+                        recv(update) -> d => {
+                            let mut i: usize = 0;
+                            loop {
+                                if msgs.len() <= i {
+                                    break;
+                                }
+                                let diff = msgs[i].time.duration_since(SystemTime::now());
                                 let mut difftime = 0;
                                 match diff {
                                     Ok(n) => { difftime = n.as_micros(); },
                                     Err(_) => {},
                                 }
-                                if d.topic.len() > 2 {
-                                    if difftime == 0 {
-                                        let msg_res = mqtt2.publish(d.topic.clone(), QoS::AtMostOnce, false, d.msg.clone());
-                                        match msg_res {
-                                            Ok(_) =>{},
-                                            Err(x) => {
-                                                warn!("??? {}", x);
-                                            }
+                                if difftime == 0 {
+                                    let msg_res = mqtt2.publish(msgs[i].topic.clone(), QoS::AtMostOnce, false, msgs[i].msg.clone());
+                                    match msg_res {
+                                        Ok(_) =>{},
+                                        Err(x) => {
+                                            warn!("??? {}", x);
                                         }
-                                    } else {
-                                        msgs.push(d);
                                     }
+                                    msgs.remove(i);
+                                } else {
+                                    i += 1;
                                 }
                             }
-                            Ok(())
-                        };
-                        if let Err(msg) = handle() {
-                            warn!("mqtt {:?}", msg);
+                        },
+                        recv(brx) -> d => {
                             break;
+                        },
+                        recv(rx1) -> d => {
+                            let handle = || -> Result<(), Error>
+                            {
+                                if let Ok(d) = d {
+                                    let diff = d.time.duration_since(SystemTime::now());
+                                    let mut difftime = 0;
+                                    match diff {
+                                        Ok(n) => { difftime = n.as_micros(); },
+                                        Err(_) => {},
+                                    }
+                                    if d.topic.len() > 2 {
+                                        if difftime == 0 {
+                                            let msg_res = mqtt2.publish(d.topic.clone(), QoS::AtMostOnce, false, d.msg.clone());
+                                            match msg_res {
+                                                Ok(_) =>{},
+                                                Err(x) => {
+                                                    warn!("Failed {:?}", d);
+                                                    msgs.push(d);
+                                                }
+                                            }
+                                        } else {
+                                            msgs.push(d);
+                                        }
+                                    }
+                                }
+                                Ok(())
+                            };
+                            if let Err(msg) = handle() {
+                                warn!("mqtt {:?}", msg);
+                                break;
+                            }
                         }
                     }
                 }
+                thread::sleep(Duration::from_millis(100));
             }
-            thread::sleep(Duration::from_millis(100));
-        }
-        Ok(())
-    });
+            Ok(())
+        });
+    }
 }

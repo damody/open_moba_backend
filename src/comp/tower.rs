@@ -4,13 +4,11 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug)]
 pub struct Tower {
-    pub range: f32, // 射程
     pub nearby_creeps: Vec<NearbyEnt>,
 }
 impl Tower {
-    pub fn new(range: f32) -> Self {
+    pub fn new() -> Self {
         Self {
-            range: range,
             nearby_creeps: vec![],
         }
     }
@@ -36,10 +34,11 @@ pub struct TProperty {
     pub atk_magic: f32, // 魔攻
     pub asd: f32, // 每幾秒攻擊一次
     pub asd_count: f32,
+    pub range: f32, // 射程
 }
 
 impl TProperty {
-    pub fn new(hp: i32, patk: f32, matk: f32, asd: f32) -> Self {
+    pub fn new(hp: i32, patk: f32, matk: f32, asd: f32, range: f32) -> Self {
         Self {
             base_hp: hp,
             cur_hp: hp,
@@ -50,6 +49,7 @@ impl TProperty {
             atk_magic: matk,
             asd: asd,
             asd_count: 0.,
+            range: range,
         }
     }
 }

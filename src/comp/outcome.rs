@@ -48,7 +48,6 @@ pub struct CreepData {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TowerData {
     pub pos: Vec2<f32>,
-    pub range: f32,
     pub tdata: TProperty,
 }
 
@@ -175,6 +174,60 @@ impl PosData {
         }
     }
     
+    pub fn SearchNN_XY2(&self, pos: Vec2<f32>, radius: f32, n: usize) -> Vec<DisIndex> {
+        let r2 = radius*radius;
+        let mut res = vec![];
+        let mut res1 = vec![];
+        let mut res2 = vec![];
+        let lx = pos.x - radius;
+        let rx = pos.x + radius;
+        let lxp = self.xpos.binary_search_by(|data| data.p.x.partial_cmp(&lx).unwrap());
+        let lxi = match lxp {
+            Ok(x) => {x}
+            Err(x) => {x}
+        };
+        let rxp = self.xpos.binary_search_by(|data| data.p.x.partial_cmp(&rx).unwrap());
+        let rxi = match rxp {
+            Ok(x) => {x}
+            Err(x) => {x}
+        };
+        for i in lxi..rxi {
+            if let Some(p) = self.ypos.get(i) {
+                res1.push(DisIndex2 { e: p.e, p: p.p });
+            }
+        }
+        let ly = pos.y - radius;
+        let ry = pos.y + radius;
+        let lyp = self.ypos.binary_search_by(|data| data.p.y.partial_cmp(&ly).unwrap());
+        let lyi = match lyp {
+            Ok(y) => {y}
+            Err(y) => {y}
+        };
+        let ryp = self.ypos.binary_search_by(|data| data.p.y.partial_cmp(&ry).unwrap());
+        let ryi = match ryp {
+            Ok(y) => {y}
+            Err(y) => {y}
+        };
+        for i in lyi..ryi {
+            if let Some(p) = self.ypos.get(i) {
+                res2.push(DisIndex2 { e: p.e, p: p.p });
+            }
+        }
+        res1.voracious_sort();
+        res2.voracious_sort();
+        let mut ary = [res1.iter(), res2.iter()];
+        let intersection_iter = 
+            sorted_intersection::SortedIntersection::new(&mut ary);
+        for p in intersection_iter {
+            let dis = p.p.distance_squared(pos);
+            if dis < r2 {
+                res.push(DisIndex { e: p.e, dis: dis });
+            }
+        }
+        res.voracious_sort();
+        res.truncate(n);
+        res
+    }
     pub fn SearchNN_XY(&self, pos: Vec2<f32>, radius: f32, n: usize) -> Vec<DisIndex> {
         let r2 = radius*radius;
         let mut res = vec![];
@@ -182,12 +235,8 @@ impl PosData {
         let mut res2 = vec![];
         let xp = self.xpos.binary_search_by(|data| data.p.x.partial_cmp(&pos.x).unwrap());
         let xidx = match xp {
-            Ok(x) => {
-                x
-            }
-            Err(x) => {
-                x
-            }
+            Ok(x) => {x}
+            Err(x) => {x}
         };
         let mut loffset = 0;
         let mut roffset = 1;
@@ -217,12 +266,8 @@ impl PosData {
         }
         let yp = self.ypos.binary_search_by(|data| data.p.y.partial_cmp(&pos.y).unwrap());
         let yidx = match yp {
-            Ok(y) => {
-                y
-            }
-            Err(y) => {
-                y
-            }
+            Ok(y) => {y}
+            Err(y) => {y}
         };
         let mut loffset = 0;
         let mut roffset = 1;

@@ -13,7 +13,6 @@ use super::last::Last;
 use std::time::{Instant};
 use core::{convert::identity, time::Duration};
 use failure::{err_msg, Error};
-use instant_distance::{HnswMap};
 
 use crate::tick::*;
 use crate::sync::*;
@@ -139,7 +138,6 @@ impl State {
         ecs.insert(BTreeMap::<String, CreepEmiter>::new());
         ecs.insert(BTreeMap::<String, Path>::new());
         ecs.insert(BTreeMap::<String, CheckPoint>::new());
-        ecs.insert(Vec::<HnswMap<Pos, EcsEntity>>::new());
         ecs.insert(Searcher::default());
         let e = ecs.entities_mut().create();
 
@@ -151,13 +149,12 @@ impl State {
     fn create_test_scene(&mut self) {
         let mut count = 0;
         let mut ocs = self.ecs.get_mut::<Vec<Outcome>>().unwrap();
-        for x in (0..10000).step_by(10) {
-            for y in (0..1000).step_by(10) {
+        for x in (0..100).step_by(10) {
+            for y in (0..100).step_by(10) {
                 count += 1;
                 ocs.push(Outcome::Tower { td: TowerData {
                     pos: Vec2::new(x as f32, y as f32),
-                    range: 20.,
-                    tdata: TProperty::new(10, 3., 1., 1.),
+                    tdata: TProperty::new(10, 3., 1., 1., 20.),
                 } });
             }    
         }
@@ -301,10 +298,9 @@ impl State {
                     }
                     Outcome::Tower { td } => {
                         let mut cjs = json!(td);
-                        let e = self.ecs.create_entity().with(Pos(td.pos)).with(Tower::new(td.range)).with(td.tdata).build();
+                        let e = self.ecs.create_entity().with(Pos(td.pos)).with(Tower::new()).with(td.tdata).build();
                         cjs.as_object_mut().unwrap().insert("id".to_owned(), json!(e.id()));
-                        //self.mqtx.try_send(MqttMsg::new_s("td/all/res", "tower", "C", json!(cjs)));
-                        self.ecs.get_mut::<Vec<HnswMap<Pos, EcsEntity>>>().unwrap().clear();
+                        self.mqtx.try_send(MqttMsg::new_s("td/all/res", "tower", "C", json!(cjs)));
                         self.ecs.get_mut::<Searcher>().unwrap().tower.needsort = true;
                     }
                     _=>{}

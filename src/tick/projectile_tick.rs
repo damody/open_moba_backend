@@ -4,7 +4,6 @@ use specs::{
 };
 use crate::comp::*;
 use specs::prelude::ParallelIterator;
-use instant_distance::{Builder, Search, HnswMap};
 use specs::saveload::MarkerAllocator;
 use specs::Entity as EcsEntity;
 
