@@ -35,10 +35,11 @@ pub struct TProperty {
     pub asd: f32, // 每幾秒攻擊一次
     pub asd_count: f32,
     pub range: f32, // 射程
+    pub bullet_speed: f32,
 }
 
 impl TProperty {
-    pub fn new(hp: i32, patk: f32, matk: f32, asd: f32, range: f32) -> Self {
+    pub fn new(hp: i32, patk: f32, matk: f32, asd: f32, range: f32, bullet_speed: f32) -> Self {
         Self {
             base_hp: hp,
             cur_hp: hp,
@@ -50,6 +51,7 @@ impl TProperty {
             asd: asd,
             asd_count: 0.,
             range: range,
+            bullet_speed: bullet_speed,
         }
     }
 }

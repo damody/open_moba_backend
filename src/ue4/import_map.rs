@@ -16,7 +16,6 @@ pub struct PathJD {
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct CreepJD {
     pub Name: String,
-    pub Class: String,
     pub HP: f32,
     pub DefendPhysic: f32,
     pub DefendMagic: f32,
@@ -37,7 +36,7 @@ pub struct TowerJD {
 }
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct AttackJD {
-    pub Class: String,
+    pub AType: String,
     pub AttackSpeed: f32,
     pub Physic: f32,
     pub Magic: f32,

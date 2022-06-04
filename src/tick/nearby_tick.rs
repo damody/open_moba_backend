@@ -17,7 +17,6 @@ use voracious_radix_sort::{RadixSort};
 pub struct NearbyRead<'a> {
     entities: Entities<'a>,
     time: Read<'a, Time>,
-    uids: ReadStorage<'a, Uid>,
     creeps : ReadStorage<'a, Creep>,
     pos : ReadStorage<'a, Pos>,
 }
@@ -116,7 +115,6 @@ impl<'a> System<'a> for Sys {
                 );
             if tw.searcher.tower.needsort {
                 tw.searcher.tower.needsort = false;
-                log::warn!("Rebuild Sort pos");
                 let time1 = Instant::now();
                 tw.searcher.tower.xpos.clear();
                 tw.searcher.tower.ypos.clear();
@@ -128,7 +126,7 @@ impl<'a> System<'a> for Sys {
                 tw.searcher.tower.ypos.voracious_mt_sort(4);
                 let time2 = Instant::now();
                 let elpsed = time2.duration_since(time1);
-                log::info!("build Sort pos time {:?}", elpsed);
+                log::info!("build tower Sort pos time {:?}", elpsed);
             }
         }
         /*

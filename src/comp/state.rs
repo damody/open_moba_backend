@@ -15,8 +15,6 @@ use core::{convert::identity, time::Duration};
 use failure::{err_msg, Error};
 
 use crate::tick::*;
-use crate::sync::*;
-use crate::sync::interpolation::*;
 use crate::Outcome;
 use crate::Projectile;
 
@@ -87,7 +85,7 @@ impl State {
             let mut ces = self.ecs.get_mut::<BTreeMap::<String, CreepEmiter>>().unwrap();
             for cp in self.cw.Creep.iter() {
                 ces.insert(cp.Name.clone(), CreepEmiter { 
-                    root: Creep{class: cp.Class.clone(), path: "".to_owned(), pidx: 0}, 
+                    root: Creep{name: cp.Name.clone(), path: "".to_owned(), pidx: 0}, 
                     property: CProperty { hp: cp.HP, msd: cp.MoveSpeed, def_physic: cp.DefendPhysic, def_magic: cp.DefendMagic } });
             }
         }
@@ -109,17 +107,11 @@ impl State {
     }
     fn setup_ecs_world(thread_pool: &Arc<ThreadPool>) -> specs::World {
         let mut ecs = specs::World::new();
-        // Uids for sync
-        ecs.register_sync_marker();
         // Register all components.
         ecs.register::<Pos>();
         ecs.register::<Vel>();
         ecs.register::<TProperty>();
         ecs.register::<CProperty>();
-        ecs.register::<Last<Pos>>();
-        ecs.register::<Last<Vel>>();
-        ecs.register::<InterpBuffer<Pos>>();
-        ecs.register::<InterpBuffer<Vel>>();
         ecs.register::<Tower>();
         ecs.register::<Creep>();
         ecs.register::<Projectile>();
@@ -149,12 +141,12 @@ impl State {
     fn create_test_scene(&mut self) {
         let mut count = 0;
         let mut ocs = self.ecs.get_mut::<Vec<Outcome>>().unwrap();
-        for x in (0..100).step_by(10) {
-            for y in (0..100).step_by(10) {
+        for x in (0..1000).step_by(100) {
+            for y in (0..1000).step_by(100) {
                 count += 1;
                 ocs.push(Outcome::Tower { td: TowerData {
                     pos: Vec2::new(x as f32, y as f32),
-                    tdata: TProperty::new(10, 3., 1., 1., 20.),
+                    tdata: TProperty::new(10, 3., 1., 1., 200., 200.),
                 } });
             }    
         }
@@ -252,49 +244,40 @@ impl State {
                         } else if let Some(_) = towers.get(e) {
                             "tower"
                         } else if let Some(_) = projs.get(e) {
-                            "projectle"
+                            "projectile"
                         } else { "" };
                         if t != "" {
-                            //self.mqtx.send(MqttMsg::new_s("td/all/res", t, "D", json!({"id": e.id()})));
+                            self.mqtx.send(MqttMsg::new_s("td/all/res", t, "D", json!({"id": e.id()})));
                         }
                     }
                     Outcome::ProjectileLine2{ pos, source, target } => { 
                         let mut e1 = source.ok_or(err_msg("err"))?;
                         let mut e2 = target.ok_or(err_msg("err"))?;
-                        let v = {
+                        let (msd, p2) = {
                             let positions = self.ecs.read_storage::<Pos>();
-                            let tower = self.ecs.read_storage::<Tower>();
                             let tproperty = self.ecs.read_storage::<TProperty>();
                             
                             let p1 = positions.get(e1).ok_or(err_msg("err"))?;
                             let p2 = positions.get(e2).ok_or(err_msg("err"))?;
-                            let t = tower.get(e1).ok_or(err_msg("err"))?;
                             let tp = tproperty.get(e1).ok_or(err_msg("err"))?;
-                            
-                            let mut v = p2.0 - p1.0;
-                            let mut rng = thread_rng();
-                            let scale: Uniform<f32> = Uniform::new_inclusive(1., 2.);
-                            let mut roll_scale = (&mut rng).sample_iter(scale);
-                            
-                            let v = v * roll_scale.next().unwrap();
-                            v
+                            (tp.bullet_speed, p2.0)
                         };
                         let ntarget = if let Some(t) = target {
                             t.id()
                         } else { 0 };
-                        let e = self.ecs.create_entity().with(Pos(pos)).with(Vel(v))
-                            .with(Projectile { time_left: 3., owner: e1.clone(), target: target, radius: 0. }).build();
+                        let e = self.ecs.create_entity().with(Pos(pos))
+                            .with(Projectile { time_left: 3., owner: e1.clone(), tpos: p2, target: target, radius: 0., msd: msd }).build();
                         let mut pjs = json!(ProjectileData {
-                            id: e.id(), pos: pos.clone(), vel: v.clone(),
+                            id: e.id(), pos: pos.clone(), msd: msd,
                             time_left: 3., owner: e1.id(), target: ntarget, radius: 0.,
                         });
-                        //self.mqtx.try_send(MqttMsg::new_s("td/all/res", "projectile", "C", json!(pjs)));
+                        self.mqtx.try_send(MqttMsg::new_s("td/all/res", "projectile", "C", json!(pjs)));
                     }
                     Outcome::Creep { cd } => {
                         let mut cjs = json!(cd);
                         let e = self.ecs.create_entity().with(Pos(cd.pos)).with(cd.creep).with(cd.cdata).build();
                         cjs.as_object_mut().unwrap().insert("id".to_owned(), json!(e.id()));
-                        //self.mqtx.try_send(MqttMsg::new_s("td/all/res", "creep", "C", json!(cjs)));
+                        self.mqtx.try_send(MqttMsg::new_s("td/all/res", "creep", "C", json!(cjs)));
                     }
                     Outcome::Tower { td } => {
                         let mut cjs = json!(td);

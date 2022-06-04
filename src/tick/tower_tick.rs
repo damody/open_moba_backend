@@ -15,7 +15,6 @@ pub struct TowerRead<'a> {
     entities: Entities<'a>,
     time: Read<'a, Time>,
     dt: Read<'a, DeltaTime>,
-    uids: ReadStorage<'a, Uid>,
     towers : ReadStorage<'a, Tower>,
     pos : ReadStorage<'a, Pos>,
     searcher : Read<'a, Searcher>,
@@ -63,12 +62,14 @@ impl<'a> System<'a> for Sys {
                         let time2 = Instant::now();
                         let elpsed = time2.duration_since(time1);
                         if elpsed.as_secs_f32() < 0.05 {
-                            let creeps = tr.searcher.creep.SearchNN_XY(pos.0, property.range, 1);
+                            let (creeps, near_creeps) = tr.searcher.creep.SearchNN_XY2(pos.0, property.range, property.range+30., 1);
                             if creeps.len() > 0 {
                                 property.asd_count -= property.asd;
                                 outcomes.push(Outcome::ProjectileLine2 { pos: pos.0.clone(), source: Some(e.clone()), target: Some(creeps[0].e) });
                             } else {
-                                property.asd_count = property.asd - fastrand::u8(..) as f32 * 0.01;
+                                if near_creeps.len() == 0 {
+                                    property.asd_count = property.asd - 0.3 - fastrand::u8(..) as f32 * 0.001;
+                                }
                             }
                         }
                     }
@@ -93,6 +94,7 @@ impl<'a> System<'a> for Sys {
         let time2 = Instant::now();
         let elpsed = time2.duration_since(time1);
         log::info!("tower update1 time {:?}", elpsed);
+        tw.outcomes.append(&mut outcomes);
     }
 }
 

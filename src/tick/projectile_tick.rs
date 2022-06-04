@@ -6,13 +6,13 @@ use crate::comp::*;
 use specs::prelude::ParallelIterator;
 use specs::saveload::MarkerAllocator;
 use specs::Entity as EcsEntity;
+use vek::Vec2;
 
 #[derive(SystemData)]
 pub struct ProjectileRead<'a> {
     entities: Entities<'a>,
     time: Read<'a, Time>,
     dt: Read<'a, DeltaTime>,
-    vel : ReadStorage<'a, Vel>,
     searcher : Read<'a, Searcher>,
 }
 
@@ -42,28 +42,46 @@ impl<'a> System<'a> for Sys {
         let (mut outcomes, mut taken_damages) = (
             &tr.entities,
             &mut tw.projs,
-            &tr.vel,
             &mut tw.pos,
         )
             .par_join()
-            .filter(|(e, proj, v, p)| proj.time_left > 0.)
+            .filter(|(e, proj, p)| proj.time_left > 0.)
             .map_init(
                 || {
                     prof_span!(guard, "projectile update rayon job");
                     guard
                 },
-                |_guard, (e, proj, vel, pos)| {
+                |_guard, (e, proj, pos)| {
                     let mut outcomes:Vec<Outcome> = Vec::new();
                     let mut taken_damages:Vec<TakenDamage> = Vec::new();
-                    pos.0 += vel.0 * dt;
+                    let mut vel = (proj.tpos - pos.0);
+                    vel.normalize();
+                    vel *= proj.msd;
+                    vel *= dt;
+                    let dis = (proj.tpos - pos.0).magnitude_squared();
+                    if vel.magnitude_squared() > dis || dis < 1.{
+                        pos.0 = proj.tpos;
+                    } else {
+                        pos.0 += vel;
+                    }
                     proj.time_left -= dt;
                     if proj.time_left <= 0. {
+                        if let Some(e) = proj.target {
+                            taken_damages.push(TakenDamage{ent: e.clone(), phys:5., magi:3., real:0. });    
+                        }
                         outcomes.push(Outcome::Death { pos: pos.0.clone(), ent: e.clone() });
                     } else {
-                        if proj.radius > 1. {
-                            let creeps = tr.searcher.creep.SearchNN_X(pos.0, proj.radius, 1);
-                            if creeps.len() > 0 {
-                                taken_damages.push(TakenDamage{ent: creeps[0].e.clone(), phys:5., magi:3., real:0. });
+                        if dis < 1. {
+                            if proj.radius > 1. { // 擴散炮
+                                let creeps = tr.searcher.creep.SearchNN_XY(pos.0, proj.radius, 1);
+                                if creeps.len() > 0 {
+                                    taken_damages.push(TakenDamage{ent: creeps[0].e.clone(), phys:5., magi:3., real:0. });
+                                    outcomes.push(Outcome::Death { pos: pos.0.clone(), ent: e.clone() });
+                                }
+                            } else {
+                                if let Some(t) = proj.target {
+                                    taken_damages.push(TakenDamage{ent: t.clone(), phys:5., magi:3., real:0. });
+                                }
                                 outcomes.push(Outcome::Death { pos: pos.0.clone(), ent: e.clone() });
                             }
                         }

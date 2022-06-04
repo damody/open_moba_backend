@@ -2,7 +2,6 @@ pub mod phys;
 pub mod resources;
 pub mod state;
 pub mod last;
-pub mod uid;
 pub mod outcome;
 pub mod projectile;
 pub mod attack;
@@ -18,7 +17,6 @@ pub use self::{
     resources::*,
     state::*,
     last::*,
-    uid::*,
     outcome::*,
     projectile::*,
     attack::*,

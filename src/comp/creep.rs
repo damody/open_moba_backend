@@ -1,12 +1,11 @@
 use specs::storage::VecStorage;
 use specs::{Component, FlaggedStorage, NullStorage};
 use specs::Entity as EcsEntity;
-use super::uid::Uid;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Creep {
-    pub class: String,
+    pub name: String,
     pub path: String,
     pub pidx: usize,
 }

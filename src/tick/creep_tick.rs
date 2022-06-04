@@ -6,9 +6,11 @@ use specs::{
 use std::{thread, ops::Deref, collections::BTreeMap};
 use std::ops::Sub;
 use crate::comp::*;
-use crate::uid::{Uid, UidAllocator};
 use specs::prelude::ParallelIterator;
 use specs::saveload::MarkerAllocator;
+use crate::MqttMsg;
+use crossbeam_channel::Sender;
+use serde_json::json;
 
 #[derive(SystemData)]
 pub struct CreepRead<'a> {
@@ -26,6 +28,7 @@ pub struct CreepWrite<'a> {
     cpropertys : WriteStorage<'a, CProperty>,
     outcomes: Write<'a, Vec<Outcome>>,
     taken_damages: Write<'a, Vec<TakenDamage>>,
+    mqtx: Write<'a, Vec<Sender<MqttMsg>>>,
 }
 
 #[derive(Default)]
@@ -42,6 +45,7 @@ impl<'a> System<'a> for Sys {
     fn run(_job: &mut Job<Self>, (tr, mut tw): Self::SystemData) {
         let time = tr.time.0;
         let dt = tr.dt.0;
+        let tx = tw.mqtx.get(0).unwrap().clone();
         let mut outcomes = (
             &tr.entities,
             &mut tw.creeps,
@@ -57,21 +61,32 @@ impl<'a> System<'a> for Sys {
                 },
                 |_guard, (e, creep, pos, cp)| {
                     let mut outcomes:Vec<Outcome> = Vec::new();
-                    if let Some(path) = tr.paths.get(&creep.path) {
-                        if let Some(p) = path.check_points.get(creep.pidx) {
-                            let target_point = p.pos;
-                            if target_point.distance_squared(pos.0) > (cp.msd*cp.msd) {
-                                let mut v = target_point.sub(&pos.0);
-                                v.normalize();
-                                v = v * cp.msd * dt;
-                                pos.0 = pos.0 + v;
+                    if cp.hp <= 0. {
+                        outcomes.push(Outcome::Death { pos: pos.0.clone(), ent: e.clone() });
+                    } else {
+                        if let Some(path) = tr.paths.get(&creep.path) {
+                            if let Some(p) = path.check_points.get(creep.pidx) {
+                                let target_point = p.pos;
+                                if target_point.distance_squared(pos.0) > (cp.msd*cp.msd) {
+                                    let mut v = target_point.sub(&pos.0);
+                                    v.normalize();
+                                    v = v * cp.msd * dt;
+                                    pos.0 = pos.0 + v;
+                                } else {
+                                    pos.0 = target_point;
+                                    creep.pidx += 1;
+                                    if let Some(t) = path.check_points.get(creep.pidx) {
+                                        tx.try_send(MqttMsg::new_s("td/all/res", "creep", "M", json!({
+                                            "id": e.id(),
+                                            "x": t.pos.x,
+                                            "y": t.pos.y,
+                                        })));
+                                    }
+                                }
                             } else {
-                                pos.0 = target_point;
-                                creep.pidx += 1;
+                                // creep 到終點了
+                                outcomes.push(Outcome::Death { pos: pos.0, ent: e });
                             }
-                        } else {
-                            // creep 到終點了
-                            outcomes.push(Outcome::Death { pos: pos.0, ent: e });
                         }
                     }
                     (outcomes)
@@ -94,13 +109,21 @@ impl<'a> System<'a> for Sys {
             );
         tw.outcomes.append(&mut outcomes);
         // 傷害計算
+        let mut hpmap = BTreeMap::new();
         for td in tw.taken_damages.iter() {
             if let Some(cp) = tw.cpropertys.get_mut(td.ent) {
                 cp.hp -= (td.phys - cp.def_physic).max(0.);
                 cp.hp -= (td.magi - cp.def_magic).max(0.);
                 cp.hp = cp.hp.max(0.);
+                hpmap.insert(td.ent.id(), cp.hp);
             }
         }
+        for (e, hp) in hpmap.iter() {
+            tx.try_send(MqttMsg::new_s("td/all/res", "creep", "Hp", json!({
+                "id": e,
+                "hp": hp,
+            })));
+        } 
         tw.taken_damages.clear();
     }
 }

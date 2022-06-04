@@ -5,7 +5,6 @@ use specs::{
 };
 use std::{thread, ops::Deref, collections::BTreeMap};
 use crate::comp::*;
-use crate::uid::{Uid, UidAllocator};
 use specs::prelude::ParallelIterator;
 use specs::saveload::MarkerAllocator;
 use vek::Vec2;
@@ -67,19 +66,13 @@ impl<'a> System<'a> for Sys {
                                     if let Some(ct) = cpoint {
                                         let mut cpp = cp.root.clone();
                                         cpp.path = pc.path_name.clone();
-                                        
-                                        log::info!("w.time {} totaltime {}", w.time, totaltime);
-                                        for x in (0..100).step_by(1) {
-                                            for y in (0..100).step_by(1) {
-                                                let cp0 = CreepData {
-                                                    pos: ct.pos.clone() + Vec2::new(x as f32, y as f32),
-                                                    creep: cpp.clone(),
-                                                    cdata: cp.property.clone(),
-                                                };
-                                                tw.outcomes.push(Outcome::Creep { cd: cp0 });
-                                            }    
-                                        }
-                                        
+                                        log::info!("creep wave time {} totaltime {}", w.time, totaltime);
+                                        let cp0 = CreepData {
+                                            pos: ct.pos.clone(),
+                                            creep: cpp.clone(),
+                                            cdata: cp.property.clone(),
+                                        };
+                                        tw.outcomes.push(Outcome::Creep { cd: cp0 });
                                     }
                                 }
                                 cw.path[i] += 1;

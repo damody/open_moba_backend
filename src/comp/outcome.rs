@@ -1,4 +1,4 @@
-use crate::{comp, uid::Uid, Creep, CProperty, TProperty};
+use crate::{comp, Creep, CProperty, TProperty};
 use super::Projectile;
 use hashbrown::HashSet;
 use serde::{Deserialize, Serialize};
@@ -18,8 +18,8 @@ pub enum Outcome {
         phys: f32,
         magi: f32,
         real: f32,
-        source: Uid,
-        target: Uid,
+        source: EcsEntity,
+        target: EcsEntity,
     },
     ProjectileLine2 {
         pos: Vec2<f32>,
@@ -174,13 +174,14 @@ impl PosData {
         }
     }
     
-    pub fn SearchNN_XY2(&self, pos: Vec2<f32>, radius: f32, n: usize) -> Vec<DisIndex> {
-        let r2 = radius*radius;
+    pub fn SearchNN_XY2(&self, pos: Vec2<f32>, radius1: f32, radius2: f32, n: usize) -> (Vec<DisIndex>, Vec<DisIndex>) {
+        let r2 = radius1*radius1;
         let mut res = vec![];
-        let mut res1 = vec![];
         let mut res2 = vec![];
-        let lx = pos.x - radius;
-        let rx = pos.x + radius;
+        let mut xdata = vec![];
+        let mut ydata = vec![];
+        let lx = pos.x - radius2;
+        let rx = pos.x + radius2;
         let lxp = self.xpos.binary_search_by(|data| data.p.x.partial_cmp(&lx).unwrap());
         let lxi = match lxp {
             Ok(x) => {x}
@@ -193,11 +194,11 @@ impl PosData {
         };
         for i in lxi..rxi {
             if let Some(p) = self.ypos.get(i) {
-                res1.push(DisIndex2 { e: p.e, p: p.p });
+                xdata.push(DisIndex2 { e: p.e, p: p.p });
             }
         }
-        let ly = pos.y - radius;
-        let ry = pos.y + radius;
+        let ly = pos.y - radius2;
+        let ry = pos.y + radius2;
         let lyp = self.ypos.binary_search_by(|data| data.p.y.partial_cmp(&ly).unwrap());
         let lyi = match lyp {
             Ok(y) => {y}
@@ -210,29 +211,31 @@ impl PosData {
         };
         for i in lyi..ryi {
             if let Some(p) = self.ypos.get(i) {
-                res2.push(DisIndex2 { e: p.e, p: p.p });
+                ydata.push(DisIndex2 { e: p.e, p: p.p });
             }
         }
-        res1.voracious_sort();
-        res2.voracious_sort();
-        let mut ary = [res1.iter(), res2.iter()];
+        xdata.voracious_sort();
+        ydata.voracious_sort();
+        let mut ary = [xdata.iter(), ydata.iter()];
         let intersection_iter = 
             sorted_intersection::SortedIntersection::new(&mut ary);
         for p in intersection_iter {
             let dis = p.p.distance_squared(pos);
             if dis < r2 {
                 res.push(DisIndex { e: p.e, dis: dis });
+            } else {
+                res2.push(DisIndex { e: p.e, dis: dis });
             }
         }
         res.voracious_sort();
         res.truncate(n);
-        res
+        (res, res2)
     }
     pub fn SearchNN_XY(&self, pos: Vec2<f32>, radius: f32, n: usize) -> Vec<DisIndex> {
         let r2 = radius*radius;
         let mut res = vec![];
-        let mut res1 = vec![];
-        let mut res2 = vec![];
+        let mut xdata = vec![];
+        let mut ydata = vec![];
         let xp = self.xpos.binary_search_by(|data| data.p.x.partial_cmp(&pos.x).unwrap());
         let xidx = match xp {
             Ok(x) => {x}
@@ -243,7 +246,7 @@ impl PosData {
         loop {
             if let Some(p) = self.xpos.get((xidx as i32 - loffset) as usize) {
                 if (p.p.x - pos.x).abs() < radius {
-                    res1.push(DisIndex2 { e: p.e, p: p.p });
+                    xdata.push(DisIndex2 { e: p.e, p: p.p });
                 } else {
                     break;
                 }
@@ -254,8 +257,8 @@ impl PosData {
         }
         loop {
             if let Some(p) = self.xpos.get((xidx as i32 + roffset) as usize) {
-                if (p.p.x - pos.x).abs() < radius {
-                    res1.push(DisIndex2 { e: p.e, p: p.p });
+                if (p.p.x + pos.x).abs() < radius {
+                    xdata.push(DisIndex2 { e: p.e, p: p.p });
                 } else {
                     break;
                 }
@@ -274,7 +277,7 @@ impl PosData {
         loop {
             if let Some(p) = self.ypos.get((yidx as i32 - loffset) as usize) {
                 if (p.p.y - pos.y).abs() < radius {
-                    res2.push(DisIndex2 { e: p.e, p: p.p });
+                    ydata.push(DisIndex2 { e: p.e, p: p.p });
                 } else {
                     break;
                 }
@@ -285,8 +288,8 @@ impl PosData {
         }
         loop {
             if let Some(p) = self.ypos.get((yidx as i32 + roffset) as usize) {
-                if (p.p.y - pos.y).abs() < radius {
-                    res2.push(DisIndex2 { e: p.e, p: p.p });
+                if (p.p.y + pos.y).abs() < radius {
+                    ydata.push(DisIndex2 { e: p.e, p: p.p });
                 } else {
                     break;
                 }
@@ -295,9 +298,9 @@ impl PosData {
             }
             roffset += 1;
         }
-        res1.voracious_sort();
-        res2.voracious_sort();
-        let mut ary = [res1.iter(), res2.iter()];
+        xdata.voracious_sort();
+        ydata.voracious_sort();
+        let mut ary = [xdata.iter(), ydata.iter()];
         let intersection_iter = 
             sorted_intersection::SortedIntersection::new(&mut ary);
         for p in intersection_iter {

@@ -7,7 +7,6 @@ use std::io::{Write, BufReader, BufRead};
 use failure::{err_msg, Error};
 use chrono::{NaiveDateTime, Local};
 mod comp;
-mod sync;
 mod tick;
 mod ue4;
 mod msg;
