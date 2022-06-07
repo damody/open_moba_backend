@@ -15,6 +15,14 @@ use serde_json::json;
 
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct PlayerData {
+    pub name: String,
+    pub t: String,
+    pub a: String,
+    pub d: serde_json::Value,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct MqttMsg {
     pub topic: String,
     pub msg: String,

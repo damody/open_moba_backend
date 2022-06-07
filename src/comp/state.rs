@@ -127,6 +127,7 @@ impl State {
         ecs.insert(Vec::<TakenDamage>::new());
         ecs.insert(Vec::<CreepWave>::new());
         ecs.insert(CurrentCreepWave{wave: 0, path: vec![]});
+        ecs.insert(BTreeMap::<String, Player>::new());
         ecs.insert(BTreeMap::<String, CreepEmiter>::new());
         ecs.insert(BTreeMap::<String, Path>::new());
         ecs.insert(BTreeMap::<String, CheckPoint>::new());
@@ -146,7 +147,7 @@ impl State {
                 count += 1;
                 ocs.push(Outcome::Tower { td: TowerData {
                     pos: Vec2::new(x as f32, y as f32),
-                    tdata: TProperty::new(10, 3., 1., 1., 200., 200.),
+                    tdata: TProperty::new(10, 3., 1., 200., 200.),
                 } });
             }    
         }

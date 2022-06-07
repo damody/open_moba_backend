@@ -11,6 +11,7 @@ pub mod tower;
 pub mod clock;
 pub mod creep;
 pub mod check_point;
+pub mod player;
 
 pub use self::{
     phys::*,
@@ -20,6 +21,7 @@ pub use self::{
     outcome::*,
     projectile::*,
     attack::*,
+    player::*,
     ecs::*,
     base::*,
     tower::*,
