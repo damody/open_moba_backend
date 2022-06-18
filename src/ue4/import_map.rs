@@ -31,16 +31,20 @@ pub struct CheckPointJD {
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct TowerJD {
     pub Name: String,
-    pub Range: f32,
+    pub Property: PropertyJD,
     pub Attack: AttackJD,
 }
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct AttackJD {
-    pub AType: String,
+    pub Range: f32,
     pub AttackSpeed: f32,
     pub Physic: f32,
     pub Magic: f32,
-    pub Real: f32,
+}
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct PropertyJD {
+    pub Hp: i32,
+    pub Block: i32,
 }
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct CreepWaveJD {

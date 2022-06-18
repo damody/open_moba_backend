@@ -37,7 +37,7 @@ use crate::ue4::import_map::CreepWaveData;
 use rumqttc::{Client, Connection, MqttOptions, QoS};
 use crossbeam_channel::{bounded, select, tick, Receiver, Sender};
 
-const TPS: u64 = 5;
+const TPS: u64 = 10;
 
 fn create_mqtt_client(server_addr: String, server_port: String, client_id: String, sub: bool) -> Result<(Client, Connection), Error> {
     let mut mqtt_options = MqttOptions::new(client_id.as_str(), server_addr.as_str(), server_port.parse::<u16>()?);
@@ -73,12 +73,12 @@ async fn main() -> std::result::Result<(), Error> {
     let mqtt_url = "tcp://".to_owned() + &server_addr + ":" + &server_port;
     log::info!("{}", mqtt_url);
     let (mqtx, rx): (Sender<MqttMsg>, Receiver<MqttMsg>) = bounded(10000);
-    let mqrx = pub_mqtt_loop(server_addr.clone(), server_port.clone(), rx.clone(), client_id.clone()).await;
+    let mqrx = pub_mqtt_loop(server_addr.clone(), server_port.clone(), rx.clone(), client_id.clone()).await?;
     thread::sleep(Duration::from_millis(500));
     // 初始化怪物波次
     let creep_wave: CreepWaveData = serde_json::from_str(&map_json)?;
     // 初始化 ECS
-    let mut state = State::new(creep_wave, mqtx);
+    let mut state = State::new(creep_wave, mqtx, mqrx);
     let mut clock = Clock::new(Duration::from_secs_f64(1.0 / TPS as f64));
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || {
@@ -125,7 +125,7 @@ async fn pub_mqtt_loop(server_addr: String, server_port: String, rx1: Receiver<M
         let mut msgs: Vec<MqttMsg> = vec![];
         loop {
             let tx = tx.clone();
-            let (mut mqtt2, mut connection) = create_mqtt_client(server_addr.clone(), server_port.clone(), generate_client_id(), false)?;
+            let (mut mqtt2, mut connection) = create_mqtt_client(server_addr.clone(), server_port.clone(), generate_client_id(), true)?;
             let (btx, brx): (Sender<bool>, Receiver<bool>) = bounded(10);
             thread::spawn(move || {
                 let rex_td = Regex::new(r"td/([\w\S]+)/send").unwrap();
@@ -146,13 +146,16 @@ async fn pub_mqtt_loop(server_addr: String, server_port: String, rx1: Receiver<M
                                     let topic_name = x.topic.as_str();
                                     let vo: serde_json::Result<PlayerData> = serde_json::from_str(&msg);
                                     if let Ok(v) = vo {
-                                        log::info!("{}", msg);
                                         tx.try_send(v);
                                     } else {
                                         warn!("Json Parser error");
                                     };
                                     Ok(())
                                 };
+                                if let Err(msg) = handle() {
+                                    println!("{:?}", msg);
+                                    continue;
+                                }
                             }
                         }
                     } else {

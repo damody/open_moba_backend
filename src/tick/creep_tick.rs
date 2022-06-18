@@ -53,7 +53,7 @@ impl<'a> System<'a> for Sys {
             &mut tw.cpropertys,
         )
             .par_join()
-            .filter(|(e, t, p, cp)| true )
+            .filter(|(e, creep, p, cp)| true )
             .map_init(
                 || {
                     prof_span!(guard, "creep update rayon job");
@@ -65,27 +65,49 @@ impl<'a> System<'a> for Sys {
                         outcomes.push(Outcome::Death { pos: pos.0.clone(), ent: e.clone() });
                     } else {
                         if let Some(path) = tr.paths.get(&creep.path) {
-                            if let Some(p) = path.check_points.get(creep.pidx) {
-                                let target_point = p.pos;
-                                if target_point.distance_squared(pos.0) > (cp.msd*cp.msd) {
-                                    let mut v = target_point.sub(&pos.0);
-                                    v.normalize();
-                                    v = v * cp.msd * dt;
-                                    pos.0 = pos.0 + v;
-                                } else {
-                                    pos.0 = target_point;
-                                    creep.pidx += 1;
-                                    if let Some(t) = path.check_points.get(creep.pidx) {
-                                        tx.try_send(MqttMsg::new_s("td/all/res", "creep", "M", json!({
-                                            "id": e.id(),
-                                            "x": t.pos.x,
-                                            "y": t.pos.y,
-                                        })));
-                                    }
-                                }
+                            if let Some(b) = creep.block_tower {
+                                // 被檔住了
                             } else {
-                                // creep 到終點了
-                                outcomes.push(Outcome::Death { pos: pos.0, ent: e });
+                                if let Some(p) = path.check_points.get(creep.pidx) {
+                                    let target_point = p.pos;
+                                    let mut next_status = creep.status.clone();
+                                    match creep.status {
+                                        CreepStatus::PreWalk => {
+                                            tx.try_send(MqttMsg::new_s("td/all/res", "creep", "M", json!({
+                                                "id": e.id(),
+                                                "x": target_point.x,
+                                                "y": target_point.y,
+                                            })));
+                                            next_status = CreepStatus::Walk;
+                                        }
+                                        CreepStatus::Walk => {
+                                            if target_point.distance_squared(pos.0) > (cp.msd*cp.msd) {
+                                                let mut v = target_point.sub(&pos.0);
+                                                v.normalize();
+                                                v = v * cp.msd * dt;
+                                                pos.0 = pos.0 + v;
+                                            } else {
+                                                pos.0 = target_point;
+                                                creep.pidx += 1;
+                                                if let Some(t) = path.check_points.get(creep.pidx) {
+                                                    tx.try_send(MqttMsg::new_s("td/all/res", "creep", "M", json!({
+                                                        "id": e.id(),
+                                                        "x": t.pos.x,
+                                                        "y": t.pos.y,
+                                                    })));
+                                                }
+                                            }
+                                        }
+                                        CreepStatus::Stop => {
+                                            next_status = CreepStatus::PreWalk;
+                                        }
+                                    }
+                                    creep.status = next_status;
+                                    
+                                } else {
+                                    // creep 到終點了
+                                    outcomes.push(Outcome::Death { pos: pos.0, ent: e });
+                                }
                             }
                         }
                     }

@@ -15,9 +15,6 @@ pub struct Time(pub f64);
 #[derive(Copy, Clone, Debug, Default)]
 pub struct DeltaTime(pub f32);
 
-#[derive(Copy, Clone, Default, Debug)]
-pub struct PlayerEntity(pub Option<Entity>);
-
 // Start of Tick, used for metrics
 #[derive(Copy, Clone)]
 pub struct TickStart(pub Instant);

@@ -8,7 +8,7 @@ use std::time::Duration;
 use specs::Entity as EcsEntity;
 use vek::Vec2;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Projectile {
     pub time_left: f32,
     pub owner: EcsEntity,

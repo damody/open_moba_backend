@@ -6,6 +6,7 @@ use specs::{
     storage::{MaskedStorage as EcsMaskedStorage, Storage as EcsStorage},
     Component, DispatcherBuilder, Entity as EcsEntity, WorldExt, Builder,
 };
+use specs::world::Generation;
 use std::sync::Arc;
 use vek::*;
 use crate::{comp::*, msg::MqttMsg};
@@ -13,11 +14,12 @@ use super::last::Last;
 use std::time::{Instant};
 use core::{convert::identity, time::Duration};
 use failure::{err_msg, Error};
+use serde::{Deserialize, Serialize};
 
 use crate::tick::*;
 use crate::Outcome;
 use crate::Projectile;
-
+use crate::PlayerData;
 use crate::ue4::import_map::CreepWaveData;
 use serde_json::json;
 
@@ -30,6 +32,7 @@ pub struct State {
     ecs: specs::World,
     cw: CreepWaveData,
     mqtx: Sender<MqttMsg>,
+    mqrx: Receiver<PlayerData>,
     // Avoid lifetime annotation by storing a thread pool instead of the whole dispatcher
     thread_pool: Arc<ThreadPool>,
 }
@@ -40,7 +43,7 @@ const DAY_CYCLE_FACTOR: f64 = 24.0 * 1.0;
 const MAX_DELTA_TIME: f32 = 1.0;
 
 impl State {
-    pub fn new(pcw: CreepWaveData, mqtx: Sender<MqttMsg>) -> Self {
+    pub fn new(pcw: CreepWaveData, mqtx: Sender<MqttMsg>, mqrx: Receiver<PlayerData>) -> Self {
         let thread_pool = Arc::new(
             ThreadPoolBuilder::new()
                 .num_threads(num_cpus::get())
@@ -52,6 +55,7 @@ impl State {
             ecs: Self::setup_ecs_world(&thread_pool),
             cw: pcw,
             mqtx: mqtx.clone(),
+            mqrx: mqrx.clone(),
             thread_pool,
         };
         res.init_creep_wave();
@@ -60,6 +64,7 @@ impl State {
     }
     fn init_creep_wave(&mut self) {
         self.ecs.insert(vec![self.mqtx.clone()]);
+        self.ecs.insert(vec![self.mqrx.clone()]);
         let cps = {
             let mut cps = self.ecs.get_mut::<BTreeMap::<String, CheckPoint>>().unwrap();
             for p in self.cw.CheckPoint.iter() {
@@ -85,8 +90,8 @@ impl State {
             let mut ces = self.ecs.get_mut::<BTreeMap::<String, CreepEmiter>>().unwrap();
             for cp in self.cw.Creep.iter() {
                 ces.insert(cp.Name.clone(), CreepEmiter { 
-                    root: Creep{name: cp.Name.clone(), path: "".to_owned(), pidx: 0}, 
-                    property: CProperty { hp: cp.HP, msd: cp.MoveSpeed, def_physic: cp.DefendPhysic, def_magic: cp.DefendMagic } });
+                    root: Creep{name: cp.Name.clone(), path: "".to_owned(), pidx: 0, block_tower: None, status: CreepStatus::Walk}, 
+                    property: CProperty { hp: cp.HP, mhp: cp.HP, msd: cp.MoveSpeed, def_physic: cp.DefendPhysic, def_magic: cp.DefendMagic } });
             }
         }
         {
@@ -111,6 +116,7 @@ impl State {
         ecs.register::<Pos>();
         ecs.register::<Vel>();
         ecs.register::<TProperty>();
+        ecs.register::<TAttack>();
         ecs.register::<CProperty>();
         ecs.register::<Tower>();
         ecs.register::<Creep>();
@@ -119,7 +125,6 @@ impl State {
         ecs.insert(TimeOfDay(0.0));
         ecs.insert(Time(0.0));
         ecs.insert(DeltaTime(0.0));
-        ecs.insert(PlayerEntity(None));
         ecs.insert(Tick(0));
         ecs.insert(TickStart(Instant::now()));
         ecs.insert(SysMetrics::default());
@@ -142,23 +147,17 @@ impl State {
     fn create_test_scene(&mut self) {
         let mut count = 0;
         let mut ocs = self.ecs.get_mut::<Vec<Outcome>>().unwrap();
-        for x in (0..1000).step_by(100) {
-            for y in (0..1000).step_by(100) {
+        /*for x in (0..200).step_by(100) {
+            for y in (0..200).step_by(100) {
                 count += 1;
-                ocs.push(Outcome::Tower { td: TowerData {
-                    pos: Vec2::new(x as f32, y as f32),
-                    tdata: TProperty::new(10, 3., 1., 200., 200.),
+                ocs.push(Outcome::Tower { pos: Vec2::new(x as f32+200., y as f32+200.),
+                    td: TowerData {
+                    tpty: TProperty::new(10, 3, 100.),
+                    tatk: TAttack::new(3., 1., 300., 100.),
                 } });
             }    
-        }
+        }*/
         log::warn!("count {}", count);
-        
-        /*
-        ecs.create_entity()
-            .with(Pos(Vec2::new(0.,10.)))
-            .with(Creep{class: "cp1".to_owned(), path: "path1".to_owned(), pidx: 0})
-            .with(CProperty{hp:100., msd:0.5, def_physic: 1., def_magic: 2.})
-            .build();*/
     }
     
     /// Get a reference to the internal ECS world.
@@ -212,23 +211,96 @@ impl State {
         
         let mut dispatch_builder = DispatcherBuilder::new().with_pool(Arc::clone(&self.thread_pool));
         
-        //dispatch::<interpolation::Sys>(&mut dispatch_builder, &[]);
         dispatch::<projectile_tick::Sys>(&mut dispatch_builder, &[]);
         dispatch::<nearby_tick::Sys>(&mut dispatch_builder, &[]);
-        dispatch::<tower_tick::Sys>(&mut dispatch_builder, &[&nearby_tick::Sys::sys_name()]);
-        dispatch::<creep_tick::Sys>(&mut dispatch_builder, &[&tower_tick::Sys::sys_name()]);
-        dispatch::<creep_wave::Sys>(&mut dispatch_builder, &[&creep_tick::Sys::sys_name()]);
+        dispatch::<player_tick::Sys>(&mut dispatch_builder, &[]);
+        dispatch::<tower_tick::Sys>(&mut dispatch_builder, &[]);
+        dispatch::<creep_tick::Sys>(&mut dispatch_builder, &[]);
+        dispatch::<creep_wave::Sys>(&mut dispatch_builder, &[]);
 
         let mut dispatcher = dispatch_builder.build();
         dispatcher.dispatch(&self.ecs);
 
         self.creep_wave();
         self.process_outcomes();
+        self.process_playerdatas();
         self.ecs.maintain();
+        Ok(())
+    }
+    pub fn handle_tower(&mut self, pd: PlayerData) -> Result<(), Error> {
+        match pd.a.as_str() {
+            "R" => {
+                self.mqtx.try_send(MqttMsg::new_s("td/all/res", "tower", "R", json!({"msg":"ok"})))?;
+            }
+            "C" => {
+                #[derive(Serialize, Deserialize)]
+                struct JData {
+                    tid: i32,
+                    x: f32,
+                    y: f32,
+                };
+                let mut v: JData = serde_json::from_value(pd.d)?;
+                let t = {
+                    let mut pmap = self.ecs.get_mut::<BTreeMap<String, Player>>().unwrap();
+                    if let Some(p) = pmap.get_mut(&pd.name) {
+                        if let Some(t) = p.towers.get(v.tid as usize) {
+                            Some(t.clone())
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                };
+                let mut ocs = self.ecs.get_mut::<Vec<Outcome>>().unwrap();
+                if let Some(t) = t {
+                    ocs.push(Outcome::Tower { pos: Vec2::new(v.x,v.y), td: TowerData { tpty: t.tpty, tatk: t.tatk } });
+                    self.mqtx.try_send(MqttMsg::new_s("td/all/res", "tower", "C", json!({"msg":"ok"})))?;
+                } else {
+                    self.mqtx.try_send(MqttMsg::new_s("td/all/res", "tower", "C", json!({"msg":"fail"})))?;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+    pub fn handle_player(&mut self, pd: PlayerData) -> Result<(), Error> {
+        let mut pmap = self.ecs.get_mut::<BTreeMap<String, Player>>().unwrap();
+        match pd.a.as_str() {
+            "C" => {
+                let mut p = Player { name: pd.name.clone(), cost: 100., towers: vec![] };
+                p.towers.push(TowerData { tpty: TProperty::new(10, 1, 100.), tatk: TAttack::new(3., 0.3, 300., 100.) });
+                pmap.insert(pd.name.clone(), p);
+                self.mqtx.try_send(MqttMsg::new_s("td/all/res", "player", "C", json!({"msg":"ok"})))?;
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+    pub fn process_playerdatas(&mut self) -> Result<(), Error> {
+        let n = self.mqrx.len();
+        for i in 0..n {
+            let data = self.mqrx.try_recv();
+            if let Ok(d) = data {
+                log::warn!("{:?}", d);
+                match d.t.as_str() {
+                    "tower" => {
+                        self.handle_tower(d)?;
+                    }
+                    "player" => {
+                        self.handle_player(d)?;
+                    }
+                    _ => {}
+                }
+            } else {
+                log::warn!("json error");
+            }
+        }
         Ok(())
     }
     pub fn process_outcomes(&mut self) -> Result<(), Error> {
         let mut remove_uids = vec![];
+        let mut next_outcomes = vec![];
         {
             let mut ocs = self.ecs.get_mut::<Vec<Outcome>>().unwrap();
             let mut outcomes = vec![];
@@ -237,14 +309,25 @@ impl State {
                 match out {
                     Outcome::Death { pos: p, ent: e } => {
                         remove_uids.push(e);
-                        let creeps = self.ecs.read_storage::<Creep>();
-                        let towers = self.ecs.read_storage::<Tower>();
-                        let projs = self.ecs.read_storage::<Projectile>();
-                        let t = if let Some(_) = creeps.get(e) {
+                        let mut creeps = self.ecs.write_storage::<Creep>();
+                        let mut towers = self.ecs.write_storage::<Tower>();
+                        let mut projs = self.ecs.write_storage::<Projectile>();
+                        let t = if let Some(c) = creeps.get_mut(e) {
+                            if let Some(bt) = c.block_tower {
+                                if let Some(t) = towers.get_mut(bt) { 
+                                    t.block_creeps.retain(|&x| x != e);
+                                }
+                            }
                             "creep"
-                        } else if let Some(_) = towers.get(e) {
+                        } else if let Some(t) = towers.get_mut(e) {
+                            for ce in t.block_creeps.iter() {
+                                if let Some(c) = creeps.get_mut(*ce) { 
+                                    c.block_tower = None;
+                                    next_outcomes.push(Outcome::CreepWalk { target: ce.clone() });
+                                }
+                            }
                             "tower"
-                        } else if let Some(_) = projs.get(e) {
+                        } else if let Some(p) = projs.get_mut(e) {
                             "projectile"
                         } else { "" };
                         if t != "" {
@@ -256,7 +339,7 @@ impl State {
                         let mut e2 = target.ok_or(err_msg("err"))?;
                         let (msd, p2) = {
                             let positions = self.ecs.read_storage::<Pos>();
-                            let tproperty = self.ecs.read_storage::<TProperty>();
+                            let tproperty = self.ecs.read_storage::<TAttack>();
                             
                             let p1 = positions.get(e1).ok_or(err_msg("err"))?;
                             let p2 = positions.get(e2).ok_or(err_msg("err"))?;
@@ -280,12 +363,31 @@ impl State {
                         cjs.as_object_mut().unwrap().insert("id".to_owned(), json!(e.id()));
                         self.mqtx.try_send(MqttMsg::new_s("td/all/res", "creep", "C", json!(cjs)));
                     }
-                    Outcome::Tower { td } => {
+                    Outcome::Tower { pos, td } => {
                         let mut cjs = json!(td);
-                        let e = self.ecs.create_entity().with(Pos(td.pos)).with(Tower::new()).with(td.tdata).build();
+                        let e = self.ecs.create_entity().with(Pos(pos)).with(Tower::new()).with(td.tpty).with(td.tatk).build();
                         cjs.as_object_mut().unwrap().insert("id".to_owned(), json!(e.id()));
+                        cjs.as_object_mut().unwrap().insert("pos".to_owned(), json!(pos));
                         self.mqtx.try_send(MqttMsg::new_s("td/all/res", "tower", "C", json!(cjs)));
                         self.ecs.get_mut::<Searcher>().unwrap().tower.needsort = true;
+                    }
+                    Outcome::CreepStop { source, target } => {
+                        let mut creeps = self.ecs.write_storage::<Creep>();
+                        let c = creeps.get_mut(target).ok_or(err_msg("err"))?;
+                        c.block_tower = Some(source);
+                        c.status = CreepStatus::Stop;
+                        let positions = self.ecs.read_storage::<Pos>();
+                        let pos = positions.get(target).ok_or(err_msg("err"))?;
+                        self.mqtx.try_send(MqttMsg::new_s("td/all/res", "creep", "M", json!({
+                            "id": target.id(),
+                            "x": pos.0.x,
+                            "y": pos.0.y,
+                        })));
+                    }
+                    Outcome::CreepWalk { target } => {
+                        let mut creeps = self.ecs.write_storage::<Creep>();
+                        let creep = creeps.get_mut(target).ok_or(err_msg("err"))?;
+                        creep.status = CreepStatus::PreWalk;
                     }
                     _=>{}
                 }
@@ -293,6 +395,7 @@ impl State {
         }
         self.ecs.delete_entities(&remove_uids[..]);
         self.ecs.write_resource::<Vec<Outcome>>().clear();
+        self.ecs.write_resource::<Vec<Outcome>>().append(&mut next_outcomes);
         Ok(())
     }
     pub fn creep_wave(&mut self) -> Result<(), Error> {

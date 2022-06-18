@@ -17,19 +17,33 @@
         {"Name":"c5", "Class":"End", "X":0, "Y":4000}
     ],
     "Tower":[
-        {"Name":"arrow1", "Range":300, "Attack":
-            {"AType":"target", "AttackSpeed":0.5, "Physic":3, "Magic":0, 
-          "Real":0,"cost":3}
+        {"Name":"arrow1", "Property":{"Hp": 10, "Block": 1}, "Attack":
+            {"Range":300, "AttackSpeed":0.5, "Physic":3, "Magic":0, 
+          "cost":3}
         },
-        {"Name":"arrow2", "Range":500, "Attack":
-            {"AType":"target", "AttackSpeed":0.5, "Physic":3, "Magic":0, 
-          "Real":0,"cost":5}
+        {"Name":"arrow2", "Property":{"Hp": 10, "Block": 1}, "Attack":
+            {"Range":500, "AttackSpeed":0.5, "Physic":3, "Magic":0, 
+          "cost":5}
         }
     ],
     "CreepWave":[
         {"Name":"Wave1", "StartTime":1, "Detail":[
             {"Path":"path1", "Creeps":[
-                {"Time":0, "Creep":"cp1"}
+                {"Time":0, "Creep":"cp1"},
+                {"Time":2, "Creep":"cp2"},
+                {"Time":3, "Creep":"cp2"},
+                {"Time":4, "Creep":"cp2"},
+                {"Time":5, "Creep":"cp2"},
+                {"Time":6, "Creep":"cp2"},
+                {"Time":7, "Creep":"cp2"},
+                {"Time":8, "Creep":"cp2"},
+                {"Time":12, "Creep":"cp2"},
+                {"Time":13, "Creep":"cp2"},
+                {"Time":14, "Creep":"cp2"},
+                {"Time":15, "Creep":"cp2"},
+                {"Time":16, "Creep":"cp2"},
+                {"Time":17, "Creep":"cp2"},
+                {"Time":18, "Creep":"cp2"}
                 ]
             },
             {"Path":"path2", "Creeps":[

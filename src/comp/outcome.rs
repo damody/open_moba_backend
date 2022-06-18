@@ -10,8 +10,9 @@ use std::ops::DerefMut;
 use std::cmp::Ordering;
 use voracious_radix_sort::{Radixable, RadixSort};
 use crate::Tower;
+use crate::TAttack;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum Outcome {
     Damage {
         pos: Vec2<f32>,
@@ -33,7 +34,15 @@ pub enum Outcome {
     Creep {
         cd: CreepData,
     },
+    CreepStop {
+        source: EcsEntity,
+        target: EcsEntity,
+    },
+    CreepWalk {
+        target: EcsEntity,
+    },
     Tower {
+        pos: Vec2<f32>,
         td: TowerData,
     }
 }
@@ -47,16 +56,16 @@ pub struct CreepData {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TowerData {
-    pub pos: Vec2<f32>,
-    pub tdata: TProperty,
+    pub tpty: TProperty,
+    pub tatk: TAttack,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub struct PosXIndex {
     pub e: EcsEntity,
     pub p: Vec2<f32>,
 }
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub struct PosYIndex {
     pub e: EcsEntity,
     pub p: Vec2<f32>,
@@ -95,7 +104,7 @@ impl Radixable<f32> for PosYIndex {
         self.p.y
     }
 }
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub struct DisIndex {
     pub e: EcsEntity,
     pub dis: f32,
@@ -124,7 +133,7 @@ impl Radixable<f32> for DisIndex {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub struct DisIndex2 {
     pub e: EcsEntity,
     pub p: Vec2<f32>,
@@ -153,13 +162,13 @@ impl Radixable<u32> for DisIndex2 {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct Searcher {
     pub tower: PosData,
     pub creep: PosData,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct PosData {
     pub xpos: Vec<PosXIndex>,
     pub ypos: Vec<PosYIndex>,
