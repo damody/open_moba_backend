@@ -5,7 +5,7 @@ use specs::{
 use crate::comp::*;
 use specs::prelude::ParallelIterator;
 use specs::saveload::MarkerAllocator;
-use specs::Entity as EcsEntity;
+use specs::Entity;
 use vek::Vec2;
 
 #[derive(SystemData)]

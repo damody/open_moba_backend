@@ -10,7 +10,7 @@ use vek::*;
 use std::{
     time::{Duration, Instant},
 };
-use specs::Entity as EcsEntity;
+use specs::Entity;
 
 #[derive(SystemData)]
 pub struct TowerRead<'a> {
@@ -59,7 +59,7 @@ impl<'a> System<'a> for Sys {
                 },
                 |_guard, (e, tower, pty, atk, pos)| {
                     let mut outcomes:Vec<Outcome> = Vec::new();
-                    if atk.asd_count < atk.asd {
+                    if atk.asd_count < atk.asd.val() {
                         atk.asd_count += dt;
                     }
                     if pty.mblock > 0 {
@@ -71,7 +71,7 @@ impl<'a> System<'a> for Sys {
                                 rm_ids.push(bc);
                             }
                         }
-                        let bc: Vec<EcsEntity> = tower.block_creeps.iter().filter(|e| rm_ids.contains(&e)).map(|e| *e).collect();
+                        let bc: Vec<Entity> = tower.block_creeps.iter().filter(|e| rm_ids.contains(&e)).map(|e| *e).collect();
                         tower.block_creeps = bc;
                         pty.block = tower.block_creeps.len() as i32;
                     }
@@ -91,13 +91,13 @@ impl<'a> System<'a> for Sys {
                             }
                         }
                     }
-                    if atk.asd_count >= atk.asd {
+                    if atk.asd_count >= atk.asd.val() {
                         let time2 = Instant::now();
                         let elpsed = time2.duration_since(time1);
                         if elpsed.as_secs_f32() < 0.05 {
                             let search_n = 1.max(pty.mblock) as usize;
                             let (creeps, near_creeps) = 
-                                tr.searcher.creep.SearchNN_XY2(pos.0, atk.range, atk.range+30., search_n);
+                                tr.searcher.creep.SearchNN_XY2(pos.0, atk.range.val(), atk.range.val()+30., search_n);
                             if creeps.len() > 0 {
                                 // 如果需要阻檔的話才要記錄最近的單位
                                 if pty.mblock > 0 {
@@ -106,11 +106,11 @@ impl<'a> System<'a> for Sys {
                                         tower.nearby_creeps.push(NearbyEnt { ent: e.e, dis: e.dis });
                                     }
                                 }
-                                atk.asd_count -= atk.asd;
+                                atk.asd_count -= atk.asd.val();
                                 outcomes.push(Outcome::ProjectileLine2 { pos: pos.0.clone(), source: Some(e.clone()), target: Some(creeps[0].e) });
                             } else {
                                 if near_creeps.len() == 0 {
-                                    atk.asd_count = atk.asd - 0.3 - fastrand::u8(..) as f32 * 0.001;
+                                    atk.asd_count = atk.asd.val() - 0.3 - fastrand::u8(..) as f32 * 0.001;
                                 }
                             }
                         }

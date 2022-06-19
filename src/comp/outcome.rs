@@ -3,7 +3,7 @@ use super::Projectile;
 use hashbrown::HashSet;
 use serde::{Deserialize, Serialize};
 use vek::*;
-use specs::Entity as EcsEntity;
+use specs::Entity;
 use std::collections::VecDeque;
 use std::sync::Mutex;
 use std::ops::DerefMut;
@@ -19,27 +19,27 @@ pub enum Outcome {
         phys: f32,
         magi: f32,
         real: f32,
-        source: EcsEntity,
-        target: EcsEntity,
+        source: Entity,
+        target: Entity,
     },
     ProjectileLine2 {
         pos: Vec2<f32>,
-        source: Option<EcsEntity>,
-        target: Option<EcsEntity>,
+        source: Option<Entity>,
+        target: Option<Entity>,
     },
     Death {
         pos: Vec2<f32>,
-        ent: EcsEntity,
+        ent: Entity,
     },
     Creep {
         cd: CreepData,
     },
     CreepStop {
-        source: EcsEntity,
-        target: EcsEntity,
+        source: Entity,
+        target: Entity,
     },
     CreepWalk {
-        target: EcsEntity,
+        target: Entity,
     },
     Tower {
         pos: Vec2<f32>,
@@ -62,12 +62,12 @@ pub struct TowerData {
 
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub struct PosXIndex {
-    pub e: EcsEntity,
+    pub e: Entity,
     pub p: Vec2<f32>,
 }
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub struct PosYIndex {
-    pub e: EcsEntity,
+    pub e: Entity,
     pub p: Vec2<f32>,
 }
 impl PartialOrd for PosXIndex {
@@ -106,7 +106,7 @@ impl Radixable<f32> for PosYIndex {
 }
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub struct DisIndex {
-    pub e: EcsEntity,
+    pub e: Entity,
     pub dis: f32,
 }
 impl Eq for DisIndex {}
@@ -135,7 +135,7 @@ impl Radixable<f32> for DisIndex {
 
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub struct DisIndex2 {
-    pub e: EcsEntity,
+    pub e: Entity,
     pub p: Vec2<f32>,
 }
 impl Eq for DisIndex2 {}

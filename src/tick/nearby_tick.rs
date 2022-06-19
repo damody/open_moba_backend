@@ -3,7 +3,7 @@ use std::collections::hash_map;
 use hashbrown::HashMap;
 use specs::{
     shred::{ResourceId, World}, Entities, Join, LazyUpdate, Read, ReadExpect, ReadStorage, SystemData,
-    Write, WriteStorage, ParJoin, Entity as EcsEntity,
+    Write, WriteStorage, ParJoin, Entity,
 };
 use crate::comp::*;
 use crate::comp::phys::*;

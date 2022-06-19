@@ -30,7 +30,7 @@ use specs::{
     prelude::Resource,
     shred::{Fetch, FetchMut},
     storage::{MaskedStorage as EcsMaskedStorage, Storage as EcsStorage},
-    Component, DispatcherBuilder, Entity as EcsEntity, WorldExt,
+    Component, DispatcherBuilder, Entity, WorldExt,
 };
 use serde_json::{self, json};
 use crate::ue4::import_map::CreepWaveData;

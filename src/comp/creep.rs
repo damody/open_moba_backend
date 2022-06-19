@@ -1,6 +1,6 @@
 use specs::storage::VecStorage;
 use specs::{Component, FlaggedStorage, NullStorage, saveload};
-use specs::Entity as EcsEntity;
+use specs::Entity;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -15,7 +15,7 @@ pub struct Creep {
     pub name: String,
     pub path: String,
     pub pidx: usize,
-    pub block_tower: Option<EcsEntity>,
+    pub block_tower: Option<Entity>,
     pub status: CreepStatus,
 }
 
@@ -67,5 +67,5 @@ pub struct TakenDamage {
     pub phys: f32,
     pub magi: f32,
     pub real: f32,
-    pub ent: EcsEntity,
+    pub ent: Entity,
 }

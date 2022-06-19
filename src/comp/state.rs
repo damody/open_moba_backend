@@ -4,7 +4,7 @@ use specs::{
     prelude::Resource,
     shred::{Fetch, FetchMut},
     storage::{MaskedStorage as EcsMaskedStorage, Storage as EcsStorage},
-    Component, DispatcherBuilder, Entity as EcsEntity, WorldExt, Builder,
+    Component, DispatcherBuilder, Entity, WorldExt, Builder,
 };
 use specs::world::Generation;
 use std::sync::Arc;
@@ -269,7 +269,7 @@ impl State {
         match pd.a.as_str() {
             "C" => {
                 let mut p = Player { name: pd.name.clone(), cost: 100., towers: vec![] };
-                p.towers.push(TowerData { tpty: TProperty::new(10, 1, 100.), tatk: TAttack::new(3., 0.3, 300., 100.) });
+                p.towers.push(TowerData { tpty: TProperty::new(10., 1, 100.), tatk: TAttack::new(3., 0.3, 300., 100.) });
                 pmap.insert(pd.name.clone(), p);
                 self.mqtx.try_send(MqttMsg::new_s("td/all/res", "player", "C", json!({"msg":"ok"})))?;
             }
