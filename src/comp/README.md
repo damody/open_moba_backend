@@ -65,6 +65,12 @@
   - `Ability` - 技能配置數據
   - 包含技能的所有靜態屬性
 
+- **ability_comp.rs** - ability-system 整合組件
+  - `AbilityComponent` - 技能狀態管理（技能ID映射、等級管理）
+  - `AbilityRequestComponent` - 技能請求佇列
+  - `AbilityResultComponent` - 技能處理結果
+  - 與 ability-system 子系統的 ECS 整合介面
+
 ### 其他系統
 
 - **player.rs** - 玩家系統
