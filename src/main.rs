@@ -10,9 +10,11 @@ mod comp;
 mod tick;
 mod ue4;
 mod msg;
+mod json_preprocessor;
 use crate::msg::MqttMsg;
 pub mod config;
 use crate::config::server_config::CONFIG;
+use crate::json_preprocessor::JsonPreprocessor;
 use uuid::Uuid;
 use regex::Regex;
 use crate::msg::PlayerData;
@@ -34,6 +36,7 @@ use specs::{
 };
 use serde_json::{self, json};
 use crate::ue4::import_map::CreepWaveData;
+use crate::ue4::import_campaign::CampaignData;
 use rumqttc::{Client, Connection, MqttOptions, QoS};
 use crossbeam_channel::{bounded, select, tick, Receiver, Sender};
 
@@ -64,8 +67,22 @@ fn read_input() -> String {
 #[async_std::main]
 async fn main() -> std::result::Result<(), Error> {
     log4rs::init_file("log4rs.yml", Default::default()).unwrap();
-    let map_json = fs::read_to_string("map.json")
-        .expect("Something went wrong reading the file");
+    
+    // 載入戰役資料
+    let campaign_data = CampaignData::load_from_path("Story/B01_1")
+        .expect("Failed to load campaign data from Story/B01_1");
+    
+    // 驗證戰役資料完整性
+    if let Err(err) = campaign_data.validate() {
+        log::error!("Campaign data validation failed: {}", err);
+        return Err(err_msg(err));
+    }
+    
+    log::info!("Campaign '{}' loaded successfully", campaign_data.mission.campaign.name);
+    log::info!("Hero: {} - {}", campaign_data.entity.heroes[0].name, campaign_data.entity.heroes[0].title);
+    log::info!("Total stages: {}", campaign_data.mission.stages.len());
+    log::info!("Total abilities: {}", campaign_data.ability.abilities.len());
+    
     // 初始化mqtt
     let server_addr = CONFIG.SERVER_IP.clone();
     let server_port = CONFIG.SERVER_PORT.clone();
@@ -75,10 +92,8 @@ async fn main() -> std::result::Result<(), Error> {
     let (mqtx, rx): (Sender<MqttMsg>, Receiver<MqttMsg>) = bounded(10000);
     let mqrx = pub_mqtt_loop(server_addr.clone(), server_port.clone(), rx.clone(), client_id.clone()).await?;
     thread::sleep(Duration::from_millis(500));
-    // 初始化怪物波次
-    let creep_wave: CreepWaveData = serde_json::from_str(&map_json)?;
     // 初始化 ECS
-    let mut state = State::new(creep_wave, mqtx, mqrx);
+    let mut state = State::new_with_campaign(campaign_data, mqtx, mqrx);
     let mut clock = Clock::new(Duration::from_secs_f64(1.0 / TPS as f64));
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || {

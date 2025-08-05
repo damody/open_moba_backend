@@ -21,6 +21,7 @@ use crate::Outcome;
 use crate::Projectile;
 use crate::PlayerData;
 use crate::ue4::import_map::CreepWaveData;
+use crate::ue4::import_campaign::CampaignData;
 use serde_json::json;
 
 use specs::saveload::MarkerAllocator;
@@ -31,6 +32,7 @@ use crossbeam_channel::{bounded, select, tick, Receiver, Sender};
 pub struct State {
     ecs: specs::World,
     cw: CreepWaveData,
+    campaign: Option<CampaignData>, // 戰役資料
     mqtx: Sender<MqttMsg>,
     mqrx: Receiver<PlayerData>,
     // Avoid lifetime annotation by storing a thread pool instead of the whole dispatcher
@@ -54,12 +56,36 @@ impl State {
         let mut res = Self {
             ecs: Self::setup_ecs_world(&thread_pool),
             cw: pcw,
+            campaign: None,
             mqtx: mqtx.clone(),
             mqrx: mqrx.clone(),
             thread_pool,
         };
         res.init_creep_wave();
         res.create_test_scene();
+        res
+    }
+    
+    /// 使用戰役資料創建新的 State
+    pub fn new_with_campaign(campaign_data: CampaignData, mqtx: Sender<MqttMsg>, mqrx: Receiver<PlayerData>) -> Self {
+        let thread_pool = Arc::new(
+            ThreadPoolBuilder::new()
+                .num_threads(num_cpus::get())
+                .thread_name(move |i| format!("rayon-{}", i))
+                .build()
+                .unwrap(),
+        );
+        let mut res = Self {
+            ecs: Self::setup_ecs_world_with_campaign(&thread_pool),
+            cw: campaign_data.map.clone(),
+            campaign: Some(campaign_data.clone()),
+            mqtx: mqtx.clone(),
+            mqrx: mqrx.clone(),
+            thread_pool,
+        };
+        res.init_campaign_data(&campaign_data);
+        res.init_creep_wave();
+        res.create_campaign_scene(&campaign_data);
         res
     }
     fn init_creep_wave(&mut self) {
@@ -144,6 +170,308 @@ impl State {
         ecs
     }
     
+    /// 設置支援戰役的 ECS 世界
+    fn setup_ecs_world_with_campaign(thread_pool: &Arc<ThreadPool>) -> specs::World {
+        let mut ecs = Self::setup_ecs_world(thread_pool);
+        
+        // 註冊戰役相關組件
+        ecs.register::<Hero>();
+        ecs.register::<Ability>();
+        ecs.register::<AbilityEffect>();
+        ecs.register::<Enemy>();
+        ecs.register::<Campaign>();
+        ecs.register::<Stage>();
+        ecs.register::<Unit>();
+        ecs.register::<Faction>();
+        ecs.register::<DamageInstance>();
+        ecs.register::<DamageResult>();
+        ecs.register::<Skill>();
+        ecs.register::<SkillEffect>();
+        
+        // 戰役相關資源
+        ecs.insert(BTreeMap::<String, Hero>::new());
+        ecs.insert(BTreeMap::<String, Ability>::new());
+        ecs.insert(BTreeMap::<String, Enemy>::new());
+        ecs.insert(Vec::<AbilityEffect>::new());
+        ecs.insert(Vec::<DamageInstance>::new());
+        ecs.insert(Vec::<SkillInput>::new());
+        
+        ecs
+    }
+    
+    /// 初始化戰役資料到 ECS
+    fn init_campaign_data(&mut self, campaign_data: &CampaignData) {
+        log::info!("Initializing campaign data for: {}", campaign_data.mission.campaign.name);
+        
+        // 初始化英雄
+        let mut heroes = self.ecs.get_mut::<BTreeMap<String, Hero>>().unwrap();
+        for hero_data in &campaign_data.entity.heroes {
+            let hero = Hero::from_campaign_data(hero_data);
+            log::info!("Loading hero: {} - {}", hero.name, hero.title);
+            heroes.insert(hero.id.clone(), hero);
+        }
+        
+        // 初始化技能
+        let mut abilities = self.ecs.get_mut::<BTreeMap<String, Ability>>().unwrap();
+        for (ability_id, ability_data) in &campaign_data.ability.abilities {
+            let ability = Ability::from_campaign_data(ability_data);
+            log::info!("Loading ability: {} ({})", ability.name, ability.key_binding);
+            abilities.insert(ability_id.clone(), ability);
+        }
+        
+        // 初始化敵人
+        let mut enemies = self.ecs.get_mut::<BTreeMap<String, Enemy>>().unwrap();
+        for enemy_data in &campaign_data.entity.enemies {
+            let enemy = Enemy::from_campaign_data(enemy_data);
+            log::info!("Loading enemy: {} ({})", enemy.name, enemy.id);
+            enemies.insert(enemy.id.clone(), enemy);
+        }
+        
+        // 創建戰役組件
+        let campaign = Campaign::from_campaign_data(&campaign_data.mission.campaign);
+        let campaign_entity = self.ecs.create_entity().with(campaign).build();
+        
+        // 創建關卡組件
+        for stage_data in &campaign_data.mission.stages {
+            let stage = Stage::from_campaign_data(stage_data, campaign_data.mission.campaign.id.clone());
+            let stage_entity = self.ecs.create_entity().with(stage).build();
+            log::info!("Loading stage: {} ({})", stage_data.name, stage_data.id);
+        }
+        
+        log::info!("Campaign initialization completed");
+    }
+    
+    /// 創建戰役場景
+    fn create_campaign_scene(&mut self, campaign_data: &CampaignData) {
+        log::info!("Creating campaign scene for: {}", campaign_data.mission.campaign.name);
+        
+        // 根據戰役類型創建相應的場景
+        match campaign_data.mission.campaign.difficulty.as_str() {
+            "tutorial" => self.create_tutorial_scene(campaign_data),
+            _ => self.create_training_scene(campaign_data),
+        }
+    }
+    
+    /// 創建教學場景
+    fn create_tutorial_scene(&mut self, campaign_data: &CampaignData) {
+        log::info!("Setting up tutorial scene");
+        // 教學場景特殊設置
+    }
+    
+    /// 創建訓練場景
+    fn create_training_scene(&mut self, campaign_data: &CampaignData) {
+        log::info!("Setting up training scene for sniper practice");
+        
+        // 創建主要英雄實體
+        if let Some(hero_data) = campaign_data.entity.heroes.first() {
+            let hero = Hero::from_campaign_data(hero_data);
+            
+            // 創建英雄的戰鬥屬性
+            let hero_properties = self.create_hero_properties(&hero, hero_data);
+            let hero_attack = self.create_hero_attack(&hero, hero_data);
+            
+            // 創建英雄的 Unit 組件
+            let hero_unit = Unit {
+                id: hero.id.clone(),
+                name: hero.name.clone(),
+                unit_type: UnitType::Hero,
+                max_hp: hero.get_max_hp() as i32,
+                current_hp: hero.get_max_hp() as i32,
+                base_armor: hero_data.base_armor,
+                magic_resistance: 0.0,
+                base_damage: hero.get_base_damage() as i32,
+                attack_range: hero_data.attack_range,
+                move_speed: hero.get_move_speed(),
+                attack_speed: hero.get_attack_speed_multiplier(),
+                ai_type: unit::AiType::None, // 英雄由玩家控制，不需要AI
+                aggro_range: hero_data.attack_range + 200.0,
+                abilities: hero_data.abilities.clone(),
+                current_target: None,
+                last_attack_time: 0.0,
+                spawn_position: (0.0, 0.0),
+                exp_reward: 0,
+                gold_reward: 0,
+                bounty_type: BountyType::None,
+            };
+            
+            let hero_faction = Faction::new(FactionType::Player, 0); // 玩家陣營，隊伍0
+            
+            // 英雄起始位置
+            let hero_pos = Pos(Vec2::new(0.0, 0.0));
+            let hero_vel = Vel(Vec2::new(0.0, 0.0));
+            
+            let hero_entity = self.ecs.create_entity()
+                .with(hero_pos)
+                .with(hero_vel)
+                .with(hero)
+                .with(hero_unit)
+                .with(hero_faction)
+                .with(hero_properties)
+                .with(hero_attack)
+                .build();
+                
+            log::info!("Created hero entity '{}' with full combat components", hero_data.name);
+            
+            // 初始化英雄的技能實體
+            self.create_hero_abilities(hero_entity, &hero_data.abilities, campaign_data);
+            
+            // 創建訓練用敵人
+            self.create_training_enemies(campaign_data);
+        }
+    }
+    
+    /// 創建英雄屬性組件
+    fn create_hero_properties(&self, hero: &Hero, hero_data: &crate::ue4::import_campaign::HeroJD) -> CProperty {
+        let max_hp = hero.get_max_hp();
+        let move_speed = hero.get_move_speed();
+        
+        CProperty {
+            hp: max_hp,
+            mhp: max_hp,
+            msd: move_speed,
+            def_physic: hero_data.base_armor,
+            def_magic: 0.0, // 基礎魔抗為 0
+        }
+    }
+    
+    /// 創建英雄攻擊組件
+    fn create_hero_attack(&self, hero: &Hero, hero_data: &crate::ue4::import_campaign::HeroJD) -> TAttack {
+        let base_damage = hero.get_base_damage();
+        let attack_speed_multiplier = hero.get_attack_speed_multiplier();
+        let attack_interval = 1.0 / attack_speed_multiplier; // 攻擊間隔
+        
+        TAttack {
+            atk_physic: Vf32::new(base_damage),
+            asd: Vf32::new(attack_interval),
+            range: Vf32::new(hero_data.attack_range),
+            asd_count: 0.0,
+            bullet_speed: 1000.0, // 投射物速度
+        }
+    }
+    
+    /// 創建英雄技能實體
+    fn create_hero_abilities(&mut self, hero_entity: specs::Entity, ability_ids: &[String], campaign_data: &CampaignData) {
+        for ability_id in ability_ids {
+            if let Some(ability_data) = campaign_data.ability.abilities.get(ability_id) {
+                let mut ability = Ability::from_campaign_data(ability_data);
+                
+                // 根據英雄等級設置技能等級（訓練模式下預設給一些技能點）
+                let initial_level = if ability_id == "sniper_mode" || ability_id == "saika_reinforcements" {
+                    1 // 基礎技能給 1 級
+                } else {
+                    0
+                };
+                ability.current_level = initial_level;
+                
+                let ability_entity = self.ecs.create_entity()
+                    .with(ability)
+                    .build();
+                    
+                // 創建對應的技能實例
+                let mut skill = Skill::new(ability_id.clone(), hero_entity);
+                skill.current_level = initial_level;
+                skill.level_up(); // 應用技能等級特殊屬性
+                
+                let skill_entity = self.ecs.create_entity()
+                    .with(skill)
+                    .build();
+                    
+                log::info!("Created ability '{}' and skill instance for hero", ability_data.name);
+            }
+        }
+    }
+    
+    /// 創建訓練用單位（包含敵人和小兵）
+    fn create_training_enemies(&mut self, campaign_data: &CampaignData) {
+        // 創建敵人單位
+        let enemy_positions = [
+            (800.0, 0.0),   // 800 距離處
+            (1000.0, 100.0), // 1000 距離處
+            (1200.0, -50.0), // 1200 距離處
+        ];
+        
+        for (i, (x, y)) in enemy_positions.iter().enumerate() {
+            if let Some(enemy_data) = campaign_data.entity.enemies.get(i % campaign_data.entity.enemies.len()) {
+                let unit = Unit::from_enemy_data(enemy_data);
+                let enemy_faction = Faction::new(FactionType::Enemy, 1); // 敵對陣營，隊伍1
+                let unit_pos = Pos(Vec2::new(*x, *y));
+                let unit_vel = Vel(Vec2::new(0.0, 0.0));
+                
+                // 創建單位的戰鬥屬性
+                let unit_properties = CProperty {
+                    hp: unit.current_hp as f32,
+                    mhp: unit.max_hp as f32,
+                    msd: unit.move_speed,
+                    def_physic: unit.base_armor,
+                    def_magic: unit.magic_resistance,
+                };
+                
+                let unit_attack = TAttack {
+                    atk_physic: Vf32::new(unit.base_damage as f32),
+                    asd: Vf32::new(1.0 / unit.attack_speed), // 攻擊間隔
+                    range: Vf32::new(unit.attack_range),
+                    asd_count: 0.0,
+                    bullet_speed: 800.0,
+                };
+                
+                let unit_entity = self.ecs.create_entity()
+                    .with(unit_pos)
+                    .with(unit_vel)
+                    .with(unit)
+                    .with(enemy_faction)
+                    .with(unit_properties)
+                    .with(unit_attack)
+                    .build();
+                    
+                log::info!("Created training enemy unit '{}' at position ({}, {})", enemy_data.name, x, y);
+            }
+        }
+        
+        // 創建訓練用小兵單位（練習假人等）
+        let creep_positions = [
+            (600.0, 50.0),   // 近距離假人
+            (1500.0, 0.0),   // 遠距離假人
+            (1300.0, 150.0), // 側翼假人
+        ];
+        
+        for (i, (x, y)) in creep_positions.iter().enumerate() {
+            if let Some(creep_data) = campaign_data.entity.creeps.get(i % campaign_data.entity.creeps.len()) {
+                let unit = Unit::from_creep_data(creep_data);
+                let creep_faction = Faction::new(FactionType::Enemy, 2); // 敵對陣營，但不同隊伍
+                let unit_pos = Pos(Vec2::new(*x, *y));
+                let unit_vel = Vel(Vec2::new(0.0, 0.0));
+                
+                // 創建單位的戰鬥屬性
+                let unit_properties = CProperty {
+                    hp: unit.current_hp as f32,
+                    mhp: unit.max_hp as f32,
+                    msd: unit.move_speed,
+                    def_physic: unit.base_armor,
+                    def_magic: unit.magic_resistance,
+                };
+                
+                let unit_attack = TAttack {
+                    atk_physic: Vf32::new(unit.base_damage as f32),
+                    asd: Vf32::new(1.0 / unit.attack_speed),
+                    range: Vf32::new(unit.attack_range),
+                    asd_count: 0.0,
+                    bullet_speed: 600.0,
+                };
+                
+                let unit_entity = self.ecs.create_entity()
+                    .with(unit_pos)
+                    .with(unit_vel)
+                    .with(unit)
+                    .with(creep_faction)
+                    .with(unit_properties)
+                    .with(unit_attack)
+                    .build();
+                    
+                log::info!("Created training creep unit '{}' at position ({}, {})", creep_data.name, x, y);
+            }
+        }
+    }
+    
     fn create_test_scene(&mut self) {
         let mut count = 0;
         let mut ocs = self.ecs.get_mut::<Vec<Outcome>>().unwrap();
@@ -215,6 +543,10 @@ impl State {
         dispatch::<nearby_tick::Sys>(&mut dispatch_builder, &[]);
         dispatch::<player_tick::Sys>(&mut dispatch_builder, &[]);
         dispatch::<tower_tick::Sys>(&mut dispatch_builder, &[]);
+        dispatch::<hero_tick::Sys>(&mut dispatch_builder, &[]);
+        dispatch::<damage_tick::Sys>(&mut dispatch_builder, &[]);
+        dispatch::<death_tick::Sys>(&mut dispatch_builder, &[]);
+        dispatch::<skill_tick::Sys>(&mut dispatch_builder, &[]);
         dispatch::<creep_tick::Sys>(&mut dispatch_builder, &[]);
         dispatch::<creep_wave::Sys>(&mut dispatch_builder, &[]);
 

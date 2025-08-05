@@ -1,0 +1,136 @@
+{
+    // ===== 路徑定義 =====
+    // 定義小兵在地圖上的移動路線
+    "Path": [
+        {
+            "Name": "path1",  // 主要進攻路線
+            "Points": ["c1", "c2", "c3", "c4", "c5"]  // 依序經過的檢查點
+        },
+        {
+            "Name": "path2",  // 側翼進攻路線
+            "Points": ["c1", "c4", "c3", "c2", "c5"]  // 不同的路徑提供戰術變化
+        }
+    ],
+    
+    /* ===== 小兵類型定義 =====
+     * 定義不同特性的小兵單位
+     * 可根據需要調整數值平衡
+     */
+    "Creep": [
+        {
+            "Name": "cp1",           // 重裝步兵
+            "DefendPhysic": 0,       // 物理防禦（可提升以增加難度）
+            "DefendMagic": 0,        // 魔法防禦
+            "HP": 100,               // 血量較高，適合吸收傷害
+            "MoveSpeed": 10,         // 移動緩慢
+            "coins": 10              // 擊殺獎勵較高
+        },
+        {
+            "Name": "cp2",           // 快速突擊兵
+            "DefendPhysic": 0,
+            "DefendMagic": 0,
+            "HP": 50,                // 血量較低，容易擊殺
+            "MoveSpeed": 50,         // 高速移動，威脅性大
+            "coins": 3               // 獎勵較低，需要量取勝
+        }
+    ],
+    
+    // ===== 檢查點定義 =====
+    // 地圖上的關鍵位置點
+    "CheckPoint": [
+        {"Name": "c1", "Class": "Start", "X": 0, "Y": 0},             // 小兵出生點
+        {"Name": "c2", "Class": "CheckPoint", "X": 0, "Y": 1000},     // 第一個轉彎
+        {"Name": "c3", "Class": "CheckPoint", "X": 1000, "Y": 2000},  // 中央戰場
+        {"Name": "c4", "Class": "CheckPoint", "X": 0, "Y": 3000},     // 最後防線
+        {"Name": "c5", "Class": "End", "X": 0, "Y": 4000}             // 基地位置
+    ],
+    
+    /* ===== 防禦塔定義 =====
+     * 玩家可建造的防禦建築
+     * 不同類型提供戰術選擇
+     */
+    "Tower": [
+        {
+            "Name": "arrow1",        // 基礎箭塔
+            "Property": {
+                "Hp": 10,            // 生命值（可被攻擊）
+                "Block": 1           // 可阻擋通過的單位數
+            },
+            "Attack": {
+                "Range": 300,        // 較短射程
+                "AttackSpeed": 0.5,  // 每2秒攻擊一次
+                "Physic": 3,         // 物理傷害
+                "Magic": 0,          // 無魔法傷害
+                "cost": 3            // 建造成本低，適合前期
+            }
+        },
+        {
+            "Name": "arrow2",        // 進階箭塔
+            "Property": {
+                "Hp": 10,
+                "Block": 1
+            },
+            "Attack": {
+                "Range": 500,        // 更長射程，覆蓋範圍大
+                "AttackSpeed": 0.5,
+                "Physic": 3,
+                "Magic": 0,
+                "cost": 5            // 成本較高，需要規劃經濟
+            }
+        }
+        /* TODO: 未來可加入的塔類型
+         * - 魔法塔：高魔法傷害，剋制高防禦單位
+         * - 減速塔：降低敵人移動速度
+         * - 範圍塔：AOE傷害，對付大量小兵
+         */
+    ],
+    
+    // ===== 小兵波次配置 =====
+    // 控制遊戲節奏的關鍵設定
+    "CreepWave": [
+        {
+            "Name": "Wave1",
+            "StartTime": 1,          // 遊戲開始後1秒啟動
+            "Detail": [
+                {
+                    "Path": "path1", // 主路線進攻
+                    "Creeps": [
+                        // 第一批：先鋒部隊
+                        {"Time": 0, "Creep": "cp1"},    // 重裝兵開路
+                        
+                        // 第二批：快速突擊（2-8秒）
+                        {"Time": 2, "Creep": "cp2"},
+                        {"Time": 3, "Creep": "cp2"},
+                        {"Time": 4, "Creep": "cp2"},
+                        {"Time": 5, "Creep": "cp2"},
+                        {"Time": 6, "Creep": "cp2"},
+                        {"Time": 7, "Creep": "cp2"},
+                        {"Time": 8, "Creep": "cp2"},
+                        
+                        // 第三批：增援部隊（12-18秒）
+                        {"Time": 12, "Creep": "cp2"},
+                        {"Time": 13, "Creep": "cp2"},
+                        {"Time": 14, "Creep": "cp2"},
+                        {"Time": 15, "Creep": "cp2"},
+                        {"Time": 16, "Creep": "cp2"},
+                        {"Time": 17, "Creep": "cp2"},
+                        {"Time": 18, "Creep": "cp2"}
+                    ]
+                },
+                {
+                    "Path": "path2",     // 側翼騷擾
+                    "Creeps": [
+                        {"Time": 0, "Creep": "cp1"},   // 間隔出兵
+                        {"Time": 5, "Creep": "cp1"},   // 分散防守壓力
+                        {"Time": 10, "Creep": "cp1"}
+                    ]
+                }
+            ]
+        }
+        /* 後續波次設計建議：
+         * Wave2: 增加小兵數量，混合兵種
+         * Wave3: 引入精英單位
+         * BossWave: 特殊BOSS單位
+         */
+    ]
+}

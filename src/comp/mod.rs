@@ -12,6 +12,13 @@ pub mod clock;
 pub mod creep;
 pub mod check_point;
 pub mod player;
+pub mod hero;
+pub mod ability;
+pub mod enemy;
+pub mod campaign;
+pub mod unit;
+pub mod damage;
+pub mod skill;
 
 pub use self::{
     phys::*,
@@ -28,4 +35,11 @@ pub use self::{
     creep::*,
     clock::*,
     check_point::*,
+    hero::*,
+    ability::*,
+    enemy::*,
+    campaign::*,
+    unit::*,
+    damage::*,
+    skill::*,
 };

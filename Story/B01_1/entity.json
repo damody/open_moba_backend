@@ -1,0 +1,168 @@
+{
+    // ===== 英雄單位定義 =====
+    "heroes": [
+        {
+            "id": "saika_magoichi",
+            "name": "雜賀孫市",
+            "title": "千里狙擊手",
+            "background": "雜賀眾的領袖，以精準的遠程射擊聞名於戰國時代",
+            
+            // 基礎屬性
+            "strength": 18,
+            "agility": 28,
+            "intelligence": 16,
+            "primary_attribute": "agility",
+            
+            // 戰鬥屬性
+            "attack_range": 900.0,
+            "base_damage": 52,
+            "base_armor": 1.5,
+            "base_hp": 580,
+            "base_mana": 300,
+            "move_speed": 320.0,
+            
+            // 技能引用
+            "abilities": ["sniper_mode", "saika_reinforcements", "rain_iron_cannon", "three_stage_technique"],
+            
+            // 升級數據
+            "level_growth": {
+                "strength_per_level": 1.8,
+                "agility_per_level": 3.2,
+                "intelligence_per_level": 1.6,
+                "damage_per_level": 2.8,
+                "hp_per_level": 58.0,
+                "mana_per_level": 26.0
+            }
+        }
+    ],
+    
+    // ===== 敵方單位定義 =====
+    "enemies": [
+        {
+            "id": "training_mage",
+            "name": "訓練法師",
+            "enemy_type": "caster",
+            "hp": 320,
+            "armor": 0.5,
+            "magic_resistance": 15.0,
+            "damage": 45,
+            "attack_range": 550.0,
+            "move_speed": 285.0,
+            "ai_type": "defensive",
+            "abilities": ["frostbolt"],
+            "exp_reward": 80,
+            "gold_reward": 45
+        },
+        {
+            "id": "fire_mage",
+            "name": "火焰法師",
+            "enemy_type": "caster",
+            "hp": 420,
+            "armor": 1.0,
+            "magic_resistance": 20.0,
+            "damage": 55,
+            "attack_range": 600.0,
+            "move_speed": 290.0,
+            "ai_type": "aggressive",
+            "abilities": ["fireball"],
+            "exp_reward": 100,
+            "gold_reward": 60
+        },
+        {
+            "id": "archmage_boss",
+            "name": "大法師",
+            "enemy_type": "boss",
+            "hp": 1500,
+            "armor": 3.0,
+            "magic_resistance": 35.0,
+            "damage": 85,
+            "attack_range": 700.0,
+            "move_speed": 300.0,
+            "ai_type": "aggressive",
+            "abilities": ["meteor_strike", "frostbolt", "fireball"],
+            "exp_reward": 400,
+            "gold_reward": 200
+        }
+    ],
+    
+    // ===== 小兵單位定義 =====
+    "creeps": [
+        {
+            "id": "practice_dummy",
+            "name": "練習假人",
+            "hp": 50,
+            "armor": 0.0,
+            "damage": 0,
+            "move_speed": 0.0,
+            "gold_reward": 5,
+            "bounty_type": "normal"
+        },
+        {
+            "id": "moving_target",
+            "name": "移動靶",
+            "hp": 75,
+            "armor": 0.0,
+            "damage": 0,
+            "move_speed": 150.0,
+            "gold_reward": 8,
+            "bounty_type": "normal"
+        },
+        {
+            "id": "training_creep",
+            "name": "訓練小兵",
+            "hp": 100,
+            "armor": 1.0,
+            "damage": 25,
+            "move_speed": 200.0,
+            "gold_reward": 12,
+            "bounty_type": "normal"
+        },
+        {
+            "id": "armored_dummy",
+            "name": "裝甲假人",
+            "hp": 200,
+            "armor": 5.0,
+            "damage": 0,
+            "move_speed": 50.0,
+            "gold_reward": 20,
+            "bounty_type": "siege"
+        }
+    ],
+    
+    // ===== 中立生物定義 =====
+    "neutrals": [
+        {
+            "id": "forest_ghost",
+            "name": "森林幽靈",
+            "hp": 150,
+            "armor": 0.0,
+            "damage": 30,
+            "move_speed": 280.0,
+            "respawn_time": 60.0,
+            "abilities": ["frost_attack"]
+        },
+        {
+            "id": "wild_wolf",
+            "name": "野狼",
+            "hp": 200,
+            "armor": 2.0,
+            "damage": 45,
+            "move_speed": 350.0,
+            "respawn_time": 90.0,
+            "abilities": ["critical_strike"]
+        }
+    ],
+    
+    // ===== 召喚物定義 =====
+    "summons": [
+        {
+            "id": "saika_gunner",
+            "name": "雜賀鐵炮兵",
+            "hp": 400,
+            "damage": 45,
+            "duration": 60.0,
+            "move_speed": 320.0,
+            "summoner_ability": "saika_reinforcements"
+        }
+    ]
+}

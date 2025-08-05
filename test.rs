@@ -1,0 +1,1 @@
+use crate::json_preprocessor::JsonPreprocessor; use crate::ue4::import_campaign::*; fn main() { match EntityData::load_from_path("Story/B01_1/entity.json") { Ok(_) => println\!("entity.json OK"), Err(e) => println\!("entity.json ERROR: {}", e) } }

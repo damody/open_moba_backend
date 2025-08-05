@@ -1,0 +1,48 @@
+[target.x86_64-unknown-linux-gnu]
+# 優化連結器設置
+rustflags = [
+    "-C", "link-arg=-Wl,-O1",  # 連結器優化
+    "-C", "link-arg=-Wl,--as-needed",  # 只連結需要的庫
+    "-C", "link-arg=-Wl,--gc-sections",  # 移除未使用的段
+]
+
+# 如果有安裝其他連結器，可以取消註釋使用：
+# 使用 mold（最快）：
+# linker = "clang"
+# rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+#
+# 使用 lld（次快）：
+# linker = "clang"
+# rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+
+[build]
+# 使用所有可用的 CPU 核心
+jobs = 6
+
+[profile.dev]
+# 開發模式優化
+opt-level = 0
+debug = 1  # 減少調試信息，加快連結
+lto = false
+codegen-units = 256  # 增加並行編譯單元
+incremental = true
+
+[profile.dev.package."*"]
+# 依賴項使用優化編譯
+opt-level = 3
+debug = false
+
+[profile.release]
+# 發布模式優化
+opt-level = 3
+lto = "thin"  # 使用 thin LTO 而不是 fat LTO
+codegen-units = 16  # 平衡編譯速度和優化
+strip = true  # 移除符號
+panic = "abort"  # 減少二進制大小
+
+# 快速編譯配置
+[profile.quick]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 256

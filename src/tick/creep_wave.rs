@@ -66,7 +66,6 @@ impl<'a> System<'a> for Sys {
                                     if let Some(ct) = cpoint {
                                         let mut cpp = cp.root.clone();
                                         cpp.path = pc.path_name.clone();
-                                        log::info!("creep wave time {} totaltime {}", w.time, totaltime);
                                         let cp0 = CreepData {
                                             pos: ct.pos.clone(),
                                             creep: cpp.clone(),
@@ -81,6 +80,7 @@ impl<'a> System<'a> for Sys {
                     }
                     if is_end {
                         cw.wave += 1;
+                        cw.path.clear(); // 清空路徑狀態，讓下一波重新初始化
                     }
                 }
             }

@@ -22,6 +22,8 @@ pub struct ProjectileWrite<'a> {
     projs : WriteStorage<'a, Projectile>,
     outcomes: Write<'a, Vec<Outcome>>,
     taken_damages: Write<'a, Vec<TakenDamage>>,
+    damage_instances: Write<'a, Vec<DamageInstance>>,
+    hero_attacks: ReadStorage<'a, TAttack>,
 }
 
 #[derive(Default)]
@@ -66,24 +68,24 @@ impl<'a> System<'a> for Sys {
                     }
                     proj.time_left -= dt;
                     if proj.time_left <= 0. {
-                        if let Some(e) = proj.target {
-                            taken_damages.push(TakenDamage{ent: e.clone(), phys:5., magi:3., real:0. });    
+                        // 投射物到達目標或超時，造成傷害
+                        if let Some(target) = proj.target {
+                            create_projectile_damage(&proj, target, &mut taken_damages);
                         }
                         outcomes.push(Outcome::Death { pos: pos.0.clone(), ent: e.clone() });
                     } else {
                         if dis < 1. {
-                            if proj.radius > 1. { // 擴散炮
-                                let creeps = tr.searcher.creep.SearchNN_XY(pos.0, proj.radius, 1);
-                                if creeps.len() > 0 {
-                                    taken_damages.push(TakenDamage{ent: creeps[0].e.clone(), phys:5., magi:3., real:0. });
-                                    outcomes.push(Outcome::Death { pos: pos.0.clone(), ent: e.clone() });
+                            // 投射物到達目標位置
+                            if proj.radius > 1. { // 範圍攻擊（擴散炮）
+                                let targets = tr.searcher.creep.SearchNN_XY(pos.0, proj.radius, 5);
+                                for target_info in targets.iter() {
+                                    create_projectile_damage(&proj, target_info.e, &mut taken_damages);
                                 }
-                            } else {
-                                if let Some(t) = proj.target {
-                                    taken_damages.push(TakenDamage{ent: t.clone(), phys:5., magi:3., real:0. });
-                                }
-                                outcomes.push(Outcome::Death { pos: pos.0.clone(), ent: e.clone() });
+                            } else if let Some(target) = proj.target {
+                                // 單體攻擊
+                                create_projectile_damage(&proj, target, &mut taken_damages);
                             }
+                            outcomes.push(Outcome::Death { pos: pos.0.clone(), ent: e.clone() });
                         }
                     }
                     (outcomes, taken_damages)
@@ -110,4 +112,23 @@ impl<'a> System<'a> for Sys {
         tw.taken_damages.append(&mut taken_damages);
         tw.outcomes.append(&mut outcomes);
     }
+}
+
+/// 創建投射物傷害 - 將會被新的傷害系統取代
+fn create_projectile_damage(
+    proj: &Projectile, 
+    target: specs::Entity, 
+    taken_damages: &mut Vec<TakenDamage>
+) {
+    // 暫時使用舊的 TakenDamage 系統，直到完全遷移到新系統
+    // TODO: 根據投射物來源計算實際傷害值
+    let damage = if proj.owner.id() > 0 {
+        // 來自英雄的攻擊
+        TakenDamage { ent: target, phys: 45.0, magi: 0.0, real: 0.0 }
+    } else {
+        // 來自塔或其他來源的攻擊
+        TakenDamage { ent: target, phys: 25.0, magi: 0.0, real: 0.0 }
+    };
+    
+    taken_damages.push(damage);
 }

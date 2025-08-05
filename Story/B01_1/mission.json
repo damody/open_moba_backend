@@ -1,0 +1,173 @@
+{
+    // ===== 戰役基本資訊 =====
+    "campaign": {
+        "id": "B01_1",
+        "name": "千里狙殺",
+        "hero_id": "saika_magoichi",
+        "description": "學習雜賀孫市的遠程狙擊技巧，掌握射程壓制的精髓",
+        "difficulty": "normal",
+        "unlock_requirements": []
+    },
+    
+    // ===== 關卡列表 =====
+    "stages": [
+        {
+            "id": "S0",
+            "name": "遠距補刀",
+            "stage_type": "training",
+            "time_limit": 60.0,
+            
+            "objectives": [
+                {
+                    "id": "kill_practice_dummies",
+                    "description": "擊殺 10 個練習假人",
+                    "objective_type": "kill",
+                    "target": "practice_dummy",
+                    "count": 10,
+                    "condition": null
+                }
+            ],
+            
+            "optional_objectives": [
+                {
+                    "id": "perfect_accuracy",
+                    "description": "達到 90% 命中率",
+                    "objective_type": "score",
+                    "target": "accuracy",
+                    "count": 90,
+                    "condition": null
+                }
+            ],
+            
+            "scoring": {
+                "max_stars": 3,
+                "star_thresholds": [50, 100, 150],
+                "scoring_factors": {
+                    "kills": 10,
+                    "accuracy": 2,
+                    "time_bonus": 1
+                }
+            },
+            
+            "environment": {
+                "weather": null,
+                "time_of_day": "day",
+                "wind": null,
+                "visibility": 1.0
+            },
+            
+            "ui_settings": {
+                "show_minimap": true,
+                "show_hero_stats": true,
+                "show_ability_cooldowns": true,
+                "show_damage_numbers": true,
+                "enable_pause": true,
+                "camera_mode": "follow"
+            }
+        },
+        
+        {
+            "id": "S1a",
+            "name": "基準試煉",
+            "stage_type": "combat",
+            "time_limit": null,
+            
+            "objectives": [
+                {
+                    "id": "defeat_training_mage",
+                    "description": "擊敗訓練法師",
+                    "objective_type": "kill",
+                    "target": "training_mage",
+                    "count": 1,
+                    "condition": null
+                }
+            ],
+            
+            "optional_objectives": [],
+            
+            "scoring": {
+                "max_stars": 3,
+                "star_thresholds": [100, 200, 300],
+                "scoring_factors": {
+                    "kills": 100,
+                    "health_remaining": 2,
+                    "time_bonus": 1
+                }
+            },
+            
+            "environment": {
+                "weather": null,
+                "time_of_day": "day",
+                "wind": null,
+                "visibility": 1.0
+            },
+            
+            "ui_settings": {
+                "show_minimap": true,
+                "show_hero_stats": true,
+                "show_ability_cooldowns": true,
+                "show_damage_numbers": true,
+                "enable_pause": true,
+                "camera_mode": "follow"
+            }
+        },
+        
+        {
+            "id": "S5",
+            "name": "最終火力網",
+            "stage_type": "survival",
+            "time_limit": 180.0,
+            
+            "objectives": [
+                {
+                    "id": "survive_waves",
+                    "description": "生存 3 分鐘",
+                    "objective_type": "survive",
+                    "target": "time",
+                    "count": 180,
+                    "condition": null
+                }
+            ],
+            
+            "optional_objectives": [
+                {
+                    "id": "kill_50_enemies",
+                    "description": "擊殺 50 個敵人",
+                    "objective_type": "kill",
+                    "target": "any_enemy",
+                    "count": 50,
+                    "condition": null
+                }
+            ],
+            
+            "scoring": {
+                "max_stars": 3,
+                "star_thresholds": [200, 400, 600],
+                "scoring_factors": {
+                    "kills": 5,
+                    "survival_time": 2,
+                    "damage_dealt": 1
+                }
+            },
+            
+            "environment": {
+                "weather": null,
+                "time_of_day": "day",
+                "wind": {
+                    "direction": 90.0,
+                    "strength": 150.0
+                },
+                "visibility": 1.0
+            },
+            
+            "ui_settings": {
+                "show_minimap": true,
+                "show_hero_stats": true,
+                "show_ability_cooldowns": true,
+                "show_damage_numbers": true,
+                "enable_pause": false,
+                "camera_mode": "follow"
+            }
+        }
+    ]
+}

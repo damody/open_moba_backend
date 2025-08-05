@@ -18,6 +18,7 @@ pub struct NearbyRead<'a> {
     entities: Entities<'a>,
     time: Read<'a, Time>,
     creeps : ReadStorage<'a, Creep>,
+    units : ReadStorage<'a, Unit>,
     pos : ReadStorage<'a, Pos>,
 }
 
@@ -40,19 +41,20 @@ impl<'a> System<'a> for Sys {
     const NAME: &'static str = "nearby";
 
     fn run(_job: &mut Job<Self>, (tr, mut tw): Self::SystemData) {
-        {//creep update
-            let (ents, pos) = (
+        {//unit update (包含所有單位：creeps, units)
+            // 收集所有 Unit 實體
+            let (unit_ents, unit_pos) = (
                 &tr.entities,
                 &tr.pos,
-                &tr.creeps,
+                &tr.units,
             )
                 .par_join()
                 .map_init(
                     || {
-                        prof_span!(guard, "nearby update rayon job");
+                        prof_span!(guard, "unit nearby update rayon job");
                         guard
                     },
-                    |_guard, (ent, pos,_)| {
+                    |_guard, (ent, pos, _)| {
                         (vec![ent], vec![*pos])
                     },
                 )
@@ -72,14 +74,60 @@ impl<'a> System<'a> for Sys {
                         (ents, pos)
                     },
                 );
+                
+            // 收集所有 Creep 實體（保持向後兼容）
+            let (creep_ents, creep_pos) = (
+                &tr.entities,
+                &tr.pos,
+                &tr.creeps,
+            )
+                .par_join()
+                .map_init(
+                    || {
+                        prof_span!(guard, "creep nearby update rayon job");
+                        guard
+                    },
+                    |_guard, (ent, pos, _)| {
+                        (vec![ent], vec![*pos])
+                    },
+                )
+                .fold(
+                    || (Vec::new(), Vec::new()),
+                    |(mut ents, mut pos), (mut u, mut p)| {
+                        ents.append(&mut u);
+                        pos.append(&mut p);
+                        (ents, pos)
+                    },
+                )
+                .reduce(
+                    || (Vec::new(), Vec::new()),
+                    |(mut ents, mut pos), (mut u, mut p)| {
+                        ents.append(&mut u);
+                        pos.append(&mut p);
+                        (ents, pos)
+                    },
+                );
+                
+            // 合併所有實體到 creep 索引中（向後兼容）
             tw.searcher.creep.xpos.clear();
             tw.searcher.creep.ypos.clear();
-            for (i, p) in pos.iter().enumerate() {
-                tw.searcher.creep.xpos.push(PosXIndex { e: ents[i], p: p.0.clone() });
-                tw.searcher.creep.ypos.push(PosYIndex { e: ents[i], p: p.0.clone() });
+            
+            // 添加 Unit 實體
+            for (i, p) in unit_pos.iter().enumerate() {
+                tw.searcher.creep.xpos.push(PosXIndex { e: unit_ents[i], p: p.0.clone() });
+                tw.searcher.creep.ypos.push(PosYIndex { e: unit_ents[i], p: p.0.clone() });
             }
+            
+            // 添加 Creep 實體
+            for (i, p) in creep_pos.iter().enumerate() {
+                tw.searcher.creep.xpos.push(PosXIndex { e: creep_ents[i], p: p.0.clone() });
+                tw.searcher.creep.ypos.push(PosYIndex { e: creep_ents[i], p: p.0.clone() });
+            }
+            
             tw.searcher.creep.xpos.voracious_mt_sort(4);
             tw.searcher.creep.ypos.voracious_mt_sort(4);
+            
+            log::debug!("Updated searcher index: {} units, {} creeps", unit_ents.len(), creep_ents.len());
         }
         if tw.searcher.tower.needsort {
             let (ents, pos) = (

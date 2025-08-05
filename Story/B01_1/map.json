@@ -1,0 +1,247 @@
+{
+    // ===== B01_1 雜賀孫市狙擊訓練場地圖 =====
+    // 專為狙擊訓練設計的開放式地形
+    "Path": [
+        {
+            "Name": "training_path",  // 訓練用移動路線
+            "Points": ["creep_spawn", "target_800", "target_1000", "target_1200", "target_1600"]
+        },
+        {
+            "Name": "circle_path",    // 環形移動路線（用於移動目標練習）
+            "Points": ["target_1000", "circle_1", "circle_2", "circle_3", "circle_4", "target_1000"]
+        }
+    ],
+    
+    // ===== 訓練用小兵定義 =====
+    "Creep": [
+        {
+            "Name": "practice_dummy",     // 練習假人
+            "DefendPhysic": 0,
+            "DefendMagic": 0,
+            "HP": 50,                     // 低血量，容易擊殺
+            "MoveSpeed": 0,               // 靜止不動
+            "coins": 5                    // 少量獎勵
+        },
+        {
+            "Name": "moving_target",      // 移動靶
+            "DefendPhysic": 0,
+            "DefendMagic": 0,
+            "HP": 75,
+            "MoveSpeed": 150,             // 中等移速
+            "coins": 8
+        },
+        {
+            "Name": "training_creep",     // 訓練小兵
+            "DefendPhysic": 1,
+            "DefendMagic": 0,
+            "HP": 100,
+            "MoveSpeed": 200,
+            "coins": 12
+        },
+        {
+            "Name": "armored_dummy",      // 裝甲假人（測試穿透）
+            "DefendPhysic": 5,
+            "DefendMagic": 2,
+            "HP": 200,
+            "MoveSpeed": 50,
+            "coins": 20
+        }
+    ],
+    
+    // ===== 檢查點定義 =====
+    // 訓練場的關鍵位置點
+    "CheckPoint": [
+        {"Name": "player_start", "Class": "Start", "X": 0, "Y": 0},           // 玩家起始位置
+        {"Name": "creep_spawn", "Class": "CreepSpawn", "X": 200, "Y": 100},   // 小兵生成點
+        
+        // 距離測試點（用於不同射程練習）
+        {"Name": "target_800", "Class": "Target", "X": 800, "Y": 0},          // 800距離標記
+        {"Name": "target_1000", "Class": "Target", "X": 1000, "Y": 0},        // 1000距離標記
+        {"Name": "target_1200", "Class": "Target", "X": 1200, "Y": 0},        // 1200距離標記
+        {"Name": "target_1600", "Class": "Target", "X": 1600, "Y": 0},        // 1600距離標記（雜賀最遠射程）
+        
+        // 環形移動路徑點（用於移動目標練習）
+        {"Name": "circle_1", "Class": "MovePath", "X": 1100, "Y": 100},
+        {"Name": "circle_2", "Class": "MovePath", "X": 1100, "Y": -100},
+        {"Name": "circle_3", "Class": "MovePath", "X": 900, "Y": -100},
+        {"Name": "circle_4", "Class": "MovePath", "X": 900, "Y": 100},
+        
+        // 特殊測試區域
+        {"Name": "boss_area", "Class": "BossArea", "X": 1400, "Y": 200},      // Boss戰區域
+        {"Name": "safe_zone", "Class": "SafeZone", "X": -100, "Y": 0},        // 安全區域
+        {"Name": "item_shop", "Class": "Shop", "X": -50, "Y": 50}             // 道具商店
+    ],
+    
+    // ===== 防禦塔定義 =====
+    // 訓練場不需要可建造塔，僅作為環境元素
+    "Tower": [
+        {
+            "Name": "target_tower",       // 目標塔（用作射擊目標）
+            "Property": {
+                "Hp": 500,
+                "Block": 0                 // 不阻擋移動
+            },
+            "Attack": {
+                "Range": 0,               // 不攻擊
+                "AttackSpeed": 0,
+                "Physic": 0,
+                "Magic": 0,
+                "cost": 0                 // 無法建造
+            }
+        },
+        {
+            "Name": "practice_tower",     // 練習塔（可攻擊的目標）
+            "Property": {
+                "Hp": 800,
+                "Block": 0
+            },
+            "Attack": {
+                "Range": 0,
+                "AttackSpeed": 0,
+                "Physic": 0,
+                "Magic": 0,
+                "cost": 0
+            }
+        }
+    ],
+    
+    // ===== 訓練波次配置 =====
+    // 針對不同關卡設計的小兵波次
+    "CreepWave": [
+        {
+            "Name": "S0_LastHit_Wave",    // S0關卡：遠距補刀
+            "StartTime": 3,
+            "Detail": [
+                {
+                    "Path": "training_path",
+                    "Creeps": [
+                        // 定期生成練習假人
+                        {"Time": 0, "Creep": "practice_dummy"},
+                        {"Time": 3, "Creep": "practice_dummy"},
+                        {"Time": 6, "Creep": "practice_dummy"},
+                        {"Time": 9, "Creep": "practice_dummy"},
+                        {"Time": 12, "Creep": "practice_dummy"},
+                        {"Time": 15, "Creep": "training_creep"},  // 混入移動目標
+                        {"Time": 18, "Creep": "practice_dummy"},
+                        {"Time": 21, "Creep": "practice_dummy"},
+                        {"Time": 24, "Creep": "training_creep"},
+                        {"Time": 27, "Creep": "practice_dummy"},
+                        {"Time": 30, "Creep": "practice_dummy"},
+                        {"Time": 33, "Creep": "training_creep"},
+                        {"Time": 36, "Creep": "practice_dummy"},
+                        {"Time": 39, "Creep": "practice_dummy"},
+                        {"Time": 42, "Creep": "training_creep"},
+                        {"Time": 45, "Creep": "practice_dummy"},
+                        {"Time": 48, "Creep": "practice_dummy"},
+                        {"Time": 51, "Creep": "training_creep"},
+                        {"Time": 54, "Creep": "practice_dummy"},
+                        {"Time": 57, "Creep": "practice_dummy"}
+                    ]
+                }
+            ]
+        },
+        {
+            "Name": "S1b_MovingTarget_Wave", // S1b關卡：移動目標
+            "StartTime": 2,
+            "Detail": [
+                {
+                    "Path": "circle_path",
+                    "Creeps": [
+                        {"Time": 0, "Creep": "moving_target"},
+                        {"Time": 8, "Creep": "moving_target"},
+                        {"Time": 16, "Creep": "moving_target"}
+                    ]
+                }
+            ]
+        },
+        {
+            "Name": "S6_ArmorTest_Wave",      // S6關卡：破甲測試
+            "StartTime": 5,
+            "Detail": [
+                {
+                    "Path": "training_path",
+                    "Creeps": [
+                        {"Time": 0, "Creep": "armored_dummy"},
+                        {"Time": 10, "Creep": "armored_dummy"}
+                    ]
+                }
+            ]
+        },
+        {
+            "Name": "S8_WindTest_Wave",       // S8關卡：風向測試
+            "StartTime": 3,
+            "Detail": [
+                {
+                    "Path": "circle_path",
+                    "Creeps": [
+                        {"Time": 0, "Creep": "moving_target"},
+                        {"Time": 12, "Creep": "moving_target"},
+                        {"Time": 24, "Creep": "moving_target"}
+                    ]
+                }
+            ]
+        },
+        {
+            "Name": "S9_ChainSnipe_Wave",     // S9關卡：連環狙擊
+            "StartTime": 2,
+            "Detail": [
+                {
+                    "Path": "training_path",
+                    "Creeps": [
+                        // 三個目標同時出現，測試快速連殺
+                        {"Time": 0, "Creep": "practice_dummy"},
+                        {"Time": 1, "Creep": "practice_dummy"},
+                        {"Time": 2, "Creep": "practice_dummy"}
+                    ]
+                }
+            ]
+        },
+        {
+            "Name": "S5_FinalDefense_Wave",   // S5關卡：最終守城
+            "StartTime": 10,
+            "Detail": [
+                {
+                    "Path": "training_path",
+                    "Creeps": [
+                        // 第一波：基礎測試
+                        {"Time": 0, "Creep": "training_creep"},
+                        {"Time": 2, "Creep": "training_creep"},
+                        {"Time": 4, "Creep": "training_creep"},
+                        {"Time": 6, "Creep": "training_creep"},
+                        
+                        // 第二波：混合難度
+                        {"Time": 30, "Creep": "moving_target"},
+                        {"Time": 32, "Creep": "training_creep"},
+                        {"Time": 34, "Creep": "armored_dummy"},
+                        {"Time": 36, "Creep": "moving_target"},
+                        {"Time": 38, "Creep": "training_creep"},
+                        
+                        // 第三波：高難度混戰
+                        {"Time": 90, "Creep": "armored_dummy"},
+                        {"Time": 92, "Creep": "moving_target"},
+                        {"Time": 94, "Creep": "armored_dummy"},
+                        {"Time": 96, "Creep": "moving_target"},
+                        {"Time": 98, "Creep": "armored_dummy"}
+                    ]
+                },
+                {
+                    "Path": "circle_path",
+                    "Creeps": [
+                        // 側翼騷擾
+                        {"Time": 45, "Creep": "moving_target"},
+                        {"Time": 75, "Creep": "moving_target"},
+                        {"Time": 105, "Creep": "moving_target"}
+                    ]
+                }
+            ]
+        }
+        /* 設計說明：
+         * - S0: 靜止目標補刀練習，建立基礎
+         * - S1b: 移動目標，測試追蹤能力
+         * - S6: 裝甲目標，測試傷害計算
+         * - S8: 環形移動，測試風向補償
+         * - S9: 多目標，測試快速切換
+         * - S5: 綜合測試，所有技能運用
+         */
+    ]
+}

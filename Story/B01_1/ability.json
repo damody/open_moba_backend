@@ -1,0 +1,187 @@
+{
+    // ===== 技能資料庫 =====
+    "abilities": {
+        "sniper_mode": {
+            "id": "sniper_mode",
+            "name": "狙擊模式",
+            "description": "轉換為狙擊狀態，增加攻擊距離但犧牲移動速度",
+            "ability_type": "active",
+            "key_binding": "W",
+            "cooldown": [10.0, 10.0, 10.0, 10.0],
+            "manaCost": [50, 50, 50, 50],
+            "cast_range": [0.0, 0.0, 0.0, 0.0],
+            "cast_time": 0.3,
+            "effects": {
+                "attackRangeBonus": [950, 1150, 1350, 1600],
+                "moveSpeedReduction": 0.7,
+                "lockDuration": [2, 3, 4, 5]
+            },
+            "dispellable": false,
+            "pierces_immunity": false,
+            "affects_buildings": false
+        },
+        
+        "saika_reinforcements": {
+            "id": "saika_reinforcements", 
+            "name": "雜賀眾",
+            "description": "召喚雜賀眾的同伴加入戰鬥，每級增加攻擊力15點",
+            "ability_type": "active",
+            "key_binding": "E",
+            "cooldown": [10.0, 10.0, 10.0, 10.0],
+            "manaCost": [100, 100, 100, 100],
+            "cast_range": [300.0, 300.0, 300.0, 300.0],
+            "cast_time": 0.5,
+            "effects": {
+                "summonCount": [2, 3, 4, 5],
+                "summonDuration": 60,
+                "summonAttackBonus": [15, 30, 45, 60]
+            },
+            "dispellable": true,
+            "pierces_immunity": false,
+            "affects_buildings": false
+        },
+        
+        "rain_iron_cannon": {
+            "id": "rain_iron_cannon",
+            "name": "雨鐵炮",
+            "description": "被動技能：攻擊有機率對不同目標類型造成額外物理傷害",
+            "ability_type": "passive",
+            "key_binding": "R",
+            "cooldown": [0.0, 0.0, 0.0],
+            "manaCost": [0, 0, 0],
+            "cast_range": [0.0, 0.0, 0.0],
+            "cast_time": 0.0,
+            "effects": {
+                "procChance": 0.45,
+                "buildingDamageBonus": [0.2, 0.3, 0.4],
+                "heroDamageBonus": [0.4, 0.5, 0.6],
+                "creepDamageBonus": [1.0, 1.4, 1.8]
+            },
+            "dispellable": false,
+            "pierces_immunity": true,
+            "affects_buildings": true
+        },
+        
+        "three_stage_technique": {
+            "id": "three_stage_technique",
+            "name": "三段",
+            "description": "終極技能：攻擊力獲得200%傷害加成的三段技法",
+            "ability_type": "ultimate",
+            "key_binding": "T",
+            "cooldown": [135.0, 123.0, 111.0],
+            "manaCost": [300, 350, 400],
+            "cast_range": [0.0, 0.0, 0.0],
+            "cast_time": 0.8,
+            "effects": {
+                "damageMultiplier": 3.0,
+                "duration": [7, 11, 13]
+            },
+            "dispellable": true,
+            "pierces_immunity": false,
+            "affects_buildings": true
+        },
+        
+        // ===== 敵人技能 =====
+        "frostbolt": {
+            "id": "frostbolt",
+            "name": "寒冰箭",
+            "description": "發射寒冰投射物，造成魔法傷害並減速目標",
+            "ability_type": "active",
+            "key_binding": "Q",
+            "cooldown": [4.0],
+            "manaCost": [60],
+            "cast_range": [600.0],
+            "cast_time": 0.5,
+            "effects": {
+                "damage": [100],
+                "slowPercent": 0.3,
+                "slowDuration": 2.0
+            },
+            "dispellable": true,
+            "pierces_immunity": false,
+            "affects_buildings": false
+        },
+        
+        "fireball": {
+            "id": "fireball",
+            "name": "火球術", 
+            "description": "發射火球，造成範圍魔法傷害",
+            "ability_type": "active",
+            "key_binding": "W",
+            "cooldown": [5.0],
+            "manaCost": [80],
+            "cast_range": [650.0],
+            "cast_time": 0.6,
+            "effects": {
+                "damage": [150],
+                "aoeRadius": 150,
+                "burnDamage": 20,
+                "burnDuration": 3.0
+            },
+            "dispellable": true,
+            "pierces_immunity": false,
+            "affects_buildings": true
+        },
+        
+        "meteor_strike": {
+            "id": "meteor_strike",
+            "name": "隕石衝擊",
+            "description": "召喚隕石攻擊指定區域",
+            "ability_type": "active",
+            "key_binding": "R",
+            "cooldown": [15.0],
+            "manaCost": [200],
+            "cast_range": [800.0],
+            "cast_time": 1.0,
+            "effects": {
+                "damage": [400],
+                "radius": 300,
+                "stunDuration": 1.5,
+                "delayTime": 1.5
+            },
+            "dispellable": false,
+            "pierces_immunity": false,
+            "affects_buildings": true
+        },
+        
+        // ===== 中立生物技能 =====
+        "frost_attack": {
+            "id": "frost_attack",
+            "name": "冰霜攻擊",
+            "description": "攻擊附帶減速效果",
+            "ability_type": "passive",
+            "key_binding": "",
+            "cooldown": [0.0],
+            "manaCost": [0],
+            "cast_range": [0.0],
+            "cast_time": 0.0,
+            "effects": {
+                "slowPercent": 0.2,
+                "slowDuration": 1.5,
+                "procChance": 1.0
+            },
+            "dispellable": true,
+            "pierces_immunity": false,
+            "affects_buildings": false
+        },
+        
+        "critical_strike": {
+            "id": "critical_strike",
+            "name": "致命一擊",
+            "description": "攻擊有機率造成暴擊傷害",
+            "ability_type": "passive",
+            "key_binding": "",
+            "cooldown": [0.0],
+            "manaCost": [0],
+            "cast_range": [0.0],
+            "cast_time": 0.0,
+            "effects": {
+                "critChance": 0.2,
+                "critMultiplier": 2.0
+            },
+            "dispellable": false,
+            "pierces_immunity": false,
+            "affects_buildings": false
+        }
+    }
+}

@@ -3,6 +3,27 @@ name = "specs_td"
 version = "0.1.0"
 edition = "2021"
 
+[lints.rust]
+warnings = "allow"
+
+# 開發時的快速編譯設置
+[profile.dev]
+opt-level = 0
+debug = 1
+split-debuginfo = "unpacked"
+incremental = true
+
+# 依賴項優化（即使在 dev 模式下）
+[profile.dev.package."*"]
+opt-level = 3
+debug = false
+
+# 快速編譯配置文件
+[profile.quick]
+inherits = "dev"
+opt-level = 1
+debug = 0
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
