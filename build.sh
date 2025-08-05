@@ -9,7 +9,7 @@ export RUSTFLAGS="-C link-arg=-Wl,-O1 -C link-arg=-Wl,--as-needed"
 source $HOME/.cargo/env
 
 # 清理舊的增量編譯緩存（可選）
-# cargo clean -p specs_td
+# cargo clean -p omobab
 
 # 編譯選項
 case "${1:-dev}" in

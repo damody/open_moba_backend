@@ -1,6 +1,8 @@
-# Open MOBA Backend
+# Open MOBA Backend (omobab)
 
 一個使用 Rust 開發的高效能 MOBA 遊戲後端服務器，採用 ECS (Entity Component System) 架構，支援即時多人對戰、塔防機制和豐富的遊戲道具系統。
+
+> **專案名稱**: omobab (Open MOBA Backend 的縮寫)
 
 ## 🎮 遊戲特色
 
@@ -82,7 +84,7 @@ open_moba_backend/
    MAX_PLAYER = 10000
    SERVER_IP = "your-broker-ip"
    SERVER_PORT = "1883"
-   CLIENT_ID = "specs_td"
+   CLIENT_ID = "omobab"
    ```
 
 3. **編譯並運行**
@@ -101,7 +103,7 @@ open_moba_backend/
 | MAX_PLAYER | 最大玩家數量 | 10000 |
 | SERVER_IP | MQTT Broker IP | "45.32.32.40" |
 | SERVER_PORT | MQTT Broker 端口 | "1883" |
-| CLIENT_ID | MQTT 客戶端 ID | "specs_td" |
+| CLIENT_ID | MQTT 客戶端 ID | "omobab" |
 
 #### log4rs.yml 日誌配置
 

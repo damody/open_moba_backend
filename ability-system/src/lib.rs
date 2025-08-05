@@ -3,6 +3,11 @@ use specs::Entity;
 use std::collections::HashMap;
 use vek::Vec2;
 
+pub mod handler;
+pub mod heroes;
+
+pub use handler::{AbilityHandler, AbilityRegistry};
+
 /// 技能類型
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -40,6 +45,18 @@ pub struct AbilityLevelData {
     pub range: f32,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
+}
+
+impl Default for AbilityLevelData {
+    fn default() -> Self {
+        Self {
+            cooldown: 0.0,
+            mana_cost: 0.0,
+            cast_time: 0.0,
+            range: 0.0,
+            extra: HashMap::new(),
+        }
+    }
 }
 
 /// 技能配置
@@ -135,16 +152,57 @@ impl Default for AbilityState {
 }
 
 /// 技能處理器 - 純邏輯處理，不依賴 ECS
+/// 
+/// 性能優化特性：
+/// - 使用 HashMap 進行 O(1) 技能查找
+/// - 預分配效果向量容量
+/// - 避免不必要的字符串分配
 #[derive(Debug)]
 pub struct AbilityProcessor {
     configs: HashMap<String, AbilityConfig>,
+    registry: AbilityRegistry,
+    // 性能計數器
+    #[cfg(feature = "metrics")]
+    execution_count: std::sync::atomic::AtomicU64,
 }
 
 impl AbilityProcessor {
     pub fn new() -> Self {
+        let mut registry = AbilityRegistry::new();
+        
+        // 註冊雜賀孫市的技能
+        registry.register(Box::new(heroes::B01_saika_magoichi::SniperModeHandler::new()));
+        registry.register(Box::new(heroes::B01_saika_magoichi::SaikaReinforcementsHandler::new()));
+        registry.register(Box::new(heroes::B01_saika_magoichi::RainIronCannonHandler::new()));
+        registry.register(Box::new(heroes::B01_saika_magoichi::ThreeStageHandler::new()));
+        
+        // 註冊伊達政宗的技能
+        registry.register(Box::new(heroes::B02_date_masamune::FlameBladeHandler::new()));
+        registry.register(Box::new(heroes::B02_date_masamune::FireDashHandler::new()));
+        registry.register(Box::new(heroes::B02_date_masamune::FlameAssaultHandler::new()));
+        registry.register(Box::new(heroes::B02_date_masamune::MatchlockGunHandler::new()));
+        
         Self {
-            configs: HashMap::new(),
+            configs: HashMap::with_capacity(32), // 預分配容量
+            registry,
+            #[cfg(feature = "metrics")]
+            execution_count: std::sync::atomic::AtomicU64::new(0),
         }
+    }
+
+    /// 註冊技能處理器
+    pub fn register_handler(&mut self, handler: Box<dyn AbilityHandler>) {
+        self.registry.register(handler);
+    }
+
+    /// 獲取已註冊的技能處理器
+    pub fn get_handler(&self, ability_id: &str) -> Option<&dyn AbilityHandler> {
+        self.registry.get_handler(ability_id)
+    }
+
+    /// 獲取註冊表
+    pub fn get_registry(&self) -> &AbilityRegistry {
+        &self.registry
     }
 
     /// 從JSON字符串載入技能配置
@@ -239,9 +297,33 @@ impl AbilityProcessor {
         }
     }
 
-    /// 生成技能效果
-    fn generate_effects(&self, request: &AbilityRequest, _config: &AbilityConfig, level_data: &AbilityLevelData) -> Vec<AbilityEffect> {
-        let mut effects = Vec::new();
+    /// 生成技能效果 - 使用新的模組化處理器
+    fn generate_effects(&self, request: &AbilityRequest, config: &AbilityConfig, level_data: &AbilityLevelData) -> Vec<AbilityEffect> {
+        #[cfg(feature = "metrics")]
+        {
+            self.execution_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        
+        // 檢查是否有註冊的處理器
+        if let Some(handler) = self.registry.get_handler(&request.ability_id) {
+            let mut effects = handler.execute(request, config, level_data);
+            
+            // 性能優化：預分配容量並避免重新分配
+            if effects.capacity() == 0 {
+                effects.reserve(4); // 大部分技能有 1-4 個效果
+            }
+            
+            effects
+        } else {
+            // 回退到舊系統（向後相容）
+            self.generate_effects_legacy(request, config, level_data)
+        }
+    }
+
+    /// 舊的技能效果生成系統（向後相容）
+    fn generate_effects_legacy(&self, request: &AbilityRequest, _config: &AbilityConfig, level_data: &AbilityLevelData) -> Vec<AbilityEffect> {
+        // 性能優化：預分配容量
+        let mut effects = Vec::with_capacity(4);
 
         match request.ability_id.as_str() {
             "sniper_mode" => {

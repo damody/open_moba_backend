@@ -14,6 +14,7 @@ mod tick;
 mod ue4;
 mod msg;
 mod json_preprocessor;
+mod mqtt;
 use crate::msg::MqttMsg;
 pub mod config;
 use crate::config::server_config::CONFIG;
@@ -42,6 +43,7 @@ use crate::ue4::import_map::CreepWaveData;
 use crate::ue4::import_campaign::CampaignData;
 use rumqttc::{Client, Connection, MqttOptions, QoS};
 use crossbeam_channel::{bounded, select, tick, Receiver, Sender};
+use crate::mqtt::test_interface::MqttTestInterfaceManager;
 
 const TPS: u64 = 10;
 
@@ -96,8 +98,13 @@ async fn main() -> std::result::Result<(), Error> {
     let mqrx = pub_mqtt_loop(server_addr.clone(), server_port.clone(), rx.clone(), client_id.clone()).await?;
     thread::sleep(Duration::from_millis(500));
     // 初始化 ECS
-    let mut state = State::new_with_campaign(campaign_data, mqtx, mqrx);
+    let mut state = State::new_with_campaign(campaign_data, mqtx.clone(), mqrx);
     let mut clock = Clock::new(Duration::from_secs_f64(1.0 / TPS as f64));
+    
+    // 啟動 MQTT 測試介面
+    let test_interface = MqttTestInterfaceManager::new(mqtx.clone());
+    test_interface.start(server_addr.clone(), server_port.clone());
+    log::info!("MQTT 測試介面已啟動，監聽主題 ability_test/command");
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || {
         loop {

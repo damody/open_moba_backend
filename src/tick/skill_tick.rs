@@ -291,9 +291,14 @@ fn execute_saika_reinforcements(
             let offset = vek::Vec2::new(angle.cos(), angle.sin()) * 100.0;
             let summon_pos = target_pos + offset;
             
-            // TODO: 創建召喚物實體
-            // 這裡應該創建雜賀鐵炮兵單位
-            log::info!("Summoned Saika gunner at ({:.1}, {:.1})", summon_pos.x, summon_pos.y);
+            // 使用新的召喚系統創建雜賀鐵炮兵
+            let owner_team = if let Some(faction) = tr.factions.get(input.caster) {
+                faction.team_id
+            } else {
+                1 // 默認玩家隊伍
+            };
+            
+            create_summoned_unit("saika_gunner", summon_pos, owner_team, Some(30.0), tr, tw);
         }
         
         log::info!("Saika reinforcements summoned ({} units)", summon_count);
@@ -569,11 +574,67 @@ fn apply_ability_effect_as_skill_effect(
             let effect_entity = tr.entities.create();
             tw.skill_effects.insert(effect_entity, skill_effect);
         }
-        AbilityEffect::Summon { position, unit_type, count, .. } => {
+        AbilityEffect::Summon { position, unit_type, count, duration } => {
             // 召喚效果處理
             info!("在位置 ({:.1}, {:.1}) 召喚 {} 個 {} 單位", 
                   position.x, position.y, count, unit_type);
-            // TODO: 實際的召喚邏輯
+            
+            // 獲取召喚者的陣營信息
+            let summoner_team = if let Some(summoner_entity) = find_summoner_entity(tr) {
+                if let Some(faction) = tr.factions.get(summoner_entity) {
+                    faction.team_id
+                } else {
+                    1 // 默認玩家隊伍
+                }
+            } else {
+                1
+            };
+            
+            // 創建召喚物
+            for i in 0..count {
+                // 計算每個召喚物的位置
+                let summon_pos = if count > 1 {
+                    let angle = (i as f32 / count as f32) * std::f32::consts::PI * 2.0;
+                    let offset = vek::Vec2::new(angle.cos(), angle.sin()) * 80.0;
+                    position + offset
+                } else {
+                    position
+                };
+                
+                create_summoned_unit(&unit_type, summon_pos, summoner_team, duration, tr, tw);
+            }
         }
     }
+}
+
+/// 創建召喚單位
+fn create_summoned_unit(
+    unit_type: &str,
+    position: vek::Vec2<f32>,
+    owner_team: i32,
+    duration: Option<f32>,
+    tr: &SkillRead,
+    tw: &mut SkillWrite,
+) {
+    // 使用Unit::create_summon_unit創建召喚物
+    if let Some(unit) = Unit::create_summon_unit(unit_type, (position.x, position.y), owner_team) {
+        // 生成召喚事件
+        tw.outcomes.push(Outcome::SpawnUnit {
+            pos: position,
+            unit: unit.clone(),
+            faction: Faction::new(FactionType::Player, owner_team),
+            duration,
+        });
+        
+        info!("創建召喚物 {} 在位置 ({:.1}, {:.1})", unit.name, position.x, position.y);
+    } else {
+        warn!("無法創建召喚單位類型: {}", unit_type);
+    }
+}
+
+/// 找到召喚者實體（用於獲取陣營信息）
+fn find_summoner_entity(tr: &SkillRead) -> Option<Entity> {
+    // 簡化版本：返回第一個英雄實體
+    // 在實際情況中，這應該從技能效果中獲取召喚者信息
+    (&tr.entities, &tr.heroes).join().next().map(|(entity, _)| entity)
 }

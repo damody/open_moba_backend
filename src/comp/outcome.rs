@@ -58,6 +58,12 @@ pub enum Outcome {
     GainExperience {
         target: Entity,
         amount: i32,
+    },
+    SpawnUnit {
+        pos: Vec2<f32>,
+        unit: crate::comp::Unit,
+        faction: crate::comp::Faction,
+        duration: Option<f32>,
     }
 }
 

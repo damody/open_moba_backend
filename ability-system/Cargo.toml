@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 authors = ["damody <t1238142000@gmail.com>"]
 
+# 隱藏所有編譯器警告
+[lints.rust]
+warnings = "allow"
+
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"

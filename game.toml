@@ -3,4 +3,4 @@ MAP = "map.json"
 MAX_PLAYER = 10000
 SERVER_IP = "45.32.32.40"
 SERVER_PORT = "1883"
-CLIENT_ID = "specs_td"
+CLIENT_ID = "omobab"

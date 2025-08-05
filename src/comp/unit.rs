@@ -46,6 +46,7 @@ pub enum UnitType {
     Elite,          // 精英
     Minion,         // 小怪
     TrainingDummy,  // 訓練假人
+    Summon,         // 召喚物
 }
 
 /// AI 行為類型
@@ -256,6 +257,136 @@ impl Unit {
     pub fn set_spawn_position(&mut self, x: f32, y: f32) {
         self.spawn_position = (x, y);
     }
+    
+    /// 創建雜賀鐵炮兵召喚單位
+    pub fn create_saika_gunner(position: (f32, f32), owner_team: i32) -> Self {
+        let mut unit = Unit {
+            id: "saika_gunner".to_string(),
+            name: "雜賀鐵炮兵".to_string(),
+            unit_type: UnitType::Summon,
+            max_hp: 150,        // 中等血量
+            current_hp: 150,
+            base_armor: 2.0,    // 輕甲
+            magic_resistance: 0.0,
+            base_damage: 35,    // 較高攻擊力
+            attack_range: 450.0, // 遠程攻擊
+            move_speed: 280.0,  // 較慢移速
+            attack_speed: 0.8,  // 較慢攻速但傷害高
+            ai_type: AiType::Aggressive, // 主動攻擊
+            aggro_range: 500.0, // 攻擊索敵範圍
+            abilities: Vec::new(),
+            current_target: None,
+            last_attack_time: 0.0,
+            spawn_position: position,
+            exp_reward: 0,      // 召喚物不給經驗
+            gold_reward: 0,     // 召喚物不給金錢
+            bounty_type: BountyType::None,
+        };
+        
+        unit.set_spawn_position(position.0, position.1);
+        unit
+    }
+    
+    /// 創建弓箭手召喚單位
+    pub fn create_archer(position: (f32, f32), owner_team: i32) -> Self {
+        let mut unit = Unit {
+            id: "archer".to_string(),
+            name: "弓箭手".to_string(),
+            unit_type: UnitType::Summon,
+            max_hp: 120,        // 較低血量
+            current_hp: 120,
+            base_armor: 1.0,    // 輕甲
+            magic_resistance: 0.0,
+            base_damage: 25,    // 中等攻擊力
+            attack_range: 550.0, // 遠程攻擊
+            move_speed: 320.0,  // 較快移速
+            attack_speed: 1.2,  // 較快攻速
+            ai_type: AiType::Aggressive,
+            aggro_range: 600.0,
+            abilities: Vec::new(),
+            current_target: None,
+            last_attack_time: 0.0,
+            spawn_position: position,
+            exp_reward: 0,
+            gold_reward: 0,
+            bounty_type: BountyType::None,
+        };
+        
+        unit.set_spawn_position(position.0, position.1);
+        unit
+    }
+    
+    /// 創建劍士召喚單位
+    pub fn create_swordsman(position: (f32, f32), owner_team: i32) -> Self {
+        let mut unit = Unit {
+            id: "swordsman".to_string(),
+            name: "劍士".to_string(),
+            unit_type: UnitType::Summon,
+            max_hp: 200,        // 高血量
+            current_hp: 200,
+            base_armor: 3.0,    // 重甲
+            magic_resistance: 10.0,
+            base_damage: 40,    // 高攻擊力
+            attack_range: 120.0, // 近戰攻擊
+            move_speed: 300.0,  // 中等移速
+            attack_speed: 0.9,  // 較慢攻速
+            ai_type: AiType::Aggressive,
+            aggro_range: 400.0,
+            abilities: Vec::new(),
+            current_target: None,
+            last_attack_time: 0.0,
+            spawn_position: position,
+            exp_reward: 0,
+            gold_reward: 0,
+            bounty_type: BountyType::None,
+        };
+        
+        unit.set_spawn_position(position.0, position.1);
+        unit
+    }
+    
+    /// 創建法師召喚單位
+    pub fn create_mage(position: (f32, f32), owner_team: i32) -> Self {
+        let mut unit = Unit {
+            id: "mage".to_string(),
+            name: "法師".to_string(),
+            unit_type: UnitType::Summon,
+            max_hp: 80,         // 低血量
+            current_hp: 80,
+            base_armor: 0.0,    // 無護甲
+            magic_resistance: 25.0, // 高魔抗
+            base_damage: 45,    // 高魔法攻擊力
+            attack_range: 600.0, // 超遠程攻擊
+            move_speed: 280.0,  // 慢移速
+            attack_speed: 0.7,  // 慢攻速但高傷害
+            ai_type: AiType::Defensive, // 防守型
+            aggro_range: 650.0,
+            abilities: vec!["magic_missile".to_string()], // 有技能
+            current_target: None,
+            last_attack_time: 0.0,
+            spawn_position: position,
+            exp_reward: 0,
+            gold_reward: 0,
+            bounty_type: BountyType::None,
+        };
+        
+        unit.set_spawn_position(position.0, position.1);
+        unit
+    }
+    
+    /// 創建通用召喚單位
+    pub fn create_summon_unit(unit_id: &str, position: (f32, f32), owner_team: i32) -> Option<Self> {
+        match unit_id {
+            "saika_gunner" => Some(Self::create_saika_gunner(position, owner_team)),
+            "archer" => Some(Self::create_archer(position, owner_team)),
+            "swordsman" => Some(Self::create_swordsman(position, owner_team)),
+            "mage" => Some(Self::create_mage(position, owner_team)),
+            _ => {
+                log::warn!("未知的召喚單位類型: {}", unit_id);
+                None
+            }
+        }
+    }
 }
 
 impl Faction {
@@ -298,5 +429,49 @@ impl Default for Unit {
 impl Default for Faction {
     fn default() -> Self {
         Faction::new(FactionType::Neutral, 0)
+    }
+}
+
+/// 召喚物組件 - 追蹤召喚單位的生命週期
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SummonedUnit {
+    pub summoner: Entity,        // 召喚者
+    pub duration: Option<f32>,   // 持續時間（秒），None 表示永久
+    pub time_remaining: Option<f32>, // 剩餘時間
+    pub summon_time: f32,        // 召喚時間戳
+}
+
+impl Component for SummonedUnit {
+    type Storage = VecStorage<Self>;
+}
+
+impl SummonedUnit {
+    /// 創建新的召喚物組件
+    pub fn new(summoner: Entity, duration: Option<f32>, current_time: f32) -> Self {
+        SummonedUnit {
+            summoner,
+            duration,
+            time_remaining: duration,
+            summon_time: current_time,
+        }
+    }
+    
+    /// 更新時間並檢查是否過期
+    pub fn update(&mut self, dt: f32) -> bool {
+        if let Some(ref mut remaining) = self.time_remaining {
+            *remaining -= dt;
+            *remaining <= 0.0
+        } else {
+            false // 永久召喚物不會過期
+        }
+    }
+    
+    /// 檢查是否過期
+    pub fn is_expired(&self) -> bool {
+        if let Some(remaining) = self.time_remaining {
+            remaining <= 0.0
+        } else {
+            false
+        }
     }
 }

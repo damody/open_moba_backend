@@ -55,7 +55,7 @@ MAP = "map.json"
 MAX_PLAYER = 10000
 SERVER_IP = "127.0.0.1"
 SERVER_PORT = "1883"
-CLIENT_ID = "specs_td"
+CLIENT_ID = "omobab"
 
 # 未來可擴展的配置
 # [game]

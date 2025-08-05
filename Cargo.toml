@@ -1,8 +1,13 @@
 [package]
-name = "specs_td"
+name = "omobab"
 version = "0.1.0"
 edition = "2021"
 authors = ["damody <t1238142000@gmail.com>"]
+
+
+# 隱藏所有編譯器警告
+[lints.rust]
+warnings = "allow"
 
 [workspace]
 members = [
