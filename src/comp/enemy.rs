@@ -258,7 +258,7 @@ impl Enemy {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
 pub enum DamageType {
     Physical, // 物理傷害
     Magical,  // 魔法傷害

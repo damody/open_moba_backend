@@ -17,13 +17,12 @@ pub struct DeathRead<'a> {
     heroes: ReadStorage<'a, Hero>,
     factions: ReadStorage<'a, Faction>,
     positions: ReadStorage<'a, Pos>,
+    properties: ReadStorage<'a, CProperty>,
 }
 
 #[derive(SystemData)]
 pub struct DeathWrite<'a> {
     outcomes: Write<'a, Vec<Outcome>>,
-    properties: WriteStorage<'a, CProperty>,
-    hero_storage: WriteStorage<'a, Hero>,
 }
 
 #[derive(Default)]
@@ -45,7 +44,7 @@ impl<'a> System<'a> for Sys {
         let mut death_rewards = Vec::new();
         
         // 檢查所有有 Unit 組件和 CProperty 組件的實體
-        for (entity, unit, properties, pos) in (&tr.entities, &tr.units, &tw.properties, &tr.positions).join() {
+        for (entity, unit, properties, pos) in (&tr.entities, &tr.units, &tr.properties, &tr.positions).join() {
             if properties.hp <= 0.0 {
                 dead_entities.push(entity);
                 
@@ -136,7 +135,7 @@ fn distribute_death_rewards(
     
     // 分配經驗值
     for (i, (hero_entity, distance_sq)) in eligible_heroes.iter().enumerate() {
-        if let Some(hero) = tw.hero_storage.get_mut(*hero_entity) {
+        if let Some(hero) = tr.heroes.get(*hero_entity) {
             let exp_to_give = if i == 0 {
                 // 最近的英雄獲得主要經驗
                 primary_exp
@@ -148,10 +147,11 @@ fn distribute_death_rewards(
             };
             
             if exp_to_give > 0 {
-                let leveled_up = hero.add_experience(exp_to_give);
-                log::info!("Hero '{}' gained {} experience{}", 
-                          hero.name, exp_to_give, 
-                          if leveled_up { " and leveled up!" } else { "" });
+                // 生成經驗獲得事件
+                tw.outcomes.push(Outcome::GainExperience {
+                    target: *hero_entity,
+                    amount: exp_to_give,
+                });
             }
         }
     }

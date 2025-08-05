@@ -44,6 +44,20 @@ pub enum Outcome {
     Tower {
         pos: Vec2<f32>,
         td: TowerData,
+    },
+    Heal {
+        pos: Vec2<f32>,
+        target: Entity,
+        amount: f32,
+    },
+    UpdateAttack {
+        target: Entity,
+        asd_count: Option<f32>,
+        cooldown_reset: bool,
+    },
+    GainExperience {
+        target: Entity,
+        amount: i32,
     }
 }
 
@@ -223,8 +237,8 @@ impl PosData {
                 ydata.push(DisIndex2 { e: p.e, p: p.p });
             }
         }
-        xdata.voracious_sort();
-        ydata.voracious_sort();
+        xdata.voracious_mt_sort(4);
+        ydata.voracious_mt_sort(4);
         let mut ary = [xdata.iter(), ydata.iter()];
         let intersection_iter = 
             sorted_intersection::SortedIntersection::new(&mut ary);
@@ -236,7 +250,7 @@ impl PosData {
                 res2.push(DisIndex { e: p.e, dis: dis });
             }
         }
-        res.voracious_sort();
+        res.voracious_mt_sort(4);
         res.truncate(n);
         (res, res2)
     }
@@ -307,8 +321,8 @@ impl PosData {
             }
             roffset += 1;
         }
-        xdata.voracious_sort();
-        ydata.voracious_sort();
+        xdata.voracious_mt_sort(4);
+        ydata.voracious_mt_sort(4);
         let mut ary = [xdata.iter(), ydata.iter()];
         let intersection_iter = 
             sorted_intersection::SortedIntersection::new(&mut ary);
@@ -318,7 +332,7 @@ impl PosData {
                 res.push(DisIndex { e: p.e, dis: dis });
             }
         }
-        res.voracious_sort();
+        res.voracious_mt_sort(4);
         res.truncate(n);
         res
     }

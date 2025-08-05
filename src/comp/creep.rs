@@ -68,4 +68,5 @@ pub struct TakenDamage {
     pub magi: f32,
     pub real: f32,
     pub ent: Entity,
+    pub source: Entity,  // 攻擊者
 }

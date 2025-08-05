@@ -9,18 +9,20 @@
 - **豐富道具系統**：包含卷軸、藥劑、武器等多種類型道具
 - **塔防機制**：支援防禦塔、小兵波次、投射物等核心遊戲機制
 - **屬性系統**：力量/敏捷/智力三圍屬性系統，支援主屬性加成
+- **技能系統**：支援 JSON 配置的技能系統，可動態載入和擴展技能
 
 ## 🏗️ 技術架構
 
 ### 核心技術棧
 
 - **語言**: Rust 2021 Edition
-- **ECS 框架**: Specs
+- **ECS 框架**: Specs (自定義版本，支援 Entity 序列化)
 - **通信協議**: MQTT (使用 rumqttc 客戶端)
 - **序列化**: Serde + JSON
-- **並發處理**: Rayon 線程池
+- **並發處理**: Rayon 線程池 + voracious_radix_sort 多緒排序
 - **日誌系統**: log4rs
 - **數學運算**: vek 向量數學庫
+- **技能系統**: ability-system 子系統 (支援 JSON 配置)
 
 ### 系統架構
 
@@ -34,15 +36,22 @@ open_moba_backend/
 │   │   ├── player.rs   # 玩家組件
 │   │   ├── tower.rs    # 防禦塔
 │   │   ├── projectile.rs # 投射物
+│   │   ├── skill.rs    # 技能組件
 │   │   └── ...
 │   ├── tick/           # 遊戲循環邏輯
 │   │   ├── creep_tick.rs    # 小兵更新
 │   │   ├── tower_tick.rs    # 防禦塔更新
 │   │   ├── player_tick.rs   # 玩家更新
+│   │   ├── skill_tick.rs    # 技能系統 (整合 ability-system)
 │   │   └── ...
 │   ├── config/         # 配置管理
 │   ├── ue4/           # UE4 地圖導入
 │   └── main.rs        # 主程序入口
+├── ability-system/     # 技能子系統
+│   ├── src/lib.rs     # 技能處理核心邏輯
+│   └── Cargo.toml     # 子系統依賴
+├── ability-configs/    # 技能配置檔案
+│   └── sniper_abilities.json  # 狙擊手技能配置
 ├── Cargo.toml         # 依賴配置
 ├── game.toml          # 遊戲配置
 ├── map.json           # 地圖數據
@@ -106,12 +115,26 @@ open_moba_backend/
 
 - **Pos**: 位置組件，包含 x, y, z 坐標
 - **Vel**: 速度組件，控制實體移動
-- **Health**: 生命值組件
-- **Attack**: 攻擊能力組件
-- **Player**: 玩家特有組件
+- **CProperty**: 戰鬥屬性組件（生命值、防禦力等）
+- **TAttack**: 攻擊能力組件
+- **Hero**: 英雄特有組件
+- **Unit**: 通用單位組件
 - **Creep**: 小兵組件
 - **Tower**: 防禦塔組件
 - **Projectile**: 投射物組件
+- **Skill**: 技能組件
+
+#### 🔒 架構改進與規範
+
+**嚴格的 ECS SystemData 分離**：
+- 實施嚴格的 Read/Write 結構分離，避免借用衝突
+- 禁止在 Write 結構中混用 ReadStorage，提高並發安全性
+- 統一事件驅動架構，所有實體操作通過 `Vec<Outcome>` 事件系統
+
+**事件驅動設計**：
+- ✅ **組件內容修改**：可在 tick 中直接修改屬性值（如 `hp -= 10`）
+- ❌ **實體生命週期**：創建/刪除實體必須通過事件系統處理
+- 統一的 `Outcome` 事件類型處理複雜的跨系統操作
 
 ### 遊戲循環 (Tick System)
 
@@ -121,7 +144,10 @@ open_moba_backend/
 2. **tower_tick**: 防禦塔攻擊邏輯
 3. **player_tick**: 玩家操作處理
 4. **projectile_tick**: 投射物物理計算
-5. **nearby_tick**: 鄰近實體檢測
+5. **nearby_tick**: 鄰近實體檢測 (使用多緒排序優化)
+6. **skill_tick**: 技能系統處理 (支援 JSON 配置技能)
+7. **damage_tick**: 傷害計算與應用
+8. **death_tick**: 死亡處理與重生邏輯
 
 ### MQTT 通信協議
 
@@ -145,12 +171,45 @@ open_moba_backend/
 3. **註冊組件**: 在 `comp/mod.rs` 中導出
 4. **註冊系統**: 在相應的 tick 模塊中整合
 
+### 技能系統開發
+
+#### 添加新技能
+
+1. **創建 JSON 配置檔案**
+   在 `ability-configs/` 目錄下創建新的 JSON 檔案：
+   ```json
+   {
+     "abilities": [{
+       "id": "skill_id",
+       "name": "技能名稱",
+       "type": "instant",
+       "cooldown": [10.0, 9.0, 8.0, 7.0],
+       "damage": [100.0, 150.0, 200.0, 250.0]
+     }]
+   }
+   ```
+
+2. **實現技能邏輯**
+   在 `ability-system/src/lib.rs` 的 `generate_effects` 方法中添加技能處理
+
+3. **載入配置**
+   在 `skill_tick.rs` 的 `ensure_initialized` 方法中添加配置檔案路徑
+
+4. **測試技能**
+   確保英雄的 Skill 組件設定正確的 `ability_id`
+
 ## 📊 效能特色
 
 - **多線程處理**: 使用 Rayon 線程池最大化 CPU 利用率
+- **多緒排序優化**: voracious_radix_sort 使用 4 個執行緒並行排序
 - **記憶體最佳化**: ECS 架構確保資料局部性
 - **非同步通信**: MQTT 客戶端支援非阻塞 I/O
 - **批次處理**: 遊戲邏輯批次更新減少開銷
+- **技能系統優化**: JSON 配置預載入，執行時零解析開銷
+- **單例模式**: 重量級資源（如 AbilityProcessor）使用全局單例避免重複初始化
+- **借用衝突消除**: 嚴格的 Read/Write 分離避免 Rust 借用檢查器衝突
+- **事件驅動最佳化**: 統一的事件系統減少跨系統通信開銷
+- **直接組件修改**: 允許直接修改組件內容，避免不必要的事件開銷
 
 ## 🐛 除錯與監控
 
@@ -201,7 +260,7 @@ open_moba_backend/
 
 ## 👥 開發團隊
 
-- 主要開發者：[Your Name]
+- 主要開發者：damody <t1238142000@gmail.com>
 - 貢獻者：見 [CONTRIBUTORS.md](CONTRIBUTORS.md)
 
 ## 🔗 相關連結

@@ -1,9 +1,9 @@
 use crossbeam_channel::{bounded, select, tick, Receiver, Sender};
 use failure::Error;
 use log::*;
-use math::round;
+// use math::round;  // 移除problematic math crate
 use rust_decimal::Decimal;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -114,7 +114,7 @@ impl Formatter for F32Formatter {
         if value == (nearest_int as f32) {
             serde_json::ser::CompactFormatter.write_i64(writer, nearest_int)
         } else {
-            write!(writer, "{}", round::floor(value.into(), 3))
+            write!(writer, "{:.3}", value)
         }
     }
 
@@ -127,7 +127,7 @@ impl Formatter for F32Formatter {
         if value == (nearest_int as f64) {
             serde_json::ser::CompactFormatter.write_i64(writer, nearest_int)
         } else {
-            write!(writer, "{}", round::floor(value.into(), 3))
+            write!(writer, "{:.3}", value)
         }
     }
 }

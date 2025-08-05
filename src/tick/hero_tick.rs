@@ -19,6 +19,7 @@ pub struct HeroRead<'a> {
     pos : ReadStorage<'a, Pos>,
     searcher : Read<'a, Searcher>,
     factions: ReadStorage<'a, Faction>,
+    propertys : ReadStorage<'a, CProperty>,
 }
 
 #[derive(SystemData)]  
@@ -26,7 +27,6 @@ pub struct HeroWrite<'a> {
     outcomes: Write<'a, Vec<Outcome>>,
     heroes : WriteStorage<'a, Hero>,
     units : WriteStorage<'a, Unit>,
-    propertys : WriteStorage<'a, CProperty>,
     tatks : WriteStorage<'a, TAttack>,
 }
 
@@ -57,7 +57,7 @@ impl<'a> System<'a> for Sys {
             &tr.entities,
             &mut tw.heroes,
             &mut tw.units,
-            &mut tw.propertys,
+            &tr.propertys,
             &mut tw.tatks,
             &tr.pos,
         )
@@ -70,13 +70,13 @@ impl<'a> System<'a> for Sys {
                 |_guard, (e, hero, unit, pty, atk, pos)| {
                     let mut outcomes: Vec<Outcome> = Vec::new();
                     
-                    // 更新攻擊冷卻時間
-                    if atk.asd_count < atk.asd.val() {
+                    // 直接更新攻擊冷卻時間
+                    if atk.asd_count < atk.asd.v {
                         atk.asd_count += dt;
                     }
                     
                     // 當攻擊冷卻時間到達時，嘗試攻擊
-                    if atk.asd_count >= atk.asd.val() {
+                    if atk.asd_count >= atk.asd.v {
                         let time2 = Instant::now();
                         let elpsed = time2.duration_since(time1);
                         
@@ -85,7 +85,7 @@ impl<'a> System<'a> for Sys {
                             // 搜尋攻擊範圍內的所有單位
                             let search_n = 10; // 搜尋最近的 10 個目標
                             let (potential_targets, _) = 
-                                tr.searcher.creep.SearchNN_XY2(pos.0, atk.range.val(), atk.range.val() + 30., search_n);
+                                tr.searcher.creep.SearchNN_XY2(pos.0, atk.range.v, atk.range.v + 30., search_n);
                                 
                             // 過濾出可攻擊的敵對目標
                             let mut valid_targets = Vec::new();
@@ -104,8 +104,8 @@ impl<'a> System<'a> for Sys {
                             }
                                 
                             if valid_targets.len() > 0 {
-                                // 重置攻擊冷卻時間
-                                atk.asd_count -= atk.asd.val();
+                                // 直接重置攻擊冷卻
+                                atk.asd_count -= atk.asd.v;
                                 
                                 // 攻擊最近的敵人
                                 let target = valid_targets[0].e;
@@ -115,11 +115,10 @@ impl<'a> System<'a> for Sys {
                                     target: Some(target) 
                                 });
                                 
-                                log::info!("Hero {} attacked hostile target at distance {:.1}", 
-                                          hero.name, valid_targets[0].dis.sqrt());
+                                // 攻擊日誌將在傷害處理時統一顯示
                             } else {
                                 // 沒有有效目標時，減少一些攻擊冷卻時間避免過度檢查
-                                atk.asd_count = atk.asd.val() - 0.3 - fastrand::u8(..) as f32 * 0.001;
+                                atk.asd_count = atk.asd.v - 0.3 - fastrand::u8(..) as f32 * 0.001;
                             }
                         }
                     }

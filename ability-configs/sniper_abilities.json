@@ -1,0 +1,234 @@
+{
+  // 狙擊手技能配置
+  "sniper_mode": {
+    "name": "狙擊模式",
+    "description": "切換到狙擊模式，大幅增加射程和傷害，但降低攻擊速度和移動速度",
+    "ability_type": "toggle",
+    "target_type": "none",
+    "cast_type": "instant",
+    
+    // 各等級數值
+    "levels": {
+      "1": {
+        "cooldown": 0.0,
+        "mana_cost": 0.0,
+        "range_bonus": 200.0,
+        "damage_bonus": 0.25,
+        "attack_speed_penalty": -0.30,
+        "move_speed_penalty": -0.50,
+        "accuracy_bonus": 0.10
+      },
+      "2": {
+        "cooldown": 0.0,
+        "mana_cost": 0.0,
+        "range_bonus": 250.0,
+        "damage_bonus": 0.30,
+        "attack_speed_penalty": -0.30,
+        "move_speed_penalty": -0.50,
+        "accuracy_bonus": 0.15
+      },
+      "3": {
+        "cooldown": 0.0,
+        "mana_cost": 0.0,
+        "range_bonus": 300.0,
+        "damage_bonus": 0.35,
+        "attack_speed_penalty": -0.30,
+        "move_speed_penalty": -0.50,
+        "accuracy_bonus": 0.20
+      },
+      "4": {
+        "cooldown": 0.0,
+        "mana_cost": 0.0,
+        "range_bonus": 350.0,
+        "damage_bonus": 0.40,
+        "attack_speed_penalty": -0.30,
+        "move_speed_penalty": -0.50,
+        "accuracy_bonus": 0.25
+      }
+    },
+    
+    // 技能特性
+    "properties": {
+      "toggle_sound": "sniper_mode_toggle.wav",
+      "visual_effect": "sniper_scope_overlay"
+    }
+  },
+
+  "saika_reinforcements": {
+    "name": "雜賀眾",
+    "description": "召喚雜賀鐵炮兵協助作戰，每級增加召喚數量和層數",
+    "ability_type": "active",
+    "target_type": "point", 
+    "cast_type": "instant",
+    
+    "levels": {
+      "1": {
+        "cooldown": 30.0,
+        "mana_cost": 80.0,
+        "cast_time": 0.5,
+        "range": 800.0,
+        "duration": 45.0,
+        "charges": 1,
+        "summon_count": 1,
+        "gunner_hp": 300.0,
+        "gunner_damage": 45.0
+      },
+      "2": {
+        "cooldown": 25.0,
+        "mana_cost": 90.0,
+        "cast_time": 0.5,
+        "range": 800.0,
+        "duration": 50.0,
+        "charges": 2,
+        "summon_count": 2,
+        "gunner_hp": 350.0,
+        "gunner_damage": 50.0
+      },
+      "3": {
+        "cooldown": 20.0,
+        "mana_cost": 100.0,
+        "cast_time": 0.5,
+        "range": 800.0,
+        "duration": 55.0,
+        "charges": 2,
+        "summon_count": 3,  
+        "gunner_hp": 400.0,
+        "gunner_damage": 55.0
+      },
+      "4": {
+        "cooldown": 15.0,
+        "mana_cost": 110.0,
+        "cast_time": 0.5,
+        "range": 800.0,
+        "duration": 60.0,
+        "charges": 3,
+        "summon_count": 4,
+        "gunner_hp": 450.0,
+        "gunner_damage": 60.0
+      }
+    },
+    
+    "properties": {
+      "summon_formation": "circle",
+      "summon_radius": 100.0,
+      "cast_sound": "summon_saika.wav",
+      "summon_effect": "gunpowder_smoke"
+    }
+  },
+
+  "rain_iron_cannon": {
+    "name": "雨鐵炮",
+    "description": "在目標區域降下鐵炮彈雨，對範圍內敵人造成持續傷害",
+    "ability_type": "ultimate",
+    "target_type": "point",
+    "cast_type": "channeled",
+    
+    "levels": {
+      "1": {
+        "cooldown": 100.0,
+        "mana_cost": 200.0,
+        "cast_time": 1.0,
+        "range": 1200.0,
+        "damage": 80.0,
+        "duration": 3.0,
+        "radius": 300.0,
+        "tick_interval": 0.2,
+        "total_ticks": 15
+      },
+      "2": {
+        "cooldown": 85.0,
+        "mana_cost": 250.0,
+        "cast_time": 1.0,
+        "range": 1200.0,
+        "damage": 120.0,
+        "duration": 3.0,
+        "radius": 350.0,
+        "tick_interval": 0.2,
+        "total_ticks": 15
+      },
+      "3": {
+        "cooldown": 70.0,
+        "mana_cost": 300.0,
+        "cast_time": 1.0,
+        "range": 1200.0,
+        "damage": 160.0,
+        "duration": 3.0,
+        "radius": 400.0,
+        "tick_interval": 0.2,
+        "total_ticks": 15
+      },
+      "4": {
+        "cooldown": 55.0,
+        "mana_cost": 350.0,
+        "cast_time": 1.0,
+        "range": 1200.0,
+        "damage": 200.0,
+        "duration": 3.0,
+        "radius": 450.0,
+        "tick_interval": 0.2,
+        "total_ticks": 15
+      }
+    },
+    
+    "properties": {
+      "cast_sound": "cannon_barrage_cast.wav",
+      "impact_sound": "cannon_impact.wav",
+      "visual_effect": "iron_rain",
+      "screen_shake": true
+    }
+  },
+
+  "three_stage_technique": {
+    "name": "三段擊",
+    "description": "快速進行三次連續攻擊，每次攻擊造成額外傷害",
+    "ability_type": "active",
+    "target_type": "unit",
+    "cast_type": "instant",
+    
+    "levels": {
+      "1": {
+        "cooldown": 12.0,
+        "mana_cost": 60.0,
+        "cast_time": 0.0,
+        "range": 0.0, // 使用普攻射程
+        "damage_per_attack": 50.0,
+        "attacks_count": 3,
+        "attack_interval": 0.15
+      },
+      "2": {
+        "cooldown": 11.0,
+        "mana_cost": 70.0,
+        "cast_time": 0.0,
+        "range": 0.0,
+        "damage_per_attack": 75.0,
+        "attacks_count": 3,
+        "attack_interval": 0.15
+      },
+      "3": {
+        "cooldown": 10.0,
+        "mana_cost": 80.0,
+        "cast_time": 0.0,
+        "range": 0.0,
+        "damage_per_attack": 100.0,
+        "attacks_count": 3,
+        "attack_interval": 0.15
+      },
+      "4": {
+        "cooldown": 9.0,
+        "mana_cost": 90.0,
+        "cast_time": 0.0,
+        "range": 0.0,
+        "damage_per_attack": 125.0,
+        "attacks_count": 3,
+        "attack_interval": 0.15
+      }
+    },
+    
+    "properties": {
+      "attack_animation": "rapid_fire",
+      "attack_sound": "rapid_gunshots.wav",
+      "muzzle_flash_effect": "triple_muzzle_flash",
+      "requires_target": true
+    }
+  }
+}

@@ -8,6 +8,8 @@ pub mod nearby_tick;
 pub mod projectile_tick;
 pub mod player_tick;
 pub mod skill_tick;
+// pub mod ability_tick;  // 舊的ability系統已停用
+// pub mod new_ability_tick;  // 移除，整合到skill_tick中
 
 pub use self::{
     tower_tick::*,
@@ -20,4 +22,6 @@ pub use self::{
     projectile_tick::*,
     player_tick::*,
     skill_tick::*,
+    // ability_tick::*,  // 舊的ability系統已停用
+    // new_ability_tick::*,  // 移除，整合到skill_tick中
 };

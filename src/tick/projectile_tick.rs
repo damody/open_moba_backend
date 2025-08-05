@@ -14,6 +14,7 @@ pub struct ProjectileRead<'a> {
     time: Read<'a, Time>,
     dt: Read<'a, DeltaTime>,
     searcher : Read<'a, Searcher>,
+    hero_attacks: ReadStorage<'a, TAttack>,
 }
 
 #[derive(SystemData)]
@@ -23,7 +24,6 @@ pub struct ProjectileWrite<'a> {
     outcomes: Write<'a, Vec<Outcome>>,
     taken_damages: Write<'a, Vec<TakenDamage>>,
     damage_instances: Write<'a, Vec<DamageInstance>>,
-    hero_attacks: ReadStorage<'a, TAttack>,
 }
 
 #[derive(Default)]
@@ -124,10 +124,10 @@ fn create_projectile_damage(
     // TODO: 根據投射物來源計算實際傷害值
     let damage = if proj.owner.id() > 0 {
         // 來自英雄的攻擊
-        TakenDamage { ent: target, phys: 45.0, magi: 0.0, real: 0.0 }
+        TakenDamage { ent: target, phys: 45.0, magi: 0.0, real: 0.0, source: proj.owner }
     } else {
         // 來自塔或其他來源的攻擊
-        TakenDamage { ent: target, phys: 25.0, magi: 0.0, real: 0.0 }
+        TakenDamage { ent: target, phys: 25.0, magi: 0.0, real: 0.0, source: proj.owner }
     };
     
     taken_damages.push(damage);

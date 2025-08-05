@@ -1,0 +1,20 @@
+[package]
+name = "ability-system"
+version = "0.1.0"
+edition = "2021"
+authors = ["damody <t1238142000@gmail.com>"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+serde_json = "1.0"
+log = "0.4"
+vek = { version = "0.15.8", features = ["serde"] }
+specs = { path = "../../specs", features = ["specs-derive"] }
+uuid = { version = "1.6.1", features = ["v4", "serde"] }
+anyhow = "1.0"
+thiserror = "1.0"
+
+[lib]
+name = "ability_system"
+path = "src/lib.rs"

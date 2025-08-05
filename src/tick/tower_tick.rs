@@ -1,8 +1,8 @@
 
 use instant_distance::Point;
 use specs::{
-    shred::{ResourceId, World}, Entities, Join, LazyUpdate, Read, ReadExpect, ReadStorage, SystemData,
-    Write, WriteStorage, ParJoin, 
+    shred::{ResourceId, World}, Entities, Join, LazyUpdate, Read, ReadExpect, ReadStorage,
+    Write, WriteStorage, ParJoin, SystemData,
 };
 use crate::comp::*;
 use specs::prelude::ParallelIterator;

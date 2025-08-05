@@ -195,6 +195,7 @@ impl State {
         ecs.insert(Vec::<AbilityEffect>::new());
         ecs.insert(Vec::<DamageInstance>::new());
         ecs.insert(Vec::<SkillInput>::new());
+        // ecs.insert(AbilityBridge::new());  // 暫時註解掉舊的AbilityBridge
         
         ecs
     }
@@ -240,6 +241,22 @@ impl State {
         
         log::info!("Campaign initialization completed");
     }
+    
+    /// 註冊英雄技能到新系統 (暫時註解掉，等待新系統整合)
+    // fn register_hero_abilities_to_new_system(&mut self, hero_entity: specs::Entity, ability_ids: &[String]) {
+    //     let mut ability_bridge = self.ecs.get_mut::<AbilityBridge>().unwrap();
+    //     
+    //     for ability_id in ability_ids {
+    //         ability_bridge.register_ability(hero_entity, ability_id.clone());
+    //         
+    //         // 為基礎技能升級
+    //         if ability_id == "sniper_mode" || ability_id == "saika_reinforcements" {
+    //             ability_bridge.level_up_ability(hero_entity, ability_id);
+    //         }
+    //     }
+    //     
+    //     log::info!("Registered {} abilities to new system for hero entity", ability_ids.len());
+    // }
     
     /// 創建戰役場景
     fn create_campaign_scene(&mut self, campaign_data: &CampaignData) {
@@ -312,8 +329,11 @@ impl State {
                 
             log::info!("Created hero entity '{}' with full combat components", hero_data.name);
             
-            // 初始化英雄的技能實體
+            // 初始化英雄的技能實體（舊系統）
             self.create_hero_abilities(hero_entity, &hero_data.abilities, campaign_data);
+            
+            // 註冊到新的ability系統 (暫時註解掉)
+            // self.register_hero_abilities_to_new_system(hero_entity, &hero_data.abilities);
             
             // 創建訓練用敵人
             self.create_training_enemies(campaign_data);
@@ -473,9 +493,11 @@ impl State {
     }
     
     fn create_test_scene(&mut self) {
-        let mut count = 0;
+        let count = 0;
+        // 移除不必要的 Vec<Outcome> 借用，避免與其他系統衝突
+        /*
         let mut ocs = self.ecs.get_mut::<Vec<Outcome>>().unwrap();
-        /*for x in (0..200).step_by(100) {
+        for x in (0..200).step_by(100) {
             for y in (0..200).step_by(100) {
                 count += 1;
                 ocs.push(Outcome::Tower { pos: Vec2::new(x as f32+200., y as f32+200.),
@@ -484,7 +506,8 @@ impl State {
                     tatk: TAttack::new(3., 1., 300., 100.),
                 } });
             }    
-        }*/
+        }
+        */
         log::warn!("count {}", count);
     }
     
@@ -539,16 +562,19 @@ impl State {
         
         let mut dispatch_builder = DispatcherBuilder::new().with_pool(Arc::clone(&self.thread_pool));
         
-        dispatch::<projectile_tick::Sys>(&mut dispatch_builder, &[]);
+        // 第一階段：不需要 Vec<Outcome> 的系統，可以並行執行
         dispatch::<nearby_tick::Sys>(&mut dispatch_builder, &[]);
         dispatch::<player_tick::Sys>(&mut dispatch_builder, &[]);
-        dispatch::<tower_tick::Sys>(&mut dispatch_builder, &[]);
-        dispatch::<hero_tick::Sys>(&mut dispatch_builder, &[]);
-        dispatch::<damage_tick::Sys>(&mut dispatch_builder, &[]);
-        dispatch::<death_tick::Sys>(&mut dispatch_builder, &[]);
-        dispatch::<skill_tick::Sys>(&mut dispatch_builder, &[]);
-        dispatch::<creep_tick::Sys>(&mut dispatch_builder, &[]);
-        dispatch::<creep_wave::Sys>(&mut dispatch_builder, &[]);
+        
+        // 第二階段：需要 Vec<Outcome> 的系統，按依賴順序執行
+        dispatch::<projectile_tick::Sys>(&mut dispatch_builder, &["nearby_sys", "player_sys"]);
+        dispatch::<tower_tick::Sys>(&mut dispatch_builder, &["projectile_sys"]);
+        dispatch::<hero_tick::Sys>(&mut dispatch_builder, &["tower_sys"]);
+        dispatch::<skill_tick::Sys>(&mut dispatch_builder, &["hero_sys"]);
+        dispatch::<creep_tick::Sys>(&mut dispatch_builder, &["skill_sys"]);
+        dispatch::<creep_wave::Sys>(&mut dispatch_builder, &["creep_sys"]);
+        dispatch::<damage_tick::Sys>(&mut dispatch_builder, &["creep_wave_sys"]);
+        dispatch::<death_tick::Sys>(&mut dispatch_builder, &["damage_sys"]);
 
         let mut dispatcher = dispatch_builder.build();
         dispatcher.dispatch(&self.ecs);
@@ -720,6 +746,100 @@ impl State {
                         let mut creeps = self.ecs.write_storage::<Creep>();
                         let creep = creeps.get_mut(target).ok_or(err_msg("err"))?;
                         creep.status = CreepStatus::PreWalk;
+                    }
+                    Outcome::Damage { pos, phys, magi, real, source, target } => {
+                        let mut properties = self.ecs.write_storage::<CProperty>();
+                        if let Some(target_props) = properties.get_mut(target) {
+                            let hp_before = target_props.hp;
+                            let total_damage = phys + magi + real;
+                            target_props.hp -= total_damage;
+                            let hp_after = target_props.hp;
+                            
+                            // 獲取攻擊者和目標名稱用於日誌
+                            let (source_name, target_name) = {
+                                let creeps = self.ecs.read_storage::<Creep>();
+                                let heroes = self.ecs.read_storage::<Hero>();
+                                let units = self.ecs.read_storage::<Unit>();
+                                
+                                // 獲取攻擊者名稱
+                                let source_name = if let Some(creep) = creeps.get(source) {
+                                    creep.name.clone()
+                                } else if let Some(hero) = heroes.get(source) {
+                                    hero.name.clone()
+                                } else if let Some(unit) = units.get(source) {
+                                    unit.name.clone()
+                                } else {
+                                    "Unknown".to_string()
+                                };
+                                
+                                // 獲取目標名稱
+                                let target_name = if let Some(creep) = creeps.get(target) {
+                                    creep.name.clone()
+                                } else if let Some(hero) = heroes.get(target) {
+                                    hero.name.clone()
+                                } else if let Some(unit) = units.get(target) {
+                                    unit.name.clone()
+                                } else {
+                                    "Unknown".to_string()
+                                };
+                                
+                                (source_name, target_name)
+                            };
+                            
+                            // 整合的攻擊傷害日誌 - 只顯示非零傷害
+                            let damage_parts = {
+                                let mut parts = Vec::new();
+                                if phys > 0.0 { parts.push(format!("Phys {:.1}", phys)); }
+                                if magi > 0.0 { parts.push(format!("Magi {:.1}", magi)); }
+                                if real > 0.0 { parts.push(format!("Pure {:.1}", real)); }
+                                if parts.is_empty() { 
+                                    parts.push(format!("Total {:.1}", total_damage)); 
+                                }
+                                parts.join(", ")
+                            };
+                            
+                            log::info!("⚔️ {} 攻擊 {} | {} damage | HP: {:.1} → {:.1}/{:.1}", 
+                                source_name, target_name, damage_parts, hp_before, hp_after, target_props.mhp
+                            );
+                            
+                            // 檢查是否死亡
+                            if target_props.hp <= 0.0 {
+                                target_props.hp = 0.0;
+                                log::info!("💀 {} died from damage!", target_name);
+                                next_outcomes.push(Outcome::Death { 
+                                    pos: pos,
+                                    ent: target 
+                                });
+                            }
+                        }
+                    }
+                    Outcome::Heal { pos, target, amount } => {
+                        let mut properties = self.ecs.write_storage::<CProperty>();
+                        if let Some(target_props) = properties.get_mut(target) {
+                            target_props.hp = (target_props.hp + amount).min(target_props.mhp);
+                        }
+                    }
+                    Outcome::UpdateAttack { target, asd_count, cooldown_reset } => {
+                        let mut attacks = self.ecs.write_storage::<TAttack>();
+                        if let Some(attack) = attacks.get_mut(target) {
+                            if let Some(new_count) = asd_count {
+                                attack.asd_count = new_count;
+                            }
+                            if cooldown_reset {
+                                attack.asd_count = attack.asd.v;
+                            }
+                        }
+                    }
+                    Outcome::GainExperience { target, amount } => {
+                        let mut heroes = self.ecs.write_storage::<Hero>();
+                        if let Some(hero) = heroes.get_mut(target) {
+                            let leveled_up = hero.add_experience(amount);
+                            if leveled_up {
+                                log::info!("Hero '{}' gained {} experience and leveled up!", hero.name, amount);
+                            } else {
+                                log::info!("Hero '{}' gained {} experience", hero.name, amount);
+                            }
+                        }
                     }
                     _=>{}
                 }

@@ -3,11 +3,17 @@ use specs::{
     Write, WriteStorage, ParJoin, Entity, System,
 };
 use crate::comp::*;
+use crate::json_preprocessor::JsonPreprocessor;
 use specs::prelude::ParallelIterator;
 use std::{
     time::{Duration, Instant},
     collections::HashMap,
+    fs,
 };
+use ability_system::{AbilityProcessor, AbilityRequest, AbilityEffect};
+use log::{info, warn, error};
+use std::sync::{Once, Mutex};
+use std::sync::Arc;
 
 #[derive(SystemData)]
 pub struct SkillRead<'a> {
@@ -19,6 +25,8 @@ pub struct SkillRead<'a> {
     abilities: Read<'a, std::collections::BTreeMap<String, Ability>>,
     positions: ReadStorage<'a, Pos>,
     factions: ReadStorage<'a, Faction>,
+    properties: ReadStorage<'a, CProperty>,
+    attacks: ReadStorage<'a, TAttack>,
 }
 
 #[derive(SystemData)]
@@ -28,12 +36,46 @@ pub struct SkillWrite<'a> {
     skill_effects: WriteStorage<'a, SkillEffect>,
     skill_inputs: Write<'a, Vec<SkillInput>>,
     damage_instances: Write<'a, Vec<DamageInstance>>,
-    properties: WriteStorage<'a, CProperty>,
-    attacks: WriteStorage<'a, TAttack>,
 }
 
-#[derive(Default)]
+// 全局AbilityProcessor單例
+static ABILITY_PROCESSOR_INIT: Once = Once::new();
+static mut ABILITY_PROCESSOR: Option<Arc<Mutex<AbilityProcessor>>> = None;
+
+fn get_ability_processor() -> Arc<Mutex<AbilityProcessor>> {
+    unsafe {
+        ABILITY_PROCESSOR_INIT.call_once(|| {
+            let mut processor = AbilityProcessor::new();
+            
+            // 載入技能配置文件
+            let config_path = "ability-configs/sniper_abilities.json";
+            if let Ok(content) = fs::read_to_string(config_path) {
+                // 使用JsonPreprocessor處理註解
+                let processed_content = JsonPreprocessor::remove_comments(&content);
+                if let Err(e) = processor.load_from_json(&processed_content) {
+                    error!("載入技能配置失敗: {}", e);
+                } else {
+                    info!("成功載入技能配置: {}", config_path);
+                }
+            } else {
+                warn!("無法讀取技能配置文件: {}，僅使用硬編碼技能", config_path);
+            }
+            
+            ABILITY_PROCESSOR = Some(Arc::new(Mutex::new(processor)));
+        });
+        
+        ABILITY_PROCESSOR.as_ref().unwrap().clone()
+    }
+}
+
 pub struct Sys;
+
+impl Default for Sys {
+    fn default() -> Self {
+        Self
+    }
+}
+
 
 impl<'a> crate::comp::ecs::System<'a> for Sys {
     type SystemData = (
@@ -131,8 +173,17 @@ fn process_skill_input(
     } else {
         return;
     };
+
+    // 先嘗試使用ability-system處理
+    let processor = get_ability_processor();
+    if let Ok(mut processor_guard) = processor.lock() {
+        if try_process_with_ability_system(&mut *processor_guard, input, skill_entity, &ability_id, tr, tw) {
+            info!("技能 {} 使用ability-system處理", ability_id);
+            return;
+        }
+    }
     
-    // 根據技能ID執行不同的邏輯
+    // 回退到硬編碼邏輯
     match ability_id.as_str() {
         "sniper_mode" => {
             execute_sniper_mode(skill_entity, input, &ability, tr, tw);
@@ -342,9 +393,9 @@ fn process_skill_effect_tick(
         }
         SkillEffectType::Transform => {
             // 處理變身效果（如狙擊模式）
-            if let Some(target_attack) = tw.attacks.get_mut(effect.caster) {
-                // 這些修改應該在效果開始時應用，在效果結束時移除
-                // 這裡只是示例，實際實現需要更複雜的狀態管理
+            if let Some(target_attack) = tr.attacks.get(effect.caster) {
+                // TODO: 實現變身效果的狀態管理
+                // 這些修改應該通過事件系統處理，而不是直接修改組件
             }
         }
         _ => {}
@@ -368,4 +419,161 @@ fn remove_skill_effect(
     
     // 移除效果實體
     tw.skill_effects.remove(effect_entity);
+}
+
+/// 嘗試使用ability-system處理技能
+fn try_process_with_ability_system(
+    processor: &mut AbilityProcessor,
+    input: &SkillInput,
+    skill_entity: Entity,
+    ability_id: &str,
+    tr: &SkillRead,
+    tw: &mut SkillWrite,
+) -> bool {
+    // 將SkillInput轉換為AbilityRequest
+    let ability_request = convert_skill_input_to_ability_request(input, skill_entity, tw);
+    
+    // 需要創建一個默認的AbilityState
+    let default_state = ability_system::AbilityState::default();
+    
+    // 處理技能請求
+    let result = processor.process_ability(&ability_request, &default_state);
+    
+    if result.success {
+        // 將AbilityEffect轉換為SkillEffect並應用
+        for effect in result.effects {
+            apply_ability_effect_as_skill_effect(effect, tr, tw);
+        }
+        
+        // 使用技能（更新冷卻等）
+        if let Some(skill) = tw.skills.get_mut(skill_entity) {
+            // 這裡可能需要從processor獲取冷卻時間
+            skill.use_skill(30.0); // 暫時使用固定值
+        }
+        
+        true
+    } else {
+        warn!("ability-system處理技能 {} 失敗: {}", ability_id, result.error_message.unwrap_or_default());
+        false
+    }
+}
+
+/// 將SkillInput轉換為AbilityRequest
+fn convert_skill_input_to_ability_request(
+    input: &SkillInput,
+    skill_entity: Entity,
+    tw: &mut SkillWrite,
+) -> AbilityRequest {
+    let level = if let Some(skill) = tw.skills.get(skill_entity) {
+        skill.current_level as u8
+    } else {
+        1
+    };
+    
+    AbilityRequest {
+        caster: input.caster,
+        ability_id: input.skill_id.clone(),
+        level,
+        target_position: input.target_position,
+        target_entity: input.target_entity,
+    }
+}
+
+/// 將AbilityEffect轉換並應用為SkillEffect
+fn apply_ability_effect_as_skill_effect(
+    effect: AbilityEffect,
+    tr: &SkillRead,
+    tw: &mut SkillWrite,
+) {
+    match effect {
+        AbilityEffect::Damage { target, amount } => {
+            // 創建傷害實例
+            let damage_types = DamageTypes {
+                physical: amount,
+                magical: 0.0,
+                pure: 0.0,
+            };
+            
+            let damage_flags = DamageFlags {
+                can_crit: true,
+                can_dodge: true,
+                ignore_armor: false,
+                ignore_magic_resist: false,
+                lifesteal: 0.0,
+                spell_vamp: 0.0,
+            };
+            
+            tw.damage_instances.push(DamageInstance {
+                target,
+                damage_types,
+                is_critical: false,
+                is_dodged: false,
+                damage_flags,
+                source: DamageSource {
+                    source_entity: target, // 暫時使用target作為source
+                    source_type: DamageSourceType::Ability,
+                    ability_id: Some("ability_system".to_string()),
+                },
+            });
+        }
+        AbilityEffect::Heal { target, amount } => {
+            // 生成治療事件
+            let target_pos = tr.positions.get(target)
+                .map(|pos| pos.0)
+                .unwrap_or(vek::Vec2::new(0.0, 0.0));
+            
+            tw.outcomes.push(Outcome::Heal {
+                pos: target_pos,
+                target,
+                amount,
+            });
+            info!("為實體 {:?} 生成治療事件 {} 點生命值", target, amount);
+        }
+        AbilityEffect::StatusModifier { target, modifier_type, value, duration } => {
+            // 創建狀態修改效果
+            let mut skill_effect = SkillEffect::new(
+                format!("ability_modifier_{}", modifier_type),
+                target,
+                SkillEffectType::Buff,
+                duration.unwrap_or(f32::INFINITY),
+            );
+            
+            // 根據modifier_type設置對應的數值
+            match modifier_type.as_str() {
+                "damage_bonus" => skill_effect.data.damage_bonus = value,
+                "range_bonus" => skill_effect.data.range_bonus = value,
+                "attack_speed_bonus" => skill_effect.data.attack_speed_bonus = value,
+                "move_speed_bonus" => skill_effect.data.move_speed_bonus = value,
+                _ => warn!("未知的狀態修改類型: {}", modifier_type),
+            }
+            
+            let effect_entity = tr.entities.create();
+            tw.skill_effects.insert(effect_entity, skill_effect);
+        }
+        AbilityEffect::AreaEffect { center, radius, damage, .. } => {
+            // 創建區域效果
+            let mut skill_effect = SkillEffect::new(
+                "ability_area_effect".to_string(),
+                tr.entities.create(), // 創建新實體作為施法者
+                SkillEffectType::Area,
+                3.0, // 默認持續3秒
+            );
+            
+            skill_effect.position = Some(center);
+            skill_effect.radius = radius;
+            if let Some(dmg) = damage {
+                skill_effect.data.damage_per_second = dmg / 3.0; // 分3秒造成傷害
+            }
+            skill_effect.tick_interval = 0.2;
+            
+            let effect_entity = tr.entities.create();
+            tw.skill_effects.insert(effect_entity, skill_effect);
+        }
+        AbilityEffect::Summon { position, unit_type, count, .. } => {
+            // 召喚效果處理
+            info!("在位置 ({:.1}, {:.1}) 召喚 {} 個 {} 單位", 
+                  position.x, position.y, count, unit_type);
+            // TODO: 實際的召喚邏輯
+        }
+    }
 }

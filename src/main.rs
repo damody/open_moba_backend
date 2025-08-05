@@ -1,6 +1,9 @@
 #![allow(warnings)]
 #![allow(unused)]
 
+#[macro_use]
+extern crate specs_derive;
+
 use log::{info, warn, error, trace, debug};
 use std::fs::File;
 use std::io::{Write, BufReader, BufRead};

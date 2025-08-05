@@ -18,12 +18,13 @@ pub struct DamageRead<'a> {
     units: ReadStorage<'a, Unit>,
     heroes: ReadStorage<'a, Hero>,
     factions: ReadStorage<'a, Faction>,
+    properties: ReadStorage<'a, CProperty>,
+    positions: ReadStorage<'a, Pos>,
 }
 
 #[derive(SystemData)]
 pub struct DamageWrite<'a> {
     outcomes: Write<'a, Vec<Outcome>>,
-    properties: WriteStorage<'a, CProperty>,
     damage_instances: Write<'a, Vec<DamageInstance>>,
 }
 
@@ -46,7 +47,7 @@ impl<'a> System<'a> for Sys {
         let mut unit_stats: HashMap<Entity, (f32, f32, f32, f32)> = HashMap::new(); // (armor, magic_resist, crit_chance, dodge_chance)
         
         // 收集 Unit 屬性
-        for (entity, unit, properties) in (&tr.entities, &tr.units, &tw.properties).join() {
+        for (entity, unit, properties) in (&tr.entities, &tr.units, &tr.properties).join() {
             unit_stats.insert(entity, (
                 unit.base_armor,
                 unit.magic_resistance,
@@ -56,7 +57,7 @@ impl<'a> System<'a> for Sys {
         }
         
         // 收集 Hero 屬性
-        for (entity, hero, properties) in (&tr.entities, &tr.heroes, &tw.properties).join() {
+        for (entity, hero, properties) in (&tr.entities, &tr.heroes, &tr.properties).join() {
             let crit_chance = hero.get_crit_chance();
             unit_stats.insert(entity, (
                 properties.def_physic,
@@ -73,25 +74,26 @@ impl<'a> System<'a> for Sys {
         for damage_inst in tw.damage_instances.drain(..) {
             let result = calculate_damage(&damage_inst, &unit_stats);
             
-            // 應用傷害到目標
-            if let Some(target_props) = tw.properties.get_mut(damage_inst.target) {
-                if !result.is_dodged && result.total_damage > 0.0 {
-                    target_props.hp -= result.total_damage;
-                    
-                    log::info!("Applied {:.1} damage to target (HP: {:.1}/{:.1})", 
-                              result.total_damage, target_props.hp, target_props.mhp);
-                    
-                    // 檢查是否死亡
-                    if target_props.hp <= 0.0 {
-                        target_props.hp = 0.0;
-                        outcomes.push(Outcome::Death { 
-                            pos: vek::Vec2::new(0.0, 0.0), // TODO: 獲取實際位置
-                            ent: damage_inst.target 
-                        });
-                        
-                        log::info!("Unit died from damage");
-                    }
-                }
+            // 生成傷害事件而不是直接修改組件
+            if !result.is_dodged && result.total_damage > 0.0 {
+                // 獲取目標位置
+                let target_pos = tr.positions.get(damage_inst.target)
+                    .map(|pos| pos.0)
+                    .unwrap_or(vek::Vec2::new(0.0, 0.0));
+                
+                // 生成傷害事件
+                outcomes.push(Outcome::Damage {
+                    pos: target_pos,
+                    phys: result.actual_damage.physical,
+                    magi: result.actual_damage.magical,
+                    real: result.actual_damage.pure,
+                    source: damage_inst.source.source_entity,
+                    target: damage_inst.target,
+                });
+                
+                log::info!("Generated damage event: {:.1} total damage to target", result.total_damage);
+            } else if result.is_dodged {
+                log::info!("Attack dodged by target");
             }
             
             damage_results.push(result);

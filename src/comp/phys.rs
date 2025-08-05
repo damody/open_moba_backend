@@ -1,5 +1,5 @@
 use hashbrown::HashSet;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use specs::{Component, FlaggedStorage, NullStorage};
 use std::sync::Arc;
 use vek::*;

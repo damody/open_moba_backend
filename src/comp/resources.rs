@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use specs::Entity;
 
 /// A resource that stores the tick (i.e: physics) time.
