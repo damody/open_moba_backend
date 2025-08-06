@@ -1,6 +1,6 @@
 [server]
 MAP = "map.json"
 MAX_PLAYER = 10000
-SERVER_IP = "45.32.32.40"
+SERVER_IP = "localhost"
 SERVER_PORT = "1883"
 CLIENT_ID = "omobab"

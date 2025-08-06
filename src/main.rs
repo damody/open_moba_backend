@@ -15,6 +15,7 @@ mod ue4;
 mod msg;
 mod json_preprocessor;
 mod mqtt;
+mod vision;
 use crate::msg::MqttMsg;
 pub mod config;
 use crate::config::server_config::CONFIG;
@@ -55,6 +56,7 @@ fn create_mqtt_client(server_addr: String, server_port: String, client_id: Strin
     let (mut mqtt_cli, mut connection) = Client::new(mqtt_options.clone(), 100000);
     if sub {
         mqtt_cli.subscribe("td/+/send", QoS::AtMostOnce).unwrap();
+        info!("🔔 Backend subscribed to MQTT topic: td/+/send");
     }
     Ok((mqtt_cli, connection))
 }
@@ -157,6 +159,8 @@ async fn pub_mqtt_loop(server_addr: String, server_port: String, rx1: Receiver<M
                 for (i, notification) in connection.iter().enumerate() {
                     thread::sleep(Duration::from_millis(1));
                     if let Ok(x) = notification {
+                        // Log all MQTT events for debugging
+                        debug!("📡 MQTT Event received: {:?}", x);
                         if let rumqttc::Event::Incoming(x) = x {
                             if let rumqttc::v4::Packet::Publish(x) = x {
                                 let handle = || -> Result<(), Error> {
@@ -169,11 +173,16 @@ async fn pub_mqtt_loop(server_addr: String, server_port: String, rx1: Receiver<M
                                         }
                                     };
                                     let topic_name = x.topic.as_str();
+                                    
+                                    // 詳細記錄接收到的MQTT消息
+                                    info!("📨 Backend received MQTT message - Topic: {}, Payload: {}", topic_name, msg);
+                                    
                                     let vo: serde_json::Result<PlayerData> = serde_json::from_str(&msg);
                                     if let Ok(v) = vo {
+                                        info!("✅ Successfully parsed PlayerData - name: {}, t: {}, a: {}", v.name, v.t, v.a);
                                         tx.try_send(v);
                                     } else {
-                                        warn!("Json Parser error");
+                                        warn!("❌ Json Parser error for topic: {} payload: {}", topic_name, msg);
                                     };
                                     Ok(())
                                 };
@@ -232,15 +241,19 @@ async fn pub_mqtt_loop(server_addr: String, server_port: String, rx1: Receiver<M
                                 }
                                 if d.topic.len() > 2 {
                                     if difftime == 0 {
+                                        info!("🚀 正在發布 MQTT 消息到主題: {} - 內容: {}", d.topic, d.msg);
                                         let msg_res = mqtt2.publish(d.topic.clone(), QoS::AtMostOnce, false, d.msg.clone());
                                         match msg_res {
-                                            Ok(_) =>{},
+                                            Ok(_) => {
+                                                info!("✅ MQTT 消息發布成功 - 主題: {}", d.topic);
+                                            },
                                             Err(x) => {
-                                                warn!("Failed {:?}", d);
+                                                warn!("❌ MQTT 消息發布失敗 - 主題: {}, 錯誤: {:?}", d.topic, x);
                                                 msgs.push(d);
                                             }
                                         }
                                     } else {
+                                        info!("⏰ 延遲發送 MQTT 消息 - 主題: {}", d.topic);
                                         msgs.push(d);
                                     }
                                 }

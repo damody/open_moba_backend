@@ -1,6 +1,10 @@
 pub mod phys;
 pub mod resources;
 pub mod state;
+pub mod ecs_setup;
+pub mod campaign_manager;
+pub mod mqtt_handler;
+pub mod game_processor;
 pub mod last;
 pub mod outcome;
 pub mod projectile;
@@ -19,6 +23,8 @@ pub mod campaign;
 pub mod unit;
 pub mod damage;
 pub mod skill;
+pub mod heightmap;
+pub mod circular_vision;
 
 pub use self::{
     phys::*,
@@ -42,4 +48,6 @@ pub use self::{
     unit::*,
     damage::*,
     skill::*,
+    heightmap::*,
+    circular_vision::*,
 };

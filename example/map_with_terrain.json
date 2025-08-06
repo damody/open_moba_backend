@@ -1,0 +1,286 @@
+{
+    // ===== 地形定義 =====
+    // 定義地圖上的地形特性，影響視野和移動
+    "Terrain": [
+        {
+            "Name": "base_ground",
+            "Type": "Ground",
+            "X": 0,
+            "Y": 0,
+            "Width": 2000,
+            "Height": 4000,
+            "TerrainHeight": 0.0,
+            "BlocksVision": false,
+            "Obstruction": 0.0
+        },
+        {
+            "Name": "hill_1",
+            "Type": "Hill", 
+            "X": 500,
+            "Y": 1500,
+            "Width": 300,
+            "Height": 400,
+            "TerrainHeight": 150.0,
+            "BlocksVision": false,
+            "Obstruction": 0.0
+        },
+        {
+            "Name": "forest_1",
+            "Type": "Forest",
+            "X": 200,
+            "Y": 800,
+            "Width": 400,
+            "Height": 300,
+            "TerrainHeight": 20.0,
+            "BlocksVision": true,
+            "Obstruction": 0.7
+        },
+        {
+            "Name": "forest_2", 
+            "Type": "Forest",
+            "X": 1000,
+            "Y": 2500,
+            "Width": 350,
+            "Height": 250,
+            "TerrainHeight": 15.0,
+            "BlocksVision": true,
+            "Obstruction": 0.6
+        },
+        {
+            "Name": "water_area",
+            "Type": "Water",
+            "X": 800,
+            "Y": 3200,
+            "Width": 200,
+            "Height": 400,
+            "TerrainHeight": -10.0,
+            "BlocksVision": false,
+            "Obstruction": 0.0
+        }
+    ],
+    
+    // ===== 視野遮擋物定義 =====
+    // 具體的遮擋物件，如樹木、建築等
+    "VisionBlockers": [
+        {
+            "Name": "tree_cluster_1",
+            "Type": "Tree",
+            "X": 250,
+            "Y": 900,
+            "Height": 80.0,
+            "Radius": 40.0
+        },
+        {
+            "Name": "tree_cluster_2", 
+            "Type": "Tree",
+            "X": 350,
+            "Y": 1000,
+            "Height": 120.0,
+            "Radius": 60.0
+        },
+        {
+            "Name": "ancient_tree",
+            "Type": "Tree",
+            "X": 450,
+            "Y": 850,
+            "Height": 200.0,
+            "Radius": 80.0
+        },
+        {
+            "Name": "watchtower",
+            "Type": "Building",
+            "X": 600,
+            "Y": 1700,
+            "Height": 300.0,
+            "Radius": 50.0
+        },
+        {
+            "Name": "stone_wall_1",
+            "Type": "Wall", 
+            "X": 700,
+            "Y": 2000,
+            "Height": 150.0,
+            "Radius": 30.0
+        },
+        {
+            "Name": "stone_wall_2",
+            "Type": "Wall",
+            "X": 750,
+            "Y": 2000, 
+            "Height": 150.0,
+            "Radius": 30.0
+        },
+        {
+            "Name": "boulder_1",
+            "Type": "Rock",
+            "X": 1200,
+            "Y": 2800,
+            "Height": 100.0,
+            "Radius": 45.0
+        }
+    ],
+    
+    // ===== 路徑定義 =====
+    // 考慮地形影響的移動路線
+    "Path": [
+        {
+            "Name": "main_path",
+            "Points": ["c1", "c2", "c3", "c4", "c5"]
+        },
+        {
+            "Name": "forest_path", 
+            "Points": ["c1", "forest_bypass", "c3", "c4", "c5"]
+        },
+        {
+            "Name": "hill_path",
+            "Points": ["c1", "hill_point", "c3", "c4", "c5"]
+        }
+    ],
+    
+    // ===== 檢查點定義 =====
+    // 包含高度資訊的關鍵位置點
+    "CheckPoint": [
+        {"Name": "c1", "Class": "Start", "X": 0, "Y": 0, "Height": 0.0},
+        {"Name": "c2", "Class": "CheckPoint", "X": 0, "Y": 1000, "Height": 10.0},
+        {"Name": "c3", "Class": "CheckPoint", "X": 1000, "Y": 2000, "Height": 50.0},
+        {"Name": "c4", "Class": "CheckPoint", "X": 0, "Y": 3000, "Height": 20.0},
+        {"Name": "c5", "Class": "End", "X": 0, "Y": 4000, "Height": 0.0},
+        {"Name": "forest_bypass", "Class": "CheckPoint", "X": 700, "Y": 1200, "Height": 15.0},
+        {"Name": "hill_point", "Class": "CheckPoint", "X": 650, "Y": 1700, "Height": 150.0}
+    ],
+    
+    // ===== 小兵類型定義 =====
+    // 包含視野範圍的小兵配置
+    "Creep": [
+        {
+            "Name": "scout_creep",
+            "DefendPhysic": 0,
+            "DefendMagic": 0,
+            "HP": 30,
+            "MoveSpeed": 60,
+            "coins": 5,
+            "VisionRange": 200.0,
+            "VisionHeight": 10.0
+        },
+        {
+            "Name": "normal_creep",
+            "DefendPhysic": 0,
+            "DefendMagic": 0,
+            "HP": 80,
+            "MoveSpeed": 30,
+            "coins": 8,
+            "VisionRange": 150.0,
+            "VisionHeight": 5.0
+        },
+        {
+            "Name": "heavy_creep",
+            "DefendPhysic": 5,
+            "DefendMagic": 0,
+            "HP": 150,
+            "MoveSpeed": 20,
+            "coins": 15,
+            "VisionRange": 120.0,
+            "VisionHeight": 8.0
+        }
+    ],
+    
+    // ===== 防禦塔定義 =====
+    // 包含視野和射程的塔配置
+    "Tower": [
+        {
+            "Name": "watch_tower",
+            "Property": {
+                "Hp": 100,
+                "Block": 0
+            },
+            "Attack": {
+                "Range": 400, 
+                "AttackSpeed": 0.8,
+                "Physic": 5,
+                "Magic": 0,
+                "cost": 8
+            },
+            "VisionRange": 600.0,
+            "VisionHeight": 200.0,
+            "VisionType": "Normal"
+        },
+        {
+            "Name": "archer_tower",
+            "Property": {
+                "Hp": 80,
+                "Block": 1
+            },
+            "Attack": {
+                "Range": 300,
+                "AttackSpeed": 0.5,
+                "Physic": 8,
+                "Magic": 0,
+                "cost": 6
+            },
+            "VisionRange": 350.0,
+            "VisionHeight": 150.0,
+            "VisionType": "Normal"
+        },
+        {
+            "Name": "eagle_tower",
+            "Property": {
+                "Hp": 120,
+                "Block": 0
+            },
+            "Attack": {
+                "Range": 500,
+                "AttackSpeed": 1.0,
+                "Physic": 3,
+                "Magic": 2,
+                "cost": 12
+            },
+            "VisionRange": 800.0,
+            "VisionHeight": 300.0,
+            "VisionType": "Aerial"
+        }
+    ],
+    
+    // ===== 小兵波次配置 =====
+    // 包含不同類型小兵的混合波次
+    "CreepWave": [
+        {
+            "Name": "Scout_Wave",
+            "StartTime": 5,
+            "Detail": [
+                {
+                    "Path": "main_path",
+                    "Creeps": [
+                        {"Time": 0, "Creep": "scout_creep"},
+                        {"Time": 2, "Creep": "scout_creep"},
+                        {"Time": 4, "Creep": "normal_creep"}
+                    ]
+                }
+            ]
+        },
+        {
+            "Name": "Mixed_Wave",
+            "StartTime": 30,
+            "Detail": [
+                {
+                    "Path": "main_path",
+                    "Creeps": [
+                        {"Time": 0, "Creep": "scout_creep"},
+                        {"Time": 1, "Creep": "normal_creep"},
+                        {"Time": 2, "Creep": "normal_creep"},
+                        {"Time": 4, "Creep": "heavy_creep"},
+                        {"Time": 6, "Creep": "normal_creep"},
+                        {"Time": 7, "Creep": "normal_creep"},
+                        {"Time": 9, "Creep": "scout_creep"}
+                    ]
+                },
+                {
+                    "Path": "forest_path",
+                    "Creeps": [
+                        {"Time": 3, "Creep": "scout_creep"},
+                        {"Time": 8, "Creep": "normal_creep"}
+                    ]
+                }
+            ]
+        }
+    ]
+}

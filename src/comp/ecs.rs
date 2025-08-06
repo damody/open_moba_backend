@@ -191,20 +191,17 @@ pub fn gen_stats(
     result
 }
 
-/// This trait wraps around specs::System and does additional veloren tasks like
-/// metrics collection
+/// This trait wraps around specs::System and does additional metrics collection
 ///
 /// ```
 /// use specs::Read;
-/// pub use veloren_common_ecs::{Job, Origin, ParMode, Phase, System};
+/// use omobab::comp::ecs::{Job, ParMode, System};
 /// # use std::time::Duration;
 /// pub struct Sys;
 /// impl<'a> System<'a> for Sys {
 ///     type SystemData = (Read<'a, ()>, Read<'a, ()>);
 ///
 ///     const NAME: &'static str = "example";
-///     const ORIGIN: Origin = Origin::Frontend("voxygen");
-///     const PHASE: Phase = Phase::Create;
 ///
 ///     fn run(job: &mut Job<Self>, (_read, _read2): Self::SystemData) {
 ///         std::thread::sleep(Duration::from_millis(100));

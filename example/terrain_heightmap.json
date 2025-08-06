@@ -1,0 +1,244 @@
+{
+    // ===== 地形高度圖配置 =====
+    // 定義整個地圖的地形特性使用二維高度圖
+    
+    "map_width": 2000,        // 地圖寬度（米）
+    "map_height": 4000,       // 地圖高度（米）  
+    "grid_size": 25,          // 每個網格25米
+    "base_height": 0,         // 基礎地面高度
+    
+    // ===== 地形區域定義 =====
+    "terrain_regions": [
+        {
+            "name": "base_area",
+            "terrain_type": "Ground",
+            "center_x": 1000,
+            "center_y": 2000,
+            "width": 2000,
+            "height": 4000,
+            "terrain_height": 0,
+            "obstruction": 0.0,
+            "shape": "rectangle"
+        },
+        
+        // 戰略高地
+        {
+            "name": "strategic_hill",
+            "terrain_type": "Hill",
+            "center_x": 600,
+            "center_y": 1800,
+            "width": 400,
+            "height": 300,
+            "terrain_height": 200,
+            "obstruction": 0.0,
+            "shape": "circle"
+        },
+        
+        // 北方森林 - 大片樹林遮擋視野
+        {
+            "name": "northern_forest",
+            "terrain_type": "Forest", 
+            "center_x": 300,
+            "center_y": 1000,
+            "width": 500,
+            "height": 400,
+            "terrain_height": 30,
+            "obstruction": 0.8,
+            "shape": "rectangle"
+        },
+        
+        // 南方密林 - 較小的森林區域
+        {
+            "name": "southern_grove",
+            "terrain_type": "Forest",
+            "center_x": 1200,
+            "center_y": 2800,
+            "width": 300,
+            "height": 250,
+            "terrain_height": 25,
+            "obstruction": 0.6,
+            "shape": "circle"
+        },
+        
+        // 河流區域 - 低窪地帶
+        {
+            "name": "river_valley",
+            "terrain_type": "Water",
+            "center_x": 1000,
+            "center_y": 3200,
+            "width": 200,
+            "height": 600,
+            "terrain_height": -15,
+            "obstruction": 0.0,
+            "shape": "rectangle"
+        },
+        
+        // 要塞遺跡 - 建築遮擋
+        {
+            "name": "fortress_ruins",
+            "terrain_type": "Building",
+            "center_x": 800,
+            "center_y": 2200,
+            "width": 150,
+            "height": 200,
+            "terrain_height": 300,
+            "obstruction": 1.0,
+            "shape": "rectangle"
+        },
+        
+        // 懸崖峭壁 - 東側的天然屏障
+        {
+            "name": "eastern_cliffs",
+            "terrain_type": "Cliff",
+            "center_x": 1700,
+            "center_y": 1500,
+            "width": 100,
+            "height": 800,
+            "terrain_height": 400,
+            "obstruction": 1.0,
+            "shape": "rectangle"
+        },
+        
+        // 觀察哨所位置 - 小高地
+        {
+            "name": "watchtower_hill",
+            "terrain_type": "Hill",
+            "center_x": 1400,
+            "center_y": 3500,
+            "width": 120,
+            "height": 120,
+            "terrain_height": 150,
+            "obstruction": 0.0,
+            "shape": "circle"
+        },
+        
+        // 隱蔽森林 - 伏擊點
+        {
+            "name": "ambush_woods",
+            "terrain_type": "Forest",
+            "center_x": 500,
+            "center_y": 3600,
+            "width": 200,
+            "height": 300,
+            "terrain_height": 20,
+            "obstruction": 0.9,
+            "shape": "circle"
+        }
+    ],
+    
+    // ===== 視野遮擋物（獨立物件） =====
+    // 在高度圖基礎上添加的獨立遮擋物
+    "vision_blockers": [
+        {
+            "name": "ancient_oak",
+            "type": "Tree",
+            "x": 350,
+            "y": 1200,
+            "height": 250,
+            "radius": 80
+        },
+        {
+            "name": "stone_monolith",
+            "type": "Rock", 
+            "x": 1100,
+            "y": 2500,
+            "height": 180,
+            "radius": 50
+        },
+        {
+            "name": "broken_tower",
+            "type": "Building",
+            "x": 750,
+            "y": 2150,
+            "height": 400,
+            "radius": 60
+        },
+        {
+            "name": "stone_wall_section",
+            "type": "Wall",
+            "x": 850,
+            "y": 2250,
+            "height": 200,
+            "radius": 30
+        }
+    ],
+    
+    // ===== 路徑定義（考慮地形） =====
+    "paths": [
+        {
+            "name": "main_road",
+            "description": "主要道路，避開森林和懸崖",
+            "points": [
+                {"x": 0, "y": 0, "height": 0},
+                {"x": 100, "y": 800, "height": 10},
+                {"x": 900, "y": 1400, "height": 50},
+                {"x": 1200, "y": 2000, "height": 30},
+                {"x": 1000, "y": 2800, "height": 5},
+                {"x": 800, "y": 3500, "height": 15},
+                {"x": 500, "y": 4000, "height": 0}
+            ]
+        },
+        {
+            "name": "forest_path",
+            "description": "森林小徑，隱蔽但視野受限",
+            "points": [
+                {"x": 0, "y": 0, "height": 0},
+                {"x": 300, "y": 1200, "height": 30},
+                {"x": 400, "y": 1600, "height": 35},
+                {"x": 1200, "y": 2600, "height": 25},
+                {"x": 1000, "y": 3800, "height": 10},
+                {"x": 500, "y": 4000, "height": 0}
+            ]
+        },
+        {
+            "name": "highland_route",
+            "description": "高地路線，視野開闊但容易被發現",
+            "points": [
+                {"x": 0, "y": 0, "height": 0},
+                {"x": 600, "y": 1800, "height": 200},
+                {"x": 1400, "y": 3500, "height": 150},
+                {"x": 500, "y": 4000, "height": 0}
+            ]
+        }
+    ],
+    
+    // ===== 戰略位置標記 =====
+    "strategic_points": [
+        {
+            "name": "hill_control",
+            "type": "high_ground",
+            "x": 600,
+            "y": 1800,
+            "height": 200,
+            "vision_range": 800,
+            "description": "控制此高地可獲得大範圍視野優勢"
+        },
+        {
+            "name": "forest_ambush", 
+            "type": "ambush_point",
+            "x": 350,
+            "y": 1200,
+            "height": 30,
+            "vision_range": 150,
+            "description": "森林伏擊點，視野受限但隱蔽性極佳"
+        },
+        {
+            "name": "river_crossing",
+            "type": "choke_point", 
+            "x": 1000,
+            "y": 3200,
+            "height": -15,
+            "vision_range": 400,
+            "description": "河流渡口，必經之路但地勢低窪"
+        },
+        {
+            "name": "fortress_overlook",
+            "type": "defensive_position",
+            "x": 800,
+            "y": 2200,
+            "height": 300,
+            "vision_range": 600,
+            "description": "要塞遺跡，提供良好的防禦位置"
+        }
+    ]
+}

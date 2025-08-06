@@ -4,6 +4,14 @@ version = "0.1.0"
 edition = "2021"
 authors = ["damody <t1238142000@gmail.com>"]
 
+[lib]
+name = "omobab"
+crate-type = ["rlib"]
+
+[[bin]]
+name = "test_vision_only"
+path = "test_vision_only.rs"
+
 
 # 隱藏所有編譯器警告
 [lints.rust]
