@@ -11,6 +11,7 @@ pub mod tick;
 pub mod ue4;
 pub mod util;
 pub mod json_preprocessor;
+pub mod state;
 
 // Re-export commonly used types
 pub use crate::comp::*;

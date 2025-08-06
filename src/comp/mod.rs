@@ -25,6 +25,7 @@ pub mod damage;
 pub mod skill;
 pub mod heightmap;
 pub mod circular_vision;
+pub mod circular_vision_refactored;
 
 pub use self::{
     phys::*,

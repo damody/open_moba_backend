@@ -7,16 +7,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::comp::circular_vision::{VisionResult, ShadowArea, ObstacleInfo};
 
-// Import refactored modules
-mod quadtree;
-mod shadow_calculation;
-mod vision_cache;
-mod geometry_utils;
-
-pub use quadtree::{QuadTree, Bounds};
-use shadow_calculation::ShadowCalculator as ShadowCalc;
-use vision_cache::{CacheManager, CacheStats};
-use geometry_utils::GeometryUtils;
+// Import refactored modules from the vision module
+use crate::vision::quadtree::{QuadTree, Bounds};
+use crate::vision::shadow_calculation::ShadowCalculator as ShadowCalc;
+use crate::vision::vision_cache::{CacheManager, CacheStats};
+use crate::vision::geometry_utils::GeometryUtils;
 
 /// 高效能陰影計算器
 pub struct ShadowCalculator {
