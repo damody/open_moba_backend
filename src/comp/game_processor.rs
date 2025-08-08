@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use failure::Error;
 use serde_json::json;
-use specs::{World, WorldExt, Entity, storage::{WriteStorage, ReadStorage}};
+use specs::{World, WorldExt, Entity, Builder, storage::{WriteStorage, ReadStorage}};
 
 use crate::comp::*;
 use crate::msg::MqttMsg;
@@ -51,7 +51,7 @@ impl GameProcessor {
                         Self::handle_attack_update(ecs, target, asd_count, cooldown_reset)?;
                     }
                     Outcome::GainExperience { target, amount } => {
-                        Self::handle_experience_gain(ecs, target, amount)?;
+                        Self::handle_experience_gain(ecs, target, amount as u32)?;
                     }
                     _ => {}
                 }
@@ -130,7 +130,10 @@ impl GameProcessor {
                 tpos: p2, 
                 target: target, 
                 radius: 0., 
-                msd: msd 
+                msd: msd,
+                damage_phys: 25.0, // 預設物理傷害
+                damage_magi: 0.0,  // 預設魔法傷害 
+                damage_real: 0.0   // 預設真實傷害
             })
             .build();
             
@@ -260,7 +263,7 @@ impl GameProcessor {
     fn handle_experience_gain(ecs: &mut World, target: Entity, amount: u32) -> Result<(), Error> {
         let mut heroes = ecs.write_storage::<Hero>();
         if let Some(hero) = heroes.get_mut(target) {
-            let leveled_up = hero.add_experience(amount);
+            let leveled_up = hero.add_experience(amount as i32);
             if leveled_up {
                 log::info!("Hero '{}' gained {} experience and leveled up!", hero.name, amount);
             } else {

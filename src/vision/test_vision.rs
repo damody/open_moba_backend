@@ -6,7 +6,7 @@ mod tests {
     use super::*;
     use vek::Vec2;
     use crate::comp::circular_vision::{CircularVision, ObstacleInfo, ObstacleType, ObstacleProperties};
-    use crate::vision::{VisionOutputGenerator, ShadowCalculator, shadow_calculator::Bounds};
+    use crate::vision::{VisionOutputGenerator, ShadowCalculator, Bounds};
 
     /// 測試基本的圓形視野創建
     #[test]
@@ -60,8 +60,7 @@ mod tests {
     /// 測試陰影計算器基本功能
     #[test]
     fn test_shadow_calculator() {
-        let mut calculator = ShadowCalculator::new()
-            .with_config(100, 4, 5);
+        let mut calculator = ShadowCalculator::with_config(100, 4, 5);
 
         // 創建測試障礙物
         let obstacles = vec![

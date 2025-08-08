@@ -5,9 +5,7 @@
 use specs::{Join, System};
 use crate::comp::ecs;
 
-mod skill_system;
-
-use skill_system::{
+use crate::tick::skill_system::{
     SkillRead, SkillWrite, EffectManager, InputHandler,
 };
 

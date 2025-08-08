@@ -60,62 +60,85 @@ impl StateInitializer {
             }
         }
 
-        // 設置路徑
-        {
-            let cps = {
-                let cps_resource = ecs.read_resource::<BTreeMap<String, CheckPoint>>();
-                cps_resource.clone()
-            };
-            let mut paths = ecs.get_mut::<BTreeMap<String, Path>>().unwrap();
-            for p in cw.Path.iter() {
-                let mut cp_in_path = vec![];
-                for ps in p.Points.iter() {
-                    if let Some(v) = cps.get(ps) {
-                        cp_in_path.push(v.clone());
-                    }
-                }
-                paths.insert(p.Name.clone(), 
-                    Path { check_points: cp_in_path });
-            }
-        }
-
+        // 設置路徑 - 完全分離的作用域
+        Self::setup_paths(ecs, cw);
+        
         // 設置小兵發射器
-        {
-            let mut ces = ecs.get_mut::<BTreeMap<String, CreepEmiter>>().unwrap();
-            for cp in cw.Creep.iter() {
-                ces.insert(cp.Name.clone(), CreepEmiter { 
-                    root: Creep {
-                        name: cp.Name.clone(), 
-                        path: "".to_owned(), 
-                        pidx: 0, 
-                        block_tower: None, 
-                        status: CreepStatus::Walk
-                    }, 
-                    property: CProperty { 
-                        hp: cp.HP, 
-                        mhp: cp.HP, 
-                        msd: cp.MoveSpeed, 
-                        def_physic: cp.DefendPhysic, 
-                        def_magic: cp.DefendMagic 
-                    } 
-                });
-            }
-        }
+        Self::setup_creep_emiters(ecs, cw);
 
         // 設置小兵波
-        {
-            let mut cws = ecs.get_mut::<Vec<CreepWave>>().unwrap();
-            for cw in cw.CreepWave.iter() {
-                let mut tcw = CreepWave { time: cw.StartTime, path_creeps: vec![] };
-                for d in cw.Detail.iter() {
-                    let mut es = vec![];
-                    for cjd in d.Creeps.iter() {
-                        es.push(CreepEmit { time: cjd.Time, name: cjd.Creep.clone() });
-                    }
-                    tcw.path_creeps.push(PathCreeps { creeps: es, path_name: d.Path.clone() });
+        Self::setup_creep_waves(ecs, cw);
+    }
+
+    /// 設置路徑資料
+    fn setup_paths(ecs: &mut World, cw: &CreepWaveData) {
+        use std::collections::BTreeMap;
+        
+        // 讀取檢查點資料並立即釋放
+        let cps_clone = {
+            let resource = ecs.read_resource::<BTreeMap<String, CheckPoint>>();
+            resource.clone()
+        };
+        
+        // 現在可以安全地獲取可變引用
+        let mut paths = ecs.write_resource::<BTreeMap<String, Path>>();
+        for p in cw.Path.iter() {
+            let mut cp_in_path = vec![];
+            for ps in p.Points.iter() {
+                if let Some(v) = cps_clone.get(ps) {
+                    cp_in_path.push(v.clone());
                 }
-                cws.push(tcw);
             }
+            paths.insert(p.Name.clone(), 
+                Path { check_points: cp_in_path });
+        }
+    }
+
+    /// 設置小兵發射器
+    fn setup_creep_emiters(ecs: &mut World, cw: &CreepWaveData) {
+        use std::collections::BTreeMap;
+        
+        let mut ces = ecs.get_mut::<BTreeMap<String, CreepEmiter>>().unwrap();
+        log::info!("載入 {} 個小兵類型", cw.Creep.len());
+        for cp in cw.Creep.iter() {
+            log::info!("小兵類型 '{}' - HP: {}, 移動速度: {}", cp.Name, cp.HP, cp.MoveSpeed);
+            ces.insert(cp.Name.clone(), CreepEmiter { 
+                root: Creep {
+                    name: cp.Name.clone(), 
+                    path: "".to_owned(), 
+                    pidx: 0, 
+                    block_tower: None, 
+                    status: CreepStatus::Walk
+                }, 
+                property: CProperty { 
+                    hp: cp.HP, 
+                    mhp: cp.HP, 
+                    msd: cp.MoveSpeed, 
+                    def_physic: cp.DefendPhysic, 
+                    def_magic: cp.DefendMagic 
+                } 
+            });
+        }
+    }
+
+    /// 設置小兵波
+    fn setup_creep_waves(ecs: &mut World, cw: &CreepWaveData) {
+        let mut cws = ecs.get_mut::<Vec<CreepWave>>().unwrap();
+        log::info!("載入 {} 個小兵波", cw.CreepWave.len());
+        for cw_data in cw.CreepWave.iter() {
+            let mut tcw = CreepWave { time: cw_data.StartTime, path_creeps: vec![] };
+            let mut total_creeps = 0;
+            for d in cw_data.Detail.iter() {
+                let mut es = vec![];
+                for cjd in d.Creeps.iter() {
+                    es.push(CreepEmit { time: cjd.Time, name: cjd.Creep.clone() });
+                    total_creeps += 1;
+                }
+                tcw.path_creeps.push(PathCreeps { creeps: es, path_name: d.Path.clone() });
+            }
+            log::info!("小兵波 '{}' 已載入，開始時間: {}秒，共 {} 個小兵", 
+                cw_data.Name, cw_data.StartTime, total_creeps);
+            cws.push(tcw);
         }
     }
 
@@ -123,7 +146,7 @@ impl StateInitializer {
     pub fn init_campaign_data(ecs: &mut World, campaign_data: &CampaignData) {
         // 插入戰役相關資源
         ecs.insert(campaign_data.clone());
-        log::info!("初始化戰役資料: {}", campaign_data.name);
+        log::info!("初始化戰役資料: {}", campaign_data.mission.campaign.name);
     }
 
     /// 創建測試場景
@@ -138,7 +161,7 @@ impl StateInitializer {
         Self::create_campaign_heroes(ecs, campaign_data);
         Self::create_training_enemies(ecs, campaign_data);
         Self::create_terrain_blockers(ecs);
-        log::info!("創建戰役場景完成: {}", campaign_data.name);
+        log::info!("創建戰役場景完成: {}", campaign_data.mission.campaign.name);
     }
 
     // 私有輔助方法
@@ -146,6 +169,7 @@ impl StateInitializer {
         // 註冊所有遊戲組件
         ecs.register::<Pos>();
         ecs.register::<Vel>();
+        ecs.register::<TProperty>();
         ecs.register::<CProperty>();
         ecs.register::<TAttack>();
         ecs.register::<Tower>();
@@ -156,7 +180,14 @@ impl StateInitializer {
         ecs.register::<Faction>();
         ecs.register::<CircularVision>();
         ecs.register::<Ability>();
+        ecs.register::<AbilityEffect>();
+        ecs.register::<Enemy>();
+        ecs.register::<Campaign>();
+        ecs.register::<Stage>();
+        ecs.register::<DamageInstance>();
+        ecs.register::<DamageResult>();
         ecs.register::<Skill>();
+        ecs.register::<SkillEffect>();
         ecs.register::<Last<Pos>>();
         ecs.register::<Last<Vel>>();
     }
@@ -176,8 +207,18 @@ impl StateInitializer {
         ecs.insert(BTreeMap::<String, CheckPoint>::new());
         ecs.insert(BTreeMap::<String, Path>::new());
         ecs.insert(BTreeMap::<String, CreepEmiter>::new());
+        ecs.insert(BTreeMap::<String, Player>::new());
         ecs.insert(Vec::<CreepWave>::new());
+        ecs.insert(CurrentCreepWave { wave: 0, path: vec![] });
         ecs.insert(Vec::<crate::Outcome>::new());
+        ecs.insert(Vec::<TakenDamage>::new());
+        ecs.insert(SysMetrics::default());
+        
+        // 初始化 MQTT 通道資源
+        ecs.insert(Vec::<crossbeam_channel::Sender<crate::msg::MqttMsg>>::new());
+        
+        // 初始化 Searcher 資源
+        ecs.insert(crate::comp::outcome::Searcher::default());
 
         log::info!("ECS 基本資源初始化完成");
     }
@@ -193,7 +234,16 @@ impl StateInitializer {
     }
 
     fn setup_campaign_specific_resources(ecs: &mut World) {
+        use std::collections::BTreeMap;
+        
         // 設置戰役特有的資源
+        ecs.insert(BTreeMap::<String, Hero>::new());
+        ecs.insert(BTreeMap::<String, Ability>::new());
+        ecs.insert(BTreeMap::<String, Enemy>::new());
+        ecs.insert(Vec::<AbilityEffect>::new());
+        ecs.insert(Vec::<DamageInstance>::new());
+        ecs.insert(Vec::<SkillInput>::new());
+        
         log::info!("設置戰役特有資源");
     }
 
@@ -205,27 +255,30 @@ impl StateInitializer {
             let hero_pos = Pos(Vec2::new(0.0, 0.0));
             let hero_vel = Vel(Vec2::new(0.0, 0.0));
 
-            // 創建英雄的戰鬥屬性
+            // 創建英雄的戰鬥屬性 (基於英雄等級和屬性計算)
+            let base_hp = 500.0 + (hero.level as f32 * hero.level_growth.hp_per_level);
+            let base_damage = 50.0 + (hero.level as f32 * hero.level_growth.damage_per_level);
+            
             let hero_properties = CProperty {
-                hp: hero.current_hp as f32,
-                mhp: hero.max_hp as f32,
-                msd: hero.move_speed,
-                def_physic: hero.base_armor,
-                def_magic: hero.magic_resistance,
+                hp: base_hp,
+                mhp: base_hp,
+                msd: 350.0, // 基礎移動速度
+                def_physic: hero.strength as f32 * 0.2, // 基於力量的物理防禦
+                def_magic: hero.intelligence as f32 * 0.15, // 基於智力的魔法防禦
             };
 
             let hero_attack = TAttack {
-                atk_physic: Vf32::new(hero.base_damage as f32),
-                asd: Vf32::new(1.0 / hero.attack_speed),
-                range: Vf32::new(hero.attack_range),
+                atk_physic: Vf32::new(base_damage),
+                asd: Vf32::new(1.0 / 1.7), // 攻擊間隔（攻擊速度的倒數）
+                range: Vf32::new(hero_data.attack_range), // 使用 JSON 中的攻擊範圍
                 asd_count: 0.0,
                 bullet_speed: 1000.0,
             };
 
             // 創建英雄圓形視野組件
             let hero_vision = CircularVision::new(
-                hero.vision_range.unwrap_or(1200.0),
-                hero.height.unwrap_or(180.0)
+                1200.0, // 英雄視野範圍
+                180.0   // 英雄高度
             ).with_precision(720); // 高精度視野
 
             let hero_entity = ecs.create_entity()

@@ -1,6 +1,6 @@
 /// 戰鬥相關事件處理
 
-use specs::{Entity, World, WriteStorage, ReadStorage};
+use specs::{Entity, World, WriteStorage, ReadStorage, WorldExt};
 use crate::comp::*;
 use crate::msg::MqttMsg;
 use crossbeam_channel::Sender;
@@ -12,7 +12,7 @@ pub struct CombatEventHandler;
 impl CombatEventHandler {
     /// 處理傷害事件
     pub fn handle_damage(
-        world: &World,
+        world: &mut World,
         mqtx: &Sender<MqttMsg>,
         pos: vek::Vec2<f32>,
         phys: f32,
@@ -53,7 +53,7 @@ impl CombatEventHandler {
 
     /// 處理治療事件
     pub fn handle_heal(
-        world: &World,
+        world: &mut World,
         _mqtx: &Sender<MqttMsg>,
         _pos: vek::Vec2<f32>,
         target: Entity,
@@ -77,7 +77,7 @@ impl CombatEventHandler {
 
     /// 處理死亡事件
     pub fn handle_death(
-        world: &World,
+        world: &mut World,
         mqtx: &Sender<MqttMsg>,
         _pos: vek::Vec2<f32>,
         entity: Entity,
@@ -119,7 +119,7 @@ impl CombatEventHandler {
 
     /// 處理經驗獲得事件
     pub fn handle_experience_gain(
-        world: &World,
+        world: &mut World,
         _mqtx: &Sender<MqttMsg>,
         target: Entity,
         amount: u32,
@@ -127,7 +127,7 @@ impl CombatEventHandler {
         let mut heroes = world.write_storage::<Hero>();
         
         if let Some(hero) = heroes.get_mut(target) {
-            let leveled_up = hero.add_experience(amount);
+            let leveled_up = hero.add_experience(amount as i32);
             if leveled_up {
                 log::info!("🌟 英雄 '{}' 獲得 {} 經驗並升級！", hero.name, amount);
             } else {
@@ -140,7 +140,7 @@ impl CombatEventHandler {
 
     /// 處理攻擊更新事件
     pub fn handle_attack_update(
-        world: &World,
+        world: &mut World,
         _mqtx: &Sender<MqttMsg>,
         target: Entity,
         asd_count: Option<f32>,

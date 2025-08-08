@@ -7,6 +7,7 @@ mod tests {
     use vek::Vec2;
     use std::f32::consts::PI;
     use crate::comp::circular_vision::{ObstacleInfo, ObstacleType, ObstacleProperties};
+    use crate::vision::shadow_calculation;
 
     const EPSILON: f32 = 1e-6;
 
@@ -80,7 +81,7 @@ mod tests {
         let ray_origin = Vec2::new(-150.0, 0.0);
         let ray_direction = Vec2::new(1.0, 0.0); // 向東
         
-        let intersection = calculator.ray_sector_intersection_improved(
+        let intersection = ShadowCalculator::ray_sector_intersection_improved(
             ray_origin, ray_direction, center, start_angle, end_angle, radius
         );
         
@@ -100,7 +101,7 @@ mod tests {
         
         // 測試 2: 射線不在扇形角度範圍內
         let ray_direction_outside = Vec2::new(0.0, 1.0); // 向北，超出45度範圍
-        let intersection_outside = calculator.ray_sector_intersection_improved(
+        let intersection_outside = ShadowCalculator::ray_sector_intersection_improved(
             ray_origin, ray_direction_outside, center, start_angle, end_angle, radius
         );
         
@@ -110,7 +111,7 @@ mod tests {
         let boundary_angle = PI / 4.0; // 45度邊界
         let ray_direction_boundary = Vec2::new(boundary_angle.cos(), boundary_angle.sin());
         println!("邊界測試 - 射線方向: {:?}, 角度: {:.3}度", ray_direction_boundary, boundary_angle.to_degrees());
-        let intersection_boundary = calculator.ray_sector_intersection_improved(
+        let intersection_boundary = ShadowCalculator::ray_sector_intersection_improved(
             ray_origin, ray_direction_boundary, center, start_angle, end_angle, radius
         );
         
@@ -134,7 +135,7 @@ mod tests {
         let line_start = Vec2::new(10.0, 0.0);
         let line_end = Vec2::new(10.0, 20.0); // 垂直線段
         
-        let intersection = calculator.ray_line_intersection(
+        let intersection = ShadowCalculator::ray_line_intersection(
             ray_origin, ray_direction, line_start, line_end
         );
         
@@ -148,7 +149,7 @@ mod tests {
         
         // 測試 2: 射線背向線段
         let ray_direction_backward = Vec2::new(-1.0, 0.0);
-        let intersection_backward = calculator.ray_line_intersection(
+        let intersection_backward = ShadowCalculator::ray_line_intersection(
             ray_origin, ray_direction_backward, line_start, line_end
         );
         
@@ -159,7 +160,7 @@ mod tests {
         let line_parallel_start = Vec2::new(5.0, 0.0);
         let line_parallel_end = Vec2::new(5.0, 10.0);
         
-        let intersection_parallel = calculator.ray_line_intersection(
+        let intersection_parallel = ShadowCalculator::ray_line_intersection(
             ray_origin, ray_direction_parallel, line_parallel_start, line_parallel_end
         );
         
@@ -172,17 +173,17 @@ mod tests {
         let calculator = ShadowCalculator::new();
         
         // 測試正常角度範圍
-        assert!(calculator.angle_in_sector(0.5, 0.0, 1.0), "角度在範圍內");
-        assert!(!calculator.angle_in_sector(1.5, 0.0, 1.0), "角度不在範圍內");
+        assert!(ShadowCalculator::angle_in_sector(0.5, 0.0, 1.0), "角度在範圍內");
+        assert!(!ShadowCalculator::angle_in_sector(1.5, 0.0, 1.0), "角度不在範圍內");
         
         // 測試跨越0度的扇形
         let start_angle = 11.0 * PI / 6.0; // 330度
         let end_angle = PI / 6.0;          // 30度
         
-        assert!(calculator.angle_in_sector(0.0, start_angle, end_angle), "0度應該在跨越0度的扇形內");
-        assert!(calculator.angle_in_sector(2.0 * PI - 0.1, start_angle, end_angle), "359.9度應該在扇形內");
-        assert!(calculator.angle_in_sector(0.1, start_angle, end_angle), "0.1度應該在扇形內");
-        assert!(!calculator.angle_in_sector(PI, start_angle, end_angle), "180度不應該在扇形內");
+        assert!(ShadowCalculator::angle_in_sector(0.0, start_angle, end_angle), "0度應該在跨越0度的扇形內");
+        assert!(ShadowCalculator::angle_in_sector(2.0 * PI - 0.1, start_angle, end_angle), "359.9度應該在扇形內");
+        assert!(ShadowCalculator::angle_in_sector(0.1, start_angle, end_angle), "0.1度應該在扇形內");
+        assert!(!ShadowCalculator::angle_in_sector(PI, start_angle, end_angle), "180度不應該在扇形內");
     }
 
     /// 測試陰影合併邏輯
@@ -216,14 +217,14 @@ mod tests {
         };
         
         let shadows = vec![shadow1, shadow2];
-        let merged = calculator.merge_overlapping_shadows(shadows);
+        let merged = shadow_calculation::ShadowCalculator::merge_overlapping_shadows(shadows);
         
         // 應該合併成一個陰影
         assert_eq!(merged.len(), 1, "重疊的陰影應該被合併");
         
         if let crate::comp::circular_vision::ShadowGeometry::Sector { start_angle, end_angle, .. } = &merged[0].geometry {
-            assert_eq!(start_angle, &0.0, "合併後起始角度應該是最小值");
-            assert_eq!(end_angle, &(PI / 2.0), "合併後結束角度應該是最大值");
+            assert_eq!(*start_angle, 0.0, "合併後起始角度應該是最小值");
+            assert_eq!(*end_angle, PI / 2.0, "合併後結束角度應該是最大值");
         }
     }
 
@@ -233,19 +234,19 @@ mod tests {
         let calculator = ShadowCalculator::new();
         
         // 測試明顯重疊
-        assert!(calculator.sectors_overlap_or_adjacent(0.0, PI / 2.0, PI / 4.0, 3.0 * PI / 4.0),
+        assert!(ShadowCalculator::sectors_overlap_or_adjacent(0.0, PI / 2.0, PI / 4.0, 3.0 * PI / 4.0),
             "重疊的扇形應該被檢測出來");
         
         // 測試不重疊但相鄰
-        assert!(calculator.sectors_overlap_or_adjacent(0.0, PI / 4.0, PI / 4.0, PI / 2.0),
+        assert!(ShadowCalculator::sectors_overlap_or_adjacent(0.0, PI / 4.0, PI / 4.0, PI / 2.0),
             "相鄰的扇形應該被檢測出來");
         
         // 測試完全分離
-        assert!(!calculator.sectors_overlap_or_adjacent(0.0, PI / 6.0, PI / 2.0, 2.0 * PI / 3.0),
+        assert!(!ShadowCalculator::sectors_overlap_or_adjacent(0.0, PI / 6.0, PI / 2.0, 2.0 * PI / 3.0),
             "分離的扇形不應該被檢測為重疊");
         
         // 測試跨越0度的情況
-        assert!(calculator.sectors_overlap_or_adjacent(11.0 * PI / 6.0, PI / 6.0, 0.0, PI / 4.0),
+        assert!(ShadowCalculator::sectors_overlap_or_adjacent(11.0 * PI / 6.0, PI / 6.0, 0.0, PI / 4.0),
             "跨越0度的重疊扇形應該被檢測出來");
     }
 

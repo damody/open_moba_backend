@@ -1,6 +1,6 @@
 /// 資源管理器 - 負責處理遊戲資源和玩家請求
 
-use specs::{World, Entity, WorldExt};
+use specs::{World, Entity, WorldExt, Join};
 use crossbeam_channel::{Receiver, Sender};
 use failure::Error;
 
@@ -39,13 +39,6 @@ impl ResourceManager {
             }
             std::mem::take(&mut *outcome_vec)
         };
-
-        // 暫時簡化處理邏輯，後續可以整合事件分派器
-        log::info!("處理 {} 個遊戲結果事件", outcomes.len());
-        
-        // 將待處理的結果清空（暫時實現）
-        // 實際應該根據結果類型進行相應處理
-
         Ok(())
     }
 

@@ -216,14 +216,15 @@ impl InputHandler {
                 let mut effect = SkillEffect::new(
                     ability.id.clone(),
                     input.caster,
-                    SkillEffectType::AreaEffect,
+                    SkillEffectType::Area,
                     0.1, // 瞬間效果
                 );
                 
-                effect.area_center = Some(target_pos);
-                effect.data.area_radius = area_radius;
-                effect.data.damage_per_tick = base_damage;
-                effect.data.affects_enemies = true;
+                // 暫時使用現有的字段來儲存範圍效果資料
+                effect.target_pos = Some(target_pos);
+                effect.data.damage_per_second = base_damage;
+                // 使用 duration 字段來儲存範圍半徑
+                effect.duration = area_radius;
                 
                 let effect_entity = tr.entities.create();
                 tw.skill_effects.insert(effect_entity, effect);

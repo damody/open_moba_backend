@@ -152,18 +152,18 @@ mod tests {
         let calculator = ShadowCalculator::new();
         
         // 測試基本角度範圍檢查
-        assert!(calculator.angle_in_sector(0.5, 0.0, 1.0), "0.5應該在[0,1]範圍內");
-        assert!(!calculator.angle_in_sector(1.5, 0.0, 1.0), "1.5不應該在[0,1]範圍內");
+        assert!(ShadowCalculator::angle_in_sector(0.5, 0.0, 1.0), "0.5應該在[0,1]範圍內");
+        assert!(!ShadowCalculator::angle_in_sector(1.5, 0.0, 1.0), "1.5不應該在[0,1]範圍內");
         
         // 測試跨越0度的扇形
         let start_angle = 11.0 * PI / 6.0; // 330度
         let end_angle = PI / 6.0;          // 30度
         
-        assert!(calculator.angle_in_sector(0.0, start_angle, end_angle), 
+        assert!(ShadowCalculator::angle_in_sector(0.0, start_angle, end_angle), 
             "0度應該在跨越0度的扇形內");
-        assert!(calculator.angle_in_sector(2.0 * PI - 0.1, start_angle, end_angle), 
+        assert!(ShadowCalculator::angle_in_sector(2.0 * PI - 0.1, start_angle, end_angle), 
             "359.9度應該在扇形內");
-        assert!(!calculator.angle_in_sector(PI, start_angle, end_angle), 
+        assert!(!ShadowCalculator::angle_in_sector(PI, start_angle, end_angle), 
             "180度不應該在扇形內");
     }
 
@@ -173,15 +173,15 @@ mod tests {
         let calculator = ShadowCalculator::new();
         
         // 測試明顯重疊的扇形
-        assert!(calculator.sectors_overlap_or_adjacent(0.0, PI/2.0, PI/4.0, 3.0*PI/4.0),
+        assert!(ShadowCalculator::sectors_overlap_or_adjacent(0.0, PI/2.0, PI/4.0, 3.0*PI/4.0),
             "重疊的扇形應該被檢測出來");
         
         // 測試相鄰的扇形
-        assert!(calculator.sectors_overlap_or_adjacent(0.0, PI/4.0, PI/4.0, PI/2.0),
+        assert!(ShadowCalculator::sectors_overlap_or_adjacent(0.0, PI/4.0, PI/4.0, PI/2.0),
             "相鄰的扇形應該被檢測出來");
         
         // 測試分離的扇形
-        assert!(!calculator.sectors_overlap_or_adjacent(0.0, PI/6.0, PI/2.0, 2.0*PI/3.0),
+        assert!(!ShadowCalculator::sectors_overlap_or_adjacent(0.0, PI/6.0, PI/2.0, 2.0*PI/3.0),
             "分離的扇形不應該被檢測為重疊");
     }
 
@@ -196,7 +196,7 @@ mod tests {
         let line_start = Vec2::new(10.0, 0.0);
         let line_end = Vec2::new(10.0, 20.0);
         
-        let intersection = calculator.ray_line_intersection(
+        let intersection = ShadowCalculator::ray_line_intersection(
             ray_origin, ray_direction, line_start, line_end
         );
         
@@ -213,7 +213,7 @@ mod tests {
         
         // 測試射線背向線段的情況
         let ray_direction_backward = Vec2::new(-1.0, 0.0);
-        let intersection_backward = calculator.ray_line_intersection(
+        let intersection_backward = ShadowCalculator::ray_line_intersection(
             ray_origin, ray_direction_backward, line_start, line_end
         );
         

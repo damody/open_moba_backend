@@ -39,10 +39,12 @@ pub struct SkillEffect {
     pub skill_id: String,          // 來源技能
     pub caster: Entity,            // 施法者
     pub target: Option<Entity>,    // 目標（可選）
+    pub target_pos: Option<vek::Vec2<f32>>, // 目標位置
     pub effect_type: SkillEffectType,
     pub duration: f32,             // 效果持續時間
     pub remaining_time: f32,       // 剩餘時間
     pub position: Option<vek::Vec2<f32>>, // 位置（地面技能）
+    pub area_center: Option<vek::Vec2<f32>>, // 範圍中心
     pub radius: f32,               // 影響範圍
     pub tick_interval: f32,        // tick 間隔
     pub last_tick_time: f32,       // 上次 tick 時間
@@ -62,6 +64,9 @@ pub enum SkillEffectType {
     Transform,     // 變身效果（如狙擊模式）
     Summon,        // 召喚物
     Area,          // 地面效果
+    DamageOverTime, // 持續傷害效果
+    HealOverTime,   // 持續治療效果
+    AreaEffect,     // 範圍效果
 }
 
 /// 技能效果數據
@@ -77,6 +82,13 @@ pub struct SkillEffectData {
     // 持續效果
     pub damage_per_second: f32,
     pub heal_per_second: f32,
+    pub damage_per_tick: f32,
+    pub heal_per_tick: f32,
+    
+    // 範圍效果
+    pub area_radius: f32,
+    pub affects_allies: bool,
+    pub affects_enemies: bool,
     
     // 特殊效果
     pub disable_movement: bool,
@@ -241,10 +253,12 @@ impl SkillEffect {
             skill_id,
             caster,
             target: None,
+            target_pos: None,
             effect_type,
             duration,
             remaining_time: duration,
             position: None,
+            area_center: None,
             radius: 0.0,
             tick_interval: 1.0,
             last_tick_time: 0.0,
@@ -285,6 +299,11 @@ impl Default for SkillEffectData {
             accuracy_bonus: 0.0,
             damage_per_second: 0.0,
             heal_per_second: 0.0,
+            damage_per_tick: 0.0,
+            heal_per_tick: 0.0,
+            area_radius: 0.0,
+            affects_allies: false,
+            affects_enemies: false,
             disable_movement: false,
             disable_attack: false,
             invisibility: false,

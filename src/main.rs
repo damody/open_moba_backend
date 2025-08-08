@@ -5,6 +5,7 @@
 extern crate specs_derive;
 
 use log::{info, warn, error, trace, debug};
+use crate::state::State;
 use std::fs::File;
 use std::io::{Write, BufReader, BufRead};
 use failure::{err_msg, Error};
@@ -16,6 +17,7 @@ mod msg;
 mod json_preprocessor;
 mod mqtt;
 mod vision;
+mod state;
 use crate::msg::MqttMsg;
 pub mod config;
 use crate::config::server_config::CONFIG;

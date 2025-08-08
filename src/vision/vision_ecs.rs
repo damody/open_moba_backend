@@ -44,8 +44,7 @@ impl VisionUpdateSystem {
     /// 創建新的視野更新系統
     pub fn new() -> Self {
         Self {
-            shadow_calculator: ShadowCalculator::new()
-                .with_config(500, 6, 8), // 中等性能配置
+            shadow_calculator: ShadowCalculator::with_config(500, 6, 8), // 中等性能配置
             output_generator: VisionOutputGenerator::new(25.0),
             update_interval: 1.0 / 30.0, // 30 FPS 更新頻率
         }
@@ -59,14 +58,13 @@ impl VisionUpdateSystem {
         tree_depth: usize,
     ) -> Self {
         self.update_interval = 1.0 / update_frequency;
-        self.shadow_calculator = ShadowCalculator::new()
-            .with_config(cache_size, tree_depth, 10);
+        self.shadow_calculator = ShadowCalculator::with_config(cache_size, tree_depth, 10);
         self
     }
 
     /// 初始化障礙物
     pub fn initialize_obstacles(&mut self, obstacles: Vec<crate::comp::circular_vision::ObstacleInfo>) {
-        use crate::vision::shadow_calculator::Bounds;
+        use crate::vision::Bounds;
         
         // 假設地圖範圍 4000x4000
         let world_bounds = Bounds::new(

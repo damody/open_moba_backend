@@ -1,7 +1,7 @@
 /// 調試測試 - 檢查實際的視野計算邏輯
 use vek::Vec2;
 use crate::comp::circular_vision::{ObstacleInfo, ObstacleType, ObstacleProperties};
-use crate::vision::{ShadowCalculator, shadow_calculator::Bounds};
+use crate::vision::{ShadowCalculator, Bounds};
 
 pub fn debug_vision_calculation() {
     println!("=== 調試視野計算 ===");

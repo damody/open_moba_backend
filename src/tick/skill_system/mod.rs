@@ -13,7 +13,8 @@ pub use input_handler::InputHandler;
 pub use abilities::AbilityManager;
 
 use specs::{
-    Entities, Read, ReadStorage, Write, WriteStorage, SystemData,
+    Entities, Read, ReadStorage, Write, WriteStorage, SystemData, World,
+    shred::ResourceId,
 };
 use crate::comp::*;
 

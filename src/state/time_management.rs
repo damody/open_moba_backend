@@ -77,7 +77,7 @@ impl TimeManager {
     pub fn get_day_period(&self) -> DayPeriod {
         // 這個方法需要 World 才能獲取實際值
         // 在實際使用中應該從 State 調用
-        DayPeriod::Day // 預設返回白天
+        DayPeriod::Noon // 預設返回中午
     }
 
     /// 設置日夜循環倍率
@@ -132,7 +132,7 @@ impl TimeManager {
     pub fn is_day_time(world: &World) -> bool {
         let time_of_day = world.read_resource::<TimeOfDay>().0;
         let day_period: DayPeriod = time_of_day.into();
-        matches!(day_period, DayPeriod::Day)
+        matches!(day_period, DayPeriod::Noon | DayPeriod::Morning)
     }
 
     /// 檢查是否為夜晚
@@ -149,9 +149,9 @@ impl TimeManager {
         
         match day_period {
             DayPeriod::Night => 0.2,        // 夜晚低光照
-            DayPeriod::Dawn => 0.6,         // 黎明中等光照
-            DayPeriod::Day => 1.0,          // 白天全光照
-            DayPeriod::Dusk => 0.7,         // 黃昏中高光照
+            DayPeriod::Morning => 0.6,      // 早晨中等光照
+            DayPeriod::Noon => 1.0,         // 中午全光照
+            DayPeriod::Evening => 0.7,      // 働晚中高光照
         }
     }
 

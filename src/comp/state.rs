@@ -1,13 +1,8 @@
-/// 遊戲狀態模組 - 重新導出獨立的 state 模組
-/// 
-/// 為了保持向後兼容性，這個文件重新導出新的獨立 state 模組
+// 遊戲狀態模組 - 重新導出獨立的 state 模組
+// 
+// 為了保持向後兼容性，這個文件重新導出新的獨立 state 模組
+// 
+// 注意：由於模組循環引用問題，暫時移除了重新導出
+// 請直接使用 crate::state::State 等類型
 
-// 重新導出獨立的 State 結構和相關類型
-pub use crate::state::{
-    State, 
-    StateInitializer,
-    TimeManager,
-    ResourceManager,
-    SystemDispatcher,
-};
-pub use crate::state::core::StateConfig;
+// 暫時保留為空的模組以避免編譯錯誤

@@ -54,12 +54,18 @@ pub struct ShadowArea {
 /// 陰影類型
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ShadowType {
+    /// 物體陰影
+    Object,
+    /// 建築陰影
+    Building,
     /// 扇形陰影（樹木、柱子等圓形遮擋物）
     Sector,
     /// 梯形陰影（牆壁、建築等矩形遮擋物）
     Trapezoid,
     /// 地形陰影（高低起伏造成的複雜陰影）
     Terrain,
+    /// 臨時陰影
+    Temporary,
 }
 
 /// 陰影幾何形狀

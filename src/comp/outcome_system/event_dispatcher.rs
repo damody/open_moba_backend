@@ -4,6 +4,7 @@ use specs::{Entity, World};
 use crate::comp::*;
 use crate::msg::MqttMsg;
 use crossbeam_channel::Sender;
+use log::warn;
 
 use super::{
     CombatEventHandler, MovementEventHandler, 
@@ -16,7 +17,7 @@ pub struct EventDispatcher;
 impl EventDispatcher {
     /// 處理單個遊戲結果事件
     pub fn dispatch_outcome(
-        world: &World,
+        world: &mut World,
         mqtx: &Sender<MqttMsg>,
         outcome: Outcome,
     ) -> Vec<Outcome> {
@@ -32,7 +33,7 @@ impl EventDispatcher {
                 CombatEventHandler::handle_death(world, mqtx, pos, ent)
             }
             Outcome::GainExperience { target, amount } => {
-                CombatEventHandler::handle_experience_gain(world, mqtx, target, amount)
+                CombatEventHandler::handle_experience_gain(world, mqtx, target, amount as u32)
             }
             Outcome::UpdateAttack { target, asd_count, cooldown_reset } => {
                 CombatEventHandler::handle_attack_update(world, mqtx, target, asd_count, cooldown_reset)
@@ -54,7 +55,16 @@ impl EventDispatcher {
                 CreationEventHandler::handle_tower_creation(world, mqtx, pos, td)
             }
             Outcome::ProjectileLine2 { pos, source, target } => {
-                CreationEventHandler::handle_projectile_creation(world, mqtx, pos, source, target)
+                if let (Some(source), Some(target)) = (source, target) {
+                    // 彈道不帶額外傷害參數，讓彈道系統從攻擊組件中獲取
+                    CreationEventHandler::handle_projectile_creation(world, mqtx, pos, source, target, None, None, None)
+                } else {
+                    warn!("ProjectileLine2 事件缺少source或target實體");
+                    vec![]
+                }
+            }
+            Outcome::SpawnUnit { pos, unit, faction, duration } => {
+                CreationEventHandler::handle_unit_spawn(world, mqtx, pos, unit, faction, duration)
             }
 
             // 系統事件
@@ -66,7 +76,7 @@ impl EventDispatcher {
 
     /// 批量處理多個事件
     pub fn dispatch_outcomes_batch(
-        world: &World,
+        world: &mut World,
         mqtx: &Sender<MqttMsg>,
         outcomes: Vec<Outcome>,
     ) -> Vec<Outcome> {
@@ -82,7 +92,7 @@ impl EventDispatcher {
 
     /// 按優先級處理事件
     pub fn dispatch_outcomes_prioritized(
-        world: &World,
+        world: &mut World,
         mqtx: &Sender<MqttMsg>,
         outcomes: Vec<Outcome>,
     ) -> Vec<Outcome> {
@@ -91,9 +101,19 @@ impl EventDispatcher {
         let mut all_next_outcomes = Vec::new();
         
         // 分批處理不同優先級的事件
-        let high_priority: Vec<_> = prioritized.drain_filter(|o| Self::is_high_priority(o)).collect();
-        let medium_priority: Vec<_> = prioritized.drain_filter(|o| Self::is_medium_priority(o)).collect();
-        let low_priority = prioritized; // 剩下的都是低優先級
+        let mut high_priority = Vec::new();
+        let mut medium_priority = Vec::new();
+        let mut low_priority = Vec::new();
+        
+        for outcome in prioritized {
+            if Self::is_high_priority(&outcome) {
+                high_priority.push(outcome);
+            } else if Self::is_medium_priority(&outcome) {
+                medium_priority.push(outcome);
+            } else {
+                low_priority.push(outcome);
+            }
+        }
         
         // 先處理高優先級事件
         for outcome in high_priority {
@@ -134,6 +154,7 @@ impl EventDispatcher {
                 Outcome::Creep { .. } => analysis.creation_events += 1,
                 Outcome::Tower { .. } => analysis.creation_events += 1,
                 Outcome::ProjectileLine2 { .. } => analysis.creation_events += 1,
+                Outcome::SpawnUnit { .. } => analysis.creation_events += 1,
                 
                 _ => analysis.system_events += 1,
             }
@@ -164,6 +185,7 @@ impl EventDispatcher {
             Outcome::ProjectileLine2 { .. } => 3,  // 中低優先級
             Outcome::Tower { .. } => 2,            // 低優先級
             Outcome::Creep { .. } => 2,            // 低優先級
+            Outcome::SpawnUnit { .. } => 2,        // 低優先級
             Outcome::GainExperience { .. } => 1,   // 最低優先級
             _ => 0,                                 // 系統事件
         }

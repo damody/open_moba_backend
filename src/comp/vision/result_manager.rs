@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use specs::Entity;
+use vek::Vec2;
 use super::components::*;
 
 /// 視野結果管理器
@@ -108,10 +109,11 @@ impl ResultManager {
 
     /// 批量更新多個實體的視野
     pub fn batch_update_visions(&mut self, updates: Vec<(Entity, VisionResult)>) {
+        let update_count = updates.len();
         for (entity, result) in updates {
             self.entity_results.insert(entity, result);
         }
-        self.update_stats.total_updates += updates.len();
+        self.update_stats.total_updates += update_count;
         self.update_stats.batch_updates += 1;
     }
 

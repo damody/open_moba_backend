@@ -53,21 +53,29 @@ impl SkillProcessor {
     ) -> bool {
         // 創建請求
         let request = AbilityRequest {
+            caster: input.caster,
             ability_id: ability_id.to_string(),
-            caster_id: format!("{:?}", input.caster),
+            level: 1, // 預設等級為1
             target_position: input.target_position,
-            target_entity: input.target_entity.map(|e| format!("{:?}", e)),
+            target_entity: input.target_entity,
         };
 
+        // 创建當前狀態（預設）
+        let current_state = ability_system::AbilityState::default();
+        
         // 處理請求
-        match processor.process_request(&request) {
-            Ok(effects) => {
-                for effect in effects {
-                    Self::apply_ability_effect(effect, input, skill_entity, tr, tw);
-                }
-                true
+        let result = processor.process_ability(&request, &current_state);
+        
+        if result.success {
+            for effect in result.effects {
+                Self::apply_ability_effect(effect, input, skill_entity, tr, tw);
             }
-            Err(_) => false,
+            true
+        } else {
+            if let Some(err) = result.error_message {
+                warn!("技能執行失敗: {}", err);
+            }
+            false
         }
     }
 
@@ -79,62 +87,77 @@ impl SkillProcessor {
         tr: &SkillRead,
         tw: &mut SkillWrite,
     ) {
-        match effect.effect_type.as_str() {
-            "damage" => {
-                if let Some(target) = input.target_entity {
-                    let damage_amount = effect.value.unwrap_or(0.0);
-                    let caster_pos = tr.positions.get(input.caster)
-                        .map(|p| p.0)
-                        .unwrap_or_default();
-                    
-                    tw.outcomes.push(Outcome::Damage {
-                        pos: caster_pos,
-                        phys: damage_amount,
-                        magi: 0.0,
-                        real: 0.0,
-                        source: input.caster,
-                        target: target,
-                    });
-                }
+        use ability_system::AbilityEffect::*;
+        
+        match effect {
+            Damage { target, amount } => {
+                let caster_pos = tr.positions.get(input.caster)
+                    .map(|p| p.0)
+                    .unwrap_or_default();
+                
+                tw.outcomes.push(Outcome::Damage {
+                    pos: caster_pos,
+                    phys: amount,
+                    magi: 0.0,
+                    real: 0.0,
+                    source: input.caster,
+                    target,
+                });
             }
-            "heal" => {
-                if let Some(target) = input.target_entity {
-                    let heal_amount = effect.value.unwrap_or(0.0);
-                    let caster_pos = tr.positions.get(input.caster)
-                        .map(|p| p.0)
-                        .unwrap_or_default();
-                    
-                    tw.outcomes.push(Outcome::Heal {
-                        pos: caster_pos,
-                        target: target,
-                        amount: heal_amount,
-                    });
-                }
+            Heal { target, amount } => {
+                let caster_pos = tr.positions.get(input.caster)
+                    .map(|p| p.0)
+                    .unwrap_or_default();
+                
+                tw.outcomes.push(Outcome::Heal {
+                    pos: caster_pos,
+                    target,
+                    amount,
+                });
             }
-            "buff" | "debuff" => {
+            StatusModifier { target, modifier_type, value, duration } => {
                 // 創建技能效果
                 let mut skill_effect = SkillEffect::new(
-                    effect.ability_id.unwrap_or_default(),
+                    input.skill_id.clone(),
                     input.caster,
-                    SkillEffectType::Buff,
-                    effect.duration.unwrap_or(10.0),
+                    if value > 0.0 { SkillEffectType::Buff } else { SkillEffectType::Debuff },
+                    duration.unwrap_or(10.0),
                 );
+                skill_effect.target = Some(target);
 
-                if let Some(value) = effect.value {
-                    match effect.stat.as_deref() {
-                        Some("damage") => skill_effect.data.damage_bonus = value / 100.0,
-                        Some("range") => skill_effect.data.range_bonus = value,
-                        Some("attack_speed") => skill_effect.data.attack_speed_bonus = value / 100.0,
-                        Some("move_speed") => skill_effect.data.move_speed_bonus = value / 100.0,
-                        _ => {}
-                    }
+                match modifier_type.as_str() {
+                    "damage" => skill_effect.data.damage_bonus = value / 100.0,
+                    "range" => skill_effect.data.range_bonus = value,
+                    "attack_speed" => skill_effect.data.attack_speed_bonus = value / 100.0,
+                    "move_speed" => skill_effect.data.move_speed_bonus = value / 100.0,
+                    _ => {}
                 }
 
                 let effect_entity = tr.entities.create();
                 tw.skill_effects.insert(effect_entity, skill_effect);
             }
-            _ => {
-                warn!("未知的技能效果類型: {}", effect.effect_type);
+            Summon { position, unit_type, count, duration } => {
+                // 召喚效果的處理
+                info!("召喚 {} 個 {} 在位置 {:?}", count, unit_type, position);
+            }
+            AreaEffect { center, radius, effect_type, damage, duration } => {
+                // 區域效果
+                let mut skill_effect = SkillEffect::new(
+                    input.skill_id.clone(),
+                    input.caster,
+                    SkillEffectType::Area,
+                    duration,
+                );
+                skill_effect.area_center = Some(center);
+                skill_effect.radius = radius;
+                
+                if let Some(dmg) = damage {
+                    skill_effect.data.damage_per_tick = dmg;
+                    skill_effect.data.affects_enemies = true;
+                }
+                
+                let effect_entity = tr.entities.create();
+                tw.skill_effects.insert(effect_entity, skill_effect);
             }
         }
     }

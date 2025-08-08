@@ -9,8 +9,16 @@ name = "omobab"
 crate-type = ["rlib"]
 
 [[bin]]
-name = "test_vision_only"
-path = "test_vision_only.rs"
+name = "omobab"
+path = "src/main.rs"
+
+[[bin]]
+name = "test_posdata"
+path = "src/test_posdata.rs"
+
+[[bin]]
+name = "test_posdata_brute_force"
+path = "src/test_posdata_brute_force.rs"
 
 
 # 隱藏所有編譯器警告

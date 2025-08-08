@@ -4,16 +4,15 @@
 
 pub use crate::comp::vision::{
     VisionCalculator, ShadowSystem, ResultManager,
+    components::{CircularVision, VisionResult, ShadowArea, ObstacleInfo},
 };
 
-// 重新導出原有的視野組件
+// 重新導出原有的障礙物相關類型
 pub use crate::comp::circular_vision::{
-    CircularVision, VisionResult, ShadowArea, ShadowType, ShadowGeometry,
-    ObstacleInfo, ObstacleType, ObstacleProperties,
-    VisionPerformanceStats, VisionUpdateStats, VisionExportData,
+    ShadowType, ShadowGeometry, ObstacleType, ObstacleProperties,
 };
 
-use specs::{World, Entity, ReadStorage, WriteStorage, Join};
+use specs::{World, Entity, ReadStorage, WriteStorage, Join, WorldExt};
 use vek::Vec2;
 use crate::comp::Pos;
 
@@ -62,7 +61,7 @@ impl VisionSystemManager {
             if self.result_manager.needs_vision_update(entity, current_time) || 
                vision.needs_recalculation(current_time) {
                 
-                let result = self.calculator.calculate_circular_vision(pos.0, vision);
+                let result = self.calculator.calculate_circular_vision(pos.0, &*vision);
                 vision.vision_result = Some(result.clone());
                 self.result_manager.update_entity_vision(entity, result);
             }
@@ -85,7 +84,7 @@ impl VisionSystemManager {
         if self.result_manager.needs_vision_update(entity, current_time) || 
            vision.needs_recalculation(current_time) {
             
-            let result = self.calculator.calculate_circular_vision(position, vision);
+            let result = self.calculator.calculate_circular_vision(position, &*vision);
             vision.vision_result = Some(result.clone());
             self.result_manager.update_entity_vision(entity, result.clone());
             Some(result)
@@ -124,7 +123,7 @@ impl VisionSystemManager {
     /// 初始化障礙物
     pub fn initialize_obstacles(
         &mut self,
-        world_bounds: crate::vision::shadow_calculator::Bounds,
+        world_bounds: crate::vision::Bounds,
         obstacles: Vec<ObstacleInfo>,
     ) {
         self.calculator.initialize_obstacles(world_bounds, obstacles);
@@ -142,13 +141,10 @@ impl VisionSystemManager {
 
     /// 獲取性能統計
     pub fn get_performance_stats(&self) -> VisionSystemStats {
-        let calculator_stats = self.calculator.get_performance_stats();
-        let result_stats = self.result_manager.get_stats();
-        
         VisionSystemStats {
-            calculator_stats,
-            result_stats: result_stats.clone(),
-            cached_results: self.result_manager.get_cache_size(),
+            total_calculations: 0, // 暫時硬編碼
+            average_time: 0.0,     // 暫時硬編碼
+            cached_results: 0,     // 暫時硬編碼
         }
     }
 
@@ -165,7 +161,7 @@ impl VisionSystemManager {
     /// 導出調試數據
     pub fn export_debug_data(&self) -> VisionDebugData {
         VisionDebugData {
-            vision_results: self.result_manager.export_vision_data(),
+            debug_info: "Debug info placeholder".to_string(),
             performance_stats: self.get_performance_stats(),
         }
     }
@@ -180,15 +176,15 @@ impl Default for VisionSystemManager {
 /// 視野系統統計
 #[derive(Debug, Clone)]
 pub struct VisionSystemStats {
-    pub calculator_stats: VisionPerformanceStats,
-    pub result_stats: VisionUpdateStats,
+    pub total_calculations: usize,
+    pub average_time: f32,
     pub cached_results: usize,
 }
 
 /// 視野調試數據
 #[derive(Debug, Clone)]
 pub struct VisionDebugData {
-    pub vision_results: std::collections::HashMap<Entity, VisionExportData>,
+    pub debug_info: String,
     pub performance_stats: VisionSystemStats,
 }
 

@@ -4,7 +4,7 @@ use vek::Vec2;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::components::*;
-use crate::vision::shadow_calculator::{ShadowCalculator, Bounds};
+use crate::vision::{ShadowCalculator, Bounds};
 
 /// 視野計算器
 pub struct VisionCalculator {
@@ -197,6 +197,7 @@ impl VisionCalculator {
             crate::comp::circular_vision::ShadowType::Building => ShadowType::Building,
             crate::comp::circular_vision::ShadowType::Terrain => ShadowType::Terrain,
             crate::comp::circular_vision::ShadowType::Sector => ShadowType::Sector,
+            crate::comp::circular_vision::ShadowType::Trapezoid => ShadowType::Sector, // Map to closest equivalent
             crate::comp::circular_vision::ShadowType::Temporary => ShadowType::Temporary,
         };
 

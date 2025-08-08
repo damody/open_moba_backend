@@ -2,12 +2,12 @@
 
 use std::sync::Arc;
 use rayon::ThreadPool;
-use specs::World;
+use specs::{World, WorldExt};
 use crossbeam_channel::{Receiver, Sender};
 use failure::Error;
 use core::time::Duration;
 
-use crate::{comp::*, msg::MqttMsg};
+use crate::{comp::*, msg::MqttMsg, CreepWave};
 use crate::ue4::import_map::CreepWaveData;
 use crate::ue4::import_campaign::CampaignData;
 use crate::msg::PlayerData;
@@ -46,7 +46,13 @@ impl State {
         mqrx: Receiver<PlayerData>,
     ) -> Self {
         let thread_pool = StateInitializer::create_thread_pool();
-        let ecs = StateInitializer::setup_standard_ecs_world(&thread_pool);
+        let mut ecs = StateInitializer::setup_standard_ecs_world(&thread_pool);
+        
+        // 設置 MQTT 發送器
+        {
+            let mut mqtx_vec = ecs.write_resource::<Vec<Sender<MqttMsg>>>();
+            mqtx_vec.push(mqtx.clone());
+        }
         
         let mut state = Self {
             ecs,
@@ -71,7 +77,13 @@ impl State {
         mqrx: Receiver<PlayerData>,
     ) -> Self {
         let thread_pool = StateInitializer::create_thread_pool();
-        let ecs = StateInitializer::setup_campaign_ecs_world(&thread_pool);
+        let mut ecs = StateInitializer::setup_campaign_ecs_world(&thread_pool);
+        
+        // 設置 MQTT 發送器
+        {
+            let mut mqtx_vec = ecs.write_resource::<Vec<Sender<MqttMsg>>>();
+            mqtx_vec.push(mqtx.clone());
+        }
         
         let mut state = Self {
             ecs,
@@ -185,6 +197,114 @@ impl State {
         StateInitializer::init_campaign_data(&mut self.ecs, campaign_data);
         StateInitializer::init_creep_wave(&mut self.ecs, &self.cw);
         StateInitializer::create_campaign_scene(&mut self.ecs, campaign_data);
+        
+        // 發送初始化資料到 MQTT
+        self.send_initial_game_state();
+    }
+    
+    /// 發送初始遊戲狀態到 MQTT
+    fn send_initial_game_state(&mut self) {
+        use specs::Join;
+        use serde_json::json;
+        
+        // 發送英雄資料
+        {
+            let entities = self.ecs.entities();
+            let heroes = self.ecs.read_storage::<Hero>();
+            let positions = self.ecs.read_storage::<Pos>();
+            let properties = self.ecs.read_storage::<CProperty>();
+            
+            for (entity, hero, pos, prop) in (&entities, &heroes, &positions, &properties).join() {
+                let hero_data = json!({
+                    "entity_id": entity.id(),
+                    "hero_id": hero.id,
+                    "name": hero.name,
+                    "title": hero.title,
+                    "level": hero.level,
+                    "position": {
+                        "x": pos.0.x,
+                        "y": pos.0.y
+                    },
+                    "hp": prop.hp,
+                    "max_hp": prop.mhp,
+                    "move_speed": prop.msd
+                });
+                
+                if let Err(e) = self.mqtx.send(MqttMsg::new_s("td/all/res", "hero", "create", hero_data)) {
+                    log::error!("無法發送英雄初始化資料: {}", e);
+                }
+                log::info!("已發送英雄 '{}' 初始化資料到 MQTT", hero.name);
+            }
+        }
+        
+        // 發送敵人單位資料
+        {
+            let entities = self.ecs.entities();
+            let units = self.ecs.read_storage::<Unit>();
+            let positions = self.ecs.read_storage::<Pos>();
+            let properties = self.ecs.read_storage::<CProperty>();
+            
+            for (entity, unit, pos, prop) in (&entities, &units, &positions, &properties).join() {
+                let unit_data = json!({
+                    "entity_id": entity.id(),
+                    "unit_id": unit.id,
+                    "name": unit.name,
+                    "unit_type": unit.unit_type,
+                    "position": {
+                        "x": pos.0.x,
+                        "y": pos.0.y
+                    },
+                    "hp": prop.hp,
+                    "max_hp": prop.mhp,
+                    "move_speed": prop.msd
+                });
+                
+                if let Err(e) = self.mqtx.send(MqttMsg::new_s("td/all/res", "unit", "create", unit_data)) {
+                    log::error!("無法發送單位初始化資料: {}", e);
+                }
+                log::info!("已發送單位 '{}' 初始化資料到 MQTT", unit.name);
+            }
+        }
+        
+        // 發送小兵波資料
+        {
+            let creep_waves = self.ecs.read_resource::<Vec<CreepWave>>();
+            let wave_data = json!({
+                "total_waves": creep_waves.len(),
+                "waves": creep_waves.iter().map(|wave| {
+                    json!({
+                        "start_time": wave.time,
+                        "paths": wave.path_creeps.iter().map(|pc| {
+                            json!({
+                                "path": pc.path_name,
+                                "creep_count": pc.creeps.len()
+                            })
+                        }).collect::<Vec<_>>()
+                    })
+                }).collect::<Vec<_>>()
+            });
+            
+            if let Err(e) = self.mqtx.send(MqttMsg::new_s("td/all/res", "creep_wave", "init", wave_data)) {
+                log::error!("無法發送小兵波初始化資料: {}", e);
+            }
+            log::info!("已發送 {} 個小兵波初始化資料到 MQTT", creep_waves.len());
+        }
+        
+        // 發送戰役資訊
+        if let Some(campaign) = &self.campaign {
+            let campaign_info = json!({
+                "campaign_id": campaign.mission.campaign.id,
+                "campaign_name": campaign.mission.campaign.name,
+                "hero_id": campaign.mission.campaign.hero_id,
+                "stages": campaign.mission.stages.len(),
+                "abilities": campaign.ability.abilities.len()
+            });
+            
+            if let Err(e) = self.mqtx.send(MqttMsg::new_s("td/all/res", "campaign", "init", campaign_info)) {
+                log::error!("無法發送戰役初始化資料: {}", e);
+            }
+            log::info!("已發送戰役 '{}' 初始化資料到 MQTT", campaign.mission.campaign.name);
+        }
     }
 }
 

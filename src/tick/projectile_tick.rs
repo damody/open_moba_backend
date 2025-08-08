@@ -41,7 +41,7 @@ impl<'a> System<'a> for Sys {
         let time = tr.time.0;
         let dt = tr.dt.0;
         //log::info!("projs count {}", tw.projs.count());
-        let (mut outcomes, mut taken_damages) = (
+        let mut outcomes = (
             &tr.entities,
             &mut tw.projs,
             &mut tw.pos,
@@ -55,7 +55,6 @@ impl<'a> System<'a> for Sys {
                 },
                 |_guard, (e, proj, pos)| {
                     let mut outcomes:Vec<Outcome> = Vec::new();
-                    let mut taken_damages:Vec<TakenDamage> = Vec::new();
                     let mut vel = (proj.tpos - pos.0);
                     vel.normalize();
                     vel *= proj.msd;
@@ -70,7 +69,7 @@ impl<'a> System<'a> for Sys {
                     if proj.time_left <= 0. {
                         // 投射物到達目標或超時，造成傷害
                         if let Some(target) = proj.target {
-                            create_projectile_damage(&proj, target, &mut taken_damages);
+                            create_projectile_damage(&proj, target, &mut outcomes, pos.0);
                         }
                         outcomes.push(Outcome::Death { pos: pos.0.clone(), ent: e.clone() });
                     } else {
@@ -79,56 +78,53 @@ impl<'a> System<'a> for Sys {
                             if proj.radius > 1. { // 範圍攻擊（擴散炮）
                                 let targets = tr.searcher.creep.SearchNN_XY(pos.0, proj.radius, 5);
                                 for target_info in targets.iter() {
-                                    create_projectile_damage(&proj, target_info.e, &mut taken_damages);
+                                    create_projectile_damage(&proj, target_info.e, &mut outcomes, pos.0);
                                 }
                             } else if let Some(target) = proj.target {
                                 // 單體攻擊
-                                create_projectile_damage(&proj, target, &mut taken_damages);
+                                create_projectile_damage(&proj, target, &mut outcomes, pos.0);
                             }
                             outcomes.push(Outcome::Death { pos: pos.0.clone(), ent: e.clone() });
                         }
                     }
-                    (outcomes, taken_damages)
+                    outcomes
                 },
             )
             .fold(
-                || (Vec::new(), Vec::new()),
-                |(mut all_outcomes, mut all_taken_damages), 
-                    (mut outcomes, mut taken_damages)| {
+                || Vec::new(),
+                |mut all_outcomes, mut outcomes| {
                     all_outcomes.append(&mut outcomes);
-                    all_taken_damages.append(&mut taken_damages);
-                    (all_outcomes, all_taken_damages)
+                    all_outcomes
                 },
             )
             .reduce(
-                || (Vec::new(), Vec::new()),
-                |( mut outcomes_a, mut taken_damages_a),
-                 ( mut outcomes_b, mut taken_damages_b)| {
+                || Vec::new(),
+                |mut outcomes_a, mut outcomes_b| {
                     outcomes_a.append(&mut outcomes_b);
-                    taken_damages_a.append(&mut taken_damages_b);
-                    (outcomes_a, taken_damages_a)
+                    outcomes_a
                 },
             );
-        tw.taken_damages.append(&mut taken_damages);
         tw.outcomes.append(&mut outcomes);
     }
 }
 
-/// 創建投射物傷害 - 將會被新的傷害系統取代
+/// 創建投射物傷害事件 - 使用新的傷害事件系統
 fn create_projectile_damage(
     proj: &Projectile, 
     target: specs::Entity, 
-    taken_damages: &mut Vec<TakenDamage>
+    outcomes: &mut Vec<Outcome>,
+    pos: vek::Vec2<f32>
 ) {
-    // 暫時使用舊的 TakenDamage 系統，直到完全遷移到新系統
-    // TODO: 根據投射物來源計算實際傷害值
-    let damage = if proj.owner.id() > 0 {
-        // 來自英雄的攻擊
-        TakenDamage { ent: target, phys: 45.0, magi: 0.0, real: 0.0, source: proj.owner }
-    } else {
-        // 來自塔或其他來源的攻擊
-        TakenDamage { ent: target, phys: 25.0, magi: 0.0, real: 0.0, source: proj.owner }
-    };
+    // 使用彈道攜帶的傷害資訊創建傷害事件
+    log::debug!("彈道命中目標 {}，物理傷害: {:.1}，魔法傷害: {:.1}，真實傷害: {:.1}", 
+        target.id(), proj.damage_phys, proj.damage_magi, proj.damage_real);
     
-    taken_damages.push(damage);
+    outcomes.push(Outcome::Damage {
+        pos: pos,
+        phys: proj.damage_phys,
+        magi: proj.damage_magi,
+        real: proj.damage_real,
+        source: proj.owner,
+        target: target,
+    });
 }

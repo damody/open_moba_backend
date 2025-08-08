@@ -17,6 +17,10 @@ pub struct Projectile {
     pub tpos: Vec2<f32>,
     pub radius: f32,
     pub msd: f32,
+    // 傷害值資訊
+    pub damage_phys: f32,  // 物理傷害
+    pub damage_magi: f32,  // 魔法傷害
+    pub damage_real: f32,  // 真實傷害
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

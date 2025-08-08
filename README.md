@@ -8,10 +8,14 @@
 
 - **ECS 架構設計**：使用 Specs ECS 框架實現高效能的遊戲邏輯處理
 - **即時多人對戰**：基於 MQTT 協議的低延遲通信系統
+- **模組化架構**：🆕 完全重構的模組化設計，提升可維護性
+- **獨立狀態管理**：🆕 State 模組完全獨立，支援彈性配置
+- **高性能視野系統**：🆕 四叉樹空間分割與陰影計算優化
 - **豐富道具系統**：包含卷軸、藥劑、武器等多種類型道具
 - **塔防機制**：支援防禦塔、小兵波次、投射物等核心遊戲機制
 - **屬性系統**：力量/敏捷/智力三圍屬性系統，支援主屬性加成
 - **技能系統**：支援 JSON 配置的技能系統，可動態載入和擴展技能
+- **事件驅動架構**：🆕 統一的事件分派系統處理複雜遊戲邏輯
 
 ## 🏗️ 技術架構
 
@@ -29,23 +33,50 @@
 ### 系統架構
 
 ```
-open_moba_backend/
+omobab/
 ├── src/
+│   ├── state/          # 🆕 獨立狀態管理模組 (重構後)
+│   │   ├── core.rs     # 核心狀態結構
+│   │   ├── initialization.rs  # ECS 世界初始化
+│   │   ├── time_management.rs  # 時間管理系統
+│   │   ├── resource_management.rs # 資源管理器
+│   │   ├── system_dispatcher.rs   # 系統分派器
+│   │   └── mod.rs      # 模組導出
 │   ├── comp/           # ECS 組件定義
 │   │   ├── attack.rs   # 攻擊系統
 │   │   ├── base.rs     # 基地建築
 │   │   ├── creep.rs    # 小兵系統
 │   │   ├── player.rs   # 玩家組件
 │   │   ├── tower.rs    # 防禦塔
-│   │   ├── projectile.rs # 投射物
+│   │   ├── hero.rs     # 🆕 英雄系統（增強版）
 │   │   ├── skill.rs    # 技能組件
-│   │   └── ...
+│   │   ├── vision/     # 🆕 視野系統模組
+│   │   │   ├── calculator.rs    # 視野計算核心
+│   │   │   ├── components.rs    # 視野組件
+│   │   │   ├── result_manager.rs # 視野結果管理
+│   │   │   └── shadow_system.rs  # 陰影系統
+│   │   ├── outcome_system/  # 🆕 事件系統模組
+│   │   │   ├── event_dispatcher.rs # 事件分派器
+│   │   │   ├── combat_events.rs    # 戰鬥事件
+│   │   │   ├── movement_events.rs  # 移動事件
+│   │   │   └── creation_events.rs  # 創建事件
+│   │   └── state.rs    # 重新導出 (向後兼容)
 │   ├── tick/           # 遊戲循環邏輯
 │   │   ├── creep_tick.rs    # 小兵更新
 │   │   ├── tower_tick.rs    # 防禦塔更新
 │   │   ├── player_tick.rs   # 玩家更新
-│   │   ├── skill_tick.rs    # 技能系統 (整合 ability-system)
-│   │   └── ...
+│   │   ├── skill_system/    # 🆕 技能系統模組
+│   │   │   ├── abilities.rs     # 技能管理
+│   │   │   ├── effects.rs       # 效果處理
+│   │   │   ├── input_handler.rs # 輸入處理
+│   │   │   └── processor.rs     # 技能處理器
+│   │   └── skill_tick.rs    # 技能系統主入口
+│   ├── vision/         # 🆕 視野計算系統
+│   │   ├── shadow_calculator.rs # 陰影計算器
+│   │   ├── quadtree.rs         # 四叉樹空間分割
+│   │   ├── shadow_calculation.rs # 陰影計算邏輯
+│   │   ├── vision_cache.rs     # 視野緩存
+│   │   └── geometry_utils.rs   # 幾何工具
 │   ├── config/         # 配置管理
 │   ├── ue4/           # UE4 地圖導入
 │   └── main.rs        # 主程序入口
@@ -128,6 +159,20 @@ open_moba_backend/
 
 #### 🔒 架構改進與規範
 
+**🆕 重大重構成果 (2024)**：
+- **State 模組完全獨立化**：將原本 1000+ 行的巨大檔案拆分為 5 個專業模組
+  - `core.rs`: 核心狀態結構與 API
+  - `initialization.rs`: ECS 世界設置和遊戲場景初始化
+  - `time_management.rs`: 時間循環、日夜週期管理
+  - `resource_management.rs`: 資源處理和玩家請求管理
+  - `system_dispatcher.rs`: 系統調度和執行緒池管理
+- **模組化視野系統**：將 895 行的 `shadow_calculator.rs` 重構為高性能模組
+  - 四叉樹空間分割優化
+  - 陰影計算與緩存系統
+  - 視野結果管理與性能監控
+- **事件驅動重構**：統一的事件分派系統，支援戰鬥、移動、創建事件
+- **技能系統模組化**：將 639 行的技能系統拆分為專業化模組
+
 **嚴格的 ECS SystemData 分離**：
 - 實施嚴格的 Read/Write 結構分離，避免借用衝突
 - 禁止在 Write 結構中混用 ReadStorage，提高並發安全性
@@ -202,11 +247,21 @@ open_moba_backend/
 
 ## 📊 效能特色
 
+### 🚀 核心性能優化
 - **多線程處理**: 使用 Rayon 線程池最大化 CPU 利用率
 - **多緒排序優化**: voracious_radix_sort 使用 4 個執行緒並行排序
 - **記憶體最佳化**: ECS 架構確保資料局部性
 - **非同步通信**: MQTT 客戶端支援非阻塞 I/O
 - **批次處理**: 遊戲邏輯批次更新減少開銷
+
+### 🆕 重構後的性能提升
+- **模組化加載**: 獨立狀態模組支援按需初始化，減少啟動時間
+- **空間分割優化**: 四叉樹結構大幅提升空間查詢效率
+- **視野緩存系統**: 智能緩存機制減少重複計算
+- **事件分派優化**: 按優先級分派事件，關鍵事件優先處理
+- **系統調度器**: 彈性的執行緒池管理，動態調整並發度
+
+### 🔧 傳統優化保留
 - **技能系統優化**: JSON 配置預載入，執行時零解析開銷
 - **單例模式**: 重量級資源（如 AbilityProcessor）使用全局單例避免重複初始化
 - **借用衝突消除**: 嚴格的 Read/Write 分離避免 Rust 借用檢查器衝突
