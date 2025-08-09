@@ -30,15 +30,8 @@ impl ResourceManager {
 
     /// 處理遊戲結果事件
     pub fn process_outcomes(&self, world: &mut World) -> Result<(), Error> {
-        // 暫時簡化事件處理，避免循環依賴
-        // 取得所有待處理的結果
-        let outcomes = {
-            let mut outcome_vec = world.write_resource::<Vec<Outcome>>();
-            if outcome_vec.is_empty() {
-                return Ok(());
-            }
-            std::mem::take(&mut *outcome_vec)
-        };
+        // 使用 GameProcessor 來處理所有的 outcomes
+        crate::comp::GameProcessor::process_outcomes(world, &self.mqtx)?;
         Ok(())
     }
 

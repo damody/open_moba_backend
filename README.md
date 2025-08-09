@@ -140,6 +140,28 @@ omobab/
 
 系統使用 log4rs 進行日誌管理，支援多級別日誌輸出和文件輪轉。
 
+## 📚 詳細文檔導引
+
+### 核心子系統文檔
+
+專案採用模組化文檔結構，各子系統的詳細實作說明分布在對應目錄中：
+
+| 子系統 | 文檔位置 | 說明 |
+|--------|----------|------|
+| **源代碼架構** | [`src/README.md`](src/README.md) | 整體架構、主程序入口、消息系統 |
+| **ECS 組件** | [`src/comp/README.md`](src/comp/README.md) | 所有組件定義、視野系統、事件系統 |
+| **遊戲循環** | [`src/tick/README.md`](src/tick/README.md) | 各 System 實作、技能系統整合 |
+| **配置管理** | [`src/config/README.md`](src/config/README.md) | 服務器配置、遊戲參數設置 |
+| **地圖系統** | [`src/ue4/README.md`](src/ue4/README.md) | UE4 地圖導入、地形數據處理 |
+
+### 技能系統文檔
+
+技能系統採用獨立子系統設計：
+- **主系統邏輯**: `src/tick/skill_tick.rs` - ECS 整合層
+- **技能處理器**: `ability-system/` - 獨立 crate，處理技能核心邏輯
+- **配置檔案**: `ability-configs/` - JSON 技能配置
+- **組件整合**: `src/comp/ability_comp.rs` - ECS 組件介面
+
 ## 🔧 開發指南
 
 ### ECS 組件系統
@@ -156,6 +178,8 @@ omobab/
 - **Tower**: 防禦塔組件
 - **Projectile**: 投射物組件
 - **Skill**: 技能組件
+
+詳細組件說明請參考 [`src/comp/README.md`](src/comp/README.md)
 
 #### 🔒 架構改進與規範
 
@@ -196,6 +220,8 @@ omobab/
 7. **damage_tick**: 傷害計算與應用
 8. **death_tick**: 死亡處理與重生邏輯
 
+詳細系統實作說明請參考 [`src/tick/README.md`](src/tick/README.md)
+
 ### MQTT 通信協議
 
 - **訂閱主題**: `td/+/send`
@@ -217,6 +243,8 @@ omobab/
 2. **新系統**: 在 `src/tick/` 添加更新邏輯
 3. **註冊組件**: 在 `comp/mod.rs` 中導出
 4. **註冊系統**: 在相應的 tick 模塊中整合
+
+詳細開發指南請參考各子系統文檔
 
 ### 技能系統開發
 
@@ -244,6 +272,55 @@ omobab/
 
 4. **測試技能**
    確保英雄的 Skill 組件設定正確的 `ability_id`
+
+## 🎯 重要實作細節
+
+### 視野系統 (Vision System)
+
+專案實現了完整的 **360度圓形視野系統**，支援精確陰影投射：
+
+- **核心特色**：
+  - 真正的圓形視野範圍（如 1400 單位半徑）
+  - 精確陰影投射：扇形（樹木）、梯形（建築）、地形陰影
+  - 雙輸出格式：Grid（前端小地圖）和 Vector（SVG精確渲染）
+  - 四叉樹空間分割優化
+
+- **實作位置**：
+  - 組件定義：`src/comp/circular_vision.rs`
+  - 計算引擎：`src/vision/shadow_calculator.rs`
+  - 輸出系統：`src/vision/vision_output.rs`
+  - ECS 整合：`src/vision/vision_ecs.rs`
+
+詳細說明請參考 [`src/comp/README.md#視野系統`](src/comp/README.md)
+
+### 事件系統 (Event System)
+
+採用統一的 `Outcome` 事件驅動架構：
+
+- **設計原則**：
+  - 組件內容可直接修改（如 `hp -= 10`）
+  - 實體創建/刪除必須通過事件系統
+  - 跨系統通信統一使用事件
+
+- **事件類型**：
+  - 戰鬥事件：`Damage`, `Death`, `Heal`
+  - 移動事件：`CreepStop`, `Knockback`
+  - 創建事件：`ProjectileLine2`, `CreateUnit`
+
+詳細說明請參考 [`src/comp/outcome_system/`](src/comp/outcome_system/)
+
+### State 模組架構
+
+完全模組化的狀態管理系統：
+
+- **模組拆分**（原 1000+ 行拆分為 5 個專業模組）：
+  - `core.rs`：核心狀態結構與 API
+  - `initialization.rs`：ECS 世界初始化
+  - `time_management.rs`：時間循環管理
+  - `resource_management.rs`：資源處理
+  - `system_dispatcher.rs`：系統調度
+
+詳細說明請參考 [`src/state/`](src/state/)
 
 ## 📊 效能特色
 

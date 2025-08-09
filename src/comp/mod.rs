@@ -5,6 +5,7 @@ pub mod ecs_setup;
 pub mod campaign_manager;
 pub mod mqtt_handler;
 pub mod game_processor;
+pub use game_processor::GameProcessor;
 pub mod last;
 pub mod outcome;
 pub mod projectile;
