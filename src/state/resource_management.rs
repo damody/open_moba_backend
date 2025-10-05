@@ -46,7 +46,7 @@ impl ResourceManager {
                 "player" => {
                     self.handle_player_request(world, player_data)?;
                 }
-                "screen" => {
+                "screen" | "screen_request" => {
                     self.handle_screen_request(world, player_data)?;
                 }
                 _ => {
@@ -128,7 +128,7 @@ impl ResourceManager {
         use serde_json::json;
         
         match pd.a.as_str() {
-            "get_area" => {
+            "get_area" | "get_screen_area" => {
                 let area_data = self.get_screen_area_data(world, &pd)?;
                 let response = json!({
                     "action": "get_area",

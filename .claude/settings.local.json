@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo:*)",
+      "Bash(timeout 3 cat)",
+      "Bash(powershell:*)"
+    ],
+    "deny": [],
+    "defaultMode": "acceptEdits"
+  }
+}

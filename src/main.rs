@@ -235,6 +235,7 @@ async fn pub_mqtt_loop(server_addr: String, server_port: String, rx1: Receiver<M
                         let handle = || -> Result<(), Error>
                         {
                             if let Ok(d) = d {
+                                debug!("🔍 [DEBUG] 從隊列接收到消息 - 主題: {} - 內容長度: {}", d.topic, d.msg.len());
                                 let diff = d.time.duration_since(SystemTime::now());
                                 let mut difftime = 0;
                                 match diff {
@@ -242,12 +243,13 @@ async fn pub_mqtt_loop(server_addr: String, server_port: String, rx1: Receiver<M
                                     Err(_) => {},
                                 }
                                 if d.topic.len() > 2 {
+                                    debug!("🔍 [DEBUG] 檢查主題長度通過: {} (長度: {})", d.topic, d.topic.len());
                                     if difftime == 0 {
-                                        info!("🚀 正在發布 MQTT 消息到主題: {} - 內容: {}", d.topic, d.msg);
+                                        trace!("🚀 正在發布 MQTT 消息到主題: {} - 內容長度: {}", d.topic, d.msg.len());
                                         let msg_res = mqtt2.publish(d.topic.clone(), QoS::AtMostOnce, false, d.msg.clone());
                                         match msg_res {
                                             Ok(_) => {
-                                                info!("✅ MQTT 消息發布成功 - 主題: {}", d.topic);
+                                                trace!("✅ MQTT 消息發布成功 - 主題: {}", d.topic);
                                             },
                                             Err(x) => {
                                                 warn!("❌ MQTT 消息發布失敗 - 主題: {}, 錯誤: {:?}", d.topic, x);
@@ -255,7 +257,7 @@ async fn pub_mqtt_loop(server_addr: String, server_port: String, rx1: Receiver<M
                                             }
                                         }
                                     } else {
-                                        info!("⏰ 延遲發送 MQTT 消息 - 主題: {}", d.topic);
+                                        trace!("⏰ 延遲發送 MQTT 消息 - 主題: {}", d.topic);
                                         msgs.push(d);
                                     }
                                 }

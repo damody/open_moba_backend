@@ -33,30 +33,30 @@ members = [
 
 [dependencies]
 log = "0.4"
-log4rs = "1.2.0"
+log4rs = { path="../log4rs", features = ["mqtt_appender", "yaml_format", "config_parsing"] }
 failure = "0.1.8"
-fern = "0.6"
+fern = "0.7"
 chrono = { version = "0.4", features = ["serde"] }
 crossbeam-channel = "0.5"
 # paho-mqtt = "0.12.3"  # 暫時註解掉避免cmake編譯問題
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
-toml = "0.8.8"
+toml = "0.9"
 specs = { path = "../specs", features = ["derive", "parallel", "serde"] }
 rayon = "1.8.0"
 num_cpus = "1.16.0"
-vek = { version = "0.15.8", features = ["serde"] }
+vek = { version = "0.17", features = ["serde"] }
 instant = { version = "0.1.12", features = [] }
 instant-distance = "0.6.0"
-rand = "0.8.5"
+rand = "0.9"
 fastrand = "2.0"
 uuid = { version = "1.6.1", features = ["v4", "serde"] }
 specs-derive = "0.4.1"
 parking_lot = "0.12.1"
 ability-system = { path = "ability-system" }
-hashbrown = "0.14"
-ordered-float = "4.2"
+hashbrown = "0.15"
+ordered-float = "5.0"
 voracious_radix_sort = { version = "1.2.0", features = ["voracious_multithread"] }
 rust_decimal = "1.33"
 regex = "1.0"
@@ -66,7 +66,6 @@ rumqttc = "0.24"
 round = "0.1"
 async-std = { version = "1.12", features = ["attributes"] }
 spin_sleep = "1.0"
-sorted_intersection = "0.1"
 
 [features]
 default = []

@@ -101,10 +101,10 @@ impl<'a> System<'a> for Sys {
                                 .unwrap_or_else(|| format!("英雄 {}", e.id()));
                             
                             if potential_targets.len() > 0 {
-                                log::info!("{} 在位置 ({:.0}, {:.0}) 搜尋到 {} 個潛在目標，攻擊範圍: {}", 
+                                log::trace!("{} 在位置 ({:.0}, {:.0}) 搜尋到 {} 個潛在目標，攻擊範圍: {}", 
                                     hero_name, pos.0.x, pos.0.y, potential_targets.len(), atk.range.v);
                             } else {
-                                log::info!("{} 沒有找到目標", hero_name);
+                                log::trace!("{} 沒有找到目標", hero_name);
                             }
                                 
                             // 過濾出可攻擊的敵對目標（必須在攻擊範圍內）
@@ -148,11 +148,11 @@ impl<'a> System<'a> for Sys {
                             log::info!("{} 有效目標數量: {}", hero_name, valid_targets.len());
                             
                             if valid_targets.len() > 0 {
-                                log::info!("{} 準備攻擊，當前攻擊冷卻: {:.2}/{:.2}", hero_name, atk.asd_count, atk.asd.v);
+                                log::debug!("{} 準備攻擊，當前攻擊冷卻: {:.2}/{:.2}", hero_name, atk.asd_count, atk.asd.v);
                                 
                                 // 直接重置攻擊冷卻
                                 atk.asd_count -= atk.asd.v;
-                                log::info!("{} 重置攻擊冷卻至: {:.2}", hero_name, atk.asd_count);
+                                log::debug!("{} 重置攻擊冷卻至: {:.2}", hero_name, atk.asd_count);
                                 
                                 // 攻擊最近的敵人
                                 let target = valid_targets[0].e;
@@ -167,11 +167,11 @@ impl<'a> System<'a> for Sys {
                                 
                                 // 簡單的攻擊距離日誌（詳細的傷害和血量資訊會在彈道命中後顯示）
                                 let actual_distance = valid_targets[0].dis.sqrt();
-                                log::info!("⚔️ {} 發射彈道攻擊，距離: {:.0}，攻擊力: {:.1}", hero_name, actual_distance, atk.atk_physic.v);
+                                log::error!("⚔️ {} 發射彈道攻擊，距離: {:.0}，攻擊力: {:.1}", hero_name, actual_distance, atk.atk_physic.v);
                             } else {
                                 // 沒有有效目標時，減少一些攻擊冷卻時間避免過度檢查
                                 atk.asd_count = atk.asd.v - 0.3 - fastrand::u8(..) as f32 * 0.001;
-                                log::info!("{} 沒有找到有效目標，減少攻擊冷卻時間: {:.3}", hero_name, atk.asd_count);
+                                log::trace!("{} 沒有找到有效目標，減少攻擊冷卻時間: {:.3}", hero_name, atk.asd_count);
                             }
                         }
                     }

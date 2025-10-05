@@ -253,6 +253,29 @@ impl Radixable<u32> for DisIndex2 {
     }
 }
 
+fn intersect_sorted_iters<T: Ord + Copy>(
+    mut a: impl Iterator<Item = T>,
+    mut b: impl Iterator<Item = T>,
+) -> Vec<T> {
+    let mut result = Vec::new();
+    let mut peek_a = a.next();
+    let mut peek_b = b.next();
+
+    while let (Some(av), Some(bv)) = (peek_a, peek_b) {
+        if av == bv {
+            result.push(av);
+            peek_a = a.next();
+            peek_b = b.next();
+        } else if av < bv {
+            peek_a = a.next();
+        } else {
+            peek_b = b.next();
+        }
+    }
+    result
+}
+
+
 /// 搜尋器結構
 /// 用於高效搜尋遊戲中的塔和小兵實體
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -349,8 +372,7 @@ impl PosData {
         
         // 找出X和Y範圍的交集（同時在兩個範圍內的實體）
         let mut ary = [xdata.iter(), ydata.iter()];
-        let intersection_iter = 
-            sorted_intersection::SortedIntersection::new(&mut ary);
+        let intersection_iter = intersect_sorted_iters(xdata.iter(), ydata.iter());
         
         // 計算實際距離並分類到內圈或外圈
         for p in intersection_iter {
@@ -459,8 +481,7 @@ impl PosData {
         
         // 找出X和Y範圍的交集（同時在兩個範圍內的實體）
         let mut ary = [xdata.iter(), ydata.iter()];
-        let intersection_iter = 
-            sorted_intersection::SortedIntersection::new(&mut ary);
+        let intersection_iter = intersect_sorted_iters(xdata.iter(), ydata.iter());
         
         // 檢查實際距離是否在半徑內
         for p in intersection_iter {

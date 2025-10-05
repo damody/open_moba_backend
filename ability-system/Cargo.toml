@@ -13,7 +13,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
 serde_json = "1.0"
 log = "0.4"
-vek = { version = "0.15.8", features = ["serde"] }
+vek = { version = "0.17", features = ["serde"] }
 specs = { path = "../../specs", features = ["specs-derive"] }
 uuid = { version = "1.6.1", features = ["v4", "serde"] }
 anyhow = "1.0"

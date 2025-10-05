@@ -14,7 +14,7 @@ pub struct MqttHandler;
 
 impl MqttHandler {
     pub fn handle_screen_request(ecs: &mut World, mqtx: &Sender<MqttMsg>, pd: PlayerData) -> Result<(), Error> {
-        log::info!("處理畫面狀態請求 - 玩家: {}, 動作: {}", pd.name, pd.a);
+        log::info!("🔍 [DEBUG] 開始處理畫面狀態請求 - 玩家: {}, 動作: {}, 完整數據: {:?}", pd.name, pd.a, pd.d);
         
         #[derive(Deserialize)]
         struct ScreenRequestData {
@@ -27,8 +27,10 @@ impl MqttHandler {
         }
         
         if let Ok(request_data) = serde_json::from_value::<ScreenRequestData>(pd.d.clone()) {
+            log::info!("🔍 [DEBUG] 成功解析請求數據 - 玩家: {}, 請求類型: {}", request_data.player_name, request_data.request_type);
             match pd.a.as_str() {
                 "get_screen_area" => {
+                    log::info!("🔍 [DEBUG] 開始處理 get_screen_area 請求");
                     let game_data = Self::get_screen_area_data(&pd.d)?;
                     let response_topic = format!("td/{}/screen_response", request_data.player_name);
                     
@@ -38,7 +40,7 @@ impl MqttHandler {
                         time: SystemTime::now(),
                     };
                     
-                    log::info!("📤 準備發送畫面資料到主題: {} - 消息內容: {}", response_topic, mqtt_msg.msg);
+                    log::info!("📤 [DEBUG] 準備發送畫面資料到主題: {} - 消息內容長度: {} - 發送隊列容量: {}", response_topic, mqtt_msg.msg.len(), mqtx.len());
                     
                     match mqtx.try_send(mqtt_msg) {
                         Ok(_) => {
