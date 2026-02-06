@@ -36,6 +36,10 @@ pub struct State {
     resource_manager: ResourceManager,
     /// 系統分派器
     system_dispatcher: SystemDispatcher,
+    /// 上次心跳發送的遊戲時間
+    last_heartbeat_time: f64,
+    /// 心跳間隔（秒）
+    heartbeat_interval: f64,
 }
 
 impl State {
@@ -64,9 +68,16 @@ impl State {
             time_manager: TimeManager::new(),
             resource_manager: ResourceManager::new(mqtx),
             system_dispatcher: SystemDispatcher::new(thread_pool),
+            last_heartbeat_time: 0.0,
+            heartbeat_interval: 2.0, // 每 2 秒發送一次心跳
         };
-        
+
         state.initialize_standard_game();
+
+        // 立即發送初始心跳，讓前端知道後端已啟動
+        state.send_heartbeat();
+        log::info!("📡 初始心跳已發送，後端準備就緒");
+
         state
     }
 
@@ -95,9 +106,16 @@ impl State {
             time_manager: TimeManager::new(),
             resource_manager: ResourceManager::new(mqtx),
             system_dispatcher: SystemDispatcher::new(thread_pool),
+            last_heartbeat_time: 0.0,
+            heartbeat_interval: 2.0, // 每 2 秒發送一次心跳
         };
-        
+
         state.initialize_campaign_game(&campaign_data);
+
+        // 立即發送初始心跳，讓前端知道後端已啟動
+        state.send_heartbeat();
+        log::info!("📡 初始心跳已發送，後端準備就緒");
+
         state
     }
 
@@ -105,23 +123,71 @@ impl State {
     pub fn tick(&mut self, dt: Duration) -> Result<(), Error> {
         // 更新時間管理
         self.time_manager.update(&mut self.ecs, dt)?;
-        
+
         // 運行遊戲系統
         self.system_dispatcher.run_systems(&self.ecs)?;
-        
+
         // 處理小兵波
         self.resource_manager.process_creep_waves(&mut self.ecs)?;
-        
+
         // 處理遊戲結果
         self.resource_manager.process_outcomes(&mut self.ecs)?;
-        
+
         // 處理玩家資料
         self.resource_manager.process_player_data(&mut self.ecs, &self.mqrx)?;
-        
+
+        // 發送心跳（每 2 秒一次）
+        self.send_heartbeat_if_needed();
+
         // 維護 ECS
         self.ecs.maintain();
-        
+
         Ok(())
+    }
+
+    /// 檢查並發送心跳
+    fn send_heartbeat_if_needed(&mut self) {
+        let current_time = self.time_manager.get_time();
+
+        if current_time - self.last_heartbeat_time >= self.heartbeat_interval {
+            self.send_heartbeat();
+            self.last_heartbeat_time = current_time;
+        }
+    }
+
+    /// 發送心跳訊息到 MQTT
+    fn send_heartbeat(&self) {
+        use specs::Join;
+        use serde_json::json;
+
+        // 統計實體數量
+        let entities = self.ecs.entities();
+        let heroes = self.ecs.read_storage::<Hero>();
+        let units = self.ecs.read_storage::<Unit>();
+        let creeps = self.ecs.read_storage::<Creep>();
+
+        let hero_count = (&entities, &heroes).join().count();
+        let unit_count = (&entities, &units).join().count();
+        let creep_count = (&entities, &creeps).join().count();
+        let entity_count = hero_count + unit_count + creep_count;
+
+        // 取得當前 tick 數
+        let tick = self.ecs.read_resource::<Tick>().0;
+
+        let heartbeat_data = json!({
+            "tick": tick,
+            "game_time": self.time_manager.get_time(),
+            "entity_count": entity_count,
+            "hero_count": hero_count,
+            "unit_count": unit_count,
+            "creep_count": creep_count
+        });
+
+        if let Err(e) = self.mqtx.send(MqttMsg::new_s("td/all/res", "heartbeat", "tick", heartbeat_data)) {
+            log::error!("無法發送心跳訊息: {}", e);
+        } else {
+            log::trace!("💓 心跳已發送 - tick: {}, entities: {}", tick, entity_count);
+        }
     }
 
     /// 獲取 ECS 世界引用
