@@ -52,7 +52,6 @@ instant-distance = "0.6.0"
 rand = "0.9"
 fastrand = "2.0"
 uuid = { version = "1.6.1", features = ["v4", "serde"] }
-specs-derive = "0.4.1"
 parking_lot = "0.12.1"
 ability-system = { path = "ability-system" }
 hashbrown = "0.15"

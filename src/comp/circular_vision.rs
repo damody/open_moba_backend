@@ -2,7 +2,7 @@
 /// 
 /// 實現真實的圓形視野和精確的陰影投射
 use specs::prelude::*;
-use specs_derive::Component;
+use specs::Component;
 use vek::Vec2;
 use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};

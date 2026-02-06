@@ -1,12 +1,11 @@
 use rayon::iter::IntoParallelRefIterator;
 use specs::{
-    shred::{ResourceId, World}, Entities, Join, LazyUpdate, Read, ReadExpect, ReadStorage, SystemData,
-    Write, WriteStorage, ParJoin, 
+    shred, Entities, Join, LazyUpdate, Read, ReadExpect, ReadStorage, SystemData,
+    Write, WriteStorage, ParJoin, World,
 };
 use std::{thread, ops::Deref, collections::BTreeMap};
 use crate::comp::*;
 use specs::prelude::ParallelIterator;
-use specs::saveload::MarkerAllocator;
 use vek::Vec2;
 use crossbeam_channel::{Receiver, Sender};
 use crate::msg::MqttMsg;

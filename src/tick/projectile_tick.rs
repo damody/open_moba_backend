@@ -1,10 +1,9 @@
 use specs::{
-    shred::{ResourceId, World}, Entities, Join, LazyUpdate, Read, ReadExpect, ReadStorage, SystemData,
-    Write, WriteStorage, ParJoin, 
+    shred, Entities, Join, LazyUpdate, Read, ReadExpect, ReadStorage, SystemData,
+    Write, WriteStorage, ParJoin, World,
 };
 use crate::comp::*;
 use specs::prelude::ParallelIterator;
-use specs::saveload::MarkerAllocator;
 use specs::Entity;
 use vek::Vec2;
 

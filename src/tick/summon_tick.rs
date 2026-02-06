@@ -7,8 +7,8 @@
 /// - 生命週期管理
 
 use specs::{
-    shred::{ResourceId, World}, Entities, Join, LazyUpdate, Read, ReadExpect, ReadStorage, SystemData,
-    Write, WriteStorage, ParJoin, Entity, System,
+    shred, Entities, Join, LazyUpdate, Read, ReadExpect, ReadStorage, SystemData,
+    Write, WriteStorage, ParJoin, Entity, World,
 };
 use crate::comp::*;
 use log::{info, warn, debug};

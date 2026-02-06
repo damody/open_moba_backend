@@ -1,7 +1,7 @@
 /// 視野系統組件定義
 
 use specs::prelude::*;
-use specs_derive::Component;
+use specs::Component;
 use vek::Vec2;
 use serde::{Deserialize, Serialize};
 

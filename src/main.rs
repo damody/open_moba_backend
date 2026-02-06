@@ -1,9 +1,6 @@
 #![allow(warnings)]
 #![allow(unused)]
 
-#[macro_use]
-extern crate specs_derive;
-
 use log::{info, warn, error, trace, debug};
 use crate::state::State;
 use std::fs::File;
@@ -37,8 +34,6 @@ use std::{
 use std::time::SystemTime;
 use specs::{
     prelude::Resource,
-    shred::{Fetch, FetchMut},
-    storage::{MaskedStorage as EcsMaskedStorage, Storage as EcsStorage},
     Component, DispatcherBuilder, Entity, WorldExt,
 };
 use serde_json::{self, json};

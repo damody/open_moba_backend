@@ -1,6 +1,6 @@
 use specs::{
-    shred::{ResourceId, World}, Entities, Join, LazyUpdate, Read, ReadExpect, ReadStorage, SystemData,
-    Write, WriteStorage, ParJoin, Entity,
+    shred, Entities, Join, LazyUpdate, Read, ReadExpect, ReadStorage, SystemData,
+    Write, WriteStorage, ParJoin, Entity, World,
 };
 use crate::comp::*;
 use specs::prelude::ParallelIterator;
