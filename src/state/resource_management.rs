@@ -203,8 +203,43 @@ impl ResourceManager {
         Ok(())
     }
 
-    fn move_player(&self, _world: &mut World, _pd: &InboundMsg) -> Result<(), Error> {
-        // 實現玩家移動邏輯
+    fn move_player(&self, world: &mut World, pd: &InboundMsg) -> Result<(), Error> {
+        use vek::Vec2;
+
+        // 解析目標位置
+        let x = pd.d.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+        let y = pd.d.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+
+        // 找到匹配的英雄實體
+        let target_entity = {
+            let entities = world.entities();
+            let heroes = world.read_storage::<Hero>();
+            let mut found = None;
+            for (e, hero) in (&entities, &heroes).join() {
+                if hero.name == pd.name || pd.name.is_empty() {
+                    found = Some(e);
+                    break;
+                }
+            }
+            // 若沒找到名稱匹配的，取第一個英雄
+            if found.is_none() {
+                for (e, _) in (&entities, &heroes).join() {
+                    found = Some(e);
+                    break;
+                }
+            }
+            found
+        };
+
+        // 設定 MoveTarget
+        if let Some(entity) = target_entity {
+            let mut move_targets = world.write_storage::<MoveTarget>();
+            let _ = move_targets.insert(entity, MoveTarget(Vec2::new(x, y)));
+            log::info!("設定英雄移動目標: ({}, {})", x, y);
+        } else {
+            log::warn!("找不到英雄實體: {}", pd.name);
+        }
+
         Ok(())
     }
 

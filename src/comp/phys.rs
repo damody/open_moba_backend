@@ -50,6 +50,14 @@ impl Component for Vel {
     type Storage = VecStorage<Self>;
 }
 
+/// 移動目標 — 實體每 tick 向此位置移動
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MoveTarget(pub Vec2<f32>);
+
+impl Component for MoveTarget {
+    type Storage = VecStorage<Self>;
+}
+
 /// Used to defer writes to Pos/Vel in nested join loops
 #[derive(Copy, Clone, Debug)]
 pub struct PosVelOriDefer {

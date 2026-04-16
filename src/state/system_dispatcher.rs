@@ -85,7 +85,8 @@ impl SystemDispatcher {
         // 第二階段：需要 Vec<Outcome> 的系統，按依賴順序執行
         dispatch::<projectile_tick::Sys>(dispatch_builder, &["nearby_sys", "player_sys"]);
         dispatch::<tower_tick::Sys>(dispatch_builder, &["projectile_sys"]);
-        dispatch::<hero_tick::Sys>(dispatch_builder, &["tower_sys"]);
+        dispatch::<hero_move_tick::Sys>(dispatch_builder, &["projectile_sys"]);
+        dispatch::<hero_tick::Sys>(dispatch_builder, &["tower_sys", "hero_move_sys"]);
         dispatch::<skill_tick::Sys>(dispatch_builder, &["hero_sys"]);
         dispatch::<creep_tick::Sys>(dispatch_builder, &["skill_sys"]);
         dispatch::<creep_wave::Sys>(dispatch_builder, &["creep_sys"]);

@@ -188,6 +188,7 @@ impl StateInitializer {
         ecs.register::<DamageResult>();
         ecs.register::<Skill>();
         ecs.register::<SkillEffect>();
+        ecs.register::<MoveTarget>();
         ecs.register::<Last<Pos>>();
         ecs.register::<Last<Vel>>();
     }

@@ -1,5 +1,6 @@
 pub mod tower_tick;
 pub mod hero_tick;
+pub mod hero_move_tick;
 pub mod damage_tick;
 pub mod death_tick;
 pub mod creep_wave;
@@ -16,6 +17,7 @@ pub mod skill_system;
 pub use self::{
     tower_tick::*,
     hero_tick::*,
+    hero_move_tick::*,
     damage_tick::*,
     death_tick::*,
     creep_tick::*,
