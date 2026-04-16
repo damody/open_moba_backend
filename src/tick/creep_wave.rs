@@ -8,7 +8,7 @@ use crate::comp::*;
 use specs::prelude::ParallelIterator;
 use vek::Vec2;
 use crossbeam_channel::{Receiver, Sender};
-use crate::msg::MqttMsg;
+use crate::transport::OutboundMsg;
 use serde_json::json;
 
 #[derive(SystemData)]
@@ -26,7 +26,7 @@ pub struct CreepWaveWrite<'a> {
     outcomes: Write<'a, Vec<Outcome>>,
     cur_creep_wave: Write<'a, CurrentCreepWave>,
     creep_waves: Write<'a, Vec<CreepWave>>,
-    mqtx: Write<'a, Vec<Sender<MqttMsg>>>,
+    mqtx: Write<'a, Vec<Sender<OutboundMsg>>>,
 }
 
 #[derive(Default)]

@@ -12,7 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 use voracious_radix_sort::{RadixSort};
-use crate::MqttMsg;
+use crate::transport::OutboundMsg;
 use crossbeam_channel::Sender;
 
 #[derive(SystemData)]
@@ -29,7 +29,7 @@ pub struct PlayerRead<'a> {
 #[derive(SystemData)]
 pub struct PlayerWrite<'a> {
     entities: Entities<'a>,
-    mqtx: Write<'a, Vec<Sender<MqttMsg>>>,
+    mqtx: Write<'a, Vec<Sender<OutboundMsg>>>,
 }
 
 #[derive(Default)]

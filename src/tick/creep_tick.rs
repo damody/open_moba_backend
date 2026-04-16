@@ -7,7 +7,7 @@ use std::{thread, ops::Deref, collections::BTreeMap};
 use std::ops::Sub;
 use crate::comp::*;
 use specs::prelude::ParallelIterator;
-use crate::MqttMsg;
+use crate::transport::OutboundMsg;
 use crossbeam_channel::Sender;
 use serde_json::json;
 
@@ -27,7 +27,7 @@ pub struct CreepWrite<'a> {
     pos : WriteStorage<'a, Pos>,
     outcomes: Write<'a, Vec<Outcome>>,
     taken_damages: Write<'a, Vec<TakenDamage>>,
-    mqtx: Write<'a, Vec<Sender<MqttMsg>>>,
+    mqtx: Write<'a, Vec<Sender<OutboundMsg>>>,
 }
 
 #[derive(Default)]
@@ -72,7 +72,7 @@ impl<'a> System<'a> for Sys {
                                     let mut next_status = creep.status.clone();
                                     match creep.status {
                                         CreepStatus::PreWalk => {
-                                            tx.try_send(MqttMsg::new_s("td/all/res", "creep", "M", json!({
+                                            tx.try_send(OutboundMsg::new_s("td/all/res", "creep", "M", json!({
                                                 "id": e.id(),
                                                 "x": target_point.x,
                                                 "y": target_point.y,
@@ -89,7 +89,7 @@ impl<'a> System<'a> for Sys {
                                                 pos.0 = target_point;
                                                 creep.pidx += 1;
                                                 if let Some(t) = path.check_points.get(creep.pidx) {
-                                                    tx.try_send(MqttMsg::new_s("td/all/res", "creep", "M", json!({
+                                                    tx.try_send(OutboundMsg::new_s("td/all/res", "creep", "M", json!({
                                                         "id": e.id(),
                                                         "x": t.pos.x,
                                                         "y": t.pos.y,

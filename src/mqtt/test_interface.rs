@@ -19,7 +19,7 @@ use specs::{Entity, world::Generation};
 use vek::Vec2;
 use crossbeam_channel::{Receiver, Sender, bounded};
 use std::thread;
-use crate::msg::MqttMsg;
+use crate::transport::OutboundMsg;
 
 /// MQTT 測試命令
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -76,7 +76,7 @@ pub struct TestMetrics {
 
 /// MQTT 測試介面管理器
 pub struct MqttTestInterfaceManager {
-    mqtt_tx: Sender<MqttMsg>,
+    mqtt_tx: Sender<OutboundMsg>,
     processor: Arc<Mutex<AbilityProcessor>>,
     metrics: Arc<Mutex<TestMetrics>>,
     test_entities: Vec<Entity>,
@@ -84,7 +84,7 @@ pub struct MqttTestInterfaceManager {
 
 impl MqttTestInterfaceManager {
     /// 創建新的測試介面管理器
-    pub fn new(mqtt_tx: Sender<MqttMsg>) -> Self {
+    pub fn new(mqtt_tx: Sender<OutboundMsg>) -> Self {
         let processor = Arc::new(Mutex::new(AbilityProcessor::new()));
         let metrics = Arc::new(Mutex::new(TestMetrics::new()));
         
@@ -122,7 +122,7 @@ impl MqttTestInterfaceManager {
     fn run_test_interface(
         server_addr: String,
         server_port: String,
-        mqtt_tx: Sender<MqttMsg>,
+        mqtt_tx: Sender<OutboundMsg>,
         processor: Arc<Mutex<AbilityProcessor>>,
         metrics: Arc<Mutex<TestMetrics>>,
         test_entities: Vec<Entity>,

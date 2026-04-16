@@ -2,7 +2,7 @@
 
 use specs::{Entity, World};
 use crate::comp::*;
-use crate::msg::MqttMsg;
+use crate::transport::OutboundMsg;
 use crossbeam_channel::Sender;
 use log::warn;
 
@@ -18,7 +18,7 @@ impl EventDispatcher {
     /// 處理單個遊戲結果事件
     pub fn dispatch_outcome(
         world: &mut World,
-        mqtx: &Sender<MqttMsg>,
+        mqtx: &Sender<OutboundMsg>,
         outcome: Outcome,
     ) -> Vec<Outcome> {
         match outcome {
@@ -77,7 +77,7 @@ impl EventDispatcher {
     /// 批量處理多個事件
     pub fn dispatch_outcomes_batch(
         world: &mut World,
-        mqtx: &Sender<MqttMsg>,
+        mqtx: &Sender<OutboundMsg>,
         outcomes: Vec<Outcome>,
     ) -> Vec<Outcome> {
         let mut all_next_outcomes = Vec::new();
@@ -93,7 +93,7 @@ impl EventDispatcher {
     /// 按優先級處理事件
     pub fn dispatch_outcomes_prioritized(
         world: &mut World,
-        mqtx: &Sender<MqttMsg>,
+        mqtx: &Sender<OutboundMsg>,
         outcomes: Vec<Outcome>,
     ) -> Vec<Outcome> {
         // 按優先級排序事件

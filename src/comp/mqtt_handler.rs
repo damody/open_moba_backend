@@ -7,13 +7,12 @@ use failure::Error;
 use specs::{World, WorldExt};
 
 use crate::comp::*;
-use crate::msg::MqttMsg;
-use crate::PlayerData;
+use crate::transport::{OutboundMsg, InboundMsg};
 
 pub struct MqttHandler;
 
 impl MqttHandler {
-    pub fn handle_screen_request(ecs: &mut World, mqtx: &Sender<MqttMsg>, pd: PlayerData) -> Result<(), Error> {
+    pub fn handle_screen_request(ecs: &mut World, mqtx: &Sender<OutboundMsg>, pd: InboundMsg) -> Result<(), Error> {
         log::info!("🔍 [DEBUG] 開始處理畫面狀態請求 - 玩家: {}, 動作: {}, 完整數據: {:?}", pd.name, pd.a, pd.d);
         
         #[derive(Deserialize)]
@@ -34,7 +33,7 @@ impl MqttHandler {
                     let game_data = Self::get_screen_area_data(&pd.d)?;
                     let response_topic = format!("td/{}/screen_response", request_data.player_name);
                     
-                    let mqtt_msg = MqttMsg {
+                    let mqtt_msg = OutboundMsg {
                         topic: response_topic.clone(),
                         msg: game_data.to_string(),
                         time: SystemTime::now(),
@@ -121,10 +120,10 @@ impl MqttHandler {
         Ok(response_data)
     }
     
-    pub fn handle_tower(ecs: &mut World, mqtx: &Sender<MqttMsg>, pd: PlayerData) -> Result<(), Error> {
+    pub fn handle_tower(ecs: &mut World, mqtx: &Sender<OutboundMsg>, pd: InboundMsg) -> Result<(), Error> {
         match pd.a.as_str() {
             "R" => {
-                mqtx.try_send(MqttMsg::new_s("td/all/res", "tower", "R", json!({"msg":"ok"})))?;
+                mqtx.try_send(OutboundMsg::new_s("td/all/res", "tower", "R", json!({"msg":"ok"})))?;
             }
             "C" => {
                 #[derive(Serialize, Deserialize)]
@@ -149,9 +148,9 @@ impl MqttHandler {
                 let mut ocs = ecs.get_mut::<Vec<Outcome>>().unwrap();
                 if let Some(t) = t {
                     ocs.push(Outcome::Tower { pos: vek::Vec2::new(v.x,v.y), td: TowerData { tpty: t.tpty, tatk: t.tatk } });
-                    mqtx.try_send(MqttMsg::new_s("td/all/res", "tower", "C", json!({"msg":"ok"})))?;
+                    mqtx.try_send(OutboundMsg::new_s("td/all/res", "tower", "C", json!({"msg":"ok"})))?;
                 } else {
-                    mqtx.try_send(MqttMsg::new_s("td/all/res", "tower", "C", json!({"msg":"fail"})))?;
+                    mqtx.try_send(OutboundMsg::new_s("td/all/res", "tower", "C", json!({"msg":"fail"})))?;
                 }
             }
             _ => {}
@@ -159,21 +158,21 @@ impl MqttHandler {
         Ok(())
     }
     
-    pub fn handle_player(ecs: &mut World, mqtx: &Sender<MqttMsg>, pd: PlayerData) -> Result<(), Error> {
+    pub fn handle_player(ecs: &mut World, mqtx: &Sender<OutboundMsg>, pd: InboundMsg) -> Result<(), Error> {
         let mut pmap = ecs.get_mut::<BTreeMap<String, Player>>().unwrap();
         match pd.a.as_str() {
             "C" => {
                 let mut p = Player { name: pd.name.clone(), cost: 100., towers: vec![] };
                 p.towers.push(TowerData { tpty: TProperty::new(10., 1, 100.), tatk: TAttack::new(3., 0.3, 300., 100.) });
                 pmap.insert(pd.name.clone(), p);
-                mqtx.try_send(MqttMsg::new_s("td/all/res", "player", "C", json!({"msg":"ok"})))?;
+                mqtx.try_send(OutboundMsg::new_s("td/all/res", "player", "C", json!({"msg":"ok"})))?;
             }
             _ => {}
         }
         Ok(())
     }
     
-    pub fn process_playerdatas(ecs: &mut World, mqtx: &Sender<MqttMsg>, mqrx: &Receiver<PlayerData>) -> Result<(), Error> {
+    pub fn process_playerdatas(ecs: &mut World, mqtx: &Sender<OutboundMsg>, mqrx: &Receiver<InboundMsg>) -> Result<(), Error> {
         let n = mqrx.len();
         for _i in 0..n {
             let data = mqrx.try_recv();

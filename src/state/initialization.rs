@@ -215,7 +215,7 @@ impl StateInitializer {
         ecs.insert(SysMetrics::default());
         
         // 初始化 MQTT 通道資源
-        ecs.insert(Vec::<crossbeam_channel::Sender<crate::msg::MqttMsg>>::new());
+        ecs.insert(Vec::<crossbeam_channel::Sender<crate::transport::OutboundMsg>>::new());
         
         // 初始化 Searcher 資源
         ecs.insert(crate::comp::outcome::Searcher::default());

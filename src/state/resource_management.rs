@@ -5,19 +5,18 @@ use crossbeam_channel::{Receiver, Sender};
 use failure::Error;
 
 use crate::comp::*;
-use crate::msg::MqttMsg;
-use crate::msg::PlayerData;
+use crate::transport::{OutboundMsg, InboundMsg};
 use crate::Outcome;
 
 /// 資源管理器
 pub struct ResourceManager {
     /// MQTT 發送通道
-    mqtx: Sender<MqttMsg>,
+    mqtx: Sender<OutboundMsg>,
 }
 
 impl ResourceManager {
     /// 創建新的資源管理器
-    pub fn new(mqtx: Sender<MqttMsg>) -> Self {
+    pub fn new(mqtx: Sender<OutboundMsg>) -> Self {
         Self { mqtx }
     }
 
@@ -36,7 +35,7 @@ impl ResourceManager {
     }
 
     /// 處理玩家資料
-    pub fn process_player_data(&self, world: &mut World, mqrx: &Receiver<PlayerData>) -> Result<(), Error> {
+    pub fn process_player_data(&self, world: &mut World, mqrx: &Receiver<InboundMsg>) -> Result<(), Error> {
         // 處理所有接收到的玩家資料
         while let Ok(player_data) = mqrx.try_recv() {
             match player_data.t.as_str() {
@@ -58,7 +57,7 @@ impl ResourceManager {
     }
 
     /// 處理塔相關請求
-    pub fn handle_tower_request(&self, world: &mut World, pd: PlayerData) -> Result<(), Error> {
+    pub fn handle_tower_request(&self, world: &mut World, pd: InboundMsg) -> Result<(), Error> {
         use serde_json::json;
         
         match pd.a.as_str() {
@@ -85,13 +84,13 @@ impl ResourceManager {
             "status": "completed",
             "player": pd.name
         });
-        self.mqtx.send(MqttMsg::new_s("td/all/res", "tower", "R", response))?;
+        self.mqtx.send(OutboundMsg::new_s("td/all/res", "tower", "R", response))?;
         
         Ok(())
     }
 
     /// 處理玩家相關請求
-    pub fn handle_player_request(&self, world: &mut World, pd: PlayerData) -> Result<(), Error> {
+    pub fn handle_player_request(&self, world: &mut World, pd: InboundMsg) -> Result<(), Error> {
         use serde_json::json;
         
         match pd.a.as_str() {
@@ -118,13 +117,13 @@ impl ResourceManager {
             "status": "completed",
             "player": pd.name
         });
-        self.mqtx.send(MqttMsg::new_s("td/all/res", "player", "R", response))?;
+        self.mqtx.send(OutboundMsg::new_s("td/all/res", "player", "R", response))?;
         
         Ok(())
     }
 
     /// 處理畫面請求
-    pub fn handle_screen_request(&self, world: &mut World, pd: PlayerData) -> Result<(), Error> {
+    pub fn handle_screen_request(&self, world: &mut World, pd: InboundMsg) -> Result<(), Error> {
         use serde_json::json;
         
         match pd.a.as_str() {
@@ -136,7 +135,7 @@ impl ResourceManager {
                     "player": pd.name,
                     "data": area_data
                 });
-                self.mqtx.send(MqttMsg::new_s("td/all/res", "screen", "R", response))?;
+                self.mqtx.send(OutboundMsg::new_s("td/all/res", "screen", "R", response))?;
                 log::info!("發送畫面區域資料給玩家 {}", pd.name);
             }
             "update_view" => {
@@ -152,7 +151,7 @@ impl ResourceManager {
     }
 
     // 私有實現方法
-    fn create_tower(&self, world: &mut World, pd: &PlayerData) -> Result<(), Error> {
+    fn create_tower(&self, world: &mut World, pd: &InboundMsg) -> Result<(), Error> {
         use vek::Vec2;
         use specs::{Builder, WorldExt};
         
@@ -194,32 +193,32 @@ impl ResourceManager {
         Ok(())
     }
 
-    fn upgrade_tower(&self, _world: &mut World, _pd: &PlayerData) -> Result<(), Error> {
+    fn upgrade_tower(&self, _world: &mut World, _pd: &InboundMsg) -> Result<(), Error> {
         // 實現塔升級邏輯
         Ok(())
     }
 
-    fn sell_tower(&self, _world: &mut World, _pd: &PlayerData) -> Result<(), Error> {
+    fn sell_tower(&self, _world: &mut World, _pd: &InboundMsg) -> Result<(), Error> {
         // 實現塔出售邏輯
         Ok(())
     }
 
-    fn move_player(&self, _world: &mut World, _pd: &PlayerData) -> Result<(), Error> {
+    fn move_player(&self, _world: &mut World, _pd: &InboundMsg) -> Result<(), Error> {
         // 實現玩家移動邏輯
         Ok(())
     }
 
-    fn player_attack(&self, _world: &mut World, _pd: &PlayerData) -> Result<(), Error> {
+    fn player_attack(&self, _world: &mut World, _pd: &InboundMsg) -> Result<(), Error> {
         // 實現玩家攻擊邏輯
         Ok(())
     }
 
-    fn use_skill(&self, _world: &mut World, _pd: &PlayerData) -> Result<(), Error> {
+    fn use_skill(&self, _world: &mut World, _pd: &InboundMsg) -> Result<(), Error> {
         // 實現技能使用邏輯
         Ok(())
     }
 
-    fn get_screen_area_data(&self, _world: &mut World, _pd: &PlayerData) -> Result<serde_json::Value, Error> {
+    fn get_screen_area_data(&self, _world: &mut World, _pd: &InboundMsg) -> Result<serde_json::Value, Error> {
         use serde_json::json;
         
         // 實現畫面區域資料獲取邏輯
@@ -231,7 +230,7 @@ impl ResourceManager {
         }))
     }
 
-    fn update_player_view(&self, _world: &mut World, _pd: &PlayerData) -> Result<(), Error> {
+    fn update_player_view(&self, _world: &mut World, _pd: &InboundMsg) -> Result<(), Error> {
         // 實現玩家視野更新邏輯
         Ok(())
     }

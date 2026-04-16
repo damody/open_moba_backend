@@ -3,7 +3,7 @@
 use specs::{Entity, World, WorldExt, Builder};
 use vek::Vec2;
 use crate::comp::*;
-use crate::msg::MqttMsg;
+use crate::transport::OutboundMsg;
 use crossbeam_channel::Sender;
 use serde_json::json;
 use log::{info, warn, error};
@@ -16,7 +16,7 @@ impl CreationEventHandler {
     /// 在遊戲世界中創建小兵實體，並發送 MQTT 消息通知前端
     pub fn handle_creep_creation(
         world: &mut World,
-        mqtx: &Sender<MqttMsg>,
+        mqtx: &Sender<OutboundMsg>,
         cd: CreepData,
     ) -> Vec<Outcome> {
         info!("創建小兵於位置: ({}, {})", cd.pos.x, cd.pos.y);
@@ -37,7 +37,7 @@ impl CreationEventHandler {
         }
         
         // 發送 MQTT 消息通知前端
-        if let Err(e) = mqtx.try_send(MqttMsg::new_s("td/all/res", "creep", "C", cjs)) {
+        if let Err(e) = mqtx.try_send(OutboundMsg::new_s("td/all/res", "creep", "C", cjs)) {
             error!("發送小兵創建消息失敗: {}", e);
         }
         
@@ -49,7 +49,7 @@ impl CreationEventHandler {
     /// 在遊戲世界中創建塔實體，更新搜尋索引，並發送 MQTT 消息
     pub fn handle_tower_creation(
         world: &mut World,
-        mqtx: &Sender<MqttMsg>,
+        mqtx: &Sender<OutboundMsg>,
         pos: Vec2<f32>,
         td: TowerData,
     ) -> Vec<Outcome> {
@@ -73,7 +73,7 @@ impl CreationEventHandler {
         }
         
         // 發送 MQTT 消息通知前端
-        if let Err(e) = mqtx.try_send(MqttMsg::new_s("td/all/res", "tower", "C", cjs)) {
+        if let Err(e) = mqtx.try_send(OutboundMsg::new_s("td/all/res", "tower", "C", cjs)) {
             error!("發送塔創建消息失敗: {}", e);
         }
         
@@ -93,7 +93,7 @@ impl CreationEventHandler {
     /// 創建投射物實體，用於視覺效果顯示和傷害處理
     pub fn handle_projectile_creation(
         world: &mut World,
-        mqtx: &Sender<MqttMsg>,
+        mqtx: &Sender<OutboundMsg>,
         pos: Vec2<f32>,
         source: Entity,
         target: Entity,
@@ -177,7 +177,7 @@ impl CreationEventHandler {
             }
         });
         
-        if let Err(e) = mqtx.try_send(MqttMsg::new_s("td/all/res", "projectile", "C", projectile_data)) {
+        if let Err(e) = mqtx.try_send(OutboundMsg::new_s("td/all/res", "projectile", "C", projectile_data)) {
             error!("發送彈道創建消息失敗: {}", e);
         }
         
@@ -189,7 +189,7 @@ impl CreationEventHandler {
     /// 根據單位類型和陣營創建相應實體
     pub fn handle_unit_spawn(
         world: &mut World,
-        mqtx: &Sender<MqttMsg>,
+        mqtx: &Sender<OutboundMsg>,
         pos: Vec2<f32>,
         unit: Unit,
         faction: Faction,
@@ -224,7 +224,7 @@ impl CreationEventHandler {
             "duration": duration
         });
         
-        if let Err(e) = mqtx.try_send(MqttMsg::new_s("td/all/res", "unit", "C", unit_data)) {
+        if let Err(e) = mqtx.try_send(OutboundMsg::new_s("td/all/res", "unit", "C", unit_data)) {
             error!("發送單位創建消息失敗: {}", e);
         }
         

@@ -4,14 +4,14 @@ use serde_json::json;
 use specs::{World, WorldExt, Entity, Builder, storage::{WriteStorage, ReadStorage}};
 
 use crate::comp::*;
-use crate::msg::MqttMsg;
+use crate::transport::OutboundMsg;
 use crate::Outcome;
 use crate::Projectile;
 
 pub struct GameProcessor;
 
 impl GameProcessor {
-    pub fn process_outcomes(ecs: &mut World, mqtx: &crossbeam_channel::Sender<MqttMsg>) -> Result<(), Error> {
+    pub fn process_outcomes(ecs: &mut World, mqtx: &crossbeam_channel::Sender<OutboundMsg>) -> Result<(), Error> {
         let mut remove_uids = vec![];
         let mut next_outcomes = vec![];
         
@@ -67,7 +67,7 @@ impl GameProcessor {
     fn handle_death(
         ecs: &mut World, 
         next_outcomes: &mut Vec<Outcome>, 
-        mqtx: &crossbeam_channel::Sender<MqttMsg>, 
+        mqtx: &crossbeam_channel::Sender<OutboundMsg>, 
         entity: Entity
     ) -> Result<(), Error> {
         let mut creeps = ecs.write_storage::<Creep>();
@@ -96,14 +96,14 @@ impl GameProcessor {
         };
         
         if !entity_type.is_empty() {
-            mqtx.send(MqttMsg::new_s("td/all/res", entity_type, "D", json!({"id": entity.id()})));
+            mqtx.send(OutboundMsg::new_s("td/all/res", entity_type, "D", json!({"id": entity.id()})));
         }
         Ok(())
     }
     
     fn handle_projectile(
         ecs: &mut World, 
-        mqtx: &crossbeam_channel::Sender<MqttMsg>, 
+        mqtx: &crossbeam_channel::Sender<OutboundMsg>, 
         pos: vek::Vec2<f32>, 
         source: Option<Entity>, 
         target: Option<Entity>
@@ -147,29 +147,29 @@ impl GameProcessor {
             radius: 0.,
         });
         
-        mqtx.try_send(MqttMsg::new_s("td/all/res", "projectile", "C", pjs));
+        mqtx.try_send(OutboundMsg::new_s("td/all/res", "projectile", "C", pjs));
         Ok(())
     }
     
-    fn handle_creep_spawn(ecs: &mut World, mqtx: &crossbeam_channel::Sender<MqttMsg>, cd: CreepData) -> Result<(), Error> {
+    fn handle_creep_spawn(ecs: &mut World, mqtx: &crossbeam_channel::Sender<OutboundMsg>, cd: CreepData) -> Result<(), Error> {
         let mut cjs = json!(cd);
         let e = ecs.create_entity().with(Pos(cd.pos)).with(cd.creep).with(cd.cdata).build();
         cjs.as_object_mut().unwrap().insert("id".to_owned(), json!(e.id()));
-        mqtx.try_send(MqttMsg::new_s("td/all/res", "creep", "C", cjs));
+        mqtx.try_send(OutboundMsg::new_s("td/all/res", "creep", "C", cjs));
         Ok(())
     }
     
-    fn handle_tower_spawn(ecs: &mut World, mqtx: &crossbeam_channel::Sender<MqttMsg>, pos: vek::Vec2<f32>, td: TowerData) -> Result<(), Error> {
+    fn handle_tower_spawn(ecs: &mut World, mqtx: &crossbeam_channel::Sender<OutboundMsg>, pos: vek::Vec2<f32>, td: TowerData) -> Result<(), Error> {
         let mut cjs = json!(td);
         let e = ecs.create_entity().with(Pos(pos)).with(Tower::new()).with(td.tpty).with(td.tatk).build();
         cjs.as_object_mut().unwrap().insert("id".to_owned(), json!(e.id()));
         cjs.as_object_mut().unwrap().insert("pos".to_owned(), json!(pos));
-        mqtx.try_send(MqttMsg::new_s("td/all/res", "tower", "C", cjs));
+        mqtx.try_send(OutboundMsg::new_s("td/all/res", "tower", "C", cjs));
         ecs.get_mut::<Searcher>().unwrap().tower.needsort = true;
         Ok(())
     }
     
-    fn handle_creep_stop(ecs: &mut World, mqtx: &crossbeam_channel::Sender<MqttMsg>, source: Entity, target: Entity) -> Result<(), Error> {
+    fn handle_creep_stop(ecs: &mut World, mqtx: &crossbeam_channel::Sender<OutboundMsg>, source: Entity, target: Entity) -> Result<(), Error> {
         let mut creeps = ecs.write_storage::<Creep>();
         let c = creeps.get_mut(target).ok_or_else(|| failure::err_msg("Creep not found"))?;
         c.block_tower = Some(source);
@@ -178,7 +178,7 @@ impl GameProcessor {
         let positions = ecs.read_storage::<Pos>();
         let pos = positions.get(target).ok_or_else(|| failure::err_msg("Creep position not found"))?;
         
-        mqtx.try_send(MqttMsg::new_s("td/all/res", "creep", "M", json!({
+        mqtx.try_send(OutboundMsg::new_s("td/all/res", "creep", "M", json!({
             "id": target.id(),
             "x": pos.0.x,
             "y": pos.0.y,

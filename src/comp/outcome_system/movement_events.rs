@@ -2,7 +2,7 @@
 
 use specs::{Entity, World};
 use crate::comp::*;
-use crate::msg::MqttMsg;
+use crate::transport::OutboundMsg;
 use crossbeam_channel::Sender;
 
 /// 移動事件處理器
@@ -12,7 +12,7 @@ impl MovementEventHandler {
     /// 處理小兵停止事件
     pub fn handle_creep_stop(
         _world: &World,
-        _mqtx: &Sender<MqttMsg>,
+        _mqtx: &Sender<OutboundMsg>,
         _source: Entity,
         _target: Entity,
     ) -> Vec<Outcome> {
@@ -23,7 +23,7 @@ impl MovementEventHandler {
     /// 處理小兵行走事件
     pub fn handle_creep_walk(
         _world: &World,
-        _mqtx: &Sender<MqttMsg>,
+        _mqtx: &Sender<OutboundMsg>,
         _target: Entity,
     ) -> Vec<Outcome> {
         // 實現小兵行走邏輯

@@ -2,7 +2,7 @@
 
 use specs::{Entity, World, WriteStorage, ReadStorage, WorldExt};
 use crate::comp::*;
-use crate::msg::MqttMsg;
+use crate::transport::OutboundMsg;
 use crossbeam_channel::Sender;
 use serde_json::json;
 
@@ -13,7 +13,7 @@ impl CombatEventHandler {
     /// 處理傷害事件
     pub fn handle_damage(
         world: &mut World,
-        mqtx: &Sender<MqttMsg>,
+        mqtx: &Sender<OutboundMsg>,
         pos: vek::Vec2<f32>,
         phys: f32,
         magi: f32,
@@ -54,7 +54,7 @@ impl CombatEventHandler {
     /// 處理治療事件
     pub fn handle_heal(
         world: &mut World,
-        _mqtx: &Sender<MqttMsg>,
+        _mqtx: &Sender<OutboundMsg>,
         _pos: vek::Vec2<f32>,
         target: Entity,
         amount: f32,
@@ -78,7 +78,7 @@ impl CombatEventHandler {
     /// 處理死亡事件
     pub fn handle_death(
         world: &mut World,
-        mqtx: &Sender<MqttMsg>,
+        mqtx: &Sender<OutboundMsg>,
         _pos: vek::Vec2<f32>,
         entity: Entity,
     ) -> Vec<Outcome> {
@@ -111,7 +111,7 @@ impl CombatEventHandler {
         };
         
         if !entity_type.is_empty() && entity_type != "unknown" {
-            let _ = mqtx.send(MqttMsg::new_s("td/all/res", entity_type, "D", json!({"id": entity.id()})));
+            let _ = mqtx.send(OutboundMsg::new_s("td/all/res", entity_type, "D", json!({"id": entity.id()})));
         }
         
         next_outcomes
@@ -120,7 +120,7 @@ impl CombatEventHandler {
     /// 處理經驗獲得事件
     pub fn handle_experience_gain(
         world: &mut World,
-        _mqtx: &Sender<MqttMsg>,
+        _mqtx: &Sender<OutboundMsg>,
         target: Entity,
         amount: u32,
     ) -> Vec<Outcome> {
@@ -141,7 +141,7 @@ impl CombatEventHandler {
     /// 處理攻擊更新事件
     pub fn handle_attack_update(
         world: &mut World,
-        _mqtx: &Sender<MqttMsg>,
+        _mqtx: &Sender<OutboundMsg>,
         target: Entity,
         asd_count: Option<f32>,
         cooldown_reset: bool,

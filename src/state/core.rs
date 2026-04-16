@@ -7,10 +7,10 @@ use crossbeam_channel::{Receiver, Sender};
 use failure::Error;
 use core::time::Duration;
 
-use crate::{comp::*, msg::MqttMsg, CreepWave};
+use crate::{comp::*, CreepWave};
 use crate::ue4::import_map::CreepWaveData;
 use crate::ue4::import_campaign::CampaignData;
-use crate::msg::PlayerData;
+use crate::transport::{OutboundMsg, InboundMsg};
 
 use super::{
     StateInitializer, TimeManager, ResourceManager, SystemDispatcher
@@ -25,9 +25,9 @@ pub struct State {
     /// 戰役資料（可選）
     campaign: Option<CampaignData>,
     /// MQTT 發送通道
-    mqtx: Sender<MqttMsg>,
+    mqtx: Sender<OutboundMsg>,
     /// 玩家資料接收通道
-    mqrx: Receiver<PlayerData>,
+    mqrx: Receiver<InboundMsg>,
     /// 執行緒池
     thread_pool: Arc<ThreadPool>,
     /// 時間管理器
@@ -46,15 +46,15 @@ impl State {
     /// 創建新的遊戲狀態（標準模式）
     pub fn new(
         creep_wave_data: CreepWaveData,
-        mqtx: Sender<MqttMsg>,
-        mqrx: Receiver<PlayerData>,
+        mqtx: Sender<OutboundMsg>,
+        mqrx: Receiver<InboundMsg>,
     ) -> Self {
         let thread_pool = StateInitializer::create_thread_pool();
         let mut ecs = StateInitializer::setup_standard_ecs_world(&thread_pool);
         
         // 設置 MQTT 發送器
         {
-            let mut mqtx_vec = ecs.write_resource::<Vec<Sender<MqttMsg>>>();
+            let mut mqtx_vec = ecs.write_resource::<Vec<Sender<OutboundMsg>>>();
             mqtx_vec.push(mqtx.clone());
         }
         
@@ -84,15 +84,15 @@ impl State {
     /// 創建新的遊戲狀態（戰役模式）
     pub fn new_with_campaign(
         campaign_data: CampaignData,
-        mqtx: Sender<MqttMsg>,
-        mqrx: Receiver<PlayerData>,
+        mqtx: Sender<OutboundMsg>,
+        mqrx: Receiver<InboundMsg>,
     ) -> Self {
         let thread_pool = StateInitializer::create_thread_pool();
         let mut ecs = StateInitializer::setup_campaign_ecs_world(&thread_pool);
         
         // 設置 MQTT 發送器
         {
-            let mut mqtx_vec = ecs.write_resource::<Vec<Sender<MqttMsg>>>();
+            let mut mqtx_vec = ecs.write_resource::<Vec<Sender<OutboundMsg>>>();
             mqtx_vec.push(mqtx.clone());
         }
         
@@ -185,7 +185,7 @@ impl State {
             "creep_count": creep_count
         });
 
-        if let Err(e) = self.mqtx.send(MqttMsg::new_s("td/all/res", "heartbeat", "tick", heartbeat_data)) {
+        if let Err(e) = self.mqtx.send(OutboundMsg::new_s("td/all/res", "heartbeat", "tick", heartbeat_data)) {
             log::error!("無法發送心跳訊息: {}", e);
         } else {
             log::trace!("💓 心跳已發送 - tick: {}, entities: {}", tick, entity_count);
@@ -209,7 +209,7 @@ impl State {
                 "max_hp": mhp,
                 "move_speed": prop.map(|p| p.msd).unwrap_or(0.0)
             });
-            let _ = self.mqtx.send(MqttMsg::new_s("td/all/res", "hero", "create", hero_data));
+            let _ = self.mqtx.send(OutboundMsg::new_s("td/all/res", "hero", "create", hero_data));
         }
     }
 
@@ -262,17 +262,17 @@ impl State {
     }
 
     /// 處理塔相關請求
-    pub fn handle_tower(&mut self, pd: PlayerData) -> Result<(), Error> {
+    pub fn handle_tower(&mut self, pd: InboundMsg) -> Result<(), Error> {
         self.resource_manager.handle_tower_request(&mut self.ecs, pd)
     }
 
     /// 處理玩家相關請求
-    pub fn handle_player(&mut self, pd: PlayerData) -> Result<(), Error> {
+    pub fn handle_player(&mut self, pd: InboundMsg) -> Result<(), Error> {
         self.resource_manager.handle_player_request(&mut self.ecs, pd)
     }
 
     /// 處理畫面請求
-    pub fn handle_screen_request(&mut self, pd: PlayerData) -> Result<(), Error> {
+    pub fn handle_screen_request(&mut self, pd: InboundMsg) -> Result<(), Error> {
         self.resource_manager.handle_screen_request(&mut self.ecs, pd)
     }
 
@@ -320,7 +320,7 @@ impl State {
                     "move_speed": prop.msd
                 });
                 
-                if let Err(e) = self.mqtx.send(MqttMsg::new_s("td/all/res", "hero", "create", hero_data)) {
+                if let Err(e) = self.mqtx.send(OutboundMsg::new_s("td/all/res", "hero", "create", hero_data)) {
                     log::error!("無法發送英雄初始化資料: {}", e);
                 }
                 log::info!("已發送英雄 '{}' 初始化資料到 MQTT", hero.name);
@@ -349,7 +349,7 @@ impl State {
                     "move_speed": prop.msd
                 });
                 
-                if let Err(e) = self.mqtx.send(MqttMsg::new_s("td/all/res", "unit", "create", unit_data)) {
+                if let Err(e) = self.mqtx.send(OutboundMsg::new_s("td/all/res", "unit", "create", unit_data)) {
                     log::error!("無法發送單位初始化資料: {}", e);
                 }
                 log::info!("已發送單位 '{}' 初始化資料到 MQTT", unit.name);
@@ -374,7 +374,7 @@ impl State {
                 }).collect::<Vec<_>>()
             });
             
-            if let Err(e) = self.mqtx.send(MqttMsg::new_s("td/all/res", "creep_wave", "init", wave_data)) {
+            if let Err(e) = self.mqtx.send(OutboundMsg::new_s("td/all/res", "creep_wave", "init", wave_data)) {
                 log::error!("無法發送小兵波初始化資料: {}", e);
             }
             log::info!("已發送 {} 個小兵波初始化資料到 MQTT", creep_waves.len());
@@ -390,7 +390,7 @@ impl State {
                 "abilities": campaign.ability.abilities.len()
             });
             
-            if let Err(e) = self.mqtx.send(MqttMsg::new_s("td/all/res", "campaign", "init", campaign_info)) {
+            if let Err(e) = self.mqtx.send(OutboundMsg::new_s("td/all/res", "campaign", "init", campaign_info)) {
                 log::error!("無法發送戰役初始化資料: {}", e);
             }
             log::info!("已發送戰役 '{}' 初始化資料到 MQTT", campaign.mission.campaign.name);
