@@ -12,14 +12,6 @@ crate-type = ["rlib"]
 name = "omobab"
 path = "src/main.rs"
 
-[[bin]]
-name = "test_posdata"
-path = "src/test_posdata.rs"
-
-[[bin]]
-name = "test_posdata_brute_force"
-path = "src/test_posdata_brute_force.rs"
-
 
 # 隱藏所有編譯器警告
 [lints.rust]
@@ -61,10 +53,19 @@ rust_decimal = "1.33"
 regex = "1.0"
 lazy_static = "1.4"
 tracing = "0.1"
-rumqttc = "0.24"
+rumqttc = { version = "0.24", optional = true }
 round = "0.1"
-async-std = { version = "1.12", features = ["attributes"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 spin_sleep = "1.0"
+tonic = { version = "0.12", optional = true }
+prost = { version = "0.13", optional = true }
+async-stream = { version = "0.3", optional = true }
+tokio-stream = { version = "0.1", optional = true }
+
+[build-dependencies]
+tonic-build = { version = "0.12", optional = true }
 
 [features]
-default = []
+default = ["grpc"]
+mqtt = ["rumqttc"]
+grpc = ["tonic", "prost", "async-stream", "tokio-stream/sync", "tonic-build", "tokio/sync", "tokio/time"]
