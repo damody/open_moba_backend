@@ -12,6 +12,12 @@ pub struct TimeManager {
     day_cycle_factor: f64,
     /// 最大增量時間
     max_delta_time: f32,
+    /// 快取：當前遊戲時間
+    cached_time: f64,
+    /// 快取：當前一天中的時間
+    cached_time_of_day: f64,
+    /// 快取：當前增量時間
+    cached_delta_time: f32,
 }
 
 impl TimeManager {
@@ -20,6 +26,9 @@ impl TimeManager {
         Self {
             day_cycle_factor: 24.0, // 預設日夜循環倍率
             max_delta_time: 1.0,    // 預設最大增量時間
+            cached_time: 0.0,
+            cached_time_of_day: 0.0,
+            cached_delta_time: 0.0,
         }
     }
 
@@ -28,25 +37,32 @@ impl TimeManager {
         Self {
             day_cycle_factor,
             max_delta_time,
+            cached_time: 0.0,
+            cached_time_of_day: 0.0,
+            cached_delta_time: 0.0,
         }
     }
 
     /// 更新時間系統
-    pub fn update(&self, world: &mut World, dt: Duration) -> Result<(), Error> {
+    pub fn update(&mut self, world: &mut World, dt: Duration) -> Result<(), Error> {
         // 更新基本時間
         {
             let mut time_of_day = world.write_resource::<TimeOfDay>();
             time_of_day.0 += dt.as_secs_f64() * self.day_cycle_factor;
+            self.cached_time_of_day = time_of_day.0;
         }
 
         {
             let mut time = world.write_resource::<Time>();
             time.0 += dt.as_secs_f64();
+            self.cached_time = time.0;
         }
 
         {
+            let dt_val = dt.as_secs_f32().min(self.max_delta_time);
             let mut delta_time = world.write_resource::<DeltaTime>();
-            delta_time.0 = dt.as_secs_f32().min(self.max_delta_time);
+            delta_time.0 = dt_val;
+            self.cached_delta_time = dt_val;
         }
 
         Ok(())
@@ -54,30 +70,22 @@ impl TimeManager {
 
     /// 獲取當前一天中的時間
     pub fn get_time_of_day(&self) -> f64 {
-        // 這個方法需要 World 才能獲取實際值
-        // 在實際使用中應該從 State 調用
-        0.0
+        self.cached_time_of_day
     }
 
     /// 獲取當前遊戲時間
     pub fn get_time(&self) -> f64 {
-        // 這個方法需要 World 才能獲取實際值
-        // 在實際使用中應該從 State 調用
-        0.0
+        self.cached_time
     }
 
     /// 獲取當前增量時間
     pub fn get_delta_time(&self) -> f32 {
-        // 這個方法需要 World 才能獲取實際值
-        // 在實際使用中應該從 State 調用
-        0.0
+        self.cached_delta_time
     }
 
     /// 獲取當前日期週期
     pub fn get_day_period(&self) -> DayPeriod {
-        // 這個方法需要 World 才能獲取實際值
-        // 在實際使用中應該從 State 調用
-        DayPeriod::Noon // 預設返回中午
+        self.cached_time_of_day.into()
     }
 
     /// 設置日夜循環倍率
