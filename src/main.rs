@@ -58,14 +58,14 @@ fn create_mqtt_client(server_addr: String, server_port: String, client_id: Strin
     Ok((mqtt_cli, connection))
 }
 
-fn read_input() -> String {
+fn read_input() -> Option<String> {
     let mut buffer = String::new();
 
-    io::stdin()
-        .read_line(&mut buffer)
-        .expect("Failed to read input");
-
-    buffer.trim().to_string()
+    match io::stdin().read_line(&mut buffer) {
+        Ok(0) => None,  // EOF
+        Ok(_) => Some(buffer.trim().to_string()),
+        Err(_) => None,
+    }
 }
 
 #[async_std::main]
@@ -107,16 +107,28 @@ async fn main() -> std::result::Result<(), Error> {
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || {
         loop {
-            let msg = read_input();
-            tx.send(msg).unwrap();
+            match read_input() {
+                Some(msg) if !msg.is_empty() => {
+                    if tx.send(msg).is_err() {
+                        break;
+                    }
+                }
+                Some(_) => {} // empty line, continue
+                None => {
+                    log::info!("stdin closed (EOF), stopping input reader");
+                    break;
+                }
+            }
         }
     });
     loop {
-        for msg in rx.try_iter() {
+        for msg in rx.try_iter().take(10) {
             state.send_chat(msg)
         }
-        state.tick(clock.dt());
-        
+        if let Err(e) = state.tick(clock.dt()) {
+            log::error!("Tick error: {:?}", e);
+        }
+
         // Wait for the next tick.
         clock.tick();
     }
