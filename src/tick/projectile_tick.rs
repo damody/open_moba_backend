@@ -2,7 +2,9 @@ use specs::{
     shred, Entities, Join, LazyUpdate, Read, ReadExpect, ReadStorage, SystemData,
     Write, WriteStorage, ParJoin, World,
 };
+use crossbeam_channel::Sender;
 use crate::comp::*;
+use crate::msg::MqttMsg;
 use specs::prelude::ParallelIterator;
 use specs::Entity;
 use vek::Vec2;
@@ -23,6 +25,7 @@ pub struct ProjectileWrite<'a> {
     outcomes: Write<'a, Vec<Outcome>>,
     taken_damages: Write<'a, Vec<TakenDamage>>,
     damage_instances: Write<'a, Vec<DamageInstance>>,
+    mqtx: Write<'a, Vec<Sender<MqttMsg>>>,
 }
 
 #[derive(Default)]
@@ -104,6 +107,18 @@ impl<'a> System<'a> for Sys {
                 },
             );
         tw.outcomes.append(&mut outcomes);
+
+        // 廣播投射物位置給前端
+        if let Some(tx) = tw.mqtx.get(0) {
+            let tx = tx.clone();
+            for (e, proj, pos) in (&tr.entities, &tw.projs, &tw.pos).join() {
+                if proj.time_left > 0. {
+                    let _ = tx.try_send(MqttMsg::new_s("td/all/res", "projectile", "M",
+                        serde_json::json!({"id": e.id(), "x": pos.0.x, "y": pos.0.y})
+                    ));
+                }
+            }
+        }
     }
 }
 

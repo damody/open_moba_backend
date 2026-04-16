@@ -165,6 +165,8 @@ impl State {
         let heroes = self.ecs.read_storage::<Hero>();
         let units = self.ecs.read_storage::<Unit>();
         let creeps = self.ecs.read_storage::<Creep>();
+        let positions = self.ecs.read_storage::<Pos>();
+        let properties = self.ecs.read_storage::<CProperty>();
 
         let hero_count = (&entities, &heroes).join().count();
         let unit_count = (&entities, &units).join().count();
@@ -187,6 +189,27 @@ impl State {
             log::error!("無法發送心跳訊息: {}", e);
         } else {
             log::trace!("💓 心跳已發送 - tick: {}, entities: {}", tick, entity_count);
+        }
+
+        // 隨心跳廣播所有英雄位置（確保遲加入的前端也能看到英雄）
+        for (entity, hero, pos) in (&entities, &heroes, &positions).join() {
+            let prop = properties.get(entity);
+            let (hp, mhp) = prop.map(|p| (p.hp, p.mhp)).unwrap_or((100.0, 100.0));
+            let hero_data = json!({
+                "entity_id": entity.id(),
+                "hero_id": hero.id,
+                "name": hero.name,
+                "title": hero.title,
+                "level": hero.level,
+                "position": {
+                    "x": pos.0.x,
+                    "y": pos.0.y
+                },
+                "hp": hp,
+                "max_hp": mhp,
+                "move_speed": prop.map(|p| p.msd).unwrap_or(0.0)
+            });
+            let _ = self.mqtx.send(MqttMsg::new_s("td/all/res", "hero", "create", hero_data));
         }
     }
 
@@ -257,6 +280,7 @@ impl State {
     fn initialize_standard_game(&mut self) {
         StateInitializer::init_creep_wave(&mut self.ecs, &self.cw);
         StateInitializer::create_test_scene(&mut self.ecs);
+        self.send_initial_game_state();
     }
 
     fn initialize_campaign_game(&mut self, campaign_data: &CampaignData) {
