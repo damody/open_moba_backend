@@ -2,5 +2,6 @@
 MAP = "map.json"
 MAX_PLAYER = 10000
 SERVER_IP = "localhost"
-SERVER_PORT = "1883"
+SERVER_PORT = "50061"
 CLIENT_ID = "omobab"
+RENDER_DELAY_MS = 100

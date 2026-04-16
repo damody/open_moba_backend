@@ -182,7 +182,8 @@ impl State {
             "entity_count": entity_count,
             "hero_count": hero_count,
             "unit_count": unit_count,
-            "creep_count": creep_count
+            "creep_count": creep_count,
+            "render_delay_ms": crate::config::server_config::CONFIG.RENDER_DELAY_MS
         });
 
         if let Err(e) = self.mqtx.send(OutboundMsg::new_s("td/all/res", "heartbeat", "tick", heartbeat_data)) {

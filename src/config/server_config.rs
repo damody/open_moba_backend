@@ -12,6 +12,7 @@ pub struct ServerSetting {
     pub CLIENT_ID: String,
     pub MAP: String,
     pub MAX_PLAYER: i32,
+    pub RENDER_DELAY_MS: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
