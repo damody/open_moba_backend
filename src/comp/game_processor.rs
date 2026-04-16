@@ -194,48 +194,86 @@ impl GameProcessor {
     }
     
     fn handle_damage(
-        ecs: &mut World, 
-        next_outcomes: &mut Vec<Outcome>, 
+        ecs: &mut World,
+        next_outcomes: &mut Vec<Outcome>,
         pos: vek::Vec2<f32>,
-        phys: f32, 
-        magi: f32, 
-        real: f32, 
-        source: Entity, 
+        phys: f32,
+        magi: f32,
+        real: f32,
+        source: Entity,
         target: Entity
     ) -> Result<(), Error> {
-        let mut properties = ecs.write_storage::<CProperty>();
-        if let Some(target_props) = properties.get_mut(target) {
-            let hp_before = target_props.hp;
-            let total_damage = phys + magi + real;
-            target_props.hp -= total_damage;
-            let hp_after = target_props.hp;
-            
-            let (source_name, target_name) = Self::get_entity_names(ecs, source, target);
-            
-            let damage_parts = {
-                let mut parts = Vec::new();
-                if phys > 0.0 { parts.push(format!("Phys {:.1}", phys)); }
-                if magi > 0.0 { parts.push(format!("Magi {:.1}", magi)); }
-                if real > 0.0 { parts.push(format!("Pure {:.1}", real)); }
-                if parts.is_empty() { 
-                    parts.push(format!("Total {:.1}", total_damage)); 
+        let mut hp_after = 0.0f32;
+        let mut max_hp = 0.0f32;
+        let mut died = false;
+
+        {
+            let mut properties = ecs.write_storage::<CProperty>();
+            if let Some(target_props) = properties.get_mut(target) {
+                let hp_before = target_props.hp;
+                let total_damage = phys + magi + real;
+                target_props.hp -= total_damage;
+                hp_after = target_props.hp;
+                max_hp = target_props.mhp;
+
+                let (source_name, target_name) = Self::get_entity_names(ecs, source, target);
+
+                let damage_parts = {
+                    let mut parts = Vec::new();
+                    if phys > 0.0 { parts.push(format!("Phys {:.1}", phys)); }
+                    if magi > 0.0 { parts.push(format!("Magi {:.1}", magi)); }
+                    if real > 0.0 { parts.push(format!("Pure {:.1}", real)); }
+                    if parts.is_empty() {
+                        parts.push(format!("Total {:.1}", total_damage));
+                    }
+                    parts.join(", ")
+                };
+
+                log::info!("⚔️ {} 攻擊 {} | {} damage | HP: {:.1} → {:.1}/{:.1}",
+                    source_name, target_name, damage_parts, hp_before, hp_after, target_props.mhp
+                );
+
+                if target_props.hp <= 0.0 {
+                    target_props.hp = 0.0;
+                    hp_after = 0.0;
+                    died = true;
+                    log::info!("💀 {} died from damage!", target_name);
                 }
-                parts.join(", ")
-            };
-            
-            log::info!("⚔️ {} 攻擊 {} | {} damage | HP: {:.1} → {:.1}/{:.1}", 
-                source_name, target_name, damage_parts, hp_before, hp_after, target_props.mhp
-            );
-            
-            if target_props.hp <= 0.0 {
-                target_props.hp = 0.0;
-                log::info!("💀 {} died from damage!", target_name);
-                next_outcomes.push(Outcome::Death { 
-                    pos: pos,
-                    ent: target 
-                });
             }
         }
+
+        // Broadcast HP update to frontend
+        let target_pos = ecs.read_storage::<Pos>().get(target).map(|p| p.0);
+        if let Some(tp) = target_pos {
+            // Determine entity type for the broadcast
+            let entity_type = {
+                let heroes = ecs.read_storage::<Hero>();
+                let creeps = ecs.read_storage::<Creep>();
+                let units = ecs.read_storage::<Unit>();
+                if heroes.get(target).is_some() { "hero" }
+                else if creeps.get(target).is_some() { "creep" }
+                else if units.get(target).is_some() { "unit" }
+                else { "entity" }
+            };
+            let mqtx_list = ecs.read_resource::<Vec<crossbeam_channel::Sender<OutboundMsg>>>();
+            if let Some(tx) = mqtx_list.get(0) {
+                let _ = tx.send(OutboundMsg::new_s("td/all/res", entity_type, "M", json!({
+                    "id": target.id(),
+                    "x": tp.x,
+                    "y": tp.y,
+                    "hp": hp_after,
+                    "max_hp": max_hp,
+                })));
+            }
+        }
+
+        if died {
+            next_outcomes.push(Outcome::Death {
+                pos: pos,
+                ent: target
+            });
+        }
+
         Ok(())
     }
     
