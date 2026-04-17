@@ -3,8 +3,8 @@
     // 專為狙擊訓練設計的開放式地形
     "Path": [
         {
-            "Name": "training_path",  // 訓練用移動路線
-            "Points": ["creep_spawn", "target_800", "target_1000", "target_1200", "target_1600"]
+            "Name": "training_path",  // 改走正方形路徑（debug 用）
+            "Points": ["square_nw", "square_ne", "square_se", "square_sw", "square_nw"]
         },
         {
             "Name": "circle_path",    // 環形移動路線（用於移動目標練習）
@@ -69,6 +69,12 @@
         {"Name": "circle_2", "Class": "MovePath", "X": 1100, "Y": -100},
         {"Name": "circle_3", "Class": "MovePath", "X": 900, "Y": -100},
         {"Name": "circle_4", "Class": "MovePath", "X": 900, "Y": 100},
+
+        // 正方形路徑四角（training_path 使用，中心 (800,0)，邊長 800）
+        {"Name": "square_nw", "Class": "MovePath", "X": 400,  "Y": 400},
+        {"Name": "square_ne", "Class": "MovePath", "X": 1200, "Y": 400},
+        {"Name": "square_se", "Class": "MovePath", "X": 1200, "Y": -400},
+        {"Name": "square_sw", "Class": "MovePath", "X": 400,  "Y": -400},
         
         // 特殊測試區域
         {"Name": "boss_area", "Class": "BossArea", "X": 1400, "Y": 200},      // Boss戰區域
