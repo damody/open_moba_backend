@@ -152,10 +152,23 @@ impl GameProcessor {
     }
     
     fn handle_creep_spawn(ecs: &mut World, mqtx: &crossbeam_channel::Sender<OutboundMsg>, cd: CreepData) -> Result<(), Error> {
-        let mut cjs = json!(cd);
+        let name = cd.creep.name.clone();
+        let hp = cd.cdata.hp;
+        let mhp = cd.cdata.mhp;
+        let msd = cd.cdata.msd;
+        let pos = cd.pos;
         let e = ecs.create_entity().with(Pos(cd.pos)).with(cd.creep).with(cd.cdata).build();
-        cjs.as_object_mut().unwrap().insert("id".to_owned(), json!(e.id()));
-        mqtx.try_send(OutboundMsg::new_s_at("td/all/res", "creep", "C", cjs, cd.pos.x, cd.pos.y));
+        // Payload shape matches client expectations (top-level position/hp/max_hp)
+        let payload = json!({
+            "entity_id": e.id(),
+            "id": e.id(),
+            "name": name,
+            "position": { "x": pos.x, "y": pos.y },
+            "hp": hp,
+            "max_hp": mhp,
+            "move_speed": msd,
+        });
+        mqtx.try_send(OutboundMsg::new_s_at("td/all/res", "creep", "C", payload, pos.x, pos.y));
         Ok(())
     }
 
