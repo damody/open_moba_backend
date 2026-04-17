@@ -7,7 +7,7 @@ use tokio::sync::broadcast;
 use tokio_stream::wrappers::BroadcastStream;
 use async_stream::stream;
 
-use super::types::{InboundMsg, OutboundMsg, TransportHandle, QueryRequest, QueryResponse};
+use super::types::{InboundMsg, OutboundMsg, TransportHandle, QueryRequest, QueryResponse, ViewportMsg};
 
 // Include the generated proto code
 pub mod game_proto {
@@ -215,9 +215,15 @@ pub async fn start(
         }
     });
 
+    // gRPC does not implement viewport updates; provide an always-empty channel
+    // so the State API stays uniform with the KCP transport.
+    let (_viewport_tx, viewport_rx): (Sender<ViewportMsg>, Receiver<ViewportMsg>) = bounded(1);
+    drop(_viewport_tx);
+
     Ok(TransportHandle {
         tx: out_tx,
         rx: in_rx,
         query_rx,
+        viewport_rx,
     })
 }

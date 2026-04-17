@@ -9,7 +9,7 @@ use tokio::sync::Mutex;
 
 use tokio_kcp::{KcpConfig, KcpListener, KcpNoDelayConfig, KcpStream};
 
-use super::types::{InboundMsg, OutboundMsg, TransportHandle, QueryRequest, QueryResponse};
+use super::types::{InboundMsg, OutboundMsg, TransportHandle, QueryRequest, QueryResponse, Viewport, ViewportMsg};
 
 // Include the generated proto code
 pub mod game_proto {
@@ -57,24 +57,6 @@ async fn read_framed<R: AsyncReadExt + Unpin>(
     Ok(Some((tag, buf)))
 }
 
-/// Viewport rectangle for spatial filtering.
-struct Viewport {
-    cx: f32,
-    cy: f32,
-    padded_hw: f32,
-    padded_hh: f32,
-}
-
-impl Viewport {
-    fn new(cx: f32, cy: f32, hw: f32, hh: f32) -> Self {
-        Self { cx, cy, padded_hw: hw * 1.3, padded_hh: hh * 1.3 }
-    }
-
-    fn contains(&self, x: f32, y: f32) -> bool {
-        (x - self.cx).abs() <= self.padded_hw && (y - self.cy).abs() <= self.padded_hh
-    }
-}
-
 /// Per-client session: holds a sender to push outbound events
 struct ClientSession {
     player_name: String,
@@ -90,6 +72,7 @@ pub async fn start(
     let (out_tx, out_rx): (Sender<OutboundMsg>, Receiver<OutboundMsg>) = bounded(10000);
     let (in_tx, in_rx): (Sender<InboundMsg>, Receiver<InboundMsg>) = bounded(10000);
     let (query_tx, query_rx): (Sender<QueryRequest>, Receiver<QueryRequest>) = bounded(100);
+    let (viewport_tx, viewport_rx): (Sender<ViewportMsg>, Receiver<ViewportMsg>) = bounded(1024);
 
     let sessions: Arc<Mutex<HashMap<String, ClientSession>>> =
         Arc::new(Mutex::new(HashMap::new()));
@@ -141,6 +124,8 @@ pub async fn start(
 
                         let sessions = sessions_broadcast.lock().await;
                         let mut to_remove = Vec::new();
+                        let is_per_player_topic = !msg.topic.contains("/all/") && msg.topic.starts_with("td/") && msg.topic.ends_with("/res");
+                        let mut route_hits = 0u32;
                         for (id, session) in sessions.iter() {
                             // Filter by topic: broadcast or for this player
                             let is_broadcast = msg.topic.contains("/all/");
@@ -154,9 +139,18 @@ pub async fn start(
                                 if in_viewport {
                                     if session.event_tx.try_send(frame.clone()).is_err() {
                                         to_remove.push(id.clone());
+                                    } else {
+                                        route_hits += 1;
                                     }
+                                } else if is_per_player_topic {
+                                    log::debug!("⚠ per-player event at {:?} blocked by vp filter for '{}'",
+                                        msg.entity_pos, session.player_name);
                                 }
                             }
+                        }
+                        if is_per_player_topic {
+                            log::debug!("📡 routed per-player topic='{}' hits={} (sessions={})",
+                                msg.topic, route_hits, sessions.len());
                         }
                         drop(sessions);
 
@@ -195,16 +189,14 @@ pub async fn start(
     let sessions_accept = sessions.clone();
     let in_tx_accept = in_tx.clone();
     let query_tx_accept = query_tx.clone();
+    let viewport_tx_accept = viewport_tx.clone();
+
+    // Bind synchronously so startup fails fast if the port is taken by a stale instance.
+    let mut listener = KcpListener::bind(config, addr)
+        .await
+        .map_err(|e| failure::err_msg(format!("Failed to bind KCP listener on {}: {}", addr, e)))?;
 
     tokio::spawn(async move {
-        let mut listener = match KcpListener::bind(config, addr).await {
-            Ok(l) => l,
-            Err(e) => {
-                error!("Failed to bind KCP listener: {}", e);
-                return;
-            }
-        };
-
         loop {
             let (stream, peer_addr) = match listener.accept().await {
                 Ok(s) => s,
@@ -219,10 +211,11 @@ pub async fn start(
             let sessions = sessions_accept.clone();
             let in_tx = in_tx_accept.clone();
             let query_tx = query_tx_accept.clone();
+            let viewport_tx = viewport_tx_accept.clone();
             let session_id = format!("kcp_{}", peer_addr);
 
             tokio::spawn(async move {
-                if let Err(e) = handle_client(stream, session_id, sessions, in_tx, query_tx).await {
+                if let Err(e) = handle_client(stream, session_id, sessions, in_tx, query_tx, viewport_tx).await {
                     warn!("KCP client handler error: {}", e);
                 }
             });
@@ -233,6 +226,7 @@ pub async fn start(
         tx: out_tx,
         rx: in_rx,
         query_rx,
+        viewport_rx,
     })
 }
 
@@ -242,12 +236,15 @@ async fn handle_client(
     sessions: Arc<Mutex<HashMap<String, ClientSession>>>,
     in_tx: Sender<InboundMsg>,
     query_tx: Sender<QueryRequest>,
+    viewport_tx: Sender<ViewportMsg>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let (mut reader, mut writer) = tokio::io::split(stream);
 
     // Per-session outbound channel (lazy — only used after SubscribeRequest)
     let mut event_rx: Option<tokio::sync::mpsc::Receiver<Vec<u8>>> = None;
     let mut subscribed = false;
+    // Track the subscribed player_name so we can send a Remove on disconnect
+    let mut player_name: Option<String> = None;
 
     // Main loop: read from client, optionally write outbound events
     loop {
@@ -258,10 +255,11 @@ async fn handle_client(
                         match tag {
                             TAG_SUBSCRIBE_REQUEST => {
                                 if let Ok(sub) = SubscribeRequest::decode(payload.as_slice()) {
-                                    info!("KCP client subscribed as '{}'", sub.player_name);
+                                    info!("🔌 KCP client subscribed as '{}' (session_id={})", sub.player_name, session_id);
                                     let (event_tx, rx) = tokio::sync::mpsc::channel::<Vec<u8>>(10000);
                                     event_rx = Some(rx);
                                     subscribed = true;
+                                    player_name = Some(sub.player_name.clone());
                                     let mut sess = sessions.lock().await;
                                     sess.insert(
                                         session_id.clone(),
@@ -325,13 +323,32 @@ async fn handle_client(
                             TAG_VIEWPORT_UPDATE => {
                                 if let Ok(vp) = ViewportUpdate::decode(payload.as_slice()) {
                                     if subscribed {
+                                        let viewport = Viewport::new(
+                                            vp.center_x, vp.center_y, vp.half_width, vp.half_height,
+                                        );
                                         let mut sess = sessions.lock().await;
                                         if let Some(s) = sess.get_mut(&session_id) {
-                                            info!("Viewport update from '{}': center=({}, {}), half=({}, {})",
-                                                s.player_name, vp.center_x, vp.center_y, vp.half_width, vp.half_height);
-                                            s.viewport = Some(Viewport::new(vp.center_x, vp.center_y, vp.half_width, vp.half_height));
+                                            info!("🎥 Viewport update from '{}': center=({}, {}), half=({}, {}), padded=({}, {})",
+                                                s.player_name, vp.center_x, vp.center_y,
+                                                vp.half_width, vp.half_height,
+                                                viewport.padded_hw, viewport.padded_hh);
+                                            s.viewport = Some(viewport);
+                                            // Notify game loop so visibility diff can use it
+                                            match viewport_tx.send(ViewportMsg::Set {
+                                                player_name: s.player_name.clone(),
+                                                viewport,
+                                            }) {
+                                                Ok(()) => info!("📤 Forwarded ViewportMsg::Set('{}') to game loop", s.player_name),
+                                                Err(e) => warn!("Failed to forward ViewportMsg: {}", e),
+                                            }
+                                        } else {
+                                            warn!("Viewport update but session '{}' not found", session_id);
                                         }
+                                    } else {
+                                        warn!("Viewport update before subscribe — ignored");
                                     }
+                                } else {
+                                    warn!("Failed to decode ViewportUpdate payload");
                                 }
                             }
                             _ => {
@@ -368,6 +385,10 @@ async fn handle_client(
     {
         let mut sess = sessions.lock().await;
         sess.remove(&session_id);
+    }
+    // Inform game loop that this player's viewport is gone
+    if let Some(name) = player_name {
+        let _ = viewport_tx.send(ViewportMsg::Remove { player_name: name });
     }
     info!("KCP session cleaned up: {}", session_id);
     Ok(())
