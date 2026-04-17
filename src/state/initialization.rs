@@ -102,21 +102,22 @@ impl StateInitializer {
         log::info!("載入 {} 個小兵類型", cw.Creep.len());
         for cp in cw.Creep.iter() {
             log::info!("小兵類型 '{}' - HP: {}, 移動速度: {}", cp.Name, cp.HP, cp.MoveSpeed);
-            ces.insert(cp.Name.clone(), CreepEmiter { 
+            ces.insert(cp.Name.clone(), CreepEmiter {
                 root: Creep {
-                    name: cp.Name.clone(), 
-                    path: "".to_owned(), 
-                    pidx: 0, 
-                    block_tower: None, 
+                    name: cp.Name.clone(),
+                    label: cp.Label.clone(),
+                    path: "".to_owned(),
+                    pidx: 0,
+                    block_tower: None,
                     status: CreepStatus::Walk
-                }, 
-                property: CProperty { 
-                    hp: cp.HP, 
-                    mhp: cp.HP, 
-                    msd: cp.MoveSpeed, 
-                    def_physic: cp.DefendPhysic, 
-                    def_magic: cp.DefendMagic 
-                } 
+                },
+                property: CProperty {
+                    hp: cp.HP,
+                    mhp: cp.HP,
+                    msd: cp.MoveSpeed,
+                    def_physic: cp.DefendPhysic,
+                    def_magic: cp.DefendMagic
+                }
             });
         }
     }

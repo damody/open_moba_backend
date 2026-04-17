@@ -15,34 +15,38 @@
     // ===== 訓練用小兵定義 =====
     "Creep": [
         {
-            "Name": "practice_dummy",     // 練習假人
+            "Name": "practice_dummy",
+            "Label": "練習假人",
             "DefendPhysic": 0,
             "DefendMagic": 0,
-            "HP": 50,                     // 低血量，容易擊殺
+            "HP": 100,                    // 低血量，容易擊殺（已調為 2x）
             "MoveSpeed": 0,               // 靜止不動
             "coins": 5                    // 少量獎勵
         },
         {
-            "Name": "moving_target",      // 移動靶
+            "Name": "moving_target",
+            "Label": "移動靶",
             "DefendPhysic": 0,
             "DefendMagic": 0,
-            "HP": 75,
+            "HP": 150,                    // 已調為 2x
             "MoveSpeed": 150,             // 中等移速
             "coins": 8
         },
         {
-            "Name": "training_creep",     // 訓練小兵
+            "Name": "training_creep",
+            "Label": "訓練小兵",
             "DefendPhysic": 1,
             "DefendMagic": 0,
-            "HP": 100,
+            "HP": 200,                    // 已調為 2x
             "MoveSpeed": 200,
             "coins": 12
         },
         {
-            "Name": "armored_dummy",      // 裝甲假人（測試穿透）
+            "Name": "armored_dummy",
+            "Label": "裝甲假人",
             "DefendPhysic": 5,
             "DefendMagic": 2,
-            "HP": 200,
+            "HP": 400,                    // 已調為 2x
             "MoveSpeed": 50,
             "coins": 20
         }

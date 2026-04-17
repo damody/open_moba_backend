@@ -16,6 +16,9 @@ pub struct PathJD {
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct CreepJD {
     pub Name: String,
+    /// Optional display label (e.g. "練習假人"); falls back to `Name` if absent.
+    #[serde(default)]
+    pub Label: Option<String>,
     pub HP: f32,
     pub DefendPhysic: f32,
     pub DefendMagic: f32,
