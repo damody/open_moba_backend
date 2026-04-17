@@ -73,15 +73,15 @@ pub struct InboundMsg {
 }
 
 /// Query request from MCP server to game loop.
-#[cfg(feature = "grpc")]
+#[cfg(any(feature = "grpc", feature = "kcp"))]
 pub struct QueryRequest {
     pub query_type: String,
     pub player_name: String,
     pub response_tx: tokio::sync::oneshot::Sender<QueryResponse>,
 }
 
-/// Query response from game loop back to gRPC handler.
-#[cfg(feature = "grpc")]
+/// Query response from game loop back to gRPC/KCP handler.
+#[cfg(any(feature = "grpc", feature = "kcp"))]
 pub struct QueryResponse {
     pub success: bool,
     pub error: String,
@@ -92,6 +92,6 @@ pub struct QueryResponse {
 pub struct TransportHandle {
     pub tx: Sender<OutboundMsg>,
     pub rx: Receiver<InboundMsg>,
-    #[cfg(feature = "grpc")]
+    #[cfg(any(feature = "grpc", feature = "kcp"))]
     pub query_rx: Receiver<QueryRequest>,
 }
