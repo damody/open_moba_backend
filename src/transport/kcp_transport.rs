@@ -26,6 +26,7 @@ const TAG_COMMAND_ACK: u8 = 0x03;
 const TAG_SUBSCRIBE_REQUEST: u8 = 0x04;
 const TAG_GAME_STATE_REQUEST: u8 = 0x05;
 const TAG_GAME_STATE_RESPONSE: u8 = 0x06;
+const TAG_VIEWPORT_UPDATE: u8 = 0x07;
 
 /// Write a framed message: [1 byte tag][4 bytes len (big-endian)][N bytes payload]
 async fn write_framed<W: AsyncWriteExt + Unpin>(
@@ -56,10 +57,29 @@ async fn read_framed<R: AsyncReadExt + Unpin>(
     Ok(Some((tag, buf)))
 }
 
+/// Viewport rectangle for spatial filtering.
+struct Viewport {
+    cx: f32,
+    cy: f32,
+    padded_hw: f32,
+    padded_hh: f32,
+}
+
+impl Viewport {
+    fn new(cx: f32, cy: f32, hw: f32, hh: f32) -> Self {
+        Self { cx, cy, padded_hw: hw * 1.3, padded_hh: hh * 1.3 }
+    }
+
+    fn contains(&self, x: f32, y: f32) -> bool {
+        (x - self.cx).abs() <= self.padded_hw && (y - self.cy).abs() <= self.padded_hh
+    }
+}
+
 /// Per-client session: holds a sender to push outbound events
 struct ClientSession {
     player_name: String,
     event_tx: tokio::sync::mpsc::Sender<Vec<u8>>,
+    viewport: Option<Viewport>,
 }
 
 /// Start the KCP transport layer.
@@ -126,8 +146,15 @@ pub async fn start(
                             let is_broadcast = msg.topic.contains("/all/");
                             let is_for_player = msg.topic.contains(&format!("/{}/", session.player_name));
                             if is_broadcast || is_for_player || session.player_name.is_empty() {
-                                if session.event_tx.try_send(frame.clone()).is_err() {
-                                    to_remove.push(id.clone());
+                                // Viewport filtering: only check entities that have a position
+                                let in_viewport = match (msg.entity_pos, &session.viewport) {
+                                    (Some((x, y)), Some(vp)) => vp.contains(x, y),
+                                    _ => true, // no position or no viewport → pass through
+                                };
+                                if in_viewport {
+                                    if session.event_tx.try_send(frame.clone()).is_err() {
+                                        to_remove.push(id.clone());
+                                    }
                                 }
                             }
                         }
@@ -218,39 +245,34 @@ async fn handle_client(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let (mut reader, mut writer) = tokio::io::split(stream);
 
-    // Per-session outbound channel
-    let (event_tx, mut event_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(10000);
-    let mut player_name = String::new();
+    // Per-session outbound channel (lazy — only used after SubscribeRequest)
+    let mut event_rx: Option<tokio::sync::mpsc::Receiver<Vec<u8>>> = None;
+    let mut subscribed = false;
 
-    // Wait for the first message — should be SubscribeRequest
-    if let Some((tag, payload)) = read_framed(&mut reader).await? {
-        if tag == TAG_SUBSCRIBE_REQUEST {
-            if let Ok(sub) = SubscribeRequest::decode(payload.as_slice()) {
-                player_name = sub.player_name.clone();
-                info!("KCP client subscribed as '{}'", player_name);
-            }
-        }
-    }
-
-    // Register session
-    {
-        let mut sess = sessions.lock().await;
-        sess.insert(
-            session_id.clone(),
-            ClientSession {
-                player_name: player_name.clone(),
-                event_tx,
-            },
-        );
-    }
-
-    // Main loop: select between reading from client and writing outbound events
+    // Main loop: read from client, optionally write outbound events
     loop {
         tokio::select! {
             result = read_framed(&mut reader) => {
                 match result {
                     Ok(Some((tag, payload))) => {
                         match tag {
+                            TAG_SUBSCRIBE_REQUEST => {
+                                if let Ok(sub) = SubscribeRequest::decode(payload.as_slice()) {
+                                    info!("KCP client subscribed as '{}'", sub.player_name);
+                                    let (event_tx, rx) = tokio::sync::mpsc::channel::<Vec<u8>>(10000);
+                                    event_rx = Some(rx);
+                                    subscribed = true;
+                                    let mut sess = sessions.lock().await;
+                                    sess.insert(
+                                        session_id.clone(),
+                                        ClientSession {
+                                            player_name: sub.player_name,
+                                            event_tx,
+                                            viewport: None,
+                                        },
+                                    );
+                                }
+                            }
                             TAG_PLAYER_COMMAND => {
                                 if let Ok(cmd) = PlayerCommand::decode(payload.as_slice()) {
                                     let data_json: serde_json::Value = if cmd.data_json.is_empty() {
@@ -300,12 +322,15 @@ async fn handle_client(
                                     }
                                 }
                             }
-                            TAG_SUBSCRIBE_REQUEST => {
-                                // Duplicate subscribe — update player name
-                                if let Ok(sub) = SubscribeRequest::decode(payload.as_slice()) {
-                                    let mut sess = sessions.lock().await;
-                                    if let Some(s) = sess.get_mut(&session_id) {
-                                        s.player_name = sub.player_name;
+                            TAG_VIEWPORT_UPDATE => {
+                                if let Ok(vp) = ViewportUpdate::decode(payload.as_slice()) {
+                                    if subscribed {
+                                        let mut sess = sessions.lock().await;
+                                        if let Some(s) = sess.get_mut(&session_id) {
+                                            info!("Viewport update from '{}': center=({}, {}), half=({}, {})",
+                                                s.player_name, vp.center_x, vp.center_y, vp.half_width, vp.half_height);
+                                            s.viewport = Some(Viewport::new(vp.center_x, vp.center_y, vp.half_width, vp.half_height));
+                                        }
                                     }
                                 }
                             }
@@ -324,7 +349,12 @@ async fn handle_client(
                     }
                 }
             }
-            Some(frame) = event_rx.recv() => {
+            Some(frame) = async {
+                match event_rx.as_mut() {
+                    Some(rx) => rx.recv().await,
+                    None => std::future::pending().await,
+                }
+            } => {
                 // frame is already [tag + len + payload] pre-encoded
                 if writer.write_all(&frame).await.is_err() {
                     break;

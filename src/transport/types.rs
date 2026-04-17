@@ -10,6 +10,10 @@ pub struct OutboundMsg {
     pub topic: String,
     pub msg: String,
     pub time: SystemTime,
+    /// Entity position in game coordinates, for viewport filtering.
+    /// None = global event (heartbeat, death, etc.) that bypasses filtering.
+    #[serde(skip)]
+    pub entity_pos: Option<(f32, f32)>,
 }
 
 impl OutboundMsg {
@@ -29,6 +33,7 @@ impl OutboundMsg {
             topic: topic.to_owned(),
             msg: json!(res).to_string(),
             time: SystemTime::now(),
+            entity_pos: None,
         }
     }
 
@@ -48,6 +53,28 @@ impl OutboundMsg {
             topic: topic.to_owned(),
             msg: json!(res).to_string(),
             time: SystemTime::now(),
+            entity_pos: None,
+        }
+    }
+
+    /// Create an OutboundMsg with entity position for viewport filtering.
+    pub fn new_s_at(topic: &str, t: &str, a: &str, v: serde_json::Value, x: f32, y: f32) -> OutboundMsg {
+        #[derive(Serialize, Deserialize)]
+        struct ResData {
+            t: String,
+            a: String,
+            d: serde_json::Value,
+        }
+        let res = ResData {
+            t: t.to_owned(),
+            a: a.to_owned(),
+            d: v,
+        };
+        OutboundMsg {
+            topic: topic.to_owned(),
+            msg: json!(res).to_string(),
+            time: SystemTime::now(),
+            entity_pos: Some((x, y)),
         }
     }
 }
@@ -58,6 +85,7 @@ impl Default for OutboundMsg {
             topic: "".to_owned(),
             msg: "".to_owned(),
             time: SystemTime::now(),
+            entity_pos: None,
         }
     }
 }
