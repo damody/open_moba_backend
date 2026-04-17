@@ -137,16 +137,24 @@ impl GameProcessor {
             })
             .build();
             
-        let pjs = json!(ProjectileData {
-            id: e.id(), 
-            pos: pos.clone(), 
-            msd: msd,
-            time_left: 3., 
-            owner: source_entity.id(), 
-            target: ntarget, 
-            radius: 0.,
+        // Payload for client-side pursuit simulation: target_id + start_pos + flight_time_ms.
+        let move_speed = msd as f32;
+        let initial_dist = (p2 - pos).magnitude();
+        let flight_time_ms: u64 = if move_speed > 0.0 {
+            (initial_dist / move_speed * 1000.0).max(1.0) as u64
+        } else {
+            0
+        };
+        let pjs = json!({
+            "id": e.id(),
+            "source_id": source_entity.id(),
+            "target_id": ntarget,
+            "start_pos": { "x": pos.x, "y": pos.y },
+            "end_pos":   { "x": p2.x, "y": p2.y },
+            "move_speed": move_speed,
+            "flight_time_ms": flight_time_ms,
         });
-        
+
         mqtx.try_send(OutboundMsg::new_s_at("td/all/res", "projectile", "C", pjs, pos.x, pos.y));
         Ok(())
     }

@@ -129,17 +129,8 @@ impl<'a> System<'a> for Sys {
             );
         tw.outcomes.append(&mut outcomes);
 
-        // 廣播投射物位置給前端
-        if let Some(tx) = tw.mqtx.get(0) {
-            let tx = tx.clone();
-            for (e, proj, pos) in (&tr.entities, &tw.projs, &tw.pos).join() {
-                if proj.time_left > 0. {
-                    let _ = tx.try_send(OutboundMsg::new_s("td/all/res", "projectile", "M",
-                        serde_json::json!({"id": e.id(), "x": pos.0.x, "y": pos.0.y})
-                    ));
-                }
-            }
-        }
+        // 前端已自管子彈動畫（收 C 時拿 target_id + flight_time_ms 後本地 pursuit lerp），
+        // 不再廣播 projectile 每 tick 位置。
     }
 }
 

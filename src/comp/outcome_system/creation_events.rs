@@ -171,7 +171,16 @@ impl CreationEventHandler {
             })
             .build();
         
-        // 發送 MQTT 消息顯示彈道視覺效果
+        // 前端自管子彈動畫：提供 target_id / move_speed / flight_time_ms，
+        // 由前端用 pursuit 公式 lerp 到目標當下位置，保證命中時剛好落到 creep 身上。
+        let move_speed: f32 = 500.0;
+        let initial_dist = (target_pos - source_pos).magnitude();
+        let flight_time_ms: u64 = if move_speed > 0.0 {
+            (initial_dist / move_speed * 1000.0).max(1.0) as u64
+        } else {
+            0
+        };
+
         let projectile_data = json!({
             "id": projectile_entity.id(),
             "source_id": source.id(),
@@ -183,7 +192,9 @@ impl CreationEventHandler {
             "end_pos": {
                 "x": target_pos.x,
                 "y": target_pos.y
-            }
+            },
+            "move_speed": move_speed,
+            "flight_time_ms": flight_time_ms,
         });
         
         if let Err(e) = mqtx.try_send(OutboundMsg::new_s("td/all/res", "projectile", "C", projectile_data)) {
