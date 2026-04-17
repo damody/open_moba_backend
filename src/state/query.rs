@@ -1,6 +1,7 @@
 /// ECS 狀態查詢模塊
 /// 提供 read-only 的 ECS World 查詢，供 MCP server 使用
 
+use std::collections::BTreeMap;
 use specs::{World, WorldExt, Join, Entity};
 use serde_json::json;
 
@@ -10,18 +11,29 @@ use crate::transport::QueryResponse;
 /// 列出所有玩家及其英雄的基本資訊
 pub fn query_list_players(world: &World) -> QueryResponse {
     let entities = world.entities();
-    let players = world.read_storage::<Player>();
     let heroes = world.read_storage::<Hero>();
     let positions = world.read_storage::<Pos>();
     let properties = world.read_storage::<CProperty>();
+    let pmap = world.read_resource::<BTreeMap<String, Player>>();
 
     let mut player_list = Vec::new();
 
-    for (_entity, player) in (&entities, &players).join() {
-        // 找到此玩家對應的英雄
+    let factions = world.read_storage::<Faction>();
+
+    for (name, player) in pmap.iter() {
+        // 找到此玩家對應的英雄（先按名稱匹配，再按 Player 陣營匹配）
         let hero_info: Option<serde_json::Value> = (&entities, &heroes, &positions)
             .join()
-            .find(|(_, h, _)| h.name == player.name || h.id == player.name)
+            .find(|(_, h, _)| h.name == *name || h.id == *name)
+            .or_else(|| {
+                (&entities, &heroes, &positions)
+                    .join()
+                    .find(|(ent, _, _)| {
+                        factions.get(*ent)
+                            .map(|f| f.faction_id == FactionType::Player)
+                            .unwrap_or(false)
+                    })
+            })
             .map(|(ent, hero, pos)| {
                 let prop = properties.get(ent);
                 json!({
@@ -57,7 +69,6 @@ pub fn query_list_players(world: &World) -> QueryResponse {
 /// 查詢指定玩家視角中所有單位的狀態
 pub fn query_inspect_player_view(world: &World, player_name: &str) -> QueryResponse {
     let entities = world.entities();
-    let players = world.read_storage::<Player>();
     let heroes = world.read_storage::<Hero>();
     let units = world.read_storage::<Unit>();
     let creeps = world.read_storage::<Creep>();
@@ -67,15 +78,17 @@ pub fn query_inspect_player_view(world: &World, player_name: &str) -> QueryRespo
     let move_targets = world.read_storage::<MoveTarget>();
     let tattacks = world.read_storage::<TAttack>();
     let tproperties = world.read_storage::<TProperty>();
-    // 驗證玩家存在
-    let player_exists = (&players,).join().any(|(p,)| p.name == player_name);
-    if !player_exists {
+
+    // 驗證玩家存在（從 BTreeMap 檢查）
+    let pmap = world.read_resource::<BTreeMap<String, Player>>();
+    if !pmap.contains_key(player_name) {
         return QueryResponse {
             success: false,
             error: format!("Player '{}' not found", player_name),
             data_json: Vec::new(),
         };
     }
+    drop(pmap);
 
     let game_time = world.read_resource::<TimeOfDay>().0;
     let tick = world.read_resource::<Tick>().0;

@@ -209,7 +209,13 @@ impl StateInitializer {
         ecs.insert(BTreeMap::<String, CheckPoint>::new());
         ecs.insert(BTreeMap::<String, Path>::new());
         ecs.insert(BTreeMap::<String, CreepEmiter>::new());
-        ecs.insert(BTreeMap::<String, Player>::new());
+        let mut player_map = BTreeMap::<String, Player>::new();
+        let player_name = crate::config::server_config::CONFIG.PLAYER_NAME.clone();
+        let mut p = Player { name: player_name.clone(), cost: 100., towers: vec![] };
+        p.towers.push(TowerData { tpty: TProperty::new(10., 1, 100.), tatk: TAttack::new(3., 0.3, 300., 100.) });
+        player_map.insert(player_name.clone(), p);
+        log::info!("自動建立預設玩家: {}", player_name);
+        ecs.insert(player_map);
         ecs.insert(Vec::<CreepWave>::new());
         ecs.insert(CurrentCreepWave { wave: 0, path: vec![] });
         ecs.insert(Vec::<crate::Outcome>::new());

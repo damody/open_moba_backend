@@ -243,7 +243,66 @@ impl State {
                 "max_hp": mhp,
                 "move_speed": prop.map(|p| p.msd).unwrap_or(0.0)
             });
-            let _ = self.mqtx.send(OutboundMsg::new_s("td/all/res", "hero", "create", hero_data));
+            let _ = self.mqtx.send(OutboundMsg::new_s_at("td/all/res", "hero", "create", hero_data, pos.0.x, pos.0.y));
+        }
+
+        // 隨心跳廣播所有單位（訓練敵人等）
+        for (entity, unit, pos) in (&entities, &units, &positions).join() {
+            let prop = properties.get(entity);
+            let (hp, mhp, msd) = prop
+                .map(|p| (p.hp, p.mhp, p.msd))
+                .unwrap_or((unit.current_hp as f32, unit.max_hp as f32, unit.move_speed));
+            let unit_data = json!({
+                "entity_id": entity.id(),
+                "unit_id": unit.id,
+                "name": unit.name,
+                "unit_type": unit.unit_type,
+                "position": {
+                    "x": pos.0.x,
+                    "y": pos.0.y
+                },
+                "hp": hp,
+                "max_hp": mhp,
+                "move_speed": msd,
+            });
+            let _ = self.mqtx.send(OutboundMsg::new_s_at("td/all/res", "unit", "create", unit_data, pos.0.x, pos.0.y));
+        }
+
+        // 隨心跳廣播所有小兵
+        for (entity, creep, pos) in (&entities, &creeps, &positions).join() {
+            let prop = properties.get(entity);
+            let (hp, mhp, msd) = prop.map(|p| (p.hp, p.mhp, p.msd)).unwrap_or((0.0, 0.0, 0.0));
+            let creep_data = json!({
+                "entity_id": entity.id(),
+                "id": entity.id(),
+                "name": creep.name,
+                "position": {
+                    "x": pos.0.x,
+                    "y": pos.0.y
+                },
+                "hp": hp,
+                "max_hp": mhp,
+                "move_speed": msd,
+            });
+            let _ = self.mqtx.send(OutboundMsg::new_s_at("td/all/res", "creep", "create", creep_data, pos.0.x, pos.0.y));
+        }
+
+        // 隨心跳廣播所有塔
+        let towers = self.ecs.read_storage::<Tower>();
+        for (entity, _tower, pos) in (&entities, &towers, &positions).join() {
+            let prop = properties.get(entity);
+            let (hp, mhp) = prop.map(|p| (p.hp, p.mhp)).unwrap_or((100.0, 100.0));
+            let tower_data = json!({
+                "entity_id": entity.id(),
+                "id": entity.id(),
+                "position": {
+                    "x": pos.0.x,
+                    "y": pos.0.y
+                },
+                "hp": hp,
+                "max_hp": mhp,
+            });
+            let _ = self.mqtx.send(OutboundMsg::new_s_at("td/all/res", "tower", "create", tower_data, pos.0.x, pos.0.y));
         }
     }
 
@@ -354,7 +413,7 @@ impl State {
                     "move_speed": prop.msd
                 });
                 
-                if let Err(e) = self.mqtx.send(OutboundMsg::new_s("td/all/res", "hero", "create", hero_data)) {
+                if let Err(e) = self.mqtx.send(OutboundMsg::new_s_at("td/all/res", "hero", "create", hero_data, pos.0.x, pos.0.y)) {
                     log::error!("無法發送英雄初始化資料: {}", e);
                 }
                 log::info!("已發送英雄 '{}' 初始化資料到 MQTT", hero.name);
@@ -383,7 +442,7 @@ impl State {
                     "move_speed": prop.msd
                 });
                 
-                if let Err(e) = self.mqtx.send(OutboundMsg::new_s("td/all/res", "unit", "create", unit_data)) {
+                if let Err(e) = self.mqtx.send(OutboundMsg::new_s_at("td/all/res", "unit", "create", unit_data, pos.0.x, pos.0.y)) {
                     log::error!("無法發送單位初始化資料: {}", e);
                 }
                 log::info!("已發送單位 '{}' 初始化資料到 MQTT", unit.name);
