@@ -147,7 +147,7 @@ impl GameProcessor {
             radius: 0.,
         });
         
-        mqtx.try_send(OutboundMsg::new_s("td/all/res", "projectile", "C", pjs));
+        mqtx.try_send(OutboundMsg::new_s_at("td/all/res", "projectile", "C", pjs, pos.x, pos.y));
         Ok(())
     }
     
@@ -155,16 +155,16 @@ impl GameProcessor {
         let mut cjs = json!(cd);
         let e = ecs.create_entity().with(Pos(cd.pos)).with(cd.creep).with(cd.cdata).build();
         cjs.as_object_mut().unwrap().insert("id".to_owned(), json!(e.id()));
-        mqtx.try_send(OutboundMsg::new_s("td/all/res", "creep", "C", cjs));
+        mqtx.try_send(OutboundMsg::new_s_at("td/all/res", "creep", "C", cjs, cd.pos.x, cd.pos.y));
         Ok(())
     }
-    
+
     fn handle_tower_spawn(ecs: &mut World, mqtx: &crossbeam_channel::Sender<OutboundMsg>, pos: vek::Vec2<f32>, td: TowerData) -> Result<(), Error> {
         let mut cjs = json!(td);
         let e = ecs.create_entity().with(Pos(pos)).with(Tower::new()).with(td.tpty).with(td.tatk).build();
         cjs.as_object_mut().unwrap().insert("id".to_owned(), json!(e.id()));
         cjs.as_object_mut().unwrap().insert("pos".to_owned(), json!(pos));
-        mqtx.try_send(OutboundMsg::new_s("td/all/res", "tower", "C", cjs));
+        mqtx.try_send(OutboundMsg::new_s_at("td/all/res", "tower", "C", cjs, pos.x, pos.y));
         ecs.get_mut::<Searcher>().unwrap().tower.needsort = true;
         Ok(())
     }
@@ -178,11 +178,11 @@ impl GameProcessor {
         let positions = ecs.read_storage::<Pos>();
         let pos = positions.get(target).ok_or_else(|| failure::err_msg("Creep position not found"))?;
         
-        mqtx.try_send(OutboundMsg::new_s("td/all/res", "creep", "M", json!({
+        mqtx.try_send(OutboundMsg::new_s_at("td/all/res", "creep", "M", json!({
             "id": target.id(),
             "x": pos.0.x,
             "y": pos.0.y,
-        })));
+        }), pos.0.x, pos.0.y));
         Ok(())
     }
     
@@ -257,13 +257,13 @@ impl GameProcessor {
             };
             let mqtx_list = ecs.read_resource::<Vec<crossbeam_channel::Sender<OutboundMsg>>>();
             if let Some(tx) = mqtx_list.get(0) {
-                let _ = tx.send(OutboundMsg::new_s("td/all/res", entity_type, "M", json!({
+                let _ = tx.send(OutboundMsg::new_s_at("td/all/res", entity_type, "M", json!({
                     "id": target.id(),
                     "x": tp.x,
                     "y": tp.y,
                     "hp": hp_after,
                     "max_hp": max_hp,
-                })));
+                }), tp.x, tp.y));
             }
         }
 
