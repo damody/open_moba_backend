@@ -270,10 +270,10 @@ impl GameProcessor {
             };
             let mqtx_list = ecs.read_resource::<Vec<crossbeam_channel::Sender<OutboundMsg>>>();
             if let Some(tx) = mqtx_list.get(0) {
-                let _ = tx.send(OutboundMsg::new_s_at("td/all/res", entity_type, "M", json!({
+                // HP-only update. Action "H" keeps this separate from real move events;
+                // the position in `new_s_at` is only used for viewport filtering (not the payload).
+                let _ = tx.send(OutboundMsg::new_s_at("td/all/res", entity_type, "H", json!({
                     "id": target.id(),
-                    "x": tp.x,
-                    "y": tp.y,
                     "hp": hp_after,
                     "max_hp": max_hp,
                 }), tp.x, tp.y));
