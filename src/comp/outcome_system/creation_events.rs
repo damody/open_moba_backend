@@ -20,27 +20,36 @@ impl CreationEventHandler {
         cd: CreepData,
     ) -> Vec<Outcome> {
         info!("創建小兵於位置: ({}, {})", cd.pos.x, cd.pos.y);
-        
-        // 序列化小兵資料為 JSON
-        let mut cjs = json!(cd);
-        
+
+        let display_name = cd.creep.label.clone().unwrap_or_else(|| cd.creep.name.clone());
+        let hp = cd.cdata.hp;
+        let mhp = cd.cdata.mhp;
+        let msd = cd.cdata.msd;
+        let pos = cd.pos;
+
         // 創建小兵實體
         let entity = world.create_entity()
             .with(Pos(cd.pos))
             .with(cd.creep)
             .with(cd.cdata)
             .build();
-        
-        // 在 JSON 中添加實體 ID
-        if let Some(obj) = cjs.as_object_mut() {
-            obj.insert("id".to_owned(), json!(entity.id()));
-        }
-        
+
+        // Payload shape matches client expectations (top-level position/hp/max_hp/name)
+        let payload = json!({
+            "entity_id": entity.id(),
+            "id": entity.id(),
+            "name": display_name,
+            "position": { "x": pos.x, "y": pos.y },
+            "hp": hp,
+            "max_hp": mhp,
+            "move_speed": msd,
+        });
+
         // 發送 MQTT 消息通知前端
-        if let Err(e) = mqtx.try_send(OutboundMsg::new_s("td/all/res", "creep", "C", cjs)) {
+        if let Err(e) = mqtx.try_send(OutboundMsg::new_s_at("td/all/res", "creep", "C", payload, pos.x, pos.y)) {
             error!("發送小兵創建消息失敗: {}", e);
         }
-        
+
         // 小兵創建成功，無需產生額外事件
         Vec::new()
     }

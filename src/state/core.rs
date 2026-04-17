@@ -667,10 +667,11 @@ fn build_creep_payload(
     let (hp, mhp, msd) = prop
         .map(|p| (p.hp, p.mhp, p.msd))
         .unwrap_or((0.0, 0.0, 0.0));
+    let display_name = creep.label.clone().unwrap_or_else(|| creep.name.clone());
     serde_json::json!({
         "entity_id": entity.id(),
         "id": entity.id(),
-        "name": creep.name,
+        "name": display_name,
         "position": { "x": pos.0.x, "y": pos.0.y },
         "hp": hp,
         "max_hp": mhp,

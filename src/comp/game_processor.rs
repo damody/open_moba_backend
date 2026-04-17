@@ -152,7 +152,7 @@ impl GameProcessor {
     }
     
     fn handle_creep_spawn(ecs: &mut World, mqtx: &crossbeam_channel::Sender<OutboundMsg>, cd: CreepData) -> Result<(), Error> {
-        let name = cd.creep.name.clone();
+        let display_name = cd.creep.label.clone().unwrap_or_else(|| cd.creep.name.clone());
         let hp = cd.cdata.hp;
         let mhp = cd.cdata.mhp;
         let msd = cd.cdata.msd;
@@ -162,7 +162,7 @@ impl GameProcessor {
         let payload = json!({
             "entity_id": e.id(),
             "id": e.id(),
-            "name": name,
+            "name": display_name,
             "position": { "x": pos.x, "y": pos.y },
             "hp": hp,
             "max_hp": mhp,
