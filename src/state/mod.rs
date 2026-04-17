@@ -7,6 +7,8 @@ pub mod initialization;
 pub mod time_management;
 pub mod resource_management;
 pub mod system_dispatcher;
+#[cfg(feature = "grpc")]
+pub mod query;
 
 pub use core::State;
 pub use initialization::StateInitializer;

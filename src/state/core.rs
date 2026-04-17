@@ -11,6 +11,8 @@ use crate::{comp::*, CreepWave};
 use crate::ue4::import_map::CreepWaveData;
 use crate::ue4::import_campaign::CampaignData;
 use crate::transport::{OutboundMsg, InboundMsg};
+#[cfg(feature = "grpc")]
+use crate::transport::QueryRequest;
 
 use super::{
     StateInitializer, TimeManager, ResourceManager, SystemDispatcher
@@ -40,6 +42,9 @@ pub struct State {
     last_heartbeat_time: f64,
     /// 心跳間隔（秒）
     heartbeat_interval: f64,
+    /// 查詢請求接收通道（gRPC only）
+    #[cfg(feature = "grpc")]
+    query_rx: Receiver<QueryRequest>,
 }
 
 impl State {
@@ -48,16 +53,17 @@ impl State {
         creep_wave_data: CreepWaveData,
         mqtx: Sender<OutboundMsg>,
         mqrx: Receiver<InboundMsg>,
+        #[cfg(feature = "grpc")] query_rx: Receiver<QueryRequest>,
     ) -> Self {
         let thread_pool = StateInitializer::create_thread_pool();
         let mut ecs = StateInitializer::setup_standard_ecs_world(&thread_pool);
-        
+
         // 設置 MQTT 發送器
         {
             let mut mqtx_vec = ecs.write_resource::<Vec<Sender<OutboundMsg>>>();
             mqtx_vec.push(mqtx.clone());
         }
-        
+
         let mut state = Self {
             ecs,
             cw: creep_wave_data,
@@ -69,7 +75,9 @@ impl State {
             resource_manager: ResourceManager::new(mqtx),
             system_dispatcher: SystemDispatcher::new(thread_pool),
             last_heartbeat_time: 0.0,
-            heartbeat_interval: 2.0, // 每 2 秒發送一次心跳
+            heartbeat_interval: 2.0,
+            #[cfg(feature = "grpc")]
+            query_rx,
         };
 
         state.initialize_standard_game();
@@ -86,16 +94,17 @@ impl State {
         campaign_data: CampaignData,
         mqtx: Sender<OutboundMsg>,
         mqrx: Receiver<InboundMsg>,
+        #[cfg(feature = "grpc")] query_rx: Receiver<QueryRequest>,
     ) -> Self {
         let thread_pool = StateInitializer::create_thread_pool();
         let mut ecs = StateInitializer::setup_campaign_ecs_world(&thread_pool);
-        
+
         // 設置 MQTT 發送器
         {
             let mut mqtx_vec = ecs.write_resource::<Vec<Sender<OutboundMsg>>>();
             mqtx_vec.push(mqtx.clone());
         }
-        
+
         let mut state = Self {
             ecs,
             cw: campaign_data.map.clone(),
@@ -107,7 +116,9 @@ impl State {
             resource_manager: ResourceManager::new(mqtx),
             system_dispatcher: SystemDispatcher::new(thread_pool),
             last_heartbeat_time: 0.0,
-            heartbeat_interval: 2.0, // 每 2 秒發送一次心跳
+            heartbeat_interval: 2.0,
+            #[cfg(feature = "grpc")]
+            query_rx,
         };
 
         state.initialize_campaign_game(&campaign_data);
@@ -136,6 +147,10 @@ impl State {
         // 處理玩家資料
         self.resource_manager.process_player_data(&mut self.ecs, &self.mqrx)?;
 
+        // 處理 MCP 查詢請求
+        #[cfg(feature = "grpc")]
+        self.process_queries();
+
         // 發送心跳（每 2 秒一次）
         self.send_heartbeat_if_needed();
 
@@ -143,6 +158,24 @@ impl State {
         self.ecs.maintain();
 
         Ok(())
+    }
+
+    /// 處理來自 MCP server 的查詢請求
+    #[cfg(feature = "grpc")]
+    fn process_queries(&self) {
+        use super::query;
+        while let Ok(req) = self.query_rx.try_recv() {
+            let response = match req.query_type.as_str() {
+                "list_players" => query::query_list_players(&self.ecs),
+                "inspect_player_view" => query::query_inspect_player_view(&self.ecs, &req.player_name),
+                other => crate::transport::QueryResponse {
+                    success: false,
+                    error: format!("Unknown query_type: {}", other),
+                    data_json: Vec::new(),
+                },
+            };
+            let _ = req.response_tx.send(response);
+        }
     }
 
     /// 檢查並發送心跳

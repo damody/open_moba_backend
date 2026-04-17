@@ -95,7 +95,13 @@ async fn main() -> std::result::Result<(), Error> {
     thread::sleep(Duration::from_millis(500));
 
     // 初始化 ECS
-    let mut state = State::new_with_campaign(campaign_data, handle.tx.clone(), handle.rx);
+    let mut state = State::new_with_campaign(
+        campaign_data,
+        handle.tx.clone(),
+        handle.rx,
+        #[cfg(feature = "grpc")]
+        handle.query_rx,
+    );
     let mut clock = Clock::new(Duration::from_secs_f64(1.0 / TPS as f64));
 
     // 啟動 MQTT 測試介面
