@@ -80,10 +80,17 @@ impl<'a> System<'a> for Sys {
                                             next_status = CreepStatus::Walk;
                                         }
                                         CreepStatus::Walk => {
-                                            if target_point.distance_squared(pos.0) > (cp.msd*cp.msd) {
+                                            // Snap threshold must be the per-tick step length (msd*dt),
+                                            // NOT msd itself. The old `distance > msd` condition
+                                            // teleported the final 1-second worth of travel (e.g. 200
+                                            // units at msd=200), making server traversal ~1s faster
+                                            // than `distance/msd` and leaving the client's lerp always
+                                            // one segment behind.
+                                            let step = cp.msd * dt;
+                                            if target_point.distance_squared(pos.0) > step * step {
                                                 let mut v = target_point.sub(&pos.0);
                                                 v.normalize();
-                                                v = v * cp.msd * dt;
+                                                v = v * step;
                                                 pos.0 = pos.0 + v;
                                             } else {
                                                 pos.0 = target_point;
