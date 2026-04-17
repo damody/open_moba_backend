@@ -424,6 +424,8 @@ impl State {
         let heroes = self.ecs.read_storage::<Hero>();
         let units = self.ecs.read_storage::<Unit>();
         let creeps = self.ecs.read_storage::<Creep>();
+        let properties = self.ecs.read_storage::<CProperty>();
+        let towers = self.ecs.read_storage::<Tower>();
 
         let hero_count = (&entities, &heroes).join().count();
         let unit_count = (&entities, &units).join().count();
@@ -433,6 +435,21 @@ impl State {
         // 取得當前 tick 數
         let tick = self.ecs.read_resource::<Tick>().0;
 
+        // 所有帶 HP 的實體的 authoritative 快照，讓前端每 2 秒校正預測值。
+        let mut hp_snapshot: Vec<serde_json::Value> = Vec::new();
+        for (e, _, p) in (&entities, &heroes, &properties).join() {
+            hp_snapshot.push(json!({ "id": e.id(), "hp": p.hp, "max_hp": p.mhp }));
+        }
+        for (e, _, p) in (&entities, &units, &properties).join() {
+            hp_snapshot.push(json!({ "id": e.id(), "hp": p.hp, "max_hp": p.mhp }));
+        }
+        for (e, _, p) in (&entities, &creeps, &properties).join() {
+            hp_snapshot.push(json!({ "id": e.id(), "hp": p.hp, "max_hp": p.mhp }));
+        }
+        for (e, _, p) in (&entities, &towers, &properties).join() {
+            hp_snapshot.push(json!({ "id": e.id(), "hp": p.hp, "max_hp": p.mhp }));
+        }
+
         let heartbeat_data = json!({
             "tick": tick,
             "game_time": self.time_manager.get_time(),
@@ -440,7 +457,8 @@ impl State {
             "hero_count": hero_count,
             "unit_count": unit_count,
             "creep_count": creep_count,
-            "render_delay_ms": crate::config::server_config::CONFIG.RENDER_DELAY_MS
+            "render_delay_ms": crate::config::server_config::CONFIG.RENDER_DELAY_MS,
+            "hp_snapshot": hp_snapshot,
         });
 
         if let Err(e) = self.mqtx.send(OutboundMsg::new_s("td/all/res", "heartbeat", "tick", heartbeat_data)) {

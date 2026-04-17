@@ -111,33 +111,35 @@ impl GameProcessor {
         let source_entity = source.ok_or_else(|| failure::err_msg("Missing source entity"))?;
         let target_entity = target.ok_or_else(|| failure::err_msg("Missing target entity"))?;
         
-        let (msd, p2) = {
+        let (msd, p2, atk_phys) = {
             let positions = ecs.read_storage::<Pos>();
             let tproperty = ecs.read_storage::<TAttack>();
-            
+
             let _p1 = positions.get(source_entity).ok_or_else(|| failure::err_msg("Source position not found"))?;
             let p2 = positions.get(target_entity).ok_or_else(|| failure::err_msg("Target position not found"))?;
             let tp = tproperty.get(source_entity).ok_or_else(|| failure::err_msg("Source attack properties not found"))?;
-            (tp.bullet_speed, p2.0)
+            (tp.bullet_speed, p2.0, tp.atk_physic.v)
         };
         
         let ntarget = target_entity.id();
         let e = ecs.create_entity()
             .with(Pos(pos))
-            .with(Projectile { 
-                time_left: 3., 
-                owner: source_entity.clone(), 
-                tpos: p2, 
-                target: target, 
-                radius: 0., 
+            .with(Projectile {
+                time_left: 3.,
+                owner: source_entity.clone(),
+                tpos: p2,
+                target: target,
+                radius: 0.,
                 msd: msd,
-                damage_phys: 25.0, // 預設物理傷害
-                damage_magi: 0.0,  // 預設魔法傷害 
-                damage_real: 0.0   // 預設真實傷害
+                damage_phys: atk_phys,
+                damage_magi: 0.0,
+                damage_real: 0.0,
             })
             .build();
-            
+
         // Payload for client-side pursuit simulation: target_id + start_pos + flight_time_ms.
+        // `damage` lets client apply predicted HP loss the moment the bullet visually hits;
+        // heartbeat every 2s reconciles any drift against the authoritative backend value.
         let move_speed = msd as f32;
         let initial_dist = (p2 - pos).magnitude();
         let flight_time_ms: u64 = if move_speed > 0.0 {
@@ -153,6 +155,7 @@ impl GameProcessor {
             "end_pos":   { "x": p2.x, "y": p2.y },
             "move_speed": move_speed,
             "flight_time_ms": flight_time_ms,
+            "damage": atk_phys,
         });
 
         mqtx.try_send(OutboundMsg::new_s_at("td/all/res", "projectile", "C", pjs, pos.x, pos.y));
