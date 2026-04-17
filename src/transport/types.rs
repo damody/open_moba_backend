@@ -116,10 +116,41 @@ pub struct QueryResponse {
     pub data_json: Vec<u8>,
 }
 
+/// Client viewport rectangle (padded) used for spatial filtering and visibility diffs.
+#[cfg(any(feature = "grpc", feature = "kcp"))]
+#[derive(Copy, Clone, Debug)]
+pub struct Viewport {
+    pub cx: f32,
+    pub cy: f32,
+    pub padded_hw: f32,
+    pub padded_hh: f32,
+}
+
+#[cfg(any(feature = "grpc", feature = "kcp"))]
+impl Viewport {
+    pub fn new(cx: f32, cy: f32, hw: f32, hh: f32) -> Self {
+        Self { cx, cy, padded_hw: hw * 1.3, padded_hh: hh * 1.3 }
+    }
+
+    pub fn contains(&self, x: f32, y: f32) -> bool {
+        (x - self.cx).abs() <= self.padded_hw && (y - self.cy).abs() <= self.padded_hh
+    }
+}
+
+/// Viewport lifecycle messages sent from transport to game loop.
+#[cfg(any(feature = "grpc", feature = "kcp"))]
+#[derive(Debug, Clone)]
+pub enum ViewportMsg {
+    Set { player_name: String, viewport: Viewport },
+    Remove { player_name: String },
+}
+
 /// Handle returned by transport layer initialization.
 pub struct TransportHandle {
     pub tx: Sender<OutboundMsg>,
     pub rx: Receiver<InboundMsg>,
     #[cfg(any(feature = "grpc", feature = "kcp"))]
     pub query_rx: Receiver<QueryRequest>,
+    #[cfg(any(feature = "grpc", feature = "kcp"))]
+    pub viewport_rx: Receiver<ViewportMsg>,
 }

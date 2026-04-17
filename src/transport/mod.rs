@@ -11,4 +11,4 @@ pub mod kcp_transport;
 
 pub use types::{OutboundMsg, InboundMsg, TransportHandle};
 #[cfg(any(feature = "grpc", feature = "kcp"))]
-pub use types::{QueryRequest, QueryResponse};
+pub use types::{QueryRequest, QueryResponse, Viewport, ViewportMsg};
