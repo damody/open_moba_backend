@@ -7,7 +7,7 @@ pub mod initialization;
 pub mod time_management;
 pub mod resource_management;
 pub mod system_dispatcher;
-#[cfg(feature = "grpc")]
+#[cfg(any(feature = "grpc", feature = "kcp"))]
 pub mod query;
 
 pub use core::State;

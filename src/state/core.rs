@@ -11,7 +11,7 @@ use crate::{comp::*, CreepWave};
 use crate::ue4::import_map::CreepWaveData;
 use crate::ue4::import_campaign::CampaignData;
 use crate::transport::{OutboundMsg, InboundMsg};
-#[cfg(feature = "grpc")]
+#[cfg(any(feature = "grpc", feature = "kcp"))]
 use crate::transport::QueryRequest;
 
 use super::{
@@ -42,8 +42,8 @@ pub struct State {
     last_heartbeat_time: f64,
     /// 心跳間隔（秒）
     heartbeat_interval: f64,
-    /// 查詢請求接收通道（gRPC only）
-    #[cfg(feature = "grpc")]
+    /// 查詢請求接收通道（gRPC/KCP）
+    #[cfg(any(feature = "grpc", feature = "kcp"))]
     query_rx: Receiver<QueryRequest>,
 }
 
@@ -53,7 +53,7 @@ impl State {
         creep_wave_data: CreepWaveData,
         mqtx: Sender<OutboundMsg>,
         mqrx: Receiver<InboundMsg>,
-        #[cfg(feature = "grpc")] query_rx: Receiver<QueryRequest>,
+        #[cfg(any(feature = "grpc", feature = "kcp"))] query_rx: Receiver<QueryRequest>,
     ) -> Self {
         let thread_pool = StateInitializer::create_thread_pool();
         let mut ecs = StateInitializer::setup_standard_ecs_world(&thread_pool);
@@ -76,7 +76,7 @@ impl State {
             system_dispatcher: SystemDispatcher::new(thread_pool),
             last_heartbeat_time: 0.0,
             heartbeat_interval: 2.0,
-            #[cfg(feature = "grpc")]
+            #[cfg(any(feature = "grpc", feature = "kcp"))]
             query_rx,
         };
 
@@ -94,7 +94,7 @@ impl State {
         campaign_data: CampaignData,
         mqtx: Sender<OutboundMsg>,
         mqrx: Receiver<InboundMsg>,
-        #[cfg(feature = "grpc")] query_rx: Receiver<QueryRequest>,
+        #[cfg(any(feature = "grpc", feature = "kcp"))] query_rx: Receiver<QueryRequest>,
     ) -> Self {
         let thread_pool = StateInitializer::create_thread_pool();
         let mut ecs = StateInitializer::setup_campaign_ecs_world(&thread_pool);
@@ -117,7 +117,7 @@ impl State {
             system_dispatcher: SystemDispatcher::new(thread_pool),
             last_heartbeat_time: 0.0,
             heartbeat_interval: 2.0,
-            #[cfg(feature = "grpc")]
+            #[cfg(any(feature = "grpc", feature = "kcp"))]
             query_rx,
         };
 
@@ -148,7 +148,7 @@ impl State {
         self.resource_manager.process_player_data(&mut self.ecs, &self.mqrx)?;
 
         // 處理 MCP 查詢請求
-        #[cfg(feature = "grpc")]
+        #[cfg(any(feature = "grpc", feature = "kcp"))]
         self.process_queries();
 
         // 發送心跳（每 2 秒一次）
@@ -161,7 +161,7 @@ impl State {
     }
 
     /// 處理來自 MCP server 的查詢請求
-    #[cfg(feature = "grpc")]
+    #[cfg(any(feature = "grpc", feature = "kcp"))]
     fn process_queries(&self) {
         use super::query;
         while let Ok(req) = self.query_rx.try_recv() {

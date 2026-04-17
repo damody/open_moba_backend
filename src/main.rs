@@ -88,9 +88,19 @@ async fn main() -> std::result::Result<(), Error> {
         server_port.clone(),
     ).await?;
 
-    // Prevent enabling both features simultaneously
+    #[cfg(feature = "kcp")]
+    let handle = transport::kcp_transport::start(
+        server_addr.clone(),
+        server_port.clone(),
+    ).await?;
+
+    // Prevent enabling multiple transport features simultaneously
     #[cfg(all(feature = "mqtt", feature = "grpc"))]
     compile_error!("Cannot enable both 'mqtt' and 'grpc' features simultaneously");
+    #[cfg(all(feature = "mqtt", feature = "kcp"))]
+    compile_error!("Cannot enable both 'mqtt' and 'kcp' features simultaneously");
+    #[cfg(all(feature = "grpc", feature = "kcp"))]
+    compile_error!("Cannot enable both 'grpc' and 'kcp' features simultaneously");
 
     thread::sleep(Duration::from_millis(500));
 
@@ -99,7 +109,7 @@ async fn main() -> std::result::Result<(), Error> {
         campaign_data,
         handle.tx.clone(),
         handle.rx,
-        #[cfg(feature = "grpc")]
+        #[cfg(any(feature = "grpc", feature = "kcp"))]
         handle.query_rx,
     );
     let mut clock = Clock::new(Duration::from_secs_f64(1.0 / TPS as f64));
