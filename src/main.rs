@@ -111,6 +111,8 @@ async fn main() -> std::result::Result<(), Error> {
         handle.rx,
         #[cfg(any(feature = "grpc", feature = "kcp"))]
         handle.query_rx,
+        #[cfg(any(feature = "grpc", feature = "kcp"))]
+        handle.viewport_rx,
     );
     let mut clock = Clock::new(Duration::from_secs_f64(1.0 / TPS as f64));
 
