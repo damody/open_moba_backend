@@ -126,26 +126,26 @@
                     "Path": "training_path",
                     "Creeps": [
                         // 定期生成練習假人
-                        {"Time": 0, "Creep": "practice_dummy"},
-                        {"Time": 3, "Creep": "practice_dummy"},
-                        {"Time": 6, "Creep": "practice_dummy"},
-                        {"Time": 9, "Creep": "practice_dummy"},
-                        {"Time": 12, "Creep": "practice_dummy"},
+                        {"Time": 0, "Creep": "armored_dummy"},
+                        {"Time": 3, "Creep": "training_creep"},
+                        {"Time": 6, "Creep": "armored_dummy"},
+                        {"Time": 9, "Creep": "training_creep"},
+                        {"Time": 12, "Creep": "armored_dummy"},
                         {"Time": 15, "Creep": "training_creep"},  // 混入移動目標
-                        {"Time": 18, "Creep": "practice_dummy"},
-                        {"Time": 21, "Creep": "practice_dummy"},
+                        {"Time": 18, "Creep": "moving_target"},
+                        {"Time": 21, "Creep": "training_creep"},
                         {"Time": 24, "Creep": "training_creep"},
-                        {"Time": 27, "Creep": "practice_dummy"},
-                        {"Time": 30, "Creep": "practice_dummy"},
+                        {"Time": 27, "Creep": "training_creep"},
+                        {"Time": 30, "Creep": "training_creep"},
                         {"Time": 33, "Creep": "training_creep"},
-                        {"Time": 36, "Creep": "practice_dummy"},
-                        {"Time": 39, "Creep": "practice_dummy"},
+                        {"Time": 36, "Creep": "training_creep"},
+                        {"Time": 39, "Creep": "training_creep"},
                         {"Time": 42, "Creep": "training_creep"},
-                        {"Time": 45, "Creep": "practice_dummy"},
-                        {"Time": 48, "Creep": "practice_dummy"},
+                        {"Time": 45, "Creep": "training_creep"},
+                        {"Time": 48, "Creep": "training_creep"},
                         {"Time": 51, "Creep": "training_creep"},
-                        {"Time": 54, "Creep": "practice_dummy"},
-                        {"Time": 57, "Creep": "practice_dummy"}
+                        {"Time": 54, "Creep": "training_creep"},
+                        {"Time": 57, "Creep": "moving_target"}
                     ]
                 }
             ]
