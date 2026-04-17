@@ -10,6 +10,7 @@ pub struct ServerSetting {
     pub SERVER_IP: String,
     pub SERVER_PORT: String,
     pub CLIENT_ID: String,
+    pub PLAYER_NAME: String,
     pub MAP: String,
     pub MAX_PLAYER: i32,
     pub RENDER_DELAY_MS: u64,
