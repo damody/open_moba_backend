@@ -72,8 +72,26 @@ pub struct InboundMsg {
     pub d: serde_json::Value,
 }
 
+/// Query request from MCP server to game loop.
+#[cfg(feature = "grpc")]
+pub struct QueryRequest {
+    pub query_type: String,
+    pub player_name: String,
+    pub response_tx: tokio::sync::oneshot::Sender<QueryResponse>,
+}
+
+/// Query response from game loop back to gRPC handler.
+#[cfg(feature = "grpc")]
+pub struct QueryResponse {
+    pub success: bool,
+    pub error: String,
+    pub data_json: Vec<u8>,
+}
+
 /// Handle returned by transport layer initialization.
 pub struct TransportHandle {
     pub tx: Sender<OutboundMsg>,
     pub rx: Receiver<InboundMsg>,
+    #[cfg(feature = "grpc")]
+    pub query_rx: Receiver<QueryRequest>,
 }

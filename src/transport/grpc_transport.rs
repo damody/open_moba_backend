@@ -7,7 +7,7 @@ use tokio::sync::broadcast;
 use tokio_stream::wrappers::BroadcastStream;
 use async_stream::stream;
 
-use super::types::{InboundMsg, OutboundMsg, TransportHandle};
+use super::types::{InboundMsg, OutboundMsg, TransportHandle, QueryRequest, QueryResponse};
 
 // Include the generated proto code
 pub mod game_proto {
@@ -23,6 +23,8 @@ pub struct GameServiceImpl {
     in_tx: Sender<InboundMsg>,
     /// Broadcast channel for outbound game events
     event_tx: broadcast::Sender<OutboundMsg>,
+    /// Channel to send query requests to game loop
+    query_tx: Sender<QueryRequest>,
 }
 
 #[tonic::async_trait]
@@ -124,6 +126,34 @@ impl GameService for GameServiceImpl {
             response_json: format!("{{\"echo\": {}}}", cmd_json),
         }))
     }
+
+    async fn query_game_state(
+        &self,
+        request: Request<GameStateRequest>,
+    ) -> Result<Response<GameStateResponse>, Status> {
+        let req = request.into_inner();
+        let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
+
+        let query = QueryRequest {
+            query_type: req.query_type,
+            player_name: req.player_name,
+            response_tx: resp_tx,
+        };
+
+        self.query_tx
+            .send(query)
+            .map_err(|e| Status::internal(format!("Failed to send query: {}", e)))?;
+
+        let response = resp_rx
+            .await
+            .map_err(|e| Status::internal(format!("Failed to receive query response: {}", e)))?;
+
+        Ok(Response::new(GameStateResponse {
+            success: response.success,
+            error: response.error,
+            data_json: response.data_json,
+        }))
+    }
 }
 
 /// Start the gRPC transport layer.
@@ -157,9 +187,12 @@ pub async fn start(
         }
     });
 
+    let (query_tx, query_rx): (Sender<QueryRequest>, Receiver<QueryRequest>) = bounded(100);
+
     let service = GameServiceImpl {
         in_tx,
         event_tx,
+        query_tx,
     };
 
     // Resolve hostname to a bindable SocketAddr (e.g. "localhost" → "0.0.0.0")
@@ -185,5 +218,6 @@ pub async fn start(
     Ok(TransportHandle {
         tx: out_tx,
         rx: in_rx,
+        query_rx,
     })
 }

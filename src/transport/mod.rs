@@ -7,3 +7,5 @@ pub mod mqtt_transport;
 pub mod grpc_transport;
 
 pub use types::{OutboundMsg, InboundMsg, TransportHandle};
+#[cfg(feature = "grpc")]
+pub use types::{QueryRequest, QueryResponse};
