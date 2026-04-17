@@ -15,6 +15,7 @@ use crate::transport::{OutboundMsg, InboundMsg};
 use crate::transport::{QueryRequest, Viewport, ViewportMsg};
 #[cfg(any(feature = "grpc", feature = "kcp"))]
 use std::collections::{HashMap, HashSet};
+use std::collections::BTreeMap;
 
 use super::{
     StateInitializer, TimeManager, ResourceManager, SystemDispatcher
@@ -267,6 +268,7 @@ impl State {
         let towers = self.ecs.read_storage::<Tower>();
         let positions = self.ecs.read_storage::<Pos>();
         let properties = self.ecs.read_storage::<CProperty>();
+        let paths = self.ecs.try_fetch::<BTreeMap<String, Path>>();
 
         // Pre-collect the world's broadcastable entities once.
         #[derive(Copy, Clone, Debug)]
@@ -323,7 +325,7 @@ impl State {
                     Kind::Creep => {
                         let Some(c) = creeps.get(e) else { continue };
                         let Some(p) = positions.get(e) else { continue };
-                        ("creep", build_creep_payload(e, c, p, prop))
+                        ("creep", build_creep_payload(e, c, p, prop, paths.as_deref()))
                     }
                     Kind::Tower => {
                         let Some(t) = towers.get(e) else { continue };
@@ -663,11 +665,23 @@ fn build_creep_payload(
     creep: &Creep,
     pos: &Pos,
     prop: Option<&CProperty>,
+    paths: Option<&BTreeMap<String, Path>>,
 ) -> serde_json::Value {
     let (hp, mhp, msd) = prop
         .map(|p| (p.hp, p.mhp, p.msd))
         .unwrap_or((0.0, 0.0, 0.0));
     let display_name = creep.label.clone().unwrap_or_else(|| creep.name.clone());
+    // 輸出從 creep 當前 checkpoint 起到終點的剩餘 waypoints，供前端 debug 畫線
+    let path_points: Vec<serde_json::Value> = paths
+        .and_then(|m| m.get(&creep.path))
+        .map(|p| {
+            p.check_points
+                .iter()
+                .skip(creep.pidx)
+                .map(|cp| serde_json::json!({ "x": cp.pos.x, "y": cp.pos.y }))
+                .collect()
+        })
+        .unwrap_or_default();
     serde_json::json!({
         "entity_id": entity.id(),
         "id": entity.id(),
@@ -676,6 +690,8 @@ fn build_creep_payload(
         "hp": hp,
         "max_hp": mhp,
         "move_speed": msd,
+        "path_name": creep.path,
+        "path_points": path_points,
     })
 }
 
