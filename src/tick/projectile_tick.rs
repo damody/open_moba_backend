@@ -42,6 +42,19 @@ impl<'a> System<'a> for Sys {
     fn run(_job: &mut Job<Self>, (tr, mut tw): Self::SystemData) {
         let time = tr.time.0;
         let dt = tr.dt.0;
+
+        // Snapshot every entity's current Pos so projectiles can home toward the
+        // target's LIVE position each tick (homing). Previously `tpos` was frozen
+        // at firing time, so the bullet flew to where the target used to be — it
+        // visually missed a moving target even though damage was still applied
+        // via the stored `target` Entity.
+        let target_positions: std::collections::HashMap<specs::Entity, vek::Vec2<f32>> = {
+            use specs::Join;
+            (&tr.entities, &tw.pos).join()
+                .map(|(e, pos)| (e, pos.0))
+                .collect()
+        };
+
         //log::info!("projs count {}", tw.projs.count());
         let mut outcomes = (
             &tr.entities,
@@ -57,6 +70,14 @@ impl<'a> System<'a> for Sys {
                 },
                 |_guard, (e, proj, pos)| {
                     let mut outcomes:Vec<Outcome> = Vec::new();
+                    // Home onto target's current position if it's still alive.
+                    // If target was removed, keep the stale tpos so the bullet
+                    // flies to the last known point and expires naturally.
+                    if let Some(target) = proj.target {
+                        if let Some(&current_tpos) = target_positions.get(&target) {
+                            proj.tpos = current_tpos;
+                        }
+                    }
                     let mut vel = (proj.tpos - pos.0);
                     vel.normalize();
                     vel *= proj.msd;
