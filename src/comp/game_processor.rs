@@ -253,11 +253,22 @@ impl GameProcessor {
             (tp.bullet_speed, p2.0, tp.atk_physic.v)
         };
         
+        // 命中由 projectile_tick 的距離判定決定（target 接近時 step >= dist 即命中）。
+        // time_left 只當「目標消失／逃得太遠」時的安全閥，預期飛行時間 x 3 + 1s。
+        let move_speed = msd as f32;
+        let initial_dist = (p2 - pos).magnitude();
+        let flight_time_s: f32 = if move_speed > 0.0 {
+            (initial_dist / move_speed).max(0.01)
+        } else {
+            0.01
+        };
+        let safety_time_left = flight_time_s * 3.0 + 1.0;
+
         let ntarget = target_entity.id();
         let e = ecs.create_entity()
             .with(Pos(pos))
             .with(Projectile {
-                time_left: 3.,
+                time_left: safety_time_left,
                 owner: source_entity.clone(),
                 tpos: p2,
                 target: target,
@@ -269,16 +280,8 @@ impl GameProcessor {
             })
             .build();
 
-        // Payload for client-side pursuit simulation: target_id + start_pos + flight_time_ms.
-        // `damage` lets client apply predicted HP loss the moment the bullet visually hits;
-        // heartbeat every 2s reconciles any drift against the authoritative backend value.
-        let move_speed = msd as f32;
-        let initial_dist = (p2 - pos).magnitude();
-        let flight_time_ms: u64 = if move_speed > 0.0 {
-            (initial_dist / move_speed * 1000.0).max(1.0) as u64
-        } else {
-            0
-        };
+        // 前端 flight_time_ms 用於 pursuit 動畫；damage 由後端 "H" 事件授權（不再 optimistic）。
+        let flight_time_ms: u64 = (flight_time_s * 1000.0).max(1.0) as u64;
         let pjs = json!({
             "id": e.id(),
             "source_id": source_entity.id(),

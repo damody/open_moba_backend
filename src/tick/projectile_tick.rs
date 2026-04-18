@@ -69,44 +69,40 @@ impl<'a> System<'a> for Sys {
                     guard
                 },
                 |_guard, (e, proj, pos)| {
-                    let mut outcomes:Vec<Outcome> = Vec::new();
-                    // Home onto target's current position if it's still alive.
-                    // If target was removed, keep the stale tpos so the bullet
-                    // flies to the last known point and expires naturally.
+                    let mut outcomes: Vec<Outcome> = Vec::new();
+                    // Home onto target's current position if still alive；
+                    // target 消失時用 stale tpos，靠 time_left 安全閥讓彈道自然消失。
                     if let Some(target) = proj.target {
                         if let Some(&current_tpos) = target_positions.get(&target) {
                             proj.tpos = current_tpos;
                         }
                     }
-                    let mut vel = (proj.tpos - pos.0);
-                    vel.normalize();
-                    vel *= proj.msd;
-                    vel *= dt;
-                    let dis = (proj.tpos - pos.0).magnitude_squared();
-                    if vel.magnitude_squared() > dis || dis < 1.{
+                    let delta = proj.tpos - pos.0;
+                    let dist = delta.magnitude();
+                    let step = proj.msd * dt;
+
+                    // 命中判定：本 tick 的移動量已足夠抵達目標 → 直接 hit
+                    let reached = dist <= step || dist < 1.0;
+                    if reached {
                         pos.0 = proj.tpos;
-                    } else {
-                        pos.0 += vel;
-                    }
-                    proj.time_left -= dt;
-                    if proj.time_left <= 0. {
-                        // 投射物到達目標或超時，造成傷害
-                        if let Some(target) = proj.target {
+                        if proj.radius > 1.0 {
+                            // 範圍攻擊：掃描半徑內敵人
+                            let targets = tr.searcher.creep.SearchNN_XY(pos.0, proj.radius, 5);
+                            for target_info in targets.iter() {
+                                create_projectile_damage(&proj, target_info.e, &mut outcomes, pos.0);
+                            }
+                        } else if let Some(target) = proj.target {
+                            // 單體攻擊
                             create_projectile_damage(&proj, target, &mut outcomes, pos.0);
                         }
                         outcomes.push(Outcome::Death { pos: pos.0.clone(), ent: e.clone() });
                     } else {
-                        if dis < 1. {
-                            // 投射物到達目標位置
-                            if proj.radius > 1. { // 範圍攻擊（擴散炮）
-                                let targets = tr.searcher.creep.SearchNN_XY(pos.0, proj.radius, 5);
-                                for target_info in targets.iter() {
-                                    create_projectile_damage(&proj, target_info.e, &mut outcomes, pos.0);
-                                }
-                            } else if let Some(target) = proj.target {
-                                // 單體攻擊
-                                create_projectile_damage(&proj, target, &mut outcomes, pos.0);
-                            }
+                        // 還沒抵達：往目標方向前進一個 step
+                        let vel = delta / dist * step;
+                        pos.0 += vel;
+                        // 安全閥：time_left 到期仍未命中（例如 target 死掉 tpos 凍結），讓 projectile 自然消失
+                        proj.time_left -= dt;
+                        if proj.time_left <= 0.0 {
                             outcomes.push(Outcome::Death { pos: pos.0.clone(), ent: e.clone() });
                         }
                     }
