@@ -12,6 +12,7 @@ mod tick;
 mod ue4;
 mod msg;
 mod json_preprocessor;
+mod item;
 #[cfg(feature = "mqtt")]
 mod mqtt;
 mod vision;

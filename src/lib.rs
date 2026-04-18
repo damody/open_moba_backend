@@ -12,6 +12,7 @@ pub mod tick;
 pub mod ue4;
 pub mod util;
 pub mod json_preprocessor;
+pub mod item;
 pub mod state;
 pub mod transport;
 

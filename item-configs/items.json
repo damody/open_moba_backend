@@ -1,0 +1,86 @@
+[
+    // ===== 攻擊類 =====
+    {
+        "id": "dmg_sword",
+        "name": "長劍",
+        "cost": 500,
+        "bonus": {"atk": 10}
+    },
+    {
+        "id": "dmg_rifle",
+        "name": "無雙鐵炮",
+        "cost": 1600,
+        "bonus": {"atk": 35},
+        "active": {"kind": "headshot_next", "bonus_damage": 100.0},
+        "cooldown": 30.0,
+        "recipe": ["dmg_sword"]
+    },
+
+    // ===== 生命類 =====
+    {
+        "id": "hp_vest",
+        "name": "皮甲",
+        "cost": 450,
+        "bonus": {"hp": 200}
+    },
+    {
+        "id": "hp_armor",
+        "name": "重裝甲",
+        "cost": 1400,
+        "bonus": {"hp": 600},
+        "active": {"kind": "shield", "amount": 200.0, "duration": 3.0},
+        "cooldown": 60.0,
+        "recipe": ["hp_vest"]
+    },
+
+    // ===== 魔力類 =====
+    {
+        "id": "mp_orb",
+        "name": "法力珠",
+        "cost": 400,
+        "bonus": {"mp": 150, "mp_regen": 5}
+    },
+    {
+        "id": "mp_staff",
+        "name": "秘法杖",
+        "cost": 1200,
+        "bonus": {"mp": 300, "mp_regen": 5},
+        "active": {"kind": "restore_mana", "amount": 150.0},
+        "cooldown": 40.0,
+        "recipe": ["mp_orb"]
+    },
+
+    // ===== 移速類 =====
+    {
+        "id": "ms_boots",
+        "name": "戰靴",
+        "cost": 400,
+        "bonus": {"ms": 40}
+    },
+    {
+        "id": "ms_swift",
+        "name": "疾風之靴",
+        "cost": 1300,
+        "bonus": {"ms": 80},
+        "active": {"kind": "sprint_buff", "ms_bonus": 100.0, "duration": 3.0},
+        "cooldown": 45.0,
+        "recipe": ["ms_boots"]
+    },
+
+    // ===== 護甲類 =====
+    {
+        "id": "def_plate",
+        "name": "鎖子甲",
+        "cost": 500,
+        "bonus": {"armor": 5}
+    },
+    {
+        "id": "def_bulwark",
+        "name": "堡壘之盾",
+        "cost": 1500,
+        "bonus": {"armor": 15},
+        "active": {"kind": "damage_reduce", "percent": 0.5, "duration": 2.0},
+        "cooldown": 60.0,
+        "recipe": ["def_plate"]
+    }
+]
