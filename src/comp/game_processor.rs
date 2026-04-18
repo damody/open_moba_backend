@@ -65,25 +65,31 @@ impl GameProcessor {
     }
     
     fn handle_death(
-        ecs: &mut World, 
-        next_outcomes: &mut Vec<Outcome>, 
-        mqtx: &crossbeam_channel::Sender<OutboundMsg>, 
+        ecs: &mut World,
+        next_outcomes: &mut Vec<Outcome>,
+        mqtx: &crossbeam_channel::Sender<OutboundMsg>,
         entity: Entity
     ) -> Result<(), Error> {
+        // 先判定 IsBase（基地被擊毀 → 觸發勝負事件）
+        let is_base = ecs.read_storage::<IsBase>().get(entity).is_some();
+
+        // 若死者有 Bounty → 將金錢/經驗分給最近的友方英雄
+        Self::distribute_bounty(ecs, next_outcomes, mqtx, entity);
+
         let mut creeps = ecs.write_storage::<Creep>();
         let mut towers = ecs.write_storage::<Tower>();
         let mut projs = ecs.write_storage::<Projectile>();
-        
+
         let entity_type = if let Some(c) = creeps.get_mut(entity) {
             if let Some(bt) = c.block_tower {
-                if let Some(t) = towers.get_mut(bt) { 
+                if let Some(t) = towers.get_mut(bt) {
                     t.block_creeps.retain(|&x| x != entity);
                 }
             }
             "creep"
         } else if let Some(t) = towers.get_mut(entity) {
             for ce in t.block_creeps.iter() {
-                if let Some(c) = creeps.get_mut(*ce) { 
+                if let Some(c) = creeps.get_mut(*ce) {
                     c.block_tower = None;
                     next_outcomes.push(Outcome::CreepWalk { target: ce.clone() });
                 }
@@ -91,16 +97,126 @@ impl GameProcessor {
             "tower"
         } else if let Some(_p) = projs.get_mut(entity) {
             "projectile"
-        } else { 
+        } else {
             ""
         };
-        
+
         if !entity_type.is_empty() {
             mqtx.send(OutboundMsg::new_s("td/all/res", entity_type, "D", json!({"id": entity.id()})));
+        }
+
+        if is_base {
+            // 敵方基地被擊毀 → 玩家勝利
+            log::info!("🏆 IsBase entity {:?} destroyed — emitting game.end", entity);
+            mqtx.send(OutboundMsg::new_s(
+                "td/all/res",
+                "game",
+                "end",
+                json!({"winner": "player", "base_entity_id": entity.id()}),
+            ));
         }
         Ok(())
     }
     
+    /// 將 Bounty 分配給最近的友方英雄（MVP 以玩家陣營為友方）
+    fn distribute_bounty(
+        ecs: &mut World,
+        next_outcomes: &mut Vec<Outcome>,
+        mqtx: &crossbeam_channel::Sender<OutboundMsg>,
+        dead: Entity,
+    ) {
+        use serde_json::json;
+        let bounty = match ecs.read_storage::<Bounty>().get(dead).copied() {
+            Some(b) => b,
+            None => return,
+        };
+        let dead_pos = match ecs.read_storage::<Pos>().get(dead).map(|p| p.0) {
+            Some(p) => p,
+            None => return,
+        };
+        // 找出最近的友方（Player faction）英雄
+        let (hero_e, _) = {
+            let entities = ecs.entities();
+            let heroes = ecs.read_storage::<Hero>();
+            let factions = ecs.read_storage::<Faction>();
+            let positions = ecs.read_storage::<Pos>();
+            use specs::Join;
+            let mut best: Option<(Entity, f32)> = None;
+            for (e, _h, f, p) in (&entities, &heroes, &factions, &positions).join() {
+                if f.faction_id != FactionType::Player {
+                    continue;
+                }
+                let d2 = (p.0 - dead_pos).magnitude_squared();
+                if d2 > 1200.0 * 1200.0 {
+                    continue;
+                }
+                if best.map(|(_, d)| d2 < d).unwrap_or(true) {
+                    best = Some((e, d2));
+                }
+            }
+            match best {
+                Some(x) => x,
+                None => return,
+            }
+        };
+
+        // 加金錢
+        {
+            let mut golds = ecs.write_storage::<Gold>();
+            if let Some(g) = golds.get_mut(hero_e) {
+                g.0 += bounty.gold;
+            }
+        }
+        // 給經驗（透過 Hero::add_experience 處理升級與技能點）
+        let leveled_up = {
+            let mut heroes = ecs.write_storage::<Hero>();
+            if let Some(h) = heroes.get_mut(hero_e) {
+                let before = h.level;
+                let _ = h.add_experience(bounty.exp);
+                h.level != before
+            } else {
+                false
+            }
+        };
+
+        // 廣播 hero.stats
+        let hero_stats_payload = {
+            let heroes = ecs.read_storage::<Hero>();
+            let golds = ecs.read_storage::<Gold>();
+            let props = ecs.read_storage::<CProperty>();
+            let positions = ecs.read_storage::<Pos>();
+            let h = heroes.get(hero_e);
+            let g = golds.get(hero_e).map(|g| g.0).unwrap_or(0);
+            let (hp, mhp) = props.get(hero_e).map(|p| (p.hp, p.mhp)).unwrap_or((0.0, 0.0));
+            let p = positions.get(hero_e).map(|p| p.0).unwrap_or(vek::Vec2::zero());
+            h.map(|h| {
+                (
+                    json!({
+                        "id": hero_e.id(),
+                        "level": h.level,
+                        "xp": h.experience,
+                        "xp_next": h.experience_to_next,
+                        "skill_points": h.skill_points,
+                        "ability_levels": h.ability_levels,
+                        "abilities": h.abilities,
+                        "gold": g,
+                        "hp": hp,
+                        "max_hp": mhp,
+                    }),
+                    p,
+                )
+            })
+        };
+        if let Some((payload, pos)) = hero_stats_payload {
+            let _ = mqtx.send(OutboundMsg::new_s_at(
+                "td/all/res", "hero", "stats", payload, pos.x, pos.y,
+            ));
+        }
+        if leveled_up {
+            log::info!("🎉 hero entity {:?} 升級！", hero_e);
+        }
+    }
+
     fn handle_projectile(
         ecs: &mut World, 
         mqtx: &crossbeam_channel::Sender<OutboundMsg>, 
@@ -164,11 +280,27 @@ impl GameProcessor {
     
     fn handle_creep_spawn(ecs: &mut World, mqtx: &crossbeam_channel::Sender<OutboundMsg>, cd: CreepData) -> Result<(), Error> {
         let display_name = cd.creep.label.clone().unwrap_or_else(|| cd.creep.name.clone());
+        let creep_name = cd.creep.name.clone();
         let hp = cd.cdata.hp;
         let mhp = cd.cdata.mhp;
         let msd = cd.cdata.msd;
         let pos = cd.pos;
-        let e = ecs.create_entity().with(Pos(cd.pos)).with(cd.creep).with(cd.cdata).build();
+        // 依 creep 名稱決定獎勵（MVP 簡版）
+        let bounty = match creep_name.as_str() {
+            "melee_minion" => Bounty { gold: 18, exp: 55 },
+            "ranged_minion" => Bounty { gold: 15, exp: 45 },
+            "siege_minion" => Bounty { gold: 40, exp: 110 },
+            _ => Bounty { gold: 10, exp: 25 },
+        };
+        // 敵方 creep（朝玩家方向推進），faction 設為 Enemy
+        let faction = Faction::new(FactionType::Enemy, 1);
+        let e = ecs.create_entity()
+            .with(Pos(cd.pos))
+            .with(cd.creep)
+            .with(cd.cdata)
+            .with(faction)
+            .with(bounty)
+            .build();
         // Payload shape matches client expectations (top-level position/hp/max_hp)
         let payload = json!({
             "entity_id": e.id(),

@@ -562,6 +562,7 @@ impl State {
             let positions = self.ecs.read_storage::<Pos>();
             let properties = self.ecs.read_storage::<CProperty>();
 
+            let golds = self.ecs.read_storage::<Gold>();
             for (entity, hero, pos) in (&entities, &heroes, &positions).join() {
                 let payload = build_hero_payload(entity, hero, pos, properties.get(entity));
                 if let Err(e) = self.mqtx.send(OutboundMsg::new_s_at(
@@ -569,6 +570,24 @@ impl State {
                 )) {
                     log::error!("無法發送英雄初始化資料: {}", e);
                 }
+                // 初始 hero.stats（提供前端 HUD 初始值）
+                let gold = golds.get(entity).map(|g| g.0).unwrap_or(0);
+                let (hp, mhp) = properties.get(entity).map(|p| (p.hp, p.mhp)).unwrap_or((0.0, 0.0));
+                let stats_payload = json!({
+                    "id": entity.id(),
+                    "level": hero.level,
+                    "xp": hero.experience,
+                    "xp_next": hero.experience_to_next,
+                    "skill_points": hero.skill_points,
+                    "ability_levels": hero.ability_levels,
+                    "abilities": hero.abilities,
+                    "gold": gold,
+                    "hp": hp,
+                    "max_hp": mhp,
+                });
+                let _ = self.mqtx.send(OutboundMsg::new_s_at(
+                    "td/all/res", "hero", "stats", stats_payload, pos.0.x, pos.0.y,
+                ));
                 log::info!("已發送英雄 '{}' 初始化資料到 MQTT", hero.name);
             }
         }
@@ -615,6 +634,32 @@ impl State {
             log::info!("已發送 {} 個小兵波初始化資料到 MQTT", creep_waves.len());
         }
         
+        // 發送塔實體資料（如敵方基地、預置塔）
+        {
+            let entities = self.ecs.entities();
+            let towers = self.ecs.read_storage::<Tower>();
+            let positions = self.ecs.read_storage::<Pos>();
+            let props = self.ecs.read_storage::<TProperty>();
+            let atks = self.ecs.read_storage::<TAttack>();
+            let is_bases = self.ecs.read_storage::<IsBase>();
+            use specs::Join;
+            for (entity, _, pos) in (&entities, &towers, &positions).join() {
+                let hp = props.get(entity).map(|p| p.hp.v).unwrap_or(0.0);
+                let payload = json!({
+                    "id": entity.id(),
+                    "entity_id": entity.id(),
+                    "name": if is_bases.get(entity).is_some() { "敵方基地" } else { "敵方塔" },
+                    "position": {"x": pos.0.x, "y": pos.0.y},
+                    "hp": hp,
+                    "max_hp": hp,
+                    "is_base": is_bases.get(entity).is_some(),
+                });
+                let _ = self.mqtx.send(OutboundMsg::new_s_at(
+                    "td/all/res", "tower", "create", payload, pos.0.x, pos.0.y,
+                ));
+            }
+        }
+
         // 發送戰役資訊
         if let Some(campaign) = &self.campaign {
             let campaign_info = json!({

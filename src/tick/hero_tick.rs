@@ -91,8 +91,15 @@ impl<'a> System<'a> for Sys {
                             let search_n = 10; // 搜尋最近的 10 個目標
                             let attack_range = atk.range.v; // 攻擊範圍
                             let search_range = attack_range + 50.0; // 稍微擴大搜尋範圍以確保不遺漏邊界目標
-                            let (potential_targets, _) = 
+                            let (creep_targets, _) =
                                 tr.searcher.creep.SearchNN_XY2(pos.0, attack_range, search_range, search_n);
+                            let (tower_targets, _) =
+                                tr.searcher.tower.SearchNN_XY2(pos.0, attack_range, search_range, search_n);
+                            // 合併 creep + tower 候選，一起走敵友判斷
+                            let mut potential_targets = Vec::with_capacity(creep_targets.len() + tower_targets.len());
+                            potential_targets.extend(creep_targets);
+                            potential_targets.extend(tower_targets);
+                            potential_targets.sort_by(|a, b| a.dis.partial_cmp(&b.dis).unwrap_or(std::cmp::Ordering::Equal));
                             
                             // 偵錯：顯示搜尋結果
                             // 獲取英雄名稱
