@@ -88,7 +88,8 @@ impl SystemDispatcher {
         dispatch::<hero_move_tick::Sys>(dispatch_builder, &["projectile_sys"]);
         dispatch::<hero_tick::Sys>(dispatch_builder, &["tower_sys", "hero_move_sys"]);
         dispatch::<skill_tick::Sys>(dispatch_builder, &["hero_sys"]);
-        dispatch::<creep_tick::Sys>(dispatch_builder, &["skill_sys"]);
+        dispatch::<item_tick::Sys>(dispatch_builder, &["skill_sys"]);
+        dispatch::<creep_tick::Sys>(dispatch_builder, &["item_sys"]);
         dispatch::<creep_wave::Sys>(dispatch_builder, &["creep_sys"]);
         dispatch::<damage_tick::Sys>(dispatch_builder, &["creep_wave_sys"]);
         dispatch::<death_tick::Sys>(dispatch_builder, &["damage_sys"]);
