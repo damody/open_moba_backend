@@ -6,7 +6,23 @@ pub struct CreepWaveData {
     pub Creep: Vec<CreepJD>,
     pub CheckPoint: Vec<CheckPointJD>,
     pub Tower: Vec<TowerJD>,
-    pub CreepWave: Vec<CreepWaveJD>,    
+    pub CreepWave: Vec<CreepWaveJD>,
+    /// 初始建物放置（引用 `Tower` 模板，指定位置/陣營/是否為基地）
+    #[serde(default)]
+    pub Structures: Vec<StructureJD>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct StructureJD {
+    /// 對應 `Tower[*].Name`（模板名稱，用於查 Hp/Range/AttackSpeed/Physic）
+    pub Tower: String,
+    /// "Player" 或 "Enemy"
+    pub Faction: String,
+    pub X: f32,
+    pub Y: f32,
+    /// 是否為基地（擊毀敵方基地＝玩家勝）
+    #[serde(default)]
+    pub IsBase: bool,
 }
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct PathJD {

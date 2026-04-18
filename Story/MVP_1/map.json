@@ -84,6 +84,16 @@
          "Attack": {"Range": 800, "AttackSpeed": 1.0, "Physic": 80, "Magic": 0}}
     ],
 
+    // 初始塔/基地放置（引用上面 Tower 模板）— 原本寫死在 create_mvp_scene，改為 script 驅動
+    "Structures": [
+        {"Tower": "base_tower", "Faction": "Player", "X": 0,    "Y": 0,    "IsBase": true},
+        {"Tower": "lane_tower", "Faction": "Player", "X": 500,  "Y": 500},
+        {"Tower": "lane_tower", "Faction": "Player", "X": 900,  "Y": 900},
+        {"Tower": "lane_tower", "Faction": "Enemy",  "X": 1500, "Y": 1500},
+        {"Tower": "lane_tower", "Faction": "Enemy",  "X": 1950, "Y": 1950},
+        {"Tower": "base_tower", "Faction": "Enemy",  "X": 2400, "Y": 2400, "IsBase": true}
+    ],
+
     // 雙方同步出兵，每 30s 一波
     "CreepWave": [
         {"Name": "W01", "StartTime": 10, "Detail": [

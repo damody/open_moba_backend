@@ -161,11 +161,12 @@ impl StateInitializer {
     /// 創建戰役場景
     pub fn create_campaign_scene(ecs: &mut World, campaign_data: &CampaignData) {
         Self::create_campaign_heroes(ecs, campaign_data);
-        match campaign_data.mission.campaign.id.as_str() {
-            "MVP_1" => Self::create_mvp_scene(ecs),
-            // DEBUG_1：只要孫市和路上出的 1 隻 creep，啥塔都不生成
-            "DEBUG_1" => log::info!("DEBUG_1：略過塔/基地生成，只保留英雄"),
-            _ => Self::create_training_enemies(ecs, campaign_data),
+        // 優先：map.json 的 Structures（script 驅動塔/基地放置）
+        if !campaign_data.map.Structures.is_empty() {
+            Self::spawn_structures_from_map(ecs, &campaign_data.map);
+        } else {
+            // fallback：舊訓練場用的 training_enemies（B01_1 類 / DEBUG 類）
+            Self::create_training_enemies(ecs, campaign_data);
         }
         Self::create_terrain_blockers(ecs);
         log::info!("創建戰役場景完成: {}", campaign_data.mission.campaign.name);
@@ -328,31 +329,47 @@ impl StateInitializer {
 
     /// MVP_1 場景（LoL 風格單線）
     ///
-    /// 位置布局（左下 → 右上對角，像 LoL 下路或上路）：
-    /// ```text
-    ///                                              敵方基地 (2400, 2400)
-    ///                                        敵方塔 (1950, 1950)
-    ///                                  敵方塔 (1500, 1500)
-    ///                            -- 中線 --
-    ///                      我方塔 (900, 900)
-    ///                 我方塔 (500, 500)
-    ///         我方基地 (0, 0)（hero spawn）
-    /// ```
-    pub fn create_mvp_scene(ecs: &mut World) {
-        use specs::Builder;
+    /// 依 map.json 的 `Structures` 清單放置塔/基地。
+    /// 每筆 Structure 指定 Tower 模板名稱 + 陣營 + 位置 + 是否為基地，
+    /// 模板屬性（Hp/Range/AttackSpeed/Physic）從 `Tower` 清單查。
+    pub fn spawn_structures_from_map(ecs: &mut World, cw: &CreepWaveData) {
+        use std::collections::HashMap;
+        if cw.Structures.is_empty() {
+            return;
+        }
+        // 建立 Tower 模板查表
+        let tower_templates: HashMap<&str, &crate::ue4::import_map::TowerJD> =
+            cw.Tower.iter().map(|t| (t.Name.as_str(), t)).collect();
 
-        // 我方基地
-        Self::spawn_tower(ecs, Vec2::new(0.0, 0.0), FactionType::Player, 3500.0, 800.0, 80.0, 1.0, true);
-        // 我方塔 1 / 2（對角前推）
-        Self::spawn_tower(ecs, Vec2::new(500.0, 500.0), FactionType::Player, 1500.0, 700.0, 55.0, 0.8, false);
-        Self::spawn_tower(ecs, Vec2::new(900.0, 900.0), FactionType::Player, 1500.0, 700.0, 55.0, 0.8, false);
-        // 敵方塔 1 / 2
-        Self::spawn_tower(ecs, Vec2::new(1500.0, 1500.0), FactionType::Enemy, 1500.0, 700.0, 55.0, 0.8, false);
-        Self::spawn_tower(ecs, Vec2::new(1950.0, 1950.0), FactionType::Enemy, 1500.0, 700.0, 55.0, 0.8, false);
-        // 敵方基地（IsBase；擊毀判定勝負）
-        Self::spawn_tower(ecs, Vec2::new(2400.0, 2400.0), FactionType::Enemy, 3500.0, 800.0, 80.0, 1.0, true);
-
-        log::info!("MVP_1 場景已建立：1 我方基地 + 2 我方塔 + 2 敵方塔 + 1 敵方基地（對角左下→右上）");
+        for s in cw.Structures.iter() {
+            let Some(tpl) = tower_templates.get(s.Tower.as_str()) else {
+                log::warn!("Structure 未知 Tower 模板 '{}'，跳過", s.Tower);
+                continue;
+            };
+            let faction_type = match s.Faction.as_str() {
+                "Player" | "player" => FactionType::Player,
+                _ => FactionType::Enemy,
+            };
+            let hp = tpl.Property.Hp as f32;
+            let range = tpl.Attack.Range;
+            let atk = tpl.Attack.Physic;
+            let asd = if tpl.Attack.AttackSpeed > 0.0 {
+                tpl.Attack.AttackSpeed
+            } else {
+                1.0
+            };
+            Self::spawn_tower(
+                ecs,
+                Vec2::new(s.X, s.Y),
+                faction_type,
+                hp,
+                range,
+                atk,
+                asd,
+                s.IsBase,
+            );
+        }
+        log::info!("已依 map.json 放置 {} 個 Structure", cw.Structures.len());
     }
 
     fn spawn_tower(
