@@ -161,11 +161,11 @@ impl StateInitializer {
     /// 創建戰役場景
     pub fn create_campaign_scene(ecs: &mut World, campaign_data: &CampaignData) {
         Self::create_campaign_heroes(ecs, campaign_data);
-        // MVP_1 mode：跳過 training enemies，改用 MVP 場景
-        if campaign_data.mission.campaign.id == "MVP_1" {
-            Self::create_mvp_scene(ecs);
-        } else {
-            Self::create_training_enemies(ecs, campaign_data);
+        match campaign_data.mission.campaign.id.as_str() {
+            "MVP_1" => Self::create_mvp_scene(ecs),
+            // DEBUG_1：只要孫市和路上出的 1 隻 creep，啥塔都不生成
+            "DEBUG_1" => log::info!("DEBUG_1：略過塔/基地生成，只保留英雄"),
+            _ => Self::create_training_enemies(ecs, campaign_data),
         }
         Self::create_terrain_blockers(ecs);
         log::info!("創建戰役場景完成: {}", campaign_data.mission.campaign.name);
