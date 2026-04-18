@@ -5,6 +5,8 @@ use specs::{
     Write, WriteStorage, ParJoin, SystemData, World,
 };
 use crate::comp::*;
+use crate::transport::OutboundMsg;
+use crossbeam_channel::Sender;
 use specs::prelude::ParallelIterator;
 use vek::*;
 use std::{
@@ -20,6 +22,7 @@ pub struct TowerRead<'a> {
     pos : ReadStorage<'a, Pos>,
     searcher : Read<'a, Searcher>,
     factions: ReadStorage<'a, Faction>,
+    turn_speeds: ReadStorage<'a, TurnSpeed>,
 }
 
 #[derive(SystemData)]
@@ -28,6 +31,8 @@ pub struct TowerWrite<'a> {
     towers : WriteStorage<'a, Tower>,
     propertys : WriteStorage<'a, TProperty>,
     tatks : WriteStorage<'a, TAttack>,
+    facings: WriteStorage<'a, Facing>,
+    mqtx: Write<'a, Vec<Sender<OutboundMsg>>>,
 }
 
 #[derive(Default)]
@@ -45,12 +50,14 @@ impl<'a> System<'a> for Sys {
         let time = tr.time.0;
         let dt = tr.dt.0;
         let time1 = Instant::now();
+        let tx = tw.mqtx.get(0).cloned();
         let mut outcomes = (
             &tr.entities,
             &mut tw.towers,
             &mut tw.propertys,
             &mut tw.tatks,
             &tr.pos,
+            &mut tw.facings,
         )
             .par_join()
             .map_init(
@@ -58,7 +65,7 @@ impl<'a> System<'a> for Sys {
                     prof_span!(guard, "tower update rayon job");
                     guard
                 },
-                |_guard, (e, tower, pty, atk, pos)| {
+                |_guard, (e, tower, pty, atk, pos, facing)| {
                     let mut outcomes:Vec<Outcome> = Vec::new();
                     if atk.asd_count < atk.asd.val() {
                         atk.asd_count += dt;
@@ -120,12 +127,36 @@ impl<'a> System<'a> for Sys {
                                         tower.nearby_creeps.push(NearbyEnt { ent: c.e, dis: c.dis });
                                     }
                                 }
-                                atk.asd_count -= atk.asd.val();
-                                outcomes.push(Outcome::ProjectileLine2 {
-                                    pos: pos.0.clone(),
-                                    source: Some(e.clone()),
-                                    target: Some(hostile_creeps[0].e),
-                                });
+                                // 轉向目標：算出 desired angle，旋轉 facing，只有對齊才能開火
+                                let target_entity = hostile_creeps[0].e;
+                                let target_pos = tr.pos.get(target_entity).map(|p| p.0).unwrap_or(pos.0);
+                                let diff = target_pos - pos.0;
+                                if diff.magnitude_squared() > 0.01 {
+                                    let desired = diff.y.atan2(diff.x);
+                                    let turn = tr.turn_speeds.get(e).map(|t| t.0)
+                                        .unwrap_or(std::f32::consts::FRAC_PI_2);
+                                    let old_facing = facing.0;
+                                    facing.0 = rotate_toward(facing.0, desired, turn * dt);
+
+                                    // 廣播 facing 變化（僅當變化 > 3° 才送）
+                                    if let Some(ref t) = tx {
+                                        if (facing.0 - old_facing).abs() > 0.05 {
+                                            let _ = t.try_send(OutboundMsg::new_s("td/all/res", "entity", "F",
+                                                serde_json::json!({"id": e.id(), "facing": facing.0})));
+                                        }
+                                    }
+
+                                    let angle_diff = normalize_angle(desired - facing.0).abs();
+                                    if angle_diff < MOVE_ANGLE_THRESHOLD {
+                                        atk.asd_count -= atk.asd.val();
+                                        outcomes.push(Outcome::ProjectileLine2 {
+                                            pos: pos.0.clone(),
+                                            source: Some(e.clone()),
+                                            target: Some(target_entity),
+                                        });
+                                    }
+                                    // 角度太大 → 繼續轉，本 tick 不開火
+                                }
                             } else {
                                 if near_creeps.len() == 0 {
                                     atk.asd_count = atk.asd.val() - 0.3 - fastrand::u8(..) as f32 * 0.001;

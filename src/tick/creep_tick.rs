@@ -104,7 +104,13 @@ impl<'a> System<'a> for Sys {
                                                 let turn_rate = tr.turn_speeds.get(e)
                                                     .map(|t| t.0)
                                                     .unwrap_or(std::f32::consts::FRAC_PI_2);
+                                                let old_facing = facing.0;
                                                 facing.0 = rotate_toward(facing.0, desired, turn_rate * dt);
+                                                // 面向變化 > 3° 就廣播 F 事件
+                                                if (facing.0 - old_facing).abs() > 0.05 {
+                                                    tx.try_send(OutboundMsg::new_s("td/all/res", "entity", "F",
+                                                        json!({"id": e.id(), "facing": facing.0})));
+                                                }
 
                                                 // 角度對齊（<30°）才移動
                                                 let angle_diff = normalize_angle(desired - facing.0).abs();

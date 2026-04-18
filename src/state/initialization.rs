@@ -419,7 +419,9 @@ impl StateInitializer {
             .with(atk_c)
             .with(faction)
             .with(vision)
-            .with(bounty);
+            .with(bounty)
+            .with(Facing(0.0))
+            .with(TurnSpeed::default());
 
         // 雙方基地都標記 IsBase（前端依此顯示「基地」名稱）；
         // 勝負判定在 handle_death 裡還要檢查 faction，只有敵方基地死亡才觸發玩家勝

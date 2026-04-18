@@ -21,13 +21,17 @@ pub struct HeroRead<'a> {
     factions: ReadStorage<'a, Faction>,
     propertys : ReadStorage<'a, CProperty>,
     units : ReadStorage<'a, Unit>,
+    turn_speeds: ReadStorage<'a, TurnSpeed>,
+    move_targets: ReadStorage<'a, MoveTarget>,
 }
 
-#[derive(SystemData)]  
+#[derive(SystemData)]
 pub struct HeroWrite<'a> {
     outcomes: Write<'a, Vec<Outcome>>,
     heroes : WriteStorage<'a, Hero>,
     tatks : WriteStorage<'a, TAttack>,
+    facings: WriteStorage<'a, Facing>,
+    mqtx: Write<'a, Vec<crossbeam_channel::Sender<crate::transport::OutboundMsg>>>,
 }
 
 #[derive(Default)]
@@ -59,12 +63,14 @@ impl<'a> System<'a> for Sys {
             &tw.heroes,
         ).join().map(|(e, hero)| (e, hero.name.clone())).collect();
         
+        let tx = tw.mqtx.get(0).cloned();
         let mut outcomes = (
             &tr.entities,
             &mut tw.heroes,
             &tr.propertys,
             &mut tw.tatks,
             &tr.pos,
+            &mut tw.facings,
         )
             .par_join()
             .map_init(
@@ -72,14 +78,20 @@ impl<'a> System<'a> for Sys {
                     prof_span!(guard, "hero update rayon job");
                     guard
                 },
-                |_guard, (e, hero, pty, atk, pos)| {
+                |_guard, (e, hero, pty, atk, pos, facing)| {
                     let mut outcomes: Vec<Outcome> = Vec::new();
-                    
+
                     // 直接更新攻擊冷卻時間
                     if atk.asd_count < atk.asd.v {
                         atk.asd_count += dt;
                     }
-                    
+
+                    // 移動優先於自動攻擊：有 MoveTarget 時不自動攻擊
+                    // （否則 hero 會一直想轉向敵人，與移動轉向互相拉扯卡住）
+                    if tr.move_targets.get(e).is_some() {
+                        return outcomes;
+                    }
+
                     // 當攻擊冷卻時間到達時，嘗試攻擊
                     if atk.asd_count >= atk.asd.v {
                         let time2 = Instant::now();
@@ -140,26 +152,38 @@ impl<'a> System<'a> for Sys {
                             log::info!("{} 有效目標數量: {}", hero_name, valid_targets.len());
                             
                             if valid_targets.len() > 0 {
-                                log::debug!("{} 準備攻擊，當前攻擊冷卻: {:.2}/{:.2}", hero_name, atk.asd_count, atk.asd.v);
-                                
-                                // 直接重置攻擊冷卻
-                                atk.asd_count -= atk.asd.v;
-                                log::debug!("{} 重置攻擊冷卻至: {:.2}", hero_name, atk.asd_count);
-                                
-                                // 攻擊最近的敵人
+                                // 攻擊最近的敵人：先轉向，角度 < 30° 才能開火
                                 let target = valid_targets[0].e;
-                                log::info!("{} 選擇攻擊目標: {}", hero_name, target.id());
-                                
-                                // 產生彈道事件（彈道會攜帶傷害資訊並在到達後產生傷害事件）
-                                outcomes.push(Outcome::ProjectileLine2 { 
-                                    pos: pos.0.clone(), 
-                                    source: Some(e.clone()), 
-                                    target: Some(target) 
-                                });
-                                
-                                // 簡單的攻擊距離日誌（詳細的傷害和血量資訊會在彈道命中後顯示）
-                                let actual_distance = valid_targets[0].dis.sqrt();
-                                log::error!("⚔️ {} 發射彈道攻擊，距離: {:.0}，攻擊力: {:.1}", hero_name, actual_distance, atk.atk_physic.v);
+                                let target_pos = tr.pos.get(target).map(|p| p.0).unwrap_or(pos.0);
+                                let diff = target_pos - pos.0;
+                                if diff.magnitude_squared() > 0.01 {
+                                    let desired = diff.y.atan2(diff.x);
+                                    let turn = tr.turn_speeds.get(e).map(|t| t.0)
+                                        .unwrap_or(std::f32::consts::FRAC_PI_2);
+                                    let old_facing = facing.0;
+                                    facing.0 = rotate_toward(facing.0, desired, turn * dt);
+
+                                    // 廣播 facing 變化
+                                    if let Some(ref t) = tx {
+                                        if (facing.0 - old_facing).abs() > 0.05 {
+                                            let _ = t.try_send(crate::transport::OutboundMsg::new_s("td/all/res", "entity", "F",
+                                                serde_json::json!({"id": e.id(), "facing": facing.0})));
+                                        }
+                                    }
+
+                                    let angle_diff = normalize_angle(desired - facing.0).abs();
+                                    if angle_diff < MOVE_ANGLE_THRESHOLD {
+                                        atk.asd_count -= atk.asd.v;
+                                        outcomes.push(Outcome::ProjectileLine2 {
+                                            pos: pos.0.clone(),
+                                            source: Some(e.clone()),
+                                            target: Some(target)
+                                        });
+                                        let actual_distance = valid_targets[0].dis.sqrt();
+                                        log::error!("⚔️ {} 發射彈道攻擊，距離: {:.0}，攻擊力: {:.1}", hero_name, actual_distance, atk.atk_physic.v);
+                                    }
+                                    // 角度太大 → 繼續轉，本 tick 不開火
+                                }
                             } else {
                                 // 沒有有效目標時，減少一些攻擊冷卻時間避免過度檢查
                                 atk.asd_count = atk.asd.v - 0.3 - fastrand::u8(..) as f32 * 0.001;
