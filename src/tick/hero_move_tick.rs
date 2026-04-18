@@ -14,12 +14,14 @@ pub struct HeroMoveRead<'a> {
     dt: Read<'a, DeltaTime>,
     heroes: ReadStorage<'a, Hero>,
     propertys: ReadStorage<'a, CProperty>,
+    turn_speeds: ReadStorage<'a, TurnSpeed>,
 }
 
 #[derive(SystemData)]
 pub struct HeroMoveWrite<'a> {
     pos: WriteStorage<'a, Pos>,
     move_targets: WriteStorage<'a, MoveTarget>,
+    facings: WriteStorage<'a, Facing>,
     mqtx: Write<'a, Vec<Sender<OutboundMsg>>>,
 }
 
@@ -41,31 +43,49 @@ impl<'a> System<'a> for Sys {
         }
 
         let mut arrived: Vec<specs::Entity> = Vec::new();
-        let mut broadcasts: Vec<(u32, f32, f32)> = Vec::new();
+        // (entity_id, x, y, facing)
+        let mut broadcasts: Vec<(u32, f32, f32, f32)> = Vec::new();
 
-        for (entity, _hero, property, pos, move_target) in (
+        for (entity, _hero, property, pos, move_target, facing) in (
             &tr.entities,
             &tr.heroes,
             &tr.propertys,
             &mut tw.pos,
             &tw.move_targets,
+            &mut tw.facings,
         ).join() {
             let target = move_target.0;
             let diff = target - pos.0;
             let distance = diff.magnitude();
             let step = property.msd * dt;
 
-            if distance <= step.max(1.0) {
-                // 到達目標
-                pos.0 = target;
-                arrived.push(entity);
+            // 先轉向目標方向
+            if distance > 0.5 {
+                let desired = diff.y.atan2(diff.x);
+                let turn = tr
+                    .turn_speeds
+                    .get(entity)
+                    .map(|t| t.0)
+                    .unwrap_or(std::f32::consts::FRAC_PI_2);
+                facing.0 = rotate_toward(facing.0, desired, turn * dt);
+
+                // 面向夾角 < 30° 才能前進
+                let angle_diff = normalize_angle(desired - facing.0).abs();
+                if angle_diff < MOVE_ANGLE_THRESHOLD {
+                    if distance <= step.max(1.0) {
+                        pos.0 = target;
+                        arrived.push(entity);
+                    } else {
+                        let direction = diff / distance;
+                        pos.0 += direction * step;
+                    }
+                }
+                // 角度太大 → 只轉向、不位移（本 tick 不動）
             } else {
-                // 向目標移動
-                let direction = diff / distance;
-                pos.0 += direction * step;
+                arrived.push(entity);
             }
 
-            broadcasts.push((entity.id(), pos.0.x, pos.0.y));
+            broadcasts.push((entity.id(), pos.0.x, pos.0.y, facing.0));
         }
 
         // 移除已到達的 MoveTarget
@@ -73,15 +93,15 @@ impl<'a> System<'a> for Sys {
             tw.move_targets.remove(entity);
         }
 
-        // 廣播位置更新
+        // 廣播位置 + facing 更新
         if !broadcasts.is_empty() {
             if let Some(tx) = tw.mqtx.get(0) {
-                for (id, x, y) in broadcasts {
+                for (id, x, y, facing) in broadcasts {
                     let _ = tx.send(OutboundMsg::new_s(
                         "td/all/res",
                         "hero",
                         "M",
-                        json!({"id": id, "x": x, "y": y}),
+                        json!({"id": id, "x": x, "y": y, "facing": facing}),
                     ));
                 }
             }

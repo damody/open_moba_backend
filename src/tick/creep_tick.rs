@@ -19,12 +19,14 @@ pub struct CreepRead<'a> {
     paths: Read<'a, BTreeMap<String, Path>>,
     check_points : Read<'a, BTreeMap<String, CheckPoint>>,
     cpropertys : ReadStorage<'a, CProperty>,
+    turn_speeds: ReadStorage<'a, TurnSpeed>,
 }
 
 #[derive(SystemData)]
 pub struct CreepWrite<'a> {
     creeps : WriteStorage<'a, Creep>,
     pos : WriteStorage<'a, Pos>,
+    facings: WriteStorage<'a, Facing>,
     outcomes: Write<'a, Vec<Outcome>>,
     taken_damages: Write<'a, Vec<TakenDamage>>,
     mqtx: Write<'a, Vec<Sender<OutboundMsg>>>,
@@ -50,21 +52,22 @@ impl<'a> System<'a> for Sys {
             &mut tw.creeps,
             &mut tw.pos,
             &tr.cpropertys,
+            &mut tw.facings,
         )
             .par_join()
-            .filter(|(e, creep, p, cp)| true )
+            .filter(|(_e, _creep, _p, _cp, _f)| true )
             .map_init(
                 || {
                     prof_span!(guard, "creep update rayon job");
                     guard
                 },
-                |_guard, (e, creep, pos, cp)| {
+                |_guard, (e, creep, pos, cp, facing)| {
                     let mut outcomes:Vec<Outcome> = Vec::new();
                     if cp.hp <= 0. {
                         outcomes.push(Outcome::Death { pos: pos.0.clone(), ent: e.clone() });
                     } else {
                         if let Some(path) = tr.paths.get(&creep.path) {
-                            if let Some(b) = creep.block_tower {
+                            if let Some(_b) = creep.block_tower {
                                 // 被檔住了
                             } else {
                                 if let Some(p) = path.check_points.get(creep.pidx) {
@@ -76,32 +79,55 @@ impl<'a> System<'a> for Sys {
                                                 "id": e.id(),
                                                 "x": target_point.x,
                                                 "y": target_point.y,
+                                                "facing": facing.0,
                                             })));
                                             next_status = CreepStatus::Walk;
                                         }
                                         CreepStatus::Walk => {
-                                            // Snap threshold must be the per-tick step length (msd*dt),
-                                            // NOT msd itself. The old `distance > msd` condition
-                                            // teleported the final 1-second worth of travel (e.g. 200
-                                            // units at msd=200), making server traversal ~1s faster
-                                            // than `distance/msd` and leaving the client's lerp always
-                                            // one segment behind.
                                             let step = cp.msd * dt;
-                                            if target_point.distance_squared(pos.0) > step * step {
-                                                let mut v = target_point.sub(&pos.0);
-                                                v.normalize();
-                                                v = v * step;
-                                                pos.0 = pos.0 + v;
-                                            } else {
-                                                pos.0 = target_point;
+                                            let diff = target_point.sub(&pos.0);
+                                            let dist_sq = diff.magnitude_squared();
+                                            if dist_sq < 0.01 {
+                                                // 已抵達 waypoint
                                                 creep.pidx += 1;
                                                 if let Some(t) = path.check_points.get(creep.pidx) {
                                                     tx.try_send(OutboundMsg::new_s("td/all/res", "creep", "M", json!({
                                                         "id": e.id(),
                                                         "x": t.pos.x,
                                                         "y": t.pos.y,
+                                                        "facing": facing.0,
                                                     })));
                                                 }
+                                            } else {
+                                                // 先轉向目標
+                                                let desired = diff.y.atan2(diff.x);
+                                                let turn_rate = tr.turn_speeds.get(e)
+                                                    .map(|t| t.0)
+                                                    .unwrap_or(std::f32::consts::FRAC_PI_2);
+                                                facing.0 = rotate_toward(facing.0, desired, turn_rate * dt);
+
+                                                // 角度對齊（<30°）才移動
+                                                let angle_diff = normalize_angle(desired - facing.0).abs();
+                                                if angle_diff < MOVE_ANGLE_THRESHOLD {
+                                                    if dist_sq > step * step {
+                                                        let mut v = diff;
+                                                        v.normalize();
+                                                        v = v * step;
+                                                        pos.0 = pos.0 + v;
+                                                    } else {
+                                                        pos.0 = target_point;
+                                                        creep.pidx += 1;
+                                                        if let Some(t) = path.check_points.get(creep.pidx) {
+                                                            tx.try_send(OutboundMsg::new_s("td/all/res", "creep", "M", json!({
+                                                                "id": e.id(),
+                                                                "x": t.pos.x,
+                                                                "y": t.pos.y,
+                                                                "facing": facing.0,
+                                                            })));
+                                                        }
+                                                    }
+                                                }
+                                                // 角度太大：只轉向、本 tick 不位移
                                             }
                                         }
                                         CreepStatus::Stop => {
@@ -109,7 +135,6 @@ impl<'a> System<'a> for Sys {
                                         }
                                     }
                                     creep.status = next_status;
-                                    
                                 } else {
                                     // creep 到終點了
                                     outcomes.push(Outcome::Death { pos: pos.0, ent: e });

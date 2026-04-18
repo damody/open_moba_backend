@@ -34,6 +34,7 @@ pub mod inventory;
 pub mod item_effects;
 pub mod is_base;
 pub mod bounty;
+pub mod facing;
 
 pub use self::{
     gold::*,
@@ -41,6 +42,7 @@ pub use self::{
     item_effects::*,
     is_base::*,
     bounty::*,
+    facing::*,
     phys::*,
     resources::*,
     state::*,

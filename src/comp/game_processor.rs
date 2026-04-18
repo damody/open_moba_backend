@@ -324,6 +324,8 @@ impl GameProcessor {
             .with(cd.cdata)
             .with(faction)
             .with(bounty)
+            .with(Facing(0.0))
+            .with(TurnSpeed::default())
             .build();
         // Payload shape matches client expectations (top-level position/hp/max_hp)
         let payload = json!({

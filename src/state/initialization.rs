@@ -205,6 +205,8 @@ impl StateInitializer {
         ecs.register::<ItemEffects>();
         ecs.register::<IsBase>();
         ecs.register::<Bounty>();
+        ecs.register::<Facing>();
+        ecs.register::<TurnSpeed>();
     }
 
     fn initialize_resources(ecs: &mut World, _thread_pool: &Arc<ThreadPool>) {
@@ -321,6 +323,8 @@ impl StateInitializer {
                 .with(Gold(0))
                 .with(Inventory::new())
                 .with(ItemEffects::default())
+                .with(Facing(0.0))
+                .with(TurnSpeed::default())
                 .build();
 
             log::info!("創建戰役英雄實體: {:?}（含 Gold/Inventory/ItemEffects）", hero_entity);
