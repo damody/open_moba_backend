@@ -78,10 +78,12 @@
     "Tower": [
         {"Name": "lane_tower",
          "Property": {"Hp": 1500, "Block": 0},
-         "Attack": {"Range": 700, "AttackSpeed": 0.8, "Physic": 55, "Magic": 0}},
+         "Attack": {"Range": 700, "AttackSpeed": 0.8, "Physic": 55, "Magic": 0},
+         "TurnSpeed": 45},
         {"Name": "base_tower",
          "Property": {"Hp": 3500, "Block": 0},
-         "Attack": {"Range": 800, "AttackSpeed": 1.0, "Physic": 80, "Magic": 0}}
+         "Attack": {"Range": 800, "AttackSpeed": 1.0, "Physic": 80, "Magic": 0},
+         "TurnSpeed": 45}
     ],
 
     // 初始塔/基地放置（引用上面 Tower 模板）— 原本寫死在 create_mvp_scene，改為 script 驅動

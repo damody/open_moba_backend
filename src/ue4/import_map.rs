@@ -42,6 +42,9 @@ pub struct CreepJD {
     /// 陣營 "Player" / "Enemy"；預設 Enemy。用於 LoL 式雙方出兵
     #[serde(default)]
     pub Faction: Option<String>,
+    /// 轉速（度/秒），未填用 90
+    #[serde(default)]
+    pub TurnSpeed: Option<f32>,
 }
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct CheckPointJD {
@@ -55,6 +58,9 @@ pub struct TowerJD {
     pub Name: String,
     pub Property: PropertyJD,
     pub Attack: AttackJD,
+    /// 轉速（度/秒），未填用 90
+    #[serde(default)]
+    pub TurnSpeed: Option<f32>,
 }
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct AttackJD {

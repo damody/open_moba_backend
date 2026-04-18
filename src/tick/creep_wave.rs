@@ -70,6 +70,7 @@ impl<'a> System<'a> for Sys {
                                             creep: cpp.clone(),
                                             cdata: cp.property.clone(),
                                             faction_name: cp.faction_name.clone(),
+                                            turn_speed_deg: cp.turn_speed_deg,
                                         };
                                         tw.outcomes.push(Outcome::Creep { cd: cp0 });
                                     }

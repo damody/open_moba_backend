@@ -41,7 +41,10 @@ pub struct HeroJD {
     pub base_hp: i32,
     pub base_mana: i32,
     pub move_speed: f32,
-    
+    /// 轉速（度/秒），未填用 180
+    #[serde(default)]
+    pub turn_speed: Option<f32>,
+
     // 技能引用
     pub abilities: Vec<String>,  // ability IDs
     

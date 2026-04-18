@@ -90,7 +90,12 @@ pub struct CreepData {
     pub cdata: CProperty,     // 小兵屬性資料
     #[serde(default)]
     pub faction_name: String, // "Player" 或 "Enemy"；空視為 "Enemy"
+    /// 轉速（度/秒）；預設 90
+    #[serde(default = "default_creep_turn_speed_deg")]
+    pub turn_speed_deg: f32,
 }
+
+fn default_creep_turn_speed_deg() -> f32 { 90.0 }
 
 /// 塔防建築資料結構
 /// 儲存塔的相關資訊

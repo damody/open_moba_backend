@@ -318,6 +318,7 @@ impl GameProcessor {
             "Player" | "player" => Faction::new(FactionType::Player, 0),
             _ => Faction::new(FactionType::Enemy, 1),
         };
+        let turn_speed_rad = cd.turn_speed_deg.to_radians();
         let e = ecs.create_entity()
             .with(Pos(cd.pos))
             .with(cd.creep)
@@ -325,7 +326,7 @@ impl GameProcessor {
             .with(faction)
             .with(bounty)
             .with(Facing(0.0))
-            .with(TurnSpeed::default())
+            .with(TurnSpeed(turn_speed_rad))
             .build();
         // Payload shape matches client expectations (top-level position/hp/max_hp)
         let payload = json!({

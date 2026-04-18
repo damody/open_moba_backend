@@ -20,7 +20,8 @@
             "base_hp": 580,
             "base_mana": 300,
             "move_speed": 320.0,
-            
+            "turn_speed": 180.0,
+
             // 技能引用
             "abilities": ["sniper_mode", "saika_reinforcements", "rain_iron_cannon", "three_stage_technique"],
             

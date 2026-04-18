@@ -119,6 +119,7 @@ impl StateInitializer {
                     def_magic: cp.DefendMagic
                 },
                 faction_name: cp.Faction.clone().unwrap_or_default(),
+                turn_speed_deg: cp.TurnSpeed.unwrap_or(90.0),
             });
         }
     }
@@ -312,6 +313,7 @@ impl StateInitializer {
                 180.0   // 英雄高度
             ).with_precision(720); // 高精度視野
 
+            let hero_turn_rad = hero_data.turn_speed.unwrap_or(180.0).to_radians();
             let hero_entity = ecs.create_entity()
                 .with(hero_pos)
                 .with(hero_vel)
@@ -324,7 +326,7 @@ impl StateInitializer {
                 .with(Inventory::new())
                 .with(ItemEffects::default())
                 .with(Facing(0.0))
-                .with(TurnSpeed::default())
+                .with(TurnSpeed(hero_turn_rad))
                 .build();
 
             log::info!("創建戰役英雄實體: {:?}（含 Gold/Inventory/ItemEffects）", hero_entity);
@@ -362,6 +364,7 @@ impl StateInitializer {
             } else {
                 1.0
             };
+            let turn_deg = tpl.TurnSpeed.unwrap_or(45.0);
             Self::spawn_tower(
                 ecs,
                 Vec2::new(s.X, s.Y),
@@ -371,6 +374,7 @@ impl StateInitializer {
                 atk,
                 asd,
                 s.IsBase,
+                turn_deg,
             );
         }
         log::info!("已依 map.json 放置 {} 個 Structure", cw.Structures.len());
@@ -385,6 +389,7 @@ impl StateInitializer {
         atk: f32,
         asd: f32,
         is_base: bool,
+        turn_speed_deg: f32,
     ) {
         let prop = TProperty::new(hp, 0, 120.0);
         let atk_c = TAttack::new(atk, asd, range, 1200.0);
@@ -421,7 +426,7 @@ impl StateInitializer {
             .with(vision)
             .with(bounty)
             .with(Facing(0.0))
-            .with(TurnSpeed::default());
+            .with(TurnSpeed(turn_speed_deg.to_radians()));
 
         // 雙方基地都標記 IsBase（前端依此顯示「基地」名稱）；
         // 勝負判定在 handle_death 裡還要檢查 faction，只有敵方基地死亡才觸發玩家勝

@@ -46,7 +46,12 @@ pub struct CreepEmiter {
     pub property: CProperty,
     #[serde(default)]
     pub faction_name: String, // "Player" or "Enemy"，空字串視為 "Enemy"
+    /// 轉速（度/秒）；未指定用 90
+    #[serde(default = "default_turn_speed_deg")]
+    pub turn_speed_deg: f32,
 }
+
+fn default_turn_speed_deg() -> f32 { 90.0 }
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct CurrentCreepWave {
     pub wave: usize,
