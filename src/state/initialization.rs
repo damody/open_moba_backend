@@ -160,7 +160,12 @@ impl StateInitializer {
     /// 創建戰役場景
     pub fn create_campaign_scene(ecs: &mut World, campaign_data: &CampaignData) {
         Self::create_campaign_heroes(ecs, campaign_data);
-        Self::create_training_enemies(ecs, campaign_data);
+        // MVP_1 mode：跳過 training enemies，改用 MVP 場景
+        if campaign_data.mission.campaign.id == "MVP_1" {
+            Self::create_mvp_scene(ecs);
+        } else {
+            Self::create_training_enemies(ecs, campaign_data);
+        }
         Self::create_terrain_blockers(ecs);
         log::info!("創建戰役場景完成: {}", campaign_data.mission.campaign.name);
     }
@@ -193,6 +198,11 @@ impl StateInitializer {
         ecs.register::<Player>();
         ecs.register::<Last<Pos>>();
         ecs.register::<Last<Vel>>();
+        ecs.register::<Gold>();
+        ecs.register::<Inventory>();
+        ecs.register::<ItemEffects>();
+        ecs.register::<IsBase>();
+        ecs.register::<Bounty>();
     }
 
     fn initialize_resources(ecs: &mut World, _thread_pool: &Arc<ThreadPool>) {
@@ -228,6 +238,14 @@ impl StateInitializer {
         
         // 初始化 Searcher 資源
         ecs.insert(crate::comp::outcome::Searcher::default());
+
+        // 載入裝備 Registry (MVP LoL item system)
+        let item_reg = crate::item::ItemRegistry::load_from_path("item-configs/items.json")
+            .unwrap_or_else(|e| {
+                log::warn!("裝備 Registry 載入失敗（{}），使用空 registry", e);
+                crate::item::ItemRegistry::default()
+            });
+        ecs.insert(item_reg);
 
         log::info!("ECS 基本資源初始化完成");
     }
@@ -298,10 +316,74 @@ impl StateInitializer {
                 .with(hero_properties)
                 .with(hero_attack)
                 .with(hero_vision)
+                .with(Gold(0))
+                .with(Inventory::new())
+                .with(ItemEffects::default())
                 .build();
 
-            log::info!("創建戰役英雄實體: {:?}", hero_entity);
+            log::info!("創建戰役英雄實體: {:?}（含 Gold/Inventory/ItemEffects）", hero_entity);
         }
+    }
+
+    /// MVP_1 場景：放置敵方塔與敵方基地
+    pub fn create_mvp_scene(ecs: &mut World) {
+        use specs::Builder;
+
+        // 敵方塔 1
+        Self::spawn_enemy_tower(ecs, Vec2::new(1500.0, 0.0), 1500.0, 700.0, 55.0, 0.8, false);
+        // 敵方塔 2
+        Self::spawn_enemy_tower(ecs, Vec2::new(1950.0, 0.0), 1500.0, 700.0, 55.0, 0.8, false);
+        // 敵方基地（IsBase 標記，擊毀後判定勝負）
+        Self::spawn_enemy_tower(ecs, Vec2::new(2400.0, 0.0), 3500.0, 800.0, 80.0, 1.0, true);
+
+        log::info!("MVP_1 場景已建立：2 敵塔 + 1 敵方基地");
+    }
+
+    fn spawn_enemy_tower(
+        ecs: &mut World,
+        pos: Vec2<f32>,
+        hp: f32,
+        range: f32,
+        atk: f32,
+        asd: f32,
+        is_base: bool,
+    ) {
+        let prop = TProperty::new(hp, 0, 120.0);
+        let atk_c = TAttack::new(atk, asd, range, 1200.0);
+        let faction = Faction::new(FactionType::Enemy, 1);
+        let vision = CircularVision::new(range + 200.0, 40.0).with_precision(180);
+        // 傷害處理讀 CProperty.hp，所以敵塔也要有 CProperty（MVP 簡化：雙屬性並存）
+        let cprop = CProperty {
+            hp,
+            mhp: hp,
+            msd: 0.0,
+            def_physic: 0.0,
+            def_magic: 0.0,
+        };
+
+        // 擊毀獎勵：一般塔 150g / 200xp；基地 300g / 500xp
+        let bounty = if is_base {
+            Bounty { gold: 300, exp: 500 }
+        } else {
+            Bounty { gold: 150, exp: 200 }
+        };
+
+        let mut builder = ecs
+            .create_entity()
+            .with(Pos(pos))
+            .with(Tower::new())
+            .with(prop)
+            .with(cprop)
+            .with(atk_c)
+            .with(faction)
+            .with(vision)
+            .with(bounty);
+
+        if is_base {
+            builder = builder.with(IsBase);
+        }
+        let e = builder.build();
+        log::info!("敵方{}已生成於 ({:.0}, {:.0}) entity={:?}", if is_base { "基地" } else { "塔" }, pos.x, pos.y, e);
     }
 
     fn create_training_enemies(ecs: &mut World, campaign_data: &CampaignData) {
