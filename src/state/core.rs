@@ -268,6 +268,8 @@ impl State {
         let towers = self.ecs.read_storage::<Tower>();
         let positions = self.ecs.read_storage::<Pos>();
         let properties = self.ecs.read_storage::<CProperty>();
+        let factions = self.ecs.read_storage::<Faction>();
+        let is_bases = self.ecs.read_storage::<IsBase>();
         let paths = self.ecs.try_fetch::<BTreeMap<String, Path>>();
 
         // Pre-collect the world's broadcastable entities once.
@@ -330,7 +332,9 @@ impl State {
                     Kind::Tower => {
                         let Some(t) = towers.get(e) else { continue };
                         let Some(p) = positions.get(e) else { continue };
-                        ("tower", build_tower_payload(e, t, p, prop))
+                        let f = factions.get(e);
+                        let is_base = is_bases.get(e).is_some();
+                        ("tower", build_tower_payload(e, t, p, prop, f, is_base))
                     }
                 };
                 let _ = self.mqtx.send(OutboundMsg::new_s_at(
@@ -634,7 +638,7 @@ impl State {
             log::info!("已發送 {} 個小兵波初始化資料到 MQTT", creep_waves.len());
         }
         
-        // 發送塔實體資料（如敵方基地、預置塔）
+        // 發送塔實體資料（含玩家 & 敵方的塔 / 基地）
         {
             let entities = self.ecs.entities();
             let towers = self.ecs.read_storage::<Tower>();
@@ -642,17 +646,28 @@ impl State {
             let props = self.ecs.read_storage::<TProperty>();
             let atks = self.ecs.read_storage::<TAttack>();
             let is_bases = self.ecs.read_storage::<IsBase>();
+            let factions = self.ecs.read_storage::<Faction>();
             use specs::Join;
             for (entity, _, pos) in (&entities, &towers, &positions).join() {
                 let hp = props.get(entity).map(|p| p.hp.v).unwrap_or(0.0);
+                let is_base = is_bases.get(entity).is_some();
+                let is_enemy = factions.get(entity)
+                    .map(|f| f.faction_id == FactionType::Enemy)
+                    .unwrap_or(false);
+                let name = match (is_enemy, is_base) {
+                    (true,  true)  => "敵方基地",
+                    (true,  false) => "敵方塔",
+                    (false, true)  => "我方基地",
+                    (false, false) => "我方塔",
+                };
                 let payload = json!({
                     "id": entity.id(),
                     "entity_id": entity.id(),
-                    "name": if is_bases.get(entity).is_some() { "敵方基地" } else { "敵方塔" },
+                    "name": name,
                     "position": {"x": pos.0.x, "y": pos.0.y},
                     "hp": hp,
                     "max_hp": hp,
-                    "is_base": is_bases.get(entity).is_some(),
+                    "is_base": is_base,
                 });
                 let _ = self.mqtx.send(OutboundMsg::new_s_at(
                     "td/all/res", "tower", "create", payload, pos.0.x, pos.0.y,
@@ -763,14 +778,25 @@ fn build_tower_payload(
     _tower: &Tower,
     pos: &Pos,
     prop: Option<&CProperty>,
+    faction: Option<&Faction>,
+    is_base: bool,
 ) -> serde_json::Value {
     let (hp, mhp) = prop.map(|p| (p.hp, p.mhp)).unwrap_or((100.0, 100.0));
+    let is_enemy = faction.map(|f| f.faction_id == FactionType::Enemy).unwrap_or(false);
+    let name = match (is_enemy, is_base) {
+        (true,  true)  => "敵方基地",
+        (true,  false) => "敵方塔",
+        (false, true)  => "我方基地",
+        (false, false) => "我方塔",
+    };
     serde_json::json!({
         "entity_id": entity.id(),
         "id": entity.id(),
+        "name": name,
         "position": { "x": pos.0.x, "y": pos.0.y },
         "hp": hp,
         "max_hp": mhp,
+        "is_base": is_base,
     })
 }
 
