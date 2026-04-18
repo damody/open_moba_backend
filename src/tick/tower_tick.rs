@@ -19,6 +19,7 @@ pub struct TowerRead<'a> {
     dt: Read<'a, DeltaTime>,
     pos : ReadStorage<'a, Pos>,
     searcher : Read<'a, Searcher>,
+    factions: ReadStorage<'a, Faction>,
 }
 
 #[derive(SystemData)]
@@ -95,19 +96,36 @@ impl<'a> System<'a> for Sys {
                         let time2 = Instant::now();
                         let elpsed = time2.duration_since(time1);
                         if elpsed.as_secs_f32() < 0.05 {
-                            let search_n = 1.max(pty.mblock) as usize;
-                            let (creeps, near_creeps) = 
+                            let search_n = 1.max(pty.mblock).max(6) as usize;
+                            let (creeps, near_creeps) =
                                 tr.searcher.creep.SearchNN_XY2(pos.0, atk.range.val(), atk.range.val()+30., search_n);
-                            if creeps.len() > 0 {
-                                // 如果需要阻檔的話才要記錄最近的單位
+
+                            // faction filter：若本塔有 Faction，則只攻擊敵對 creep
+                            let my_faction = tr.factions.get(e);
+                            let hostile_creeps: Vec<_> = creeps
+                                .iter()
+                                .filter(|ci| match (my_faction, tr.factions.get(ci.e)) {
+                                    (Some(mf), Some(tf)) => mf.is_hostile_to(tf),
+                                    // 無 Faction 的塔（玩家建的防禦塔）沿用舊行為，攻擊所有 creep
+                                    (None, _) => true,
+                                    // 目標無 Faction（舊資料）沿用舊行為
+                                    (_, None) => true,
+                                })
+                                .collect();
+
+                            if !hostile_creeps.is_empty() {
                                 if pty.mblock > 0 {
                                     tower.nearby_creeps.clear();
-                                    for e in creeps.iter() {
-                                        tower.nearby_creeps.push(NearbyEnt { ent: e.e, dis: e.dis });
+                                    for c in hostile_creeps.iter() {
+                                        tower.nearby_creeps.push(NearbyEnt { ent: c.e, dis: c.dis });
                                     }
                                 }
                                 atk.asd_count -= atk.asd.val();
-                                outcomes.push(Outcome::ProjectileLine2 { pos: pos.0.clone(), source: Some(e.clone()), target: Some(creeps[0].e) });
+                                outcomes.push(Outcome::ProjectileLine2 {
+                                    pos: pos.0.clone(),
+                                    source: Some(e.clone()),
+                                    target: Some(hostile_creeps[0].e),
+                                });
                             } else {
                                 if near_creeps.len() == 0 {
                                     atk.asd_count = atk.asd.val() - 0.3 - fastrand::u8(..) as f32 * 0.001;
