@@ -23,6 +23,9 @@ pub struct CreepJD {
     pub DefendPhysic: f32,
     pub DefendMagic: f32,
     pub MoveSpeed: f32,
+    /// 陣營 "Player" / "Enemy"；預設 Enemy。用於 LoL 式雙方出兵
+    #[serde(default)]
+    pub Faction: Option<String>,
 }
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct CheckPointJD {

@@ -117,7 +117,8 @@ impl StateInitializer {
                     msd: cp.MoveSpeed,
                     def_physic: cp.DefendPhysic,
                     def_magic: cp.DefendMagic
-                }
+                },
+                faction_name: cp.Faction.clone().unwrap_or_default(),
             });
         }
     }
@@ -325,23 +326,39 @@ impl StateInitializer {
         }
     }
 
-    /// MVP_1 場景：放置敵方塔與敵方基地
+    /// MVP_1 場景（LoL 風格單線）
+    ///
+    /// 位置布局（左下 → 右上對角，像 LoL 下路或上路）：
+    /// ```text
+    ///                                              敵方基地 (2400, 2400)
+    ///                                        敵方塔 (1950, 1950)
+    ///                                  敵方塔 (1500, 1500)
+    ///                            -- 中線 --
+    ///                      我方塔 (900, 900)
+    ///                 我方塔 (500, 500)
+    ///         我方基地 (0, 0)（hero spawn）
+    /// ```
     pub fn create_mvp_scene(ecs: &mut World) {
         use specs::Builder;
 
-        // 敵方塔 1
-        Self::spawn_enemy_tower(ecs, Vec2::new(1500.0, 0.0), 1500.0, 700.0, 55.0, 0.8, false);
-        // 敵方塔 2
-        Self::spawn_enemy_tower(ecs, Vec2::new(1950.0, 0.0), 1500.0, 700.0, 55.0, 0.8, false);
-        // 敵方基地（IsBase 標記，擊毀後判定勝負）
-        Self::spawn_enemy_tower(ecs, Vec2::new(2400.0, 0.0), 3500.0, 800.0, 80.0, 1.0, true);
+        // 我方基地
+        Self::spawn_tower(ecs, Vec2::new(0.0, 0.0), FactionType::Player, 3500.0, 800.0, 80.0, 1.0, true);
+        // 我方塔 1 / 2（對角前推）
+        Self::spawn_tower(ecs, Vec2::new(500.0, 500.0), FactionType::Player, 1500.0, 700.0, 55.0, 0.8, false);
+        Self::spawn_tower(ecs, Vec2::new(900.0, 900.0), FactionType::Player, 1500.0, 700.0, 55.0, 0.8, false);
+        // 敵方塔 1 / 2
+        Self::spawn_tower(ecs, Vec2::new(1500.0, 1500.0), FactionType::Enemy, 1500.0, 700.0, 55.0, 0.8, false);
+        Self::spawn_tower(ecs, Vec2::new(1950.0, 1950.0), FactionType::Enemy, 1500.0, 700.0, 55.0, 0.8, false);
+        // 敵方基地（IsBase；擊毀判定勝負）
+        Self::spawn_tower(ecs, Vec2::new(2400.0, 2400.0), FactionType::Enemy, 3500.0, 800.0, 80.0, 1.0, true);
 
-        log::info!("MVP_1 場景已建立：2 敵塔 + 1 敵方基地");
+        log::info!("MVP_1 場景已建立：1 我方基地 + 2 我方塔 + 2 敵方塔 + 1 敵方基地（對角左下→右上）");
     }
 
-    fn spawn_enemy_tower(
+    fn spawn_tower(
         ecs: &mut World,
         pos: Vec2<f32>,
+        faction_type: FactionType,
         hp: f32,
         range: f32,
         atk: f32,
@@ -350,9 +367,11 @@ impl StateInitializer {
     ) {
         let prop = TProperty::new(hp, 0, 120.0);
         let atk_c = TAttack::new(atk, asd, range, 1200.0);
-        let faction = Faction::new(FactionType::Enemy, 1);
+        // Team id 0 for Player, 1 for Enemy (matches create_campaign_heroes convention)
+        let team_id = if faction_type == FactionType::Player { 0 } else { 1 };
+        let faction = Faction::new(faction_type.clone(), team_id);
         let vision = CircularVision::new(range + 200.0, 40.0).with_precision(180);
-        // 傷害處理讀 CProperty.hp，所以敵塔也要有 CProperty（MVP 簡化：雙屬性並存）
+        // 傷害處理讀 CProperty.hp，所以塔也要有 CProperty
         let cprop = CProperty {
             hp,
             mhp: hp,
@@ -361,8 +380,10 @@ impl StateInitializer {
             def_magic: 0.0,
         };
 
-        // 擊毀獎勵：一般塔 150g / 200xp；基地 300g / 500xp
-        let bounty = if is_base {
+        // 擊毀獎勵：一般塔 150g / 200xp；基地 300g / 500xp；我方被擊毀不給獎勵
+        let bounty = if faction_type == FactionType::Player {
+            Bounty { gold: 0, exp: 0 }
+        } else if is_base {
             Bounty { gold: 300, exp: 500 }
         } else {
             Bounty { gold: 150, exp: 200 }
@@ -379,11 +400,15 @@ impl StateInitializer {
             .with(vision)
             .with(bounty);
 
+        // 雙方基地都標記 IsBase（前端依此顯示「基地」名稱）；
+        // 勝負判定在 handle_death 裡還要檢查 faction，只有敵方基地死亡才觸發玩家勝
         if is_base {
             builder = builder.with(IsBase);
         }
         let e = builder.build();
-        log::info!("敵方{}已生成於 ({:.0}, {:.0}) entity={:?}", if is_base { "基地" } else { "塔" }, pos.x, pos.y, e);
+        let side = if faction_type == FactionType::Player { "我方" } else { "敵方" };
+        log::info!("{}{}已生成於 ({:.0}, {:.0}) entity={:?}",
+            side, if is_base { "基地" } else { "塔" }, pos.x, pos.y, e);
     }
 
     fn create_training_enemies(ecs: &mut World, campaign_data: &CampaignData) {

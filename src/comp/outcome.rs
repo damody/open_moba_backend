@@ -88,6 +88,8 @@ pub struct CreepData {
     pub pos: Vec2<f32>,      // 小兵位置
     pub creep: Creep,         // 小兵基本資料
     pub cdata: CProperty,     // 小兵屬性資料
+    #[serde(default)]
+    pub faction_name: String, // "Player" 或 "Enemy"；空視為 "Enemy"
 }
 
 /// 塔防建築資料結構

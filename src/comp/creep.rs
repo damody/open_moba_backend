@@ -44,6 +44,8 @@ impl Component for CProperty {
 pub struct CreepEmiter {
     pub root: Creep,
     pub property: CProperty,
+    #[serde(default)]
+    pub faction_name: String, // "Player" or "Enemy"，空字串視為 "Enemy"
 }
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct CurrentCreepWave {

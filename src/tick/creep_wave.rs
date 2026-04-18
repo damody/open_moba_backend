@@ -69,6 +69,7 @@ impl<'a> System<'a> for Sys {
                                             pos: ct.pos.clone(),
                                             creep: cpp.clone(),
                                             cdata: cp.property.clone(),
+                                            faction_name: cp.faction_name.clone(),
                                         };
                                         tw.outcomes.push(Outcome::Creep { cd: cp0 });
                                     }

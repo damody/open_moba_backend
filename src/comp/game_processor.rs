@@ -290,10 +290,15 @@ impl GameProcessor {
             "melee_minion" => Bounty { gold: 18, exp: 55 },
             "ranged_minion" => Bounty { gold: 15, exp: 45 },
             "siege_minion" => Bounty { gold: 40, exp: 110 },
+            // 我方 creep 死亡不給 bounty
+            n if n.starts_with("ally_") => Bounty { gold: 0, exp: 0 },
             _ => Bounty { gold: 10, exp: 25 },
         };
-        // 敵方 creep（朝玩家方向推進），faction 設為 Enemy
-        let faction = Faction::new(FactionType::Enemy, 1);
+        // 陣營：依 CreepData.faction_name 決定，空字串 → Enemy（舊 map 相容）
+        let faction = match cd.faction_name.as_str() {
+            "Player" | "player" => Faction::new(FactionType::Player, 0),
+            _ => Faction::new(FactionType::Enemy, 1),
+        };
         let e = ecs.create_entity()
             .with(Pos(cd.pos))
             .with(cd.creep)
