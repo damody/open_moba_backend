@@ -29,8 +29,18 @@ pub mod circular_vision;
 pub mod circular_vision_refactored;
 pub mod vision;
 pub mod outcome_system;
+pub mod gold;
+pub mod inventory;
+pub mod item_effects;
+pub mod is_base;
+pub mod bounty;
 
 pub use self::{
+    gold::*,
+    inventory::*,
+    item_effects::*,
+    is_base::*,
+    bounty::*,
     phys::*,
     resources::*,
     state::*,
