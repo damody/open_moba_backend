@@ -121,31 +121,16 @@ impl<'a> System<'a> for Sys {
                             if let Some(hero_faction) = hero_faction_map.get(&e) {
                                 for target_info in potential_targets.iter() {
                                     let target_distance_squared = target_info.dis;
-                                    let target_distance = target_distance_squared.sqrt();
-                                    
-                                    log::info!("{} 檢查目標 {}：距離 {:.0} (平方: {:.0}), 攻擊範圍: {:.0} (平方: {:.0})", 
-                                        hero_name, target_info.e.id(), target_distance, target_distance_squared, 
-                                        attack_range, attack_range_squared);
-                                    
+
                                     // 首先檢查距離是否在攻擊範圍內
                                     if target_info.dis <= attack_range_squared {
                                         if let Some(target_faction) = tr.factions.get(target_info.e) {
-                                            // 檢查是否為敵對陣營
-                                            let is_hostile = hero_faction.is_hostile_to(target_faction);
-                                            
-                                            if is_hostile {
-                                                log::info!("{} 目標 {} 通過敵友判斷，加入有效目標", hero_name, target_info.e.id());
+                                            // 嚴格敵友判定：只有 is_hostile_to = true 才算敵對
+                                            if hero_faction.is_hostile_to(target_faction) {
                                                 valid_targets.push(target_info);
-                                            } else {
-                                                log::info!("{} 目標 {} 不是敵對陣營，跳過", hero_name, target_info.e.id());
                                             }
-                                        } else {
-                                            log::info!("{} 目標 {} 沒有陣營組件，默認可攻擊", hero_name, target_info.e.id());
-                                            // 沒有陣營組件的目標默認可攻擊（向後兼容舊系統）
-                                            valid_targets.push(target_info);
                                         }
-                                    } else {
-                                        log::info!("{} 目標 {} 距離超出攻擊範圍，跳過", hero_name, target_info.e.id());
+                                        // 無 Faction → 不攻擊（安全預設，避免誤擊我方單位）
                                     }
                                 }
                             } else {

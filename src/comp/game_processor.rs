@@ -70,8 +70,16 @@ impl GameProcessor {
         mqtx: &crossbeam_channel::Sender<OutboundMsg>,
         entity: Entity
     ) -> Result<(), Error> {
-        // 先判定 IsBase（基地被擊毀 → 觸發勝負事件）
-        let is_base = ecs.read_storage::<IsBase>().get(entity).is_some();
+        // 只有敵方基地死亡才算玩家勝（我方基地雖有 IsBase，不觸發勝負）
+        let is_enemy_base = {
+            let is_bases = ecs.read_storage::<IsBase>();
+            let factions = ecs.read_storage::<Faction>();
+            is_bases.get(entity).is_some()
+                && factions
+                    .get(entity)
+                    .map(|f| f.faction_id == FactionType::Enemy)
+                    .unwrap_or(false)
+        };
 
         // 若死者有 Bounty → 將金錢/經驗分給最近的友方英雄
         Self::distribute_bounty(ecs, next_outcomes, mqtx, entity);
@@ -105,9 +113,9 @@ impl GameProcessor {
             mqtx.send(OutboundMsg::new_s("td/all/res", entity_type, "D", json!({"id": entity.id()})));
         }
 
-        if is_base {
+        if is_enemy_base {
             // 敵方基地被擊毀 → 玩家勝利
-            log::info!("🏆 IsBase entity {:?} destroyed — emitting game.end", entity);
+            log::info!("🏆 敵方基地 entity {:?} destroyed — emitting game.end", entity);
             mqtx.send(OutboundMsg::new_s(
                 "td/all/res",
                 "game",
@@ -134,7 +142,10 @@ impl GameProcessor {
             Some(p) => p,
             None => return,
         };
-        // 找出最近的友方（Player faction）英雄
+        // 取出死者陣營（用於敵友判定，避免誤給自己人死亡獎勵）
+        let dead_faction = ecs.read_storage::<Faction>().get(dead).cloned();
+
+        // 找出最近、與死者敵對的 Player 英雄
         let (hero_e, _) = {
             let entities = ecs.entities();
             let heroes = ecs.read_storage::<Hero>();
@@ -145,6 +156,11 @@ impl GameProcessor {
             for (e, _h, f, p) in (&entities, &heroes, &factions, &positions).join() {
                 if f.faction_id != FactionType::Player {
                     continue;
+                }
+                if let Some(ref df) = dead_faction {
+                    if !f.is_hostile_to(df) {
+                        continue; // 同隊死亡不給賞金
+                    }
                 }
                 let d2 = (p.0 - dead_pos).magnitude_squared();
                 if d2 > 1200.0 * 1200.0 {
