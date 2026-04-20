@@ -322,7 +322,7 @@ impl StateInitializer {
                 .with(hero_properties)
                 .with(hero_attack)
                 .with(hero_vision)
-                .with(Gold(0))
+                .with(Gold(10000))
                 .with(Inventory::new())
                 .with(ItemEffects::default())
                 .with(Facing(0.0))
