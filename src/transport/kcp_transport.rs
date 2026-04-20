@@ -85,9 +85,38 @@ pub async fn start(
             .build()
             .unwrap();
         rt.block_on(async move {
-            loop {
-                match out_rx.recv() {
-                    Ok(msg) => {
+            // ===== 100ms Batch Send =====
+            // 把 out_rx 的訊息彙整成 100ms window 的批次，一起寫入 KCP，降低 per-message overhead。
+            // Client 端協定不變：仍是一個 framed GameEvent 一幀，這邊只是把多幀一次寫入。
+            use std::time::{Duration, Instant};
+            const BATCH_WINDOW: Duration = Duration::from_millis(100);
+            'outer: loop {
+                // 等第一筆訊息（阻塞）
+                let first = match out_rx.recv() {
+                    Ok(m) => m,
+                    Err(_) => {
+                        info!("Outbound channel closed, stopping KCP broadcaster");
+                        break 'outer;
+                    }
+                };
+                let mut batch: Vec<crate::transport::OutboundMsg> = vec![first];
+                let window_start = Instant::now();
+                // 在 100ms 內盡量多收
+                loop {
+                    let elapsed = window_start.elapsed();
+                    if elapsed >= BATCH_WINDOW {
+                        break;
+                    }
+                    match out_rx.recv_timeout(BATCH_WINDOW - elapsed) {
+                        Ok(m) => batch.push(m),
+                        Err(crossbeam_channel::RecvTimeoutError::Timeout) => break,
+                        Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break 'outer,
+                    }
+                }
+
+                // 處理整個批次
+                for msg in batch {
+                    {
                         // Parse the msg JSON to extract t, a, d fields
                         let (msg_type, action, data_bytes) = if let Ok(parsed) =
                             serde_json::from_str::<serde_json::Value>(&msg.msg)
@@ -161,10 +190,6 @@ pub async fn start(
                                 info!("Removed disconnected KCP session: {}", id);
                             }
                         }
-                    }
-                    Err(_) => {
-                        info!("Outbound channel closed, stopping KCP broadcaster");
-                        break;
                     }
                 }
             }

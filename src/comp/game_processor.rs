@@ -254,7 +254,7 @@ impl GameProcessor {
         };
         
         // 命中由 projectile_tick 的距離判定決定（target 接近時 step >= dist 即命中）。
-        // time_left 只當「目標消失／逃得太遠」時的安全閥，預期飛行時間 x 3 + 1s。
+        // time_left 為安全閥：flight_time_s * 3 + 3 秒，允許高速單位拖著子彈移動。
         let move_speed = msd as f32;
         let initial_dist = (p2 - pos).magnitude();
         let flight_time_s: f32 = if move_speed > 0.0 {
@@ -262,7 +262,7 @@ impl GameProcessor {
         } else {
             0.01
         };
-        let safety_time_left = flight_time_s * 3.0 + 1.0;
+        let safety_time_left = flight_time_s * 3.0 + 3.0;
 
         let ntarget = target_entity.id();
         let e = ecs.create_entity()
