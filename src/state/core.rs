@@ -593,6 +593,32 @@ impl State {
                     "td/all/res", "hero", "stats", stats_payload, pos.0.x, pos.0.y,
                 ));
                 log::info!("已發送英雄 '{}' 初始化資料到 MQTT", hero.name);
+
+                // 廣播 4 個技能的完整定義（名稱/描述/per-level 數值）給前端做 tooltip
+                if let Some(campaign) = &self.campaign {
+                    let slot_keys = ["W", "E", "R", "T"];
+                    let mut abilities_arr: Vec<serde_json::Value> = Vec::new();
+                    for (slot_idx, ability_id) in hero.abilities.iter().enumerate().take(4) {
+                        if let Some(a) = campaign.ability.abilities.get(ability_id) {
+                            abilities_arr.push(json!({
+                                "id": a.id,
+                                "name": a.name,
+                                "description": a.description,
+                                "key_binding": slot_keys[slot_idx],
+                                "max_level": a.cooldown.len().max(1) as i32,
+                                "cooldown": a.cooldown,
+                                "mana_cost": a.mana_cost,
+                                "cast_range": a.cast_range,
+                                "effects": a.effects,
+                            }));
+                        }
+                    }
+                    let payload = json!({ "abilities": abilities_arr });
+                    let _ = self.mqtx.send(OutboundMsg::new_s_at(
+                        "td/all/res", "hero", "abilities_info", payload, pos.0.x, pos.0.y,
+                    ));
+                    log::info!("已發送 {} 個技能詳細資訊", hero.abilities.len());
+                }
             }
         }
 
