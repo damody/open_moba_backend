@@ -284,10 +284,13 @@ impl ResourceManager {
 
     fn slot_to_index(slot: &str) -> Option<usize> {
         match slot {
-            "Q" | "q" | "0" => Some(0),
-            "W" | "w" | "1" => Some(1),
-            "E" | "e" | "2" => Some(2),
-            "R" | "r" | "3" => Some(3),
+            // 新版快捷鍵 W/E/R/T（slot 0/1/2/3）
+            "W" | "w" | "0" => Some(0),
+            "E" | "e" | "1" => Some(1),
+            "R" | "r" | "2" => Some(2),
+            "T" | "t" | "3" => Some(3),
+            // 向下相容：舊版 Q/W/E/R 仍接受（用於測試舊 client）
+            "Q" | "q" => Some(0),
             _ => None,
         }
     }
