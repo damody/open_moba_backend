@@ -103,6 +103,40 @@ pub fn blocker_circles_for_polygon(poly: &[Vec2<f32>]) -> Vec<(Vec2<f32>, f32)> 
             }
         }
     }
+
+    // 3. 頂點角落圓：沿內角平分線偏移，填補邊緣取樣跳過端點造成的角落空洞
+    //    位移距離 d = SMALL_R / sin(θ/2) 讓圓內切兩條相鄰邊；cap 避免銳角爆炸
+    for i in 0..n {
+        let v = poly[i];
+        let prev = poly[(i + n - 1) % n];
+        let next = poly[(i + 1) % n];
+        let pv_len = (v - prev).magnitude();
+        let vn_len = (next - v).magnitude();
+        if pv_len < f32::EPSILON || vn_len < f32::EPSILON { continue; }
+        let u = (v - prev) / pv_len;           // 從 prev 指向 V
+        let w = (next - v) / vn_len;           // 從 V 指向 next
+        // 內角 θ：cos(θ) = -u·w  ⇒  sin(θ/2) = sqrt((1 + u·w)/2)
+        let dot = u.x * w.x + u.y * w.y;
+        let half = ((1.0 + dot) * 0.5).max(0.01); // 避免 ÷0（極銳角）
+        let s = half.sqrt();
+        let d = (BLOCKER_SMALL_RADIUS / s).min(BLOCKER_SMALL_RADIUS * 2.5);
+        // 內角平分線 = 兩條邊左法線之和的方向
+        let n_u = Vec2::new(-u.y, u.x);
+        let n_w = Vec2::new(-w.y, w.x);
+        let bi = n_u + n_w;
+        let bi_len = bi.magnitude();
+        if bi_len < f32::EPSILON { continue; } // 兩邊共線（180° 頂點）
+        let bisector = bi / bi_len;
+        let cand_a = v + bisector * d;
+        let cand_b = v - bisector * d;
+        let center = if point_in_polygon(cand_a, poly) { cand_a }
+                     else if point_in_polygon(cand_b, poly) { cand_b }
+                     else { continue };
+        let eff_r = min_edge_dist(center, poly).min(BLOCKER_SMALL_RADIUS);
+        if eff_r > 2.0 {
+            out.push((center, eff_r));
+        }
+    }
     out
 }
 
@@ -194,6 +228,40 @@ mod tests {
             .filter(|(_, r)| (*r - BLOCKER_BIG_RADIUS).abs() < 0.01)
             .count();
         assert!(big_count >= 4, "expected ≥4 big circles for 300x300, got {}", big_count);
+    }
+
+    /// 一個銳角三角形（最銳角約 30°），驗證銳角頂點仍會被 corner 圓覆蓋
+    fn acute_triangle() -> Vec<Vec2<f32>> {
+        vec![
+            Vec2::new(0.0, 0.0),
+            Vec2::new(400.0, 0.0),
+            Vec2::new(50.0, 200.0), // 銳角頂點
+        ]
+    }
+
+    #[test]
+    fn corner_blocks_hero() {
+        // 英雄 (r=30) 站在 polygon 內角附近應該與某 blocker 圓重疊（collision）
+        // 這是這次用戶回報「頂點處穿透」的 regression test
+        for (poly, hero) in [
+            (square_100(), Vec2::new(3.0_f32, 3.0)),
+            (square_100(), Vec2::new(97.0_f32, 3.0)),
+            (rect_300(), Vec2::new(5.0_f32, 5.0)),
+            (rect_300(), Vec2::new(295.0_f32, 5.0)),
+            (rect_300(), Vec2::new(5.0_f32, 295.0)),
+            (rect_300(), Vec2::new(295.0_f32, 295.0)),
+            (acute_triangle(), Vec2::new(55.0_f32, 195.0)), // 近銳角頂點
+        ] {
+            let circles = blocker_circles_for_polygon(&poly);
+            let hero_r = 30.0_f32;
+            let hit = circles.iter().any(|(c, r)| {
+                let d2 = (*c - hero).magnitude_squared();
+                let touch = hero_r + r;
+                d2 < touch * touch
+            });
+            assert!(hit, "hero @({},{}) 在角落沒碰到任何 blocker (circles={})",
+                hero.x, hero.y, circles.len());
+        }
     }
 
     #[test]
