@@ -19,6 +19,7 @@ pub struct NearbyRead<'a> {
     time: Read<'a, Time>,
     creeps : ReadStorage<'a, Creep>,
     units : ReadStorage<'a, Unit>,
+    heroes : ReadStorage<'a, Hero>,
     pos : ReadStorage<'a, Pos>,
 }
 
@@ -126,8 +127,50 @@ impl<'a> System<'a> for Sys {
             
             tw.searcher.creep.xpos.voracious_mt_sort(4);
             tw.searcher.creep.ypos.voracious_mt_sort(4);
-            
+
             log::debug!("Updated searcher index: {} units, {} creeps", unit_ents.len(), creep_ents.len());
+        }
+        {// hero update — 每 tick 重建（英雄會移動）
+            let (hero_ents, hero_pos) = (
+                &tr.entities,
+                &tr.pos,
+                &tr.heroes,
+            )
+                .par_join()
+                .map_init(
+                    || {
+                        prof_span!(guard, "hero nearby update rayon job");
+                        guard
+                    },
+                    |_guard, (ent, pos, _)| {
+                        (vec![ent], vec![*pos])
+                    },
+                )
+                .fold(
+                    || (Vec::new(), Vec::new()),
+                    |(mut ents, mut pos), (mut u, mut p)| {
+                        ents.append(&mut u);
+                        pos.append(&mut p);
+                        (ents, pos)
+                    },
+                )
+                .reduce(
+                    || (Vec::new(), Vec::new()),
+                    |(mut ents, mut pos), (mut u, mut p)| {
+                        ents.append(&mut u);
+                        pos.append(&mut p);
+                        (ents, pos)
+                    },
+                );
+
+            tw.searcher.hero.xpos.clear();
+            tw.searcher.hero.ypos.clear();
+            for (i, p) in hero_pos.iter().enumerate() {
+                tw.searcher.hero.xpos.push(PosXIndex { e: hero_ents[i], p: p.0.clone() });
+                tw.searcher.hero.ypos.push(PosYIndex { e: hero_ents[i], p: p.0.clone() });
+            }
+            tw.searcher.hero.xpos.voracious_mt_sort(4);
+            tw.searcher.hero.ypos.voracious_mt_sort(4);
         }
         if tw.searcher.tower.needsort {
             let (ents, pos) = (

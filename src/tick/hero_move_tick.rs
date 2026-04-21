@@ -6,8 +6,8 @@ use vek::*;
 use serde_json::json;
 
 use crate::comp::*;
+use crate::comp::phys::MAX_COLLISION_RADIUS;
 use crate::transport::OutboundMsg;
-use crate::util::geometry::circle_hits_polygon;
 
 #[derive(SystemData)]
 pub struct HeroMoveRead<'a> {
@@ -17,7 +17,7 @@ pub struct HeroMoveRead<'a> {
     propertys: ReadStorage<'a, CProperty>,
     turn_speeds: ReadStorage<'a, TurnSpeed>,
     radii: ReadStorage<'a, CollisionRadius>,
-    regions: Read<'a, BlockedRegions>,
+    searcher: Read<'a, Searcher>,
 }
 
 #[derive(SystemData)]
@@ -31,22 +31,39 @@ pub struct HeroMoveWrite<'a> {
 #[derive(Default)]
 pub struct Sys;
 
-/// 檢查若單位移動到 `new_center` 是否會撞進任何 blocked region。
-fn hits_any(new_center: Vec2<f32>, radius: f32, regions: &BlockedRegions) -> bool {
-    regions
-        .0
-        .iter()
-        .any(|r| circle_hits_polygon(new_center, radius, &r.points))
+/// 檢查若單位移動到 `new_center` 是否會撞進任何其他有 CollisionRadius 的實體。
+/// Region 阻擋透過 blocker entities 一起走 Searcher 查詢，不再需要 polygon 測試。
+fn hits_any(
+    new_center: Vec2<f32>,
+    radius: f32,
+    searcher: &Searcher,
+    radii: &ReadStorage<CollisionRadius>,
+    self_entity: specs::Entity,
+) -> bool {
+    let q_r = radius + MAX_COLLISION_RADIUS;
+    for di in searcher.search_collidable(new_center, q_r, 16) {
+        if di.e == self_entity {
+            continue;
+        }
+        let Some(other_r) = radii.get(di.e).map(|cr| cr.0) else { continue };
+        let touch = radius + other_r;
+        if di.dis < touch * touch {
+            return true;
+        }
+    }
+    false
 }
 
-/// 計算避開 region 的下一步位置：嘗試直接走 → 只走 X → 只走 Y → 停。
+/// 計算避開其他單位的下一步位置：嘗試直接走 → 只走 X → 只走 Y → 停。
 /// 回傳 (新位置, 是否抵達目標範圍)。
 fn advance_with_collision(
     pos: Vec2<f32>,
     target: Vec2<f32>,
     step: f32,
     radius: f32,
-    regions: &BlockedRegions,
+    searcher: &Searcher,
+    radii: &ReadStorage<CollisionRadius>,
+    self_entity: specs::Entity,
 ) -> (Vec2<f32>, bool) {
     let diff = target - pos;
     let distance = diff.magnitude();
@@ -56,23 +73,23 @@ fn advance_with_collision(
     let direction = diff / distance;
     // 抵達：step 足夠蓋住剩餘距離
     if distance <= step.max(1.0) {
-        if !hits_any(target, radius, regions) {
+        if !hits_any(target, radius, searcher, radii, self_entity) {
             return (target, true);
         }
-        // target 本身在 region 內 → 走到剛好撞前為止（保留目前位置）
+        // target 被佔位 → 走到剛好撞前為止（保留目前位置）
         return (pos, false);
     }
     let full = pos + direction * step;
-    if !hits_any(full, radius, regions) {
+    if !hits_any(full, radius, searcher, radii, self_entity) {
         return (full, false);
     }
     // Wall sliding：只保留 x 或只保留 y 分量
     let only_x = pos + Vec2::new(direction.x * step, 0.0);
-    if !hits_any(only_x, radius, regions) {
+    if !hits_any(only_x, radius, searcher, radii, self_entity) {
         return (only_x, false);
     }
     let only_y = pos + Vec2::new(0.0, direction.y * step);
-    if !hits_any(only_y, radius, regions) {
+    if !hits_any(only_y, radius, searcher, radii, self_entity) {
         return (only_y, false);
     }
     // 全軸都撞到 → 本 tick 不動
@@ -129,7 +146,9 @@ impl<'a> System<'a> for Sys {
                         target,
                         step,
                         radius,
-                        &tr.regions,
+                        &tr.searcher,
+                        &tr.radii,
+                        entity,
                     );
                     pos.0 = new_pos;
                     if reached {

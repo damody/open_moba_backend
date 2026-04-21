@@ -29,7 +29,7 @@ pub fn point_in_polygon(p: Vec2<f32>, poly: &[Vec2<f32>]) -> bool {
 }
 
 /// 點到線段 (a-b) 的最短距離平方。
-fn point_segment_dist_sq(p: Vec2<f32>, a: Vec2<f32>, b: Vec2<f32>) -> f32 {
+pub fn point_segment_dist_sq(p: Vec2<f32>, a: Vec2<f32>, b: Vec2<f32>) -> f32 {
     let ab = b - a;
     let ap = p - a;
     let len_sq = ab.x * ab.x + ab.y * ab.y;
@@ -58,6 +58,27 @@ pub fn circle_hits_polygon(center: Vec2<f32>, r: f32, poly: &[Vec2<f32>]) -> boo
         let a = poly[i];
         let b = poly[(i + 1) % n];
         if point_segment_dist_sq(center, a, b) < r2 {
+            return true;
+        }
+    }
+    false
+}
+
+/// 圓（中心 center、半徑 r）是否會與其他單位的圓形碰撞體積重疊。
+/// `units` 為本 tick 開始時的 (entity_id, center, radius) 快照，`self_id` 用於排除自己。
+pub fn circle_hits_units(
+    center: Vec2<f32>,
+    r: f32,
+    units: &[(u32, Vec2<f32>, f32)],
+    self_id: u32,
+) -> bool {
+    for &(id, other_c, other_r) in units {
+        if id == self_id {
+            continue;
+        }
+        let d = center - other_c;
+        let min_d = r + other_r;
+        if d.magnitude_squared() < min_d * min_d {
             return true;
         }
     }
@@ -124,5 +145,23 @@ mod tests {
     #[test]
     fn circle_separate() {
         assert!(!circle_hits_polygon(Vec2::new(300.0, 300.0), 10.0, &square()));
+    }
+
+    #[test]
+    fn circles_apart() {
+        let units = vec![(1u32, Vec2::new(100.0, 0.0), 10.0)];
+        assert!(!circle_hits_units(Vec2::new(0.0, 0.0), 10.0, &units, 99));
+    }
+
+    #[test]
+    fn circles_overlap() {
+        let units = vec![(1u32, Vec2::new(15.0, 0.0), 10.0)];
+        assert!(circle_hits_units(Vec2::new(0.0, 0.0), 10.0, &units, 99));
+    }
+
+    #[test]
+    fn circles_ignore_self() {
+        let units = vec![(42u32, Vec2::new(0.0, 0.0), 10.0)];
+        assert!(!circle_hits_units(Vec2::new(0.0, 0.0), 10.0, &units, 42));
     }
 }

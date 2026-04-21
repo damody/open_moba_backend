@@ -6,7 +6,7 @@ use specs::{
 use std::{thread, ops::Deref, collections::BTreeMap};
 use std::ops::Sub;
 use crate::comp::*;
-use crate::util::geometry::circle_hits_polygon;
+use crate::comp::phys::MAX_COLLISION_RADIUS;
 use specs::prelude::ParallelIterator;
 use crate::transport::OutboundMsg;
 use crossbeam_channel::Sender;
@@ -22,7 +22,7 @@ pub struct CreepRead<'a> {
     cpropertys : ReadStorage<'a, CProperty>,
     turn_speeds: ReadStorage<'a, TurnSpeed>,
     radii: ReadStorage<'a, CollisionRadius>,
-    regions: Read<'a, BlockedRegions>,
+    searcher: Read<'a, Searcher>,
 }
 
 #[derive(SystemData)]
@@ -50,6 +50,7 @@ impl<'a> System<'a> for Sys {
         let time = tr.time.0;
         let dt = tr.dt.0;
         let tx = tw.mqtx.get(0).unwrap().clone();
+
         let mut outcomes = (
             &tr.entities,
             &mut tw.creeps,
@@ -119,9 +120,22 @@ impl<'a> System<'a> for Sys {
                                                 let angle_diff = normalize_angle(desired - facing.0).abs();
                                                 if angle_diff < MOVE_ANGLE_THRESHOLD {
                                                     let radius = tr.radii.get(e).map(|r| r.0).unwrap_or(20.0);
+                                                    let self_entity = e;
                                                     let hits = |p: vek::Vec2<f32>| -> bool {
-                                                        tr.regions.0.iter().any(|r| circle_hits_polygon(p, radius, &r.points))
+                                                        let q_r = radius + MAX_COLLISION_RADIUS;
+                                                        for di in tr.searcher.search_collidable(p, q_r, 16) {
+                                                            if di.e == self_entity { continue; }
+                                                            let Some(other_r) = tr.radii.get(di.e).map(|cr| cr.0) else { continue };
+                                                            let touch = radius + other_r;
+                                                            if di.dis < touch * touch {
+                                                                return true;
+                                                            }
+                                                        }
+                                                        false
                                                     };
+                                                    // 記錄本 tick 是否因為碰撞而停住，若是則廣播 M(current_pos)
+                                                    // 讓前端 lerp 停下來，避免視覺上穿過其他單位。
+                                                    let mut blocked = false;
                                                     if dist_sq > step * step {
                                                         let mut v = diff;
                                                         v.normalize();
@@ -136,8 +150,9 @@ impl<'a> System<'a> for Sys {
                                                                 pos.0 = only_x;
                                                             } else if !hits(only_y) {
                                                                 pos.0 = only_y;
+                                                            } else {
+                                                                blocked = true;
                                                             }
-                                                            // 全軸都撞：本 tick 停住
                                                         }
                                                     } else {
                                                         if !hits(target_point) {
@@ -151,8 +166,18 @@ impl<'a> System<'a> for Sys {
                                                                     "facing": facing.0,
                                                                 })));
                                                             }
+                                                        } else {
+                                                            blocked = true;
                                                         }
-                                                        // target_point 在 region 內：本 tick 不動，等 map 設計者修正
+                                                    }
+                                                    if blocked {
+                                                        // 凍結前端 lerp（action="stall"），避免視覺上穿過其他單位。
+                                                        tx.try_send(OutboundMsg::new_s("td/all/res", "creep", "stall", json!({
+                                                            "id": e.id(),
+                                                            "x": pos.0.x,
+                                                            "y": pos.0.y,
+                                                            "facing": facing.0,
+                                                        })));
                                                     }
                                                 }
                                                 // 角度太大：只轉向、本 tick 不位移

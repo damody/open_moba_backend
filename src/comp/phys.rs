@@ -149,3 +149,7 @@ impl Default for CollisionRadius {
 impl Component for CollisionRadius {
     type Storage = VecStorage<Self>;
 }
+
+/// 單位-單位碰撞查詢時使用的半徑上限（對方半徑上界）。
+/// 目前 config 最大為 tower=50；取 80 留空間給未來調整，不必動此常數。
+pub const MAX_COLLISION_RADIUS: f32 = 80.0;

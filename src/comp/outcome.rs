@@ -293,7 +293,23 @@ fn intersect_sorted_iters<T: Ord + Copy>(
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct Searcher {
     pub tower: PosData,      // 塔的位置資料
-    pub creep: PosData,      // 小兵的位置資料
+    pub creep: PosData,      // 小兵的位置資料（含 Unit + Creep）
+    pub hero: PosData,       // 英雄位置資料（每 tick 重建）
+    pub region: PosData,     // Region blocker 位置資料（init 一次性填充，之後不變）
+}
+
+impl Searcher {
+    /// 單位-單位 + 單位-region 碰撞查詢：同時查 hero + creep + tower + region 四個索引，
+    /// 回傳半徑內的實體列表與平方距離。`n` 為每個索引各自取幾個最近者
+    /// （16 在非極端場合即覆蓋所有真實碰撞）。
+    pub fn search_collidable(&self, pos: Vec2<f32>, radius: f32, n: usize) -> Vec<DisIndex> {
+        let mut out = Vec::with_capacity(n * 4);
+        out.extend(self.hero.SearchNN_XY(pos, radius, n));
+        out.extend(self.creep.SearchNN_XY(pos, radius, n));
+        out.extend(self.tower.SearchNN_XY(pos, radius, n));
+        out.extend(self.region.SearchNN_XY(pos, radius, n));
+        out
+    }
 }
 
 /// 位置資料結構
