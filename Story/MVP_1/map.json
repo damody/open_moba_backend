@@ -87,8 +87,8 @@
     {
       "Name": "player_base",
       "Class": "Base",
-      "X": 94.0,
-      "Y": 108.0
+      "X": -150.0,
+      "Y": 341.0
     },
     {
       "Name": "player_tower_1",
@@ -105,8 +105,8 @@
     {
       "Name": "enemy_cp3",
       "Class": "Path",
-      "X": 1200.0,
-      "Y": 1200.0
+      "X": 1376.0,
+      "Y": 868.0
     },
     {
       "Name": "enemy_tower_1",
@@ -117,8 +117,8 @@
     {
       "Name": "enemy_cp2",
       "Class": "Path",
-      "X": 1700.0,
-      "Y": 1700.0
+      "X": 1813.0,
+      "Y": 1409.0
     },
     {
       "Name": "enemy_tower_2",
@@ -129,14 +129,14 @@
     {
       "Name": "enemy_cp1",
       "Class": "Path",
-      "X": 2200.0,
-      "Y": 2200.0
+      "X": 1906.0,
+      "Y": 2184.0
     },
     {
       "Name": "enemy_spawn",
       "Class": "Spawn",
-      "X": 2400.0,
-      "Y": 2400.0
+      "X": 2111.0,
+      "Y": 2513.0
     },
     {
       "Name": "enemy_base",
