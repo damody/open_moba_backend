@@ -30,7 +30,8 @@
       "DefendMagic": 0.0,
       "MoveSpeed": 180.0,
       "Faction": "Enemy",
-      "TurnSpeed": null
+      "TurnSpeed": null,
+      "CollisionRadius": null
     },
     {
       "Name": "ranged_minion",
@@ -40,7 +41,8 @@
       "DefendMagic": 0.0,
       "MoveSpeed": 180.0,
       "Faction": "Enemy",
-      "TurnSpeed": null
+      "TurnSpeed": null,
+      "CollisionRadius": null
     },
     {
       "Name": "siege_minion",
@@ -50,7 +52,8 @@
       "DefendMagic": 1.0,
       "MoveSpeed": 140.0,
       "Faction": "Enemy",
-      "TurnSpeed": null
+      "TurnSpeed": null,
+      "CollisionRadius": null
     },
     {
       "Name": "ally_melee_minion",
@@ -60,7 +63,8 @@
       "DefendMagic": 0.0,
       "MoveSpeed": 180.0,
       "Faction": "Player",
-      "TurnSpeed": null
+      "TurnSpeed": null,
+      "CollisionRadius": null
     },
     {
       "Name": "ally_ranged_minion",
@@ -70,7 +74,8 @@
       "DefendMagic": 0.0,
       "MoveSpeed": 180.0,
       "Faction": "Player",
-      "TurnSpeed": null
+      "TurnSpeed": null,
+      "CollisionRadius": null
     },
     {
       "Name": "ally_siege_minion",
@@ -80,7 +85,8 @@
       "DefendMagic": 1.0,
       "MoveSpeed": 140.0,
       "Faction": "Player",
-      "TurnSpeed": null
+      "TurnSpeed": null,
+      "CollisionRadius": null
     }
   ],
   "CheckPoint": [
@@ -164,7 +170,8 @@
         "Physic": 55.0,
         "Magic": 0.0
       },
-      "TurnSpeed": 45.0
+      "TurnSpeed": 45.0,
+      "CollisionRadius": null
     },
     {
       "Name": "base_tower",
@@ -178,7 +185,8 @@
         "Physic": 80.0,
         "Magic": 0.0
       },
-      "TurnSpeed": 45.0
+      "TurnSpeed": 45.0,
+      "CollisionRadius": null
     }
   ],
   "CreepWave": [
@@ -933,42 +941,71 @@
       "Faction": "Player",
       "X": 35.0,
       "Y": 37.0,
-      "IsBase": true
+      "IsBase": true,
+      "CollisionRadius": null
     },
     {
       "Tower": "lane_tower",
       "Faction": "Player",
       "X": 500.0,
       "Y": 500.0,
-      "IsBase": false
+      "IsBase": false,
+      "CollisionRadius": null
     },
     {
       "Tower": "lane_tower",
       "Faction": "Player",
       "X": 900.0,
       "Y": 900.0,
-      "IsBase": false
+      "IsBase": false,
+      "CollisionRadius": null
     },
     {
       "Tower": "lane_tower",
       "Faction": "Enemy",
       "X": 1500.0,
       "Y": 1500.0,
-      "IsBase": false
+      "IsBase": false,
+      "CollisionRadius": null
     },
     {
       "Tower": "lane_tower",
       "Faction": "Enemy",
       "X": 1950.0,
       "Y": 1950.0,
-      "IsBase": false
+      "IsBase": false,
+      "CollisionRadius": null
     },
     {
       "Tower": "base_tower",
       "Faction": "Enemy",
       "X": 2222.0,
       "Y": 2425.0,
-      "IsBase": true
+      "IsBase": true,
+      "CollisionRadius": null
+    }
+  ],
+  "BlockedRegions": [
+    {
+      "Name": "region_0",
+      "Points": [
+        {
+          "X": -596.0,
+          "Y": 1264.0
+        },
+        {
+          "X": -480.0,
+          "Y": 832.0
+        },
+        {
+          "X": 1340.0,
+          "Y": 1144.0
+        },
+        {
+          "X": 1084.0,
+          "Y": 1876.0
+        }
+      ]
     }
   ]
 }
