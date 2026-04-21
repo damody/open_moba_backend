@@ -35,8 +35,10 @@ pub mod item_effects;
 pub mod is_base;
 pub mod bounty;
 pub mod facing;
+pub mod blocked_region;
 
 pub use self::{
+    blocked_region::*,
     gold::*,
     inventory::*,
     item_effects::*,

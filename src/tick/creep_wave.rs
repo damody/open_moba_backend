@@ -71,6 +71,7 @@ impl<'a> System<'a> for Sys {
                                             cdata: cp.property.clone(),
                                             faction_name: cp.faction_name.clone(),
                                             turn_speed_deg: cp.turn_speed_deg,
+                                            collision_radius: cp.collision_radius,
                                         };
                                         tw.outcomes.push(Outcome::Creep { cd: cp0 });
                                     }

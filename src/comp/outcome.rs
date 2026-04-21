@@ -93,7 +93,12 @@ pub struct CreepData {
     /// 轉速（度/秒）；預設 90
     #[serde(default = "default_creep_turn_speed_deg")]
     pub turn_speed_deg: f32,
+    /// 碰撞半徑；預設 20
+    #[serde(default = "default_creep_cr")]
+    pub collision_radius: f32,
 }
+
+fn default_creep_cr() -> f32 { 20.0 }
 
 fn default_creep_turn_speed_deg() -> f32 { 90.0 }
 

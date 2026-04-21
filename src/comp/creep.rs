@@ -49,9 +49,13 @@ pub struct CreepEmiter {
     /// 轉速（度/秒）；未指定用 90
     #[serde(default = "default_turn_speed_deg")]
     pub turn_speed_deg: f32,
+    /// 碰撞半徑；未指定用 20
+    #[serde(default = "default_creep_collision_radius")]
+    pub collision_radius: f32,
 }
 
 fn default_turn_speed_deg() -> f32 { 90.0 }
+fn default_creep_collision_radius() -> f32 { 20.0 }
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct CurrentCreepWave {
     pub wave: usize,

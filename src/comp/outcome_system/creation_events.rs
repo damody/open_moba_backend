@@ -26,12 +26,14 @@ impl CreationEventHandler {
         let mhp = cd.cdata.mhp;
         let msd = cd.cdata.msd;
         let pos = cd.pos;
+        let radius = cd.collision_radius;
 
         // 創建小兵實體
         let entity = world.create_entity()
             .with(Pos(cd.pos))
             .with(cd.creep)
             .with(cd.cdata)
+            .with(CollisionRadius(radius))
             .build();
 
         // Payload shape matches client expectations (top-level position/hp/max_hp/name)

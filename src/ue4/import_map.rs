@@ -10,6 +10,9 @@ pub struct CreepWaveData {
     /// 初始建物放置（引用 `Tower` 模板，指定位置/陣營/是否為基地）
     #[serde(default)]
     pub Structures: Vec<StructureJD>,
+    /// 不可通行多邊形區域（英雄與單位會被擋住；不影響視野/投射物）
+    #[serde(default)]
+    pub BlockedRegions: Vec<BlockedRegionJD>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -23,6 +26,9 @@ pub struct StructureJD {
     /// 是否為基地（擊毀敵方基地＝玩家勝）
     #[serde(default)]
     pub IsBase: bool,
+    /// 覆寫該實例的碰撞半徑（未填用預設）
+    #[serde(default)]
+    pub CollisionRadius: Option<f32>,
 }
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct PathJD {
@@ -45,6 +51,9 @@ pub struct CreepJD {
     /// 轉速（度/秒），未填用 90
     #[serde(default)]
     pub TurnSpeed: Option<f32>,
+    /// 碰撞半徑（未填用預設 20）
+    #[serde(default)]
+    pub CollisionRadius: Option<f32>,
 }
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct CheckPointJD {
@@ -61,6 +70,9 @@ pub struct TowerJD {
     /// 轉速（度/秒），未填用 90
     #[serde(default)]
     pub TurnSpeed: Option<f32>,
+    /// 碰撞半徑（未填用預設 50）
+    #[serde(default)]
+    pub CollisionRadius: Option<f32>,
 }
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct AttackJD {
@@ -91,3 +103,17 @@ pub struct CreepsJD {
     pub Creep: String,
 }
 
+/// 不可通行多邊形區域（凹/凸皆可）。至少 3 點。
+/// 由 map.json 的 `BlockedRegions` 欄位載入，並於 `state/initialization.rs`
+/// 轉為 `comp::BlockedRegions` resource 供移動 tick 查詢。
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct BlockedRegionJD {
+    pub Name: String,
+    pub Points: Vec<PointJD>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default)]
+pub struct PointJD {
+    pub X: f32,
+    pub Y: f32,
+}

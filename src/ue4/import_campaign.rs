@@ -44,6 +44,9 @@ pub struct HeroJD {
     /// 轉速（度/秒），未填用 180
     #[serde(default)]
     pub turn_speed: Option<f32>,
+    /// 碰撞半徑（未填用預設 30）
+    #[serde(default)]
+    pub collision_radius: Option<f32>,
 
     // 技能引用
     pub abilities: Vec<String>,  // ability IDs
@@ -79,10 +82,14 @@ pub struct EnemyJD {
     // AI 行為
     pub ai_type: String,     // aggressive, defensive, patrol
     pub abilities: Vec<String>,
-    
+
     // 獎勵
     pub exp_reward: i32,
     pub gold_reward: i32,
+
+    /// 碰撞半徑（未填用預設 25）
+    #[serde(default)]
+    pub collision_radius: Option<f32>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]

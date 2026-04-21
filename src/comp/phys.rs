@@ -137,3 +137,15 @@ pub struct ForceUpdate;
 impl Component for ForceUpdate {
     type Storage = NullStorage<Self>;
 }
+
+/// 單位的碰撞半徑。用於 BlockedRegions 阻擋判定。
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CollisionRadius(pub f32);
+
+impl Default for CollisionRadius {
+    fn default() -> Self { CollisionRadius(20.0) }
+}
+
+impl Component for CollisionRadius {
+    type Storage = VecStorage<Self>;
+}

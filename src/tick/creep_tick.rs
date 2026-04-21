@@ -6,6 +6,7 @@ use specs::{
 use std::{thread, ops::Deref, collections::BTreeMap};
 use std::ops::Sub;
 use crate::comp::*;
+use crate::util::geometry::circle_hits_polygon;
 use specs::prelude::ParallelIterator;
 use crate::transport::OutboundMsg;
 use crossbeam_channel::Sender;
@@ -20,6 +21,8 @@ pub struct CreepRead<'a> {
     check_points : Read<'a, BTreeMap<String, CheckPoint>>,
     cpropertys : ReadStorage<'a, CProperty>,
     turn_speeds: ReadStorage<'a, TurnSpeed>,
+    radii: ReadStorage<'a, CollisionRadius>,
+    regions: Read<'a, BlockedRegions>,
 }
 
 #[derive(SystemData)]
@@ -115,22 +118,41 @@ impl<'a> System<'a> for Sys {
                                                 // 角度對齊（<30°）才移動
                                                 let angle_diff = normalize_angle(desired - facing.0).abs();
                                                 if angle_diff < MOVE_ANGLE_THRESHOLD {
+                                                    let radius = tr.radii.get(e).map(|r| r.0).unwrap_or(20.0);
+                                                    let hits = |p: vek::Vec2<f32>| -> bool {
+                                                        tr.regions.0.iter().any(|r| circle_hits_polygon(p, radius, &r.points))
+                                                    };
                                                     if dist_sq > step * step {
                                                         let mut v = diff;
                                                         v.normalize();
                                                         v = v * step;
-                                                        pos.0 = pos.0 + v;
-                                                    } else {
-                                                        pos.0 = target_point;
-                                                        creep.pidx += 1;
-                                                        if let Some(t) = path.check_points.get(creep.pidx) {
-                                                            tx.try_send(OutboundMsg::new_s("td/all/res", "creep", "M", json!({
-                                                                "id": e.id(),
-                                                                "x": t.pos.x,
-                                                                "y": t.pos.y,
-                                                                "facing": facing.0,
-                                                            })));
+                                                        let full = pos.0 + v;
+                                                        if !hits(full) {
+                                                            pos.0 = full;
+                                                        } else {
+                                                            let only_x = pos.0 + vek::Vec2::new(v.x, 0.0);
+                                                            let only_y = pos.0 + vek::Vec2::new(0.0, v.y);
+                                                            if !hits(only_x) {
+                                                                pos.0 = only_x;
+                                                            } else if !hits(only_y) {
+                                                                pos.0 = only_y;
+                                                            }
+                                                            // 全軸都撞：本 tick 停住
                                                         }
+                                                    } else {
+                                                        if !hits(target_point) {
+                                                            pos.0 = target_point;
+                                                            creep.pidx += 1;
+                                                            if let Some(t) = path.check_points.get(creep.pidx) {
+                                                                tx.try_send(OutboundMsg::new_s("td/all/res", "creep", "M", json!({
+                                                                    "id": e.id(),
+                                                                    "x": t.pos.x,
+                                                                    "y": t.pos.y,
+                                                                    "facing": facing.0,
+                                                                })));
+                                                            }
+                                                        }
+                                                        // target_point 在 region 內：本 tick 不動，等 map 設計者修正
                                                     }
                                                 }
                                                 // 角度太大：只轉向、本 tick 不位移

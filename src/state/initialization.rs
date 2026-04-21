@@ -68,6 +68,25 @@ impl StateInitializer {
 
         // 設置小兵波
         Self::setup_creep_waves(ecs, cw);
+
+        // 設置不可通行多邊形
+        Self::setup_blocked_regions(ecs, cw);
+    }
+
+    /// 把 map.json 的 BlockedRegions 載入成 ECS resource 供移動 tick 查詢。
+    fn setup_blocked_regions(ecs: &mut World, cw: &CreepWaveData) {
+        let regions: Vec<BlockedRegion> = cw.BlockedRegions.iter()
+            .filter(|r| r.Points.len() >= 3)
+            .map(|r| BlockedRegion {
+                name: r.Name.clone(),
+                points: r.Points.iter().map(|p| Vec2::new(p.X, p.Y)).collect(),
+            })
+            .collect();
+        let n = regions.len();
+        *ecs.write_resource::<BlockedRegions>() = BlockedRegions(regions);
+        if n > 0 {
+            log::info!("載入 {} 個不可通行多邊形區域", n);
+        }
     }
 
     /// 設置路徑資料
@@ -120,6 +139,7 @@ impl StateInitializer {
                 },
                 faction_name: cp.Faction.clone().unwrap_or_default(),
                 turn_speed_deg: cp.TurnSpeed.unwrap_or(90.0),
+                collision_radius: cp.CollisionRadius.unwrap_or(20.0),
             });
         }
     }
@@ -208,6 +228,7 @@ impl StateInitializer {
         ecs.register::<Bounty>();
         ecs.register::<Facing>();
         ecs.register::<TurnSpeed>();
+        ecs.register::<CollisionRadius>();
     }
 
     fn initialize_resources(ecs: &mut World, _thread_pool: &Arc<ThreadPool>) {
@@ -243,6 +264,9 @@ impl StateInitializer {
         
         // 初始化 Searcher 資源
         ecs.insert(crate::comp::outcome::Searcher::default());
+
+        // 初始化不可通行多邊形區域（由 init_creep_wave 載入 map.json 時填入）
+        ecs.insert(BlockedRegions::default());
 
         // 載入裝備 Registry (MVP LoL item system)
         let item_reg = crate::item::ItemRegistry::load_from_path("item-configs/items.json")
@@ -314,6 +338,7 @@ impl StateInitializer {
             ).with_precision(720); // 高精度視野
 
             let hero_turn_rad = hero_data.turn_speed.unwrap_or(180.0).to_radians();
+            let hero_radius = hero_data.collision_radius.unwrap_or(30.0);
             let hero_entity = ecs.create_entity()
                 .with(hero_pos)
                 .with(hero_vel)
@@ -327,6 +352,7 @@ impl StateInitializer {
                 .with(ItemEffects::default())
                 .with(Facing(0.0))
                 .with(TurnSpeed(hero_turn_rad))
+                .with(CollisionRadius(hero_radius))
                 .build();
 
             log::info!("創建戰役英雄實體: {:?}（含 Gold/Inventory/ItemEffects）", hero_entity);
@@ -365,6 +391,10 @@ impl StateInitializer {
                 1.0
             };
             let turn_deg = tpl.TurnSpeed.unwrap_or(45.0);
+            // Structure 實例可覆寫碰撞半徑，否則用模板的，再否則用預設 50
+            let radius = s.CollisionRadius
+                .or(tpl.CollisionRadius)
+                .unwrap_or(50.0);
             Self::spawn_tower(
                 ecs,
                 Vec2::new(s.X, s.Y),
@@ -375,6 +405,7 @@ impl StateInitializer {
                 asd,
                 s.IsBase,
                 turn_deg,
+                radius,
             );
         }
         log::info!("已依 map.json 放置 {} 個 Structure", cw.Structures.len());
@@ -390,6 +421,7 @@ impl StateInitializer {
         asd: f32,
         is_base: bool,
         turn_speed_deg: f32,
+        collision_radius: f32,
     ) {
         let prop = TProperty::new(hp, 0, 120.0);
         let atk_c = TAttack::new(atk, asd, range, 1200.0);
@@ -426,7 +458,8 @@ impl StateInitializer {
             .with(vision)
             .with(bounty)
             .with(Facing(0.0))
-            .with(TurnSpeed(turn_speed_deg.to_radians()));
+            .with(TurnSpeed(turn_speed_deg.to_radians()))
+            .with(CollisionRadius(collision_radius));
 
         // 雙方基地都標記 IsBase（前端依此顯示「基地」名稱）；
         // 勝負判定在 handle_death 裡還要檢查 faction，只有敵方基地死亡才觸發玩家勝
