@@ -268,6 +268,7 @@ impl State {
         let towers = self.ecs.read_storage::<Tower>();
         let positions = self.ecs.read_storage::<Pos>();
         let properties = self.ecs.read_storage::<CProperty>();
+        let collision_radii = self.ecs.read_storage::<CollisionRadius>();
         let factions = self.ecs.read_storage::<Faction>();
         let is_bases = self.ecs.read_storage::<IsBase>();
         let paths = self.ecs.try_fetch::<BTreeMap<String, Path>>();
@@ -313,28 +314,29 @@ impl State {
 
                 // Entered viewport → emit C with correct payload for kind
                 let prop = properties.get(e);
+                let cr = collision_radii.get(e);
                 let (type_tag, payload) = match kind {
                     Kind::Hero => {
                         let Some(h) = heroes.get(e) else { continue };
                         let Some(p) = positions.get(e) else { continue };
-                        ("hero", build_hero_payload(e, h, p, prop))
+                        ("hero", build_hero_payload(e, h, p, prop, cr))
                     }
                     Kind::Unit => {
                         let Some(u) = units.get(e) else { continue };
                         let Some(p) = positions.get(e) else { continue };
-                        ("unit", build_unit_payload(e, u, p, prop))
+                        ("unit", build_unit_payload(e, u, p, prop, cr))
                     }
                     Kind::Creep => {
                         let Some(c) = creeps.get(e) else { continue };
                         let Some(p) = positions.get(e) else { continue };
-                        ("creep", build_creep_payload(e, c, p, prop, paths.as_deref()))
+                        ("creep", build_creep_payload(e, c, p, prop, cr, paths.as_deref()))
                     }
                     Kind::Tower => {
                         let Some(t) = towers.get(e) else { continue };
                         let Some(p) = positions.get(e) else { continue };
                         let f = factions.get(e);
                         let is_base = is_bases.get(e).is_some();
-                        ("tower", build_tower_payload(e, t, p, prop, f, is_base))
+                        ("tower", build_tower_payload(e, t, p, prop, cr, f, is_base))
                     }
                 };
                 let _ = self.mqtx.send(OutboundMsg::new_s_at(
@@ -542,6 +544,8 @@ impl State {
     fn initialize_standard_game(&mut self) {
         StateInitializer::init_creep_wave(&mut self.ecs, &self.cw);
         StateInitializer::create_test_scene(&mut self.ecs);
+        // 動態實體建完後再填 Region blockers（Searcher 索引一次性完成）
+        StateInitializer::populate_region_blockers(&mut self.ecs);
         self.send_initial_game_state();
     }
 
@@ -549,7 +553,8 @@ impl State {
         StateInitializer::init_campaign_data(&mut self.ecs, campaign_data);
         StateInitializer::init_creep_wave(&mut self.ecs, &self.cw);
         StateInitializer::create_campaign_scene(&mut self.ecs, campaign_data);
-        
+        StateInitializer::populate_region_blockers(&mut self.ecs);
+
         // 發送初始化資料到 MQTT
         self.send_initial_game_state();
     }
@@ -565,10 +570,11 @@ impl State {
             let heroes = self.ecs.read_storage::<Hero>();
             let positions = self.ecs.read_storage::<Pos>();
             let properties = self.ecs.read_storage::<CProperty>();
+            let collision_radii = self.ecs.read_storage::<CollisionRadius>();
 
             let golds = self.ecs.read_storage::<Gold>();
             for (entity, hero, pos) in (&entities, &heroes, &positions).join() {
-                let payload = build_hero_payload(entity, hero, pos, properties.get(entity));
+                let payload = build_hero_payload(entity, hero, pos, properties.get(entity), collision_radii.get(entity));
                 if let Err(e) = self.mqtx.send(OutboundMsg::new_s_at(
                     "td/all/res", "hero", "create", payload, pos.0.x, pos.0.y,
                 )) {
@@ -628,9 +634,10 @@ impl State {
             let units = self.ecs.read_storage::<Unit>();
             let positions = self.ecs.read_storage::<Pos>();
             let properties = self.ecs.read_storage::<CProperty>();
+            let collision_radii = self.ecs.read_storage::<CollisionRadius>();
 
             for (entity, unit, pos) in (&entities, &units, &positions).join() {
-                let payload = build_unit_payload(entity, unit, pos, properties.get(entity));
+                let payload = build_unit_payload(entity, unit, pos, properties.get(entity), collision_radii.get(entity));
                 if let Err(e) = self.mqtx.send(OutboundMsg::new_s_at(
                     "td/all/res", "unit", "create", payload, pos.0.x, pos.0.y,
                 )) {
@@ -673,6 +680,7 @@ impl State {
             let atks = self.ecs.read_storage::<TAttack>();
             let is_bases = self.ecs.read_storage::<IsBase>();
             let factions = self.ecs.read_storage::<Faction>();
+            let collision_radii = self.ecs.read_storage::<CollisionRadius>();
             use specs::Join;
             for (entity, _, pos) in (&entities, &towers, &positions).join() {
                 let hp = props.get(entity).map(|p| p.hp.v).unwrap_or(0.0);
@@ -686,6 +694,7 @@ impl State {
                     (false, true)  => "我方基地",
                     (false, false) => "我方塔",
                 };
+                let radius = collision_radii.get(entity).map(|c| c.0).unwrap_or(50.0);
                 let payload = json!({
                     "id": entity.id(),
                     "entity_id": entity.id(),
@@ -693,12 +702,47 @@ impl State {
                     "position": {"x": pos.0.x, "y": pos.0.y},
                     "hp": hp,
                     "max_hp": hp,
+                    "collision_radius": radius,
                     "is_base": is_base,
                 });
                 let _ = self.mqtx.send(OutboundMsg::new_s_at(
                     "td/all/res", "tower", "create", payload, pos.0.x, pos.0.y,
                 ));
             }
+        }
+
+        // 發送禁止移動區域（供前端視覺化）
+        {
+            let regions = self.ecs.read_resource::<BlockedRegions>();
+            let regions_json: Vec<serde_json::Value> = regions.0.iter().map(|r| {
+                let pts: Vec<serde_json::Value> = r.points.iter()
+                    .map(|p| json!({ "x": p.x, "y": p.y }))
+                    .collect();
+                json!({ "name": r.name, "points": pts })
+            }).collect();
+            let payload = json!({ "regions": regions_json });
+            let _ = self.mqtx.send(OutboundMsg::new_s(
+                "td/all/res", "map", "regions", payload,
+            ));
+            log::info!("已發送 {} 個 BlockedRegion 到前端", regions.0.len());
+        }
+
+        // 發送 Region Blocker 近似圓（供前端 debug 視覺化）
+        {
+            let entities = self.ecs.entities();
+            let positions = self.ecs.read_storage::<Pos>();
+            let radii = self.ecs.read_storage::<CollisionRadius>();
+            let blockers = self.ecs.read_storage::<RegionBlocker>();
+            let mut list: Vec<serde_json::Value> = Vec::new();
+            for (_e, p, r, _) in (&entities, &positions, &radii, &blockers).join() {
+                list.push(json!({ "x": p.0.x, "y": p.0.y, "r": r.0 }));
+            }
+            let count = list.len();
+            let payload = json!({ "blockers": list });
+            let _ = self.mqtx.send(OutboundMsg::new_s(
+                "td/all/res", "map", "region_blockers", payload,
+            ));
+            log::info!("已發送 {} 個 Region blocker 圓到前端", count);
         }
 
         // 發送戰役資訊
@@ -726,10 +770,12 @@ fn build_hero_payload(
     hero: &Hero,
     pos: &Pos,
     prop: Option<&CProperty>,
+    cr: Option<&CollisionRadius>,
 ) -> serde_json::Value {
     let (hp, mhp, msd) = prop
         .map(|p| (p.hp, p.mhp, p.msd))
         .unwrap_or((100.0, 100.0, 0.0));
+    let radius = cr.map(|c| c.0).unwrap_or(30.0);
     serde_json::json!({
         "entity_id": entity.id(),
         "hero_id": hero.id,
@@ -740,6 +786,7 @@ fn build_hero_payload(
         "hp": hp,
         "max_hp": mhp,
         "move_speed": msd,
+        "collision_radius": radius,
     })
 }
 
@@ -748,10 +795,12 @@ fn build_unit_payload(
     unit: &Unit,
     pos: &Pos,
     prop: Option<&CProperty>,
+    cr: Option<&CollisionRadius>,
 ) -> serde_json::Value {
     let (hp, mhp, msd) = prop
         .map(|p| (p.hp, p.mhp, p.msd))
         .unwrap_or((unit.current_hp as f32, unit.max_hp as f32, unit.move_speed));
+    let radius = cr.map(|c| c.0).unwrap_or(20.0);
     serde_json::json!({
         "entity_id": entity.id(),
         "unit_id": unit.id,
@@ -761,6 +810,7 @@ fn build_unit_payload(
         "hp": hp,
         "max_hp": mhp,
         "move_speed": msd,
+        "collision_radius": radius,
     })
 }
 
@@ -769,12 +819,14 @@ fn build_creep_payload(
     creep: &Creep,
     pos: &Pos,
     prop: Option<&CProperty>,
+    cr: Option<&CollisionRadius>,
     paths: Option<&BTreeMap<String, Path>>,
 ) -> serde_json::Value {
     let (hp, mhp, msd) = prop
         .map(|p| (p.hp, p.mhp, p.msd))
         .unwrap_or((0.0, 0.0, 0.0));
     let display_name = creep.label.clone().unwrap_or_else(|| creep.name.clone());
+    let radius = cr.map(|c| c.0).unwrap_or(20.0);
     // 輸出從 creep 當前 checkpoint 起到終點的剩餘 waypoints，供前端 debug 畫線
     let path_points: Vec<serde_json::Value> = paths
         .and_then(|m| m.get(&creep.path))
@@ -794,6 +846,7 @@ fn build_creep_payload(
         "hp": hp,
         "max_hp": mhp,
         "move_speed": msd,
+        "collision_radius": radius,
         "path_name": creep.path,
         "path_points": path_points,
     })
@@ -804,10 +857,12 @@ fn build_tower_payload(
     _tower: &Tower,
     pos: &Pos,
     prop: Option<&CProperty>,
+    cr: Option<&CollisionRadius>,
     faction: Option<&Faction>,
     is_base: bool,
 ) -> serde_json::Value {
     let (hp, mhp) = prop.map(|p| (p.hp, p.mhp)).unwrap_or((100.0, 100.0));
+    let radius = cr.map(|c| c.0).unwrap_or(50.0);
     let is_enemy = faction.map(|f| f.faction_id == FactionType::Enemy).unwrap_or(false);
     let name = match (is_enemy, is_base) {
         (true,  true)  => "敵方基地",
@@ -822,6 +877,7 @@ fn build_tower_payload(
         "position": { "x": pos.0.x, "y": pos.0.y },
         "hp": hp,
         "max_hp": mhp,
+        "collision_radius": radius,
         "is_base": is_base,
     })
 }

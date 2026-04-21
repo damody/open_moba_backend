@@ -89,6 +89,45 @@ impl StateInitializer {
         }
     }
 
+    /// 把每個 BlockedRegion polygon 填成一堆靜態 blocker ECS entities
+    /// (Pos + CollisionRadius + RegionBlocker)，並推進 Searcher 的 `region` 索引。
+    /// 之後碰撞查詢完全走 `Searcher::search_collidable`，不再迭代 polygon。
+    /// 呼叫時機：在 BlockedRegions resource 載入 + 所有動態實體（hero/unit/tower/creep）
+    /// 建完之後；Searcher region 索引是一次性靜態資料，之後不再重建。
+    pub fn populate_region_blockers(ecs: &mut World) {
+        let polys: Vec<Vec<Vec2<f32>>> = {
+            let regions = ecs.read_resource::<BlockedRegions>();
+            regions.0.iter().map(|r| r.points.clone()).collect()
+        };
+        let mut created: Vec<(specs::Entity, Vec2<f32>)> = Vec::new();
+        for poly in &polys {
+            for (p, r) in blocker_circles_for_polygon(poly) {
+                let e = ecs.create_entity()
+                    .with(Pos(p))
+                    .with(CollisionRadius(r))
+                    .with(RegionBlocker)
+                    .build();
+                created.push((e, p));
+            }
+        }
+        let n = created.len();
+        {
+            use voracious_radix_sort::RadixSort;
+            let mut searcher = ecs.write_resource::<Searcher>();
+            searcher.region.xpos.clear();
+            searcher.region.ypos.clear();
+            for (e, p) in &created {
+                searcher.region.xpos.push(PosXIndex { e: *e, p: *p });
+                searcher.region.ypos.push(PosYIndex { e: *e, p: *p });
+            }
+            searcher.region.xpos.voracious_mt_sort(4);
+            searcher.region.ypos.voracious_mt_sort(4);
+        }
+        if n > 0 {
+            log::info!("Region blockers 建立完成：{} 個", n);
+        }
+    }
+
     /// 設置路徑資料
     fn setup_paths(ecs: &mut World, cw: &CreepWaveData) {
         use std::collections::BTreeMap;
@@ -229,6 +268,7 @@ impl StateInitializer {
         ecs.register::<Facing>();
         ecs.register::<TurnSpeed>();
         ecs.register::<CollisionRadius>();
+        ecs.register::<RegionBlocker>();
     }
 
     fn initialize_resources(ecs: &mut World, _thread_pool: &Arc<ThreadPool>) {
@@ -516,6 +556,7 @@ impl StateInitializer {
                     .with(unit_properties)
                     .with(unit_attack)
                     .with(enemy_vision)
+                    .with(CollisionRadius(20.0))
                     .build();
 
                 log::info!("創建訓練敵人單位 '{}' 於位置 ({}, {})", enemy_data.name, x, y);

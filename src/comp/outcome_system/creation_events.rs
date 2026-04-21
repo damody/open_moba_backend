@@ -45,6 +45,7 @@ impl CreationEventHandler {
             "hp": hp,
             "max_hp": mhp,
             "move_speed": msd,
+            "collision_radius": radius,
         });
 
         // 發送 MQTT 消息通知前端
