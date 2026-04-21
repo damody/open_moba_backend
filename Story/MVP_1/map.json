@@ -1,246 +1,974 @@
 {
-    // ===== MVP_1 LoL 風 孫市單路推塔（雙方出兵版） =====
-    // 玩家從 (0,0) 出發沿 +X 推進至 (2400,0) 的敵方基地。
-    // enemy_lane: 敵方 creep 從 (2400,0) → (0,0)
-    // ally_lane : 我方 creep 從 (0,0)  → (2400,0)
-    "Path": [
+  "Path": [
+    {
+      "Name": "enemy_lane",
+      "Points": [
+        "enemy_spawn",
+        "enemy_cp1",
+        "enemy_cp2",
+        "enemy_cp3",
+        "player_base"
+      ]
+    },
+    {
+      "Name": "ally_lane",
+      "Points": [
+        "player_base",
+        "enemy_cp3",
+        "enemy_cp2",
+        "enemy_cp1",
+        "enemy_spawn"
+      ]
+    }
+  ],
+  "Creep": [
+    {
+      "Name": "melee_minion",
+      "Label": "敵近戰兵",
+      "HP": 180.0,
+      "DefendPhysic": 1.0,
+      "DefendMagic": 0.0,
+      "MoveSpeed": 180.0,
+      "Faction": "Enemy",
+      "TurnSpeed": null
+    },
+    {
+      "Name": "ranged_minion",
+      "Label": "敵遠程兵",
+      "HP": 120.0,
+      "DefendPhysic": 0.0,
+      "DefendMagic": 0.0,
+      "MoveSpeed": 180.0,
+      "Faction": "Enemy",
+      "TurnSpeed": null
+    },
+    {
+      "Name": "siege_minion",
+      "Label": "敵砲車",
+      "HP": 360.0,
+      "DefendPhysic": 3.0,
+      "DefendMagic": 1.0,
+      "MoveSpeed": 140.0,
+      "Faction": "Enemy",
+      "TurnSpeed": null
+    },
+    {
+      "Name": "ally_melee_minion",
+      "Label": "我方近戰",
+      "HP": 180.0,
+      "DefendPhysic": 1.0,
+      "DefendMagic": 0.0,
+      "MoveSpeed": 180.0,
+      "Faction": "Player",
+      "TurnSpeed": null
+    },
+    {
+      "Name": "ally_ranged_minion",
+      "Label": "我方遠程",
+      "HP": 120.0,
+      "DefendPhysic": 0.0,
+      "DefendMagic": 0.0,
+      "MoveSpeed": 180.0,
+      "Faction": "Player",
+      "TurnSpeed": null
+    },
+    {
+      "Name": "ally_siege_minion",
+      "Label": "我方砲車",
+      "HP": 360.0,
+      "DefendPhysic": 3.0,
+      "DefendMagic": 1.0,
+      "MoveSpeed": 140.0,
+      "Faction": "Player",
+      "TurnSpeed": null
+    }
+  ],
+  "CheckPoint": [
+    {
+      "Name": "player_base",
+      "Class": "Base",
+      "X": 94.0,
+      "Y": 108.0
+    },
+    {
+      "Name": "player_tower_1",
+      "Class": "Tower",
+      "X": 500.0,
+      "Y": 500.0
+    },
+    {
+      "Name": "player_tower_2",
+      "Class": "Tower",
+      "X": 900.0,
+      "Y": 900.0
+    },
+    {
+      "Name": "enemy_cp3",
+      "Class": "Path",
+      "X": 1200.0,
+      "Y": 1200.0
+    },
+    {
+      "Name": "enemy_tower_1",
+      "Class": "Tower",
+      "X": 1500.0,
+      "Y": 1500.0
+    },
+    {
+      "Name": "enemy_cp2",
+      "Class": "Path",
+      "X": 1700.0,
+      "Y": 1700.0
+    },
+    {
+      "Name": "enemy_tower_2",
+      "Class": "Tower",
+      "X": 1950.0,
+      "Y": 1950.0
+    },
+    {
+      "Name": "enemy_cp1",
+      "Class": "Path",
+      "X": 2200.0,
+      "Y": 2200.0
+    },
+    {
+      "Name": "enemy_spawn",
+      "Class": "Spawn",
+      "X": 2400.0,
+      "Y": 2400.0
+    },
+    {
+      "Name": "enemy_base",
+      "Class": "Base",
+      "X": 2400.0,
+      "Y": 2400.0
+    },
+    {
+      "Name": "shop_center",
+      "Class": "Shop",
+      "X": -146.0,
+      "Y": 148.0
+    }
+  ],
+  "Tower": [
+    {
+      "Name": "lane_tower",
+      "Property": {
+        "Hp": 1500,
+        "Block": 0
+      },
+      "Attack": {
+        "Range": 700.0,
+        "AttackSpeed": 0.8,
+        "Physic": 55.0,
+        "Magic": 0.0
+      },
+      "TurnSpeed": 45.0
+    },
+    {
+      "Name": "base_tower",
+      "Property": {
+        "Hp": 3500,
+        "Block": 0
+      },
+      "Attack": {
+        "Range": 800.0,
+        "AttackSpeed": 1.0,
+        "Physic": 80.0,
+        "Magic": 0.0
+      },
+      "TurnSpeed": 45.0
+    }
+  ],
+  "CreepWave": [
+    {
+      "Name": "W01",
+      "StartTime": 10.0,
+      "Detail": [
         {
-            "Name": "enemy_lane",
-            "Points": ["enemy_spawn", "enemy_cp1", "enemy_cp2", "enemy_cp3", "player_base"]
+          "Path": "enemy_lane",
+          "Creeps": [
+            {
+              "Time": 0.0,
+              "Creep": "melee_minion"
+            },
+            {
+              "Time": 1.0,
+              "Creep": "melee_minion"
+            },
+            {
+              "Time": 2.0,
+              "Creep": "melee_minion"
+            },
+            {
+              "Time": 3.0,
+              "Creep": "ranged_minion"
+            },
+            {
+              "Time": 4.0,
+              "Creep": "ranged_minion"
+            }
+          ]
         },
         {
-            "Name": "ally_lane",
-            "Points": ["player_base", "enemy_cp3", "enemy_cp2", "enemy_cp1", "enemy_spawn"]
+          "Path": "ally_lane",
+          "Creeps": [
+            {
+              "Time": 0.0,
+              "Creep": "ally_melee_minion"
+            },
+            {
+              "Time": 1.0,
+              "Creep": "ally_melee_minion"
+            },
+            {
+              "Time": 2.0,
+              "Creep": "ally_melee_minion"
+            },
+            {
+              "Time": 3.0,
+              "Creep": "ally_ranged_minion"
+            },
+            {
+              "Time": 4.0,
+              "Creep": "ally_ranged_minion"
+            }
+          ]
         }
-    ],
-
-    "Creep": [
-        // ===== 敵方小兵 =====
+      ]
+    },
+    {
+      "Name": "W02",
+      "StartTime": 40.0,
+      "Detail": [
         {
-            "Name": "melee_minion",
-            "Label": "敵近戰兵",
-            "DefendPhysic": 1, "DefendMagic": 0,
-            "HP": 180, "MoveSpeed": 180,
-            "Faction": "Enemy"
+          "Path": "enemy_lane",
+          "Creeps": [
+            {
+              "Time": 0.0,
+              "Creep": "melee_minion"
+            },
+            {
+              "Time": 1.0,
+              "Creep": "melee_minion"
+            },
+            {
+              "Time": 2.0,
+              "Creep": "melee_minion"
+            },
+            {
+              "Time": 3.0,
+              "Creep": "ranged_minion"
+            },
+            {
+              "Time": 4.0,
+              "Creep": "ranged_minion"
+            }
+          ]
         },
         {
-            "Name": "ranged_minion",
-            "Label": "敵遠程兵",
-            "DefendPhysic": 0, "DefendMagic": 0,
-            "HP": 120, "MoveSpeed": 180,
-            "Faction": "Enemy"
-        },
-        {
-            "Name": "siege_minion",
-            "Label": "敵砲車",
-            "DefendPhysic": 3, "DefendMagic": 1,
-            "HP": 360, "MoveSpeed": 140,
-            "Faction": "Enemy"
-        },
-        // ===== 我方小兵 =====
-        {
-            "Name": "ally_melee_minion",
-            "Label": "我方近戰",
-            "DefendPhysic": 1, "DefendMagic": 0,
-            "HP": 180, "MoveSpeed": 180,
-            "Faction": "Player"
-        },
-        {
-            "Name": "ally_ranged_minion",
-            "Label": "我方遠程",
-            "DefendPhysic": 0, "DefendMagic": 0,
-            "HP": 120, "MoveSpeed": 180,
-            "Faction": "Player"
-        },
-        {
-            "Name": "ally_siege_minion",
-            "Label": "我方砲車",
-            "DefendPhysic": 3, "DefendMagic": 1,
-            "HP": 360, "MoveSpeed": 140,
-            "Faction": "Player"
+          "Path": "ally_lane",
+          "Creeps": [
+            {
+              "Time": 0.0,
+              "Creep": "ally_melee_minion"
+            },
+            {
+              "Time": 1.0,
+              "Creep": "ally_melee_minion"
+            },
+            {
+              "Time": 2.0,
+              "Creep": "ally_melee_minion"
+            },
+            {
+              "Time": 3.0,
+              "Creep": "ally_ranged_minion"
+            },
+            {
+              "Time": 4.0,
+              "Creep": "ally_ranged_minion"
+            }
+          ]
         }
-    ],
-
-    "CheckPoint": [
-        {"Name": "player_base",  "Class": "Base",   "X": 0,    "Y": 0},
-        {"Name": "player_tower_1","Class": "Tower", "X": 500,  "Y": 500},
-        {"Name": "player_tower_2","Class": "Tower", "X": 900,  "Y": 900},
-        {"Name": "enemy_cp3",    "Class": "Path",   "X": 1200, "Y": 1200},
-        {"Name": "enemy_tower_1","Class": "Tower",  "X": 1500, "Y": 1500},
-        {"Name": "enemy_cp2",    "Class": "Path",   "X": 1700, "Y": 1700},
-        {"Name": "enemy_tower_2","Class": "Tower",  "X": 1950, "Y": 1950},
-        {"Name": "enemy_cp1",    "Class": "Path",   "X": 2200, "Y": 2200},
-        {"Name": "enemy_spawn",  "Class": "Spawn",  "X": 2400, "Y": 2400},
-        {"Name": "enemy_base",   "Class": "Base",   "X": 2400, "Y": 2400},
-        {"Name": "shop_center",  "Class": "Shop",   "X": -50,  "Y": 50}
-    ],
-
-    "Tower": [
-        {"Name": "lane_tower",
-         "Property": {"Hp": 1500, "Block": 0},
-         "Attack": {"Range": 700, "AttackSpeed": 0.8, "Physic": 55, "Magic": 0},
-         "TurnSpeed": 45},
-        {"Name": "base_tower",
-         "Property": {"Hp": 3500, "Block": 0},
-         "Attack": {"Range": 800, "AttackSpeed": 1.0, "Physic": 80, "Magic": 0},
-         "TurnSpeed": 45}
-    ],
-
-    // 初始塔/基地放置（引用上面 Tower 模板）— 原本寫死在 create_mvp_scene，改為 script 驅動
-    "Structures": [
-        {"Tower": "base_tower", "Faction": "Player", "X": 0,    "Y": 0,    "IsBase": true},
-        {"Tower": "lane_tower", "Faction": "Player", "X": 500,  "Y": 500},
-        {"Tower": "lane_tower", "Faction": "Player", "X": 900,  "Y": 900},
-        {"Tower": "lane_tower", "Faction": "Enemy",  "X": 1500, "Y": 1500},
-        {"Tower": "lane_tower", "Faction": "Enemy",  "X": 1950, "Y": 1950},
-        {"Tower": "base_tower", "Faction": "Enemy",  "X": 2400, "Y": 2400, "IsBase": true}
-    ],
-
-    // 雙方同步出兵，每 30s 一波
-    "CreepWave": [
-        {"Name": "W01", "StartTime": 10, "Detail": [
-            {"Path": "enemy_lane", "Creeps": [
-                {"Time": 0, "Creep": "melee_minion"}, {"Time": 1, "Creep": "melee_minion"},
-                {"Time": 2, "Creep": "melee_minion"}, {"Time": 3, "Creep": "ranged_minion"},
-                {"Time": 4, "Creep": "ranged_minion"}
-            ]},
-            {"Path": "ally_lane", "Creeps": [
-                {"Time": 0, "Creep": "ally_melee_minion"}, {"Time": 1, "Creep": "ally_melee_minion"},
-                {"Time": 2, "Creep": "ally_melee_minion"}, {"Time": 3, "Creep": "ally_ranged_minion"},
-                {"Time": 4, "Creep": "ally_ranged_minion"}
-            ]}
-        ]},
-        {"Name": "W02", "StartTime": 40, "Detail": [
-            {"Path": "enemy_lane", "Creeps": [
-                {"Time": 0, "Creep": "melee_minion"}, {"Time": 1, "Creep": "melee_minion"},
-                {"Time": 2, "Creep": "melee_minion"}, {"Time": 3, "Creep": "ranged_minion"},
-                {"Time": 4, "Creep": "ranged_minion"}
-            ]},
-            {"Path": "ally_lane", "Creeps": [
-                {"Time": 0, "Creep": "ally_melee_minion"}, {"Time": 1, "Creep": "ally_melee_minion"},
-                {"Time": 2, "Creep": "ally_melee_minion"}, {"Time": 3, "Creep": "ally_ranged_minion"},
-                {"Time": 4, "Creep": "ally_ranged_minion"}
-            ]}
-        ]},
-        {"Name": "W03", "StartTime": 70, "Detail": [
-            {"Path": "enemy_lane", "Creeps": [
-                {"Time": 0, "Creep": "melee_minion"}, {"Time": 1, "Creep": "melee_minion"},
-                {"Time": 2, "Creep": "melee_minion"}, {"Time": 3, "Creep": "ranged_minion"},
-                {"Time": 4, "Creep": "ranged_minion"}, {"Time": 5, "Creep": "siege_minion"}
-            ]},
-            {"Path": "ally_lane", "Creeps": [
-                {"Time": 0, "Creep": "ally_melee_minion"}, {"Time": 1, "Creep": "ally_melee_minion"},
-                {"Time": 2, "Creep": "ally_melee_minion"}, {"Time": 3, "Creep": "ally_ranged_minion"},
-                {"Time": 4, "Creep": "ally_ranged_minion"}, {"Time": 5, "Creep": "ally_siege_minion"}
-            ]}
-        ]},
-        {"Name": "W04", "StartTime": 100, "Detail": [
-            {"Path": "enemy_lane", "Creeps": [
-                {"Time": 0, "Creep": "melee_minion"}, {"Time": 1, "Creep": "melee_minion"},
-                {"Time": 2, "Creep": "melee_minion"}, {"Time": 3, "Creep": "ranged_minion"},
-                {"Time": 4, "Creep": "ranged_minion"}
-            ]},
-            {"Path": "ally_lane", "Creeps": [
-                {"Time": 0, "Creep": "ally_melee_minion"}, {"Time": 1, "Creep": "ally_melee_minion"},
-                {"Time": 2, "Creep": "ally_melee_minion"}, {"Time": 3, "Creep": "ally_ranged_minion"},
-                {"Time": 4, "Creep": "ally_ranged_minion"}
-            ]}
-        ]},
-        {"Name": "W05", "StartTime": 130, "Detail": [
-            {"Path": "enemy_lane", "Creeps": [
-                {"Time": 0, "Creep": "melee_minion"}, {"Time": 1, "Creep": "melee_minion"},
-                {"Time": 2, "Creep": "melee_minion"}, {"Time": 3, "Creep": "ranged_minion"},
-                {"Time": 4, "Creep": "ranged_minion"}, {"Time": 5, "Creep": "siege_minion"}
-            ]},
-            {"Path": "ally_lane", "Creeps": [
-                {"Time": 0, "Creep": "ally_melee_minion"}, {"Time": 1, "Creep": "ally_melee_minion"},
-                {"Time": 2, "Creep": "ally_melee_minion"}, {"Time": 3, "Creep": "ally_ranged_minion"},
-                {"Time": 4, "Creep": "ally_ranged_minion"}, {"Time": 5, "Creep": "ally_siege_minion"}
-            ]}
-        ]},
-        {"Name": "W06", "StartTime": 160, "Detail": [
-            {"Path": "enemy_lane", "Creeps": [
-                {"Time": 0, "Creep": "melee_minion"}, {"Time": 1, "Creep": "melee_minion"},
-                {"Time": 2, "Creep": "melee_minion"}, {"Time": 3, "Creep": "ranged_minion"},
-                {"Time": 4, "Creep": "ranged_minion"}, {"Time": 5, "Creep": "siege_minion"}
-            ]},
-            {"Path": "ally_lane", "Creeps": [
-                {"Time": 0, "Creep": "ally_melee_minion"}, {"Time": 1, "Creep": "ally_melee_minion"},
-                {"Time": 2, "Creep": "ally_melee_minion"}, {"Time": 3, "Creep": "ally_ranged_minion"},
-                {"Time": 4, "Creep": "ally_ranged_minion"}, {"Time": 5, "Creep": "ally_siege_minion"}
-            ]}
-        ]},
-        {"Name": "W07", "StartTime": 190, "Detail": [
-            {"Path": "enemy_lane", "Creeps": [
-                {"Time": 0, "Creep": "siege_minion"}, {"Time": 1, "Creep": "melee_minion"},
-                {"Time": 2, "Creep": "melee_minion"}, {"Time": 3, "Creep": "ranged_minion"},
-                {"Time": 4, "Creep": "ranged_minion"}, {"Time": 5, "Creep": "siege_minion"}
-            ]},
-            {"Path": "ally_lane", "Creeps": [
-                {"Time": 0, "Creep": "ally_siege_minion"}, {"Time": 1, "Creep": "ally_melee_minion"},
-                {"Time": 2, "Creep": "ally_melee_minion"}, {"Time": 3, "Creep": "ally_ranged_minion"},
-                {"Time": 4, "Creep": "ally_ranged_minion"}, {"Time": 5, "Creep": "ally_siege_minion"}
-            ]}
-        ]},
-        {"Name": "W08", "StartTime": 220, "Detail": [
-            {"Path": "enemy_lane", "Creeps": [
-                {"Time": 0, "Creep": "siege_minion"}, {"Time": 1, "Creep": "melee_minion"},
-                {"Time": 2, "Creep": "melee_minion"}, {"Time": 3, "Creep": "ranged_minion"},
-                {"Time": 4, "Creep": "ranged_minion"}, {"Time": 5, "Creep": "siege_minion"}
-            ]},
-            {"Path": "ally_lane", "Creeps": [
-                {"Time": 0, "Creep": "ally_siege_minion"}, {"Time": 1, "Creep": "ally_melee_minion"},
-                {"Time": 2, "Creep": "ally_melee_minion"}, {"Time": 3, "Creep": "ally_ranged_minion"},
-                {"Time": 4, "Creep": "ally_ranged_minion"}, {"Time": 5, "Creep": "ally_siege_minion"}
-            ]}
-        ]},
-        {"Name": "W09", "StartTime": 250, "Detail": [
-            {"Path": "enemy_lane", "Creeps": [
-                {"Time": 0, "Creep": "siege_minion"}, {"Time": 1, "Creep": "siege_minion"},
-                {"Time": 2, "Creep": "melee_minion"}, {"Time": 3, "Creep": "ranged_minion"},
-                {"Time": 4, "Creep": "ranged_minion"}, {"Time": 5, "Creep": "melee_minion"}
-            ]},
-            {"Path": "ally_lane", "Creeps": [
-                {"Time": 0, "Creep": "ally_siege_minion"}, {"Time": 1, "Creep": "ally_siege_minion"},
-                {"Time": 2, "Creep": "ally_melee_minion"}, {"Time": 3, "Creep": "ally_ranged_minion"},
-                {"Time": 4, "Creep": "ally_ranged_minion"}, {"Time": 5, "Creep": "ally_melee_minion"}
-            ]}
-        ]},
-        {"Name": "W10", "StartTime": 280, "Detail": [
-            {"Path": "enemy_lane", "Creeps": [
-                {"Time": 0, "Creep": "siege_minion"}, {"Time": 1, "Creep": "siege_minion"},
-                {"Time": 2, "Creep": "melee_minion"}, {"Time": 3, "Creep": "ranged_minion"},
-                {"Time": 4, "Creep": "ranged_minion"}, {"Time": 5, "Creep": "melee_minion"}
-            ]},
-            {"Path": "ally_lane", "Creeps": [
-                {"Time": 0, "Creep": "ally_siege_minion"}, {"Time": 1, "Creep": "ally_siege_minion"},
-                {"Time": 2, "Creep": "ally_melee_minion"}, {"Time": 3, "Creep": "ally_ranged_minion"},
-                {"Time": 4, "Creep": "ally_ranged_minion"}, {"Time": 5, "Creep": "ally_melee_minion"}
-            ]}
-        ]},
-        {"Name": "W11", "StartTime": 310, "Detail": [
-            {"Path": "enemy_lane", "Creeps": [
-                {"Time": 0, "Creep": "siege_minion"}, {"Time": 1, "Creep": "siege_minion"},
-                {"Time": 2, "Creep": "melee_minion"}, {"Time": 3, "Creep": "ranged_minion"},
-                {"Time": 4, "Creep": "ranged_minion"}, {"Time": 5, "Creep": "melee_minion"}
-            ]},
-            {"Path": "ally_lane", "Creeps": [
-                {"Time": 0, "Creep": "ally_siege_minion"}, {"Time": 1, "Creep": "ally_siege_minion"},
-                {"Time": 2, "Creep": "ally_melee_minion"}, {"Time": 3, "Creep": "ally_ranged_minion"},
-                {"Time": 4, "Creep": "ally_ranged_minion"}, {"Time": 5, "Creep": "ally_melee_minion"}
-            ]}
-        ]},
-        {"Name": "W12", "StartTime": 340, "Detail": [
-            {"Path": "enemy_lane", "Creeps": [
-                {"Time": 0, "Creep": "siege_minion"}, {"Time": 1, "Creep": "siege_minion"},
-                {"Time": 2, "Creep": "melee_minion"}, {"Time": 3, "Creep": "ranged_minion"},
-                {"Time": 4, "Creep": "ranged_minion"}, {"Time": 5, "Creep": "melee_minion"}
-            ]},
-            {"Path": "ally_lane", "Creeps": [
-                {"Time": 0, "Creep": "ally_siege_minion"}, {"Time": 1, "Creep": "ally_siege_minion"},
-                {"Time": 2, "Creep": "ally_melee_minion"}, {"Time": 3, "Creep": "ally_ranged_minion"},
-                {"Time": 4, "Creep": "ally_ranged_minion"}, {"Time": 5, "Creep": "ally_melee_minion"}
-            ]}
-        ]}
-    ]
+      ]
+    },
+    {
+      "Name": "W03",
+      "StartTime": 70.0,
+      "Detail": [
+        {
+          "Path": "enemy_lane",
+          "Creeps": [
+            {
+              "Time": 0.0,
+              "Creep": "melee_minion"
+            },
+            {
+              "Time": 1.0,
+              "Creep": "melee_minion"
+            },
+            {
+              "Time": 2.0,
+              "Creep": "melee_minion"
+            },
+            {
+              "Time": 3.0,
+              "Creep": "ranged_minion"
+            },
+            {
+              "Time": 4.0,
+              "Creep": "ranged_minion"
+            },
+            {
+              "Time": 5.0,
+              "Creep": "siege_minion"
+            }
+          ]
+        },
+        {
+          "Path": "ally_lane",
+          "Creeps": [
+            {
+              "Time": 0.0,
+              "Creep": "ally_melee_minion"
+            },
+            {
+              "Time": 1.0,
+              "Creep": "ally_melee_minion"
+            },
+            {
+              "Time": 2.0,
+              "Creep": "ally_melee_minion"
+            },
+            {
+              "Time": 3.0,
+              "Creep": "ally_ranged_minion"
+            },
+            {
+              "Time": 4.0,
+              "Creep": "ally_ranged_minion"
+            },
+            {
+              "Time": 5.0,
+              "Creep": "ally_siege_minion"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "Name": "W04",
+      "StartTime": 100.0,
+      "Detail": [
+        {
+          "Path": "enemy_lane",
+          "Creeps": [
+            {
+              "Time": 0.0,
+              "Creep": "melee_minion"
+            },
+            {
+              "Time": 1.0,
+              "Creep": "melee_minion"
+            },
+            {
+              "Time": 2.0,
+              "Creep": "melee_minion"
+            },
+            {
+              "Time": 3.0,
+              "Creep": "ranged_minion"
+            },
+            {
+              "Time": 4.0,
+              "Creep": "ranged_minion"
+            }
+          ]
+        },
+        {
+          "Path": "ally_lane",
+          "Creeps": [
+            {
+              "Time": 0.0,
+              "Creep": "ally_melee_minion"
+            },
+            {
+              "Time": 1.0,
+              "Creep": "ally_melee_minion"
+            },
+            {
+              "Time": 2.0,
+              "Creep": "ally_melee_minion"
+            },
+            {
+              "Time": 3.0,
+              "Creep": "ally_ranged_minion"
+            },
+            {
+              "Time": 4.0,
+              "Creep": "ally_ranged_minion"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "Name": "W05",
+      "StartTime": 130.0,
+      "Detail": [
+        {
+          "Path": "enemy_lane",
+          "Creeps": [
+            {
+              "Time": 0.0,
+              "Creep": "melee_minion"
+            },
+            {
+              "Time": 1.0,
+              "Creep": "melee_minion"
+            },
+            {
+              "Time": 2.0,
+              "Creep": "melee_minion"
+            },
+            {
+              "Time": 3.0,
+              "Creep": "ranged_minion"
+            },
+            {
+              "Time": 4.0,
+              "Creep": "ranged_minion"
+            },
+            {
+              "Time": 5.0,
+              "Creep": "siege_minion"
+            }
+          ]
+        },
+        {
+          "Path": "ally_lane",
+          "Creeps": [
+            {
+              "Time": 0.0,
+              "Creep": "ally_melee_minion"
+            },
+            {
+              "Time": 1.0,
+              "Creep": "ally_melee_minion"
+            },
+            {
+              "Time": 2.0,
+              "Creep": "ally_melee_minion"
+            },
+            {
+              "Time": 3.0,
+              "Creep": "ally_ranged_minion"
+            },
+            {
+              "Time": 4.0,
+              "Creep": "ally_ranged_minion"
+            },
+            {
+              "Time": 5.0,
+              "Creep": "ally_siege_minion"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "Name": "W06",
+      "StartTime": 160.0,
+      "Detail": [
+        {
+          "Path": "enemy_lane",
+          "Creeps": [
+            {
+              "Time": 0.0,
+              "Creep": "melee_minion"
+            },
+            {
+              "Time": 1.0,
+              "Creep": "melee_minion"
+            },
+            {
+              "Time": 2.0,
+              "Creep": "melee_minion"
+            },
+            {
+              "Time": 3.0,
+              "Creep": "ranged_minion"
+            },
+            {
+              "Time": 4.0,
+              "Creep": "ranged_minion"
+            },
+            {
+              "Time": 5.0,
+              "Creep": "siege_minion"
+            }
+          ]
+        },
+        {
+          "Path": "ally_lane",
+          "Creeps": [
+            {
+              "Time": 0.0,
+              "Creep": "ally_melee_minion"
+            },
+            {
+              "Time": 1.0,
+              "Creep": "ally_melee_minion"
+            },
+            {
+              "Time": 2.0,
+              "Creep": "ally_melee_minion"
+            },
+            {
+              "Time": 3.0,
+              "Creep": "ally_ranged_minion"
+            },
+            {
+              "Time": 4.0,
+              "Creep": "ally_ranged_minion"
+            },
+            {
+              "Time": 5.0,
+              "Creep": "ally_siege_minion"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "Name": "W07",
+      "StartTime": 190.0,
+      "Detail": [
+        {
+          "Path": "enemy_lane",
+          "Creeps": [
+            {
+              "Time": 0.0,
+              "Creep": "siege_minion"
+            },
+            {
+              "Time": 1.0,
+              "Creep": "melee_minion"
+            },
+            {
+              "Time": 2.0,
+              "Creep": "melee_minion"
+            },
+            {
+              "Time": 3.0,
+              "Creep": "ranged_minion"
+            },
+            {
+              "Time": 4.0,
+              "Creep": "ranged_minion"
+            },
+            {
+              "Time": 5.0,
+              "Creep": "siege_minion"
+            }
+          ]
+        },
+        {
+          "Path": "ally_lane",
+          "Creeps": [
+            {
+              "Time": 0.0,
+              "Creep": "ally_siege_minion"
+            },
+            {
+              "Time": 1.0,
+              "Creep": "ally_melee_minion"
+            },
+            {
+              "Time": 2.0,
+              "Creep": "ally_melee_minion"
+            },
+            {
+              "Time": 3.0,
+              "Creep": "ally_ranged_minion"
+            },
+            {
+              "Time": 4.0,
+              "Creep": "ally_ranged_minion"
+            },
+            {
+              "Time": 5.0,
+              "Creep": "ally_siege_minion"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "Name": "W08",
+      "StartTime": 220.0,
+      "Detail": [
+        {
+          "Path": "enemy_lane",
+          "Creeps": [
+            {
+              "Time": 0.0,
+              "Creep": "siege_minion"
+            },
+            {
+              "Time": 1.0,
+              "Creep": "melee_minion"
+            },
+            {
+              "Time": 2.0,
+              "Creep": "melee_minion"
+            },
+            {
+              "Time": 3.0,
+              "Creep": "ranged_minion"
+            },
+            {
+              "Time": 4.0,
+              "Creep": "ranged_minion"
+            },
+            {
+              "Time": 5.0,
+              "Creep": "siege_minion"
+            }
+          ]
+        },
+        {
+          "Path": "ally_lane",
+          "Creeps": [
+            {
+              "Time": 0.0,
+              "Creep": "ally_siege_minion"
+            },
+            {
+              "Time": 1.0,
+              "Creep": "ally_melee_minion"
+            },
+            {
+              "Time": 2.0,
+              "Creep": "ally_melee_minion"
+            },
+            {
+              "Time": 3.0,
+              "Creep": "ally_ranged_minion"
+            },
+            {
+              "Time": 4.0,
+              "Creep": "ally_ranged_minion"
+            },
+            {
+              "Time": 5.0,
+              "Creep": "ally_siege_minion"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "Name": "W09",
+      "StartTime": 250.0,
+      "Detail": [
+        {
+          "Path": "enemy_lane",
+          "Creeps": [
+            {
+              "Time": 0.0,
+              "Creep": "siege_minion"
+            },
+            {
+              "Time": 1.0,
+              "Creep": "siege_minion"
+            },
+            {
+              "Time": 2.0,
+              "Creep": "melee_minion"
+            },
+            {
+              "Time": 3.0,
+              "Creep": "ranged_minion"
+            },
+            {
+              "Time": 4.0,
+              "Creep": "ranged_minion"
+            },
+            {
+              "Time": 5.0,
+              "Creep": "melee_minion"
+            }
+          ]
+        },
+        {
+          "Path": "ally_lane",
+          "Creeps": [
+            {
+              "Time": 0.0,
+              "Creep": "ally_siege_minion"
+            },
+            {
+              "Time": 1.0,
+              "Creep": "ally_siege_minion"
+            },
+            {
+              "Time": 2.0,
+              "Creep": "ally_melee_minion"
+            },
+            {
+              "Time": 3.0,
+              "Creep": "ally_ranged_minion"
+            },
+            {
+              "Time": 4.0,
+              "Creep": "ally_ranged_minion"
+            },
+            {
+              "Time": 5.0,
+              "Creep": "ally_melee_minion"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "Name": "W10",
+      "StartTime": 280.0,
+      "Detail": [
+        {
+          "Path": "enemy_lane",
+          "Creeps": [
+            {
+              "Time": 0.0,
+              "Creep": "siege_minion"
+            },
+            {
+              "Time": 1.0,
+              "Creep": "siege_minion"
+            },
+            {
+              "Time": 2.0,
+              "Creep": "melee_minion"
+            },
+            {
+              "Time": 3.0,
+              "Creep": "ranged_minion"
+            },
+            {
+              "Time": 4.0,
+              "Creep": "ranged_minion"
+            },
+            {
+              "Time": 5.0,
+              "Creep": "melee_minion"
+            }
+          ]
+        },
+        {
+          "Path": "ally_lane",
+          "Creeps": [
+            {
+              "Time": 0.0,
+              "Creep": "ally_siege_minion"
+            },
+            {
+              "Time": 1.0,
+              "Creep": "ally_siege_minion"
+            },
+            {
+              "Time": 2.0,
+              "Creep": "ally_melee_minion"
+            },
+            {
+              "Time": 3.0,
+              "Creep": "ally_ranged_minion"
+            },
+            {
+              "Time": 4.0,
+              "Creep": "ally_ranged_minion"
+            },
+            {
+              "Time": 5.0,
+              "Creep": "ally_melee_minion"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "Name": "W11",
+      "StartTime": 310.0,
+      "Detail": [
+        {
+          "Path": "enemy_lane",
+          "Creeps": [
+            {
+              "Time": 0.0,
+              "Creep": "siege_minion"
+            },
+            {
+              "Time": 1.0,
+              "Creep": "siege_minion"
+            },
+            {
+              "Time": 2.0,
+              "Creep": "melee_minion"
+            },
+            {
+              "Time": 3.0,
+              "Creep": "ranged_minion"
+            },
+            {
+              "Time": 4.0,
+              "Creep": "ranged_minion"
+            },
+            {
+              "Time": 5.0,
+              "Creep": "melee_minion"
+            }
+          ]
+        },
+        {
+          "Path": "ally_lane",
+          "Creeps": [
+            {
+              "Time": 0.0,
+              "Creep": "ally_siege_minion"
+            },
+            {
+              "Time": 1.0,
+              "Creep": "ally_siege_minion"
+            },
+            {
+              "Time": 2.0,
+              "Creep": "ally_melee_minion"
+            },
+            {
+              "Time": 3.0,
+              "Creep": "ally_ranged_minion"
+            },
+            {
+              "Time": 4.0,
+              "Creep": "ally_ranged_minion"
+            },
+            {
+              "Time": 5.0,
+              "Creep": "ally_melee_minion"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "Name": "W12",
+      "StartTime": 340.0,
+      "Detail": [
+        {
+          "Path": "enemy_lane",
+          "Creeps": [
+            {
+              "Time": 0.0,
+              "Creep": "siege_minion"
+            },
+            {
+              "Time": 1.0,
+              "Creep": "siege_minion"
+            },
+            {
+              "Time": 2.0,
+              "Creep": "melee_minion"
+            },
+            {
+              "Time": 3.0,
+              "Creep": "ranged_minion"
+            },
+            {
+              "Time": 4.0,
+              "Creep": "ranged_minion"
+            },
+            {
+              "Time": 5.0,
+              "Creep": "melee_minion"
+            }
+          ]
+        },
+        {
+          "Path": "ally_lane",
+          "Creeps": [
+            {
+              "Time": 0.0,
+              "Creep": "ally_siege_minion"
+            },
+            {
+              "Time": 1.0,
+              "Creep": "ally_siege_minion"
+            },
+            {
+              "Time": 2.0,
+              "Creep": "ally_melee_minion"
+            },
+            {
+              "Time": 3.0,
+              "Creep": "ally_ranged_minion"
+            },
+            {
+              "Time": 4.0,
+              "Creep": "ally_ranged_minion"
+            },
+            {
+              "Time": 5.0,
+              "Creep": "ally_melee_minion"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "Structures": [
+    {
+      "Tower": "base_tower",
+      "Faction": "Player",
+      "X": 35.0,
+      "Y": 37.0,
+      "IsBase": true
+    },
+    {
+      "Tower": "lane_tower",
+      "Faction": "Player",
+      "X": 500.0,
+      "Y": 500.0,
+      "IsBase": false
+    },
+    {
+      "Tower": "lane_tower",
+      "Faction": "Player",
+      "X": 900.0,
+      "Y": 900.0,
+      "IsBase": false
+    },
+    {
+      "Tower": "lane_tower",
+      "Faction": "Enemy",
+      "X": 1500.0,
+      "Y": 1500.0,
+      "IsBase": false
+    },
+    {
+      "Tower": "lane_tower",
+      "Faction": "Enemy",
+      "X": 1950.0,
+      "Y": 1950.0,
+      "IsBase": false
+    },
+    {
+      "Tower": "base_tower",
+      "Faction": "Enemy",
+      "X": 2222.0,
+      "Y": 2425.0,
+      "IsBase": true
+    }
+  ]
 }
