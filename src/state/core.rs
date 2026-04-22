@@ -215,6 +215,8 @@ impl State {
             &mut self.ecs,
             &self.script_registry,
             self.local_tick,
+            dt.as_secs_f32(),
+            self.mqtx.clone(),
         );
 
         // 處理小兵波
@@ -424,6 +426,8 @@ impl State {
             let response = match req.query_type.as_str() {
                 "list_players" => query::query_list_players(&self.ecs),
                 "inspect_player_view" => query::query_inspect_player_view(&self.ecs, &req.player_name),
+                "list_abilities" => query::query_list_abilities(&self.ecs),
+                "get_ability_detail" => query::query_get_ability_detail(&self.ecs, &req.player_name),
                 other => crate::transport::QueryResponse {
                     success: false,
                     error: format!("Unknown query_type: {}", other),

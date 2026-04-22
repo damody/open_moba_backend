@@ -4,6 +4,7 @@ use specs::{World, WorldExt};
 use std::collections::BTreeMap;
 use std::time::Instant;
 
+use crate::ability_runtime::AbilityRegistry;
 use crate::comp::*;
 use crate::scripting::{ScriptEventQueue, ScriptUnitTag};
 use crate::tick::*;
@@ -43,6 +44,7 @@ impl EcsSetup {
         ecs.insert(BTreeMap::<String, CheckPoint>::new());
         ecs.insert(Searcher::default());
         ecs.insert(ScriptEventQueue::default());
+        ecs.insert(AbilityRegistry::new());
 
         // Set starting time for the server.
         ecs.write_resource::<TimeOfDay>().0 = 0.0;

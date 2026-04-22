@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use specs::{World, WorldExt, Join, Entity};
 use serde_json::json;
 
+use crate::ability_runtime::AbilityRegistry;
 use crate::comp::*;
 use crate::transport::QueryResponse;
 
@@ -63,6 +64,37 @@ pub fn query_list_players(world: &World) -> QueryResponse {
         success: true,
         error: String::new(),
         data_json: serde_json::to_vec(&data).unwrap_or_default(),
+    }
+}
+
+/// 列出所有已註冊的技能 metadata（client 用於 tooltip / 技能樹 UI）。
+/// 資料來自 `AbilityRegistry` resource；Phase 1 時 registry 為空 → 回空 list。
+pub fn query_list_abilities(world: &World) -> QueryResponse {
+    let registry = world.read_resource::<AbilityRegistry>();
+    let abilities: Vec<&omoba_core::ability_meta::AbilityDef> = registry.all().collect();
+    let data = json!({ "abilities": abilities });
+    QueryResponse {
+        success: true,
+        error: String::new(),
+        data_json: serde_json::to_vec(&data).unwrap_or_default(),
+    }
+}
+
+/// 查詢單一技能的完整 metadata（`ability_id` 借 `player_name` 欄位傳遞，
+/// 避免擴充既有 QueryRequest schema）。
+pub fn query_get_ability_detail(world: &World, ability_id: &str) -> QueryResponse {
+    let registry = world.read_resource::<AbilityRegistry>();
+    match registry.get(ability_id) {
+        Some(def) => QueryResponse {
+            success: true,
+            error: String::new(),
+            data_json: serde_json::to_vec(def).unwrap_or_default(),
+        },
+        None => QueryResponse {
+            success: false,
+            error: format!("Ability '{}' not found", ability_id),
+            data_json: Vec::new(),
+        },
     }
 }
 

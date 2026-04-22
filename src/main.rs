@@ -7,6 +7,7 @@ use std::fs::File;
 use std::io::{Write, BufReader, BufRead};
 use failure::{err_msg, Error};
 use chrono::{NaiveDateTime, Local};
+mod ability_runtime;
 mod comp;
 mod scripting;
 mod tick;
