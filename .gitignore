@@ -2,3 +2,5 @@
 Cargo.lock
 /log/
 *.log
+# 執行期 script DLL（由 run.bat 從 ../scripts/target 複製而來）
+/scripts/
