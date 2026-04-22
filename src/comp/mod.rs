@@ -36,9 +36,13 @@ pub mod is_base;
 pub mod bounty;
 pub mod facing;
 pub mod blocked_region;
+pub mod game_mode;
+pub mod tower_template;
 
 pub use self::{
     blocked_region::*,
+    game_mode::*,
+    tower_template::*,
     gold::*,
     inventory::*,
     item_effects::*,

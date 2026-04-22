@@ -6,3 +6,5 @@ SERVER_PORT = "50061"
 CLIENT_ID = "omobab"
 PLAYER_NAME = "player1"
 RENDER_DELAY_MS = 100
+# 指定要載入的 Story 資料夾；MVP_1 = 原 MOBA 單路推塔，TD_1 = Bloons 風塔防
+STORY = "TD_1"

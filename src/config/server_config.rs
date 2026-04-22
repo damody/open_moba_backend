@@ -5,6 +5,10 @@ use std::fs::File;
 use std::io::Read;
 use std::time::Duration;
 
+fn default_story() -> String {
+    "MVP_1".to_string()
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ServerSetting {
     pub SERVER_IP: String,
@@ -14,6 +18,10 @@ pub struct ServerSetting {
     pub MAP: String,
     pub MAX_PLAYER: i32,
     pub RENDER_DELAY_MS: u64,
+    /// `Story/{STORY}` 資料夾名稱；預設 "MVP_1" 以保留既有行為。
+    /// TD 模式設為 "TD_1" 以載入塔防關卡。
+    #[serde(default = "default_story")]
+    pub STORY: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

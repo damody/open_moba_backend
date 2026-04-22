@@ -34,7 +34,7 @@ impl EcsSetup {
         ecs.insert(Vec::<Outcome>::new());
         ecs.insert(Vec::<TakenDamage>::new());
         ecs.insert(Vec::<CreepWave>::new());
-        ecs.insert(CurrentCreepWave{wave: 0, path: vec![]});
+        ecs.insert(CurrentCreepWave{wave: 0, path: vec![], is_running: true, wave_start_time: 0.0});
         ecs.insert(BTreeMap::<String, Player>::new());
         ecs.insert(BTreeMap::<String, CreepEmiter>::new());
         ecs.insert(BTreeMap::<String, Path>::new());

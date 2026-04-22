@@ -13,6 +13,11 @@ pub struct CreepWaveData {
     /// 不可通行多邊形區域（英雄與單位會被擋住；不影響視野/投射物）
     #[serde(default)]
     pub BlockedRegions: Vec<BlockedRegionJD>,
+    /// 遊戲模式。未指定視為 "Moba"（MVP_1 沿用行為）。
+    /// 可選值："Moba" 或 "TowerDefense"。由 `state/initialization.rs::init_creep_wave`
+    /// 轉為 `GameMode` resource 供各 system 查詢。
+    #[serde(default)]
+    pub GameMode: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]

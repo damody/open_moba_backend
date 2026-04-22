@@ -78,6 +78,18 @@ pub enum Outcome {
         unit: crate::comp::Unit,               // 單位類型
         faction: crate::comp::Faction,         // 陣營
         duration: Option<f32>,                 // 持續時間（可選，用於臨時單位）
+    },
+    /// TD 模式：小兵走到 path 終點（未被擊殺）。
+    /// GameProcessor 會扣 PlayerLives 1、delete entity、並廣播 hero.stats（lives 更新）。
+    CreepLeaked {
+        ent: Entity,
+    },
+    /// TD 模式：projectile 命中後套用減速 debuff 到目標 creep。
+    /// GameProcessor 在目標身上 insert/refresh SlowBuff component。
+    ApplySlow {
+        target: Entity,
+        factor: f32,
+        duration: f32,
     }
 }
 

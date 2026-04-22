@@ -8,6 +8,9 @@ pub enum CreepStatus {
     Walk,
     Stop,
     PreWalk,
+    /// TD 模式：已走到 path 終點，等 GameProcessor 扣 PlayerLives 後 despawn。
+    /// 設定後便不再嘗試移動或重複 push Outcome::CreepLeaked。
+    Leaked,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -60,6 +63,14 @@ fn default_creep_collision_radius() -> f32 { 20.0 }
 pub struct CurrentCreepWave {
     pub wave: usize,
     pub path: Vec<usize>,
+    /// TD 模式下是否正在跑本波；false 代表 idle，等待 StartRound 指令。
+    /// 非 TD 模式預設 true，沿用時間觸發邏輯。
+    #[serde(default)]
+    pub is_running: bool,
+    /// TD 模式下本波的開始時刻（按 StartRound 時記錄 totaltime）。
+    /// 非 TD 模式忽略此欄位，沿用 `CreepWave.time` 作為開始時間。
+    #[serde(default)]
+    pub wave_start_time: f32,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CreepWave {

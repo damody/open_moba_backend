@@ -171,6 +171,8 @@ impl CreationEventHandler {
                 damage_phys: phys_damage, // 物理傷害
                 damage_magi: magi_damage, // 魔法傷害
                 damage_real: real_damage, // 真實傷害
+                slow_factor: 0.0,
+                slow_duration: 0.0,
             })
             .build();
         

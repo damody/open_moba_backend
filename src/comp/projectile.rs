@@ -21,6 +21,12 @@ pub struct Projectile {
     pub damage_phys: f32,  // 物理傷害
     pub damage_magi: f32,  // 魔法傷害
     pub damage_real: f32,  // 真實傷害
+    /// 命中後套用的減速乘數（0.0 表不減速，0.5 表減速到 50%）
+    #[serde(default)]
+    pub slow_factor: f32,
+    /// 減速持續秒數
+    #[serde(default)]
+    pub slow_duration: f32,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
