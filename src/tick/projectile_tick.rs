@@ -81,15 +81,38 @@ impl<'a> System<'a> for Sys {
                     let dist = delta.magnitude();
                     let step = proj.msd * dt;
 
-                    // 無 target 的方向性子彈（Tack 放射針）：飛行途中每 tick 掃描
-                    // 命中半徑內任一敵人→直接扣血+消失；不需抵達終點
-                    // hit_radius 由 spawn_projectile_ex 帶入；0 時用 50 當預設（極短程接觸）
+                    // 無 target 的方向性子彈（Tack 放射針）：用掃掠 segment 檢查命中
+                    // （不只檢查當前 point，還要檢查本 tick 即將走過的路徑）避免高速子彈
+                    // 跨過氣球之間的間隔而沒打中。
                     let needle_r = if proj.hit_radius > 0.0 { proj.hit_radius } else { 50.0 };
                     if proj.target.is_none() && proj.radius < 1.0 {
-                        let near = tr.searcher.creep.SearchNN_XY(pos.0, needle_r, 1);
-                        if let Some(hit) = near.first() {
-                            create_projectile_damage(&proj, hit.e, &mut outcomes, pos.0);
-                            outcomes.push(Outcome::Death { pos: pos.0.clone(), ent: e.clone() });
+                        // 計算本 tick 的 swept segment：從 pos.0 出發，沿 delta 方向走 step 距離
+                        let a = pos.0;
+                        let b = if dist > 0.0 {
+                            a + (delta / dist) * step
+                        } else { a };
+                        let seg_mid = (a + b) * 0.5;
+                        let half_len = ((b - a).magnitude()) * 0.5;
+                        // 從 mid 找 (half_len + needle_r) 半徑內的 creep 候選，再做 segment 距離
+                        let search_r = half_len + needle_r + 5.0;
+                        let candidates = tr.searcher.creep.SearchNN_XY(seg_mid, search_r, 16);
+                        let needle_r2 = needle_r * needle_r;
+                        let mut hit: Option<specs::Entity> = None;
+                        for ci in candidates.iter() {
+                            let cpos = target_positions.get(&ci.e).copied().unwrap_or_default();
+                            if crate::util::geometry::point_segment_dist_sq(cpos, a, b) <= needle_r2 {
+                                hit = Some(ci.e);
+                                break;
+                            }
+                        }
+                        if let Some(hit_ent) = hit {
+                            // 命中點：取子彈與氣球最接近那一點（pos.0 or b 取近的）
+                            let c = target_positions.get(&hit_ent).copied().unwrap_or(a);
+                            let ta = ((c - a).magnitude_squared()).min((c - b).magnitude_squared());
+                            let hit_pos = if (c - a).magnitude_squared() <= (c - b).magnitude_squared() { a } else { b };
+                            let _ = ta; // silence unused
+                            create_projectile_damage(&proj, hit_ent, &mut outcomes, hit_pos);
+                            outcomes.push(Outcome::Death { pos: hit_pos, ent: e.clone() });
                             return outcomes;
                         }
                     }
