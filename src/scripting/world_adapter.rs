@@ -275,6 +275,7 @@ impl<'a> GameWorld for WorldAdapter<'a> {
             "kind": kind_str,
             "directional": is_directional,
             "hit_radius": spec.hit_radius,
+            "splash_radius": spec.splash_radius,
         });
         let _ = self.mqtx.try_send(OutboundMsg::new_s_at(
             "td/all/res", "projectile", "C", pjs, from_vek.x, from_vek.y,

@@ -95,25 +95,29 @@ impl<'a> System<'a> for Sys {
                     // 命中判定：本 tick 的移動量已足夠抵達目標 → 直接 hit
                     let reached = dist <= step || dist < 1.0;
                     if reached {
-                        pos.0 = proj.tpos;
+                        // 命中點：優先用 target 的最新位置（snapshot = 本 tick 初的 Pos storage），
+                        // 這樣 AoE 圓心和爆炸特效一定落在氣球身上，不會停在子彈剛發射時那一刻。
+                        let hit_pos = if let Some(target) = proj.target {
+                            target_positions.get(&target).copied().unwrap_or(proj.tpos)
+                        } else {
+                            proj.tpos
+                        };
+                        pos.0 = hit_pos;
                         if proj.radius > 1.0 {
-                            // 範圍攻擊：掃描半徑內敵人
-                            let targets = tr.searcher.creep.SearchNN_XY(pos.0, proj.radius, 5);
+                            // 範圍攻擊：以 hit_pos 為中心掃半徑內敵人
+                            let targets = tr.searcher.creep.SearchNN_XY(hit_pos, proj.radius, 5);
                             for target_info in targets.iter() {
-                                create_projectile_damage(&proj, target_info.e, &mut outcomes, pos.0);
+                                create_projectile_damage(&proj, target_info.e, &mut outcomes, hit_pos);
                             }
-                            // 爆炸特效事件：由小到大紅圈，0.35s 消失
-                            outcomes.push(Outcome::Explosion {
-                                pos: pos.0,
-                                radius: proj.radius,
-                                duration: 0.35,
-                            });
+                            // 爆炸視覺由前端自己在子彈飛完時 spawn（projectile/C 有帶
+                            // splash_radius，前端在 elapsed>=flight_time 時畫圈）。
+                            // 後端不再廣播 game/explosion，避免雙重爆炸 + 位置不同步。
                         } else if let Some(target) = proj.target {
                             // 單體攻擊
-                            create_projectile_damage(&proj, target, &mut outcomes, pos.0);
+                            create_projectile_damage(&proj, target, &mut outcomes, hit_pos);
                         }
-                        // 方向性子彈：抵達 end_pos 但沒打到任何敵人 → 直接消失（上面的 if branch 都不觸發）
-                        outcomes.push(Outcome::Death { pos: pos.0.clone(), ent: e.clone() });
+                        // 方向性子彈：抵達 end_pos 但沒打到任何敵人 → 直接消失
+                        outcomes.push(Outcome::Death { pos: hit_pos, ent: e.clone() });
                     } else {
                         // 還沒抵達：往目標方向前進一個 step
                         let vel = delta / dist * step;
