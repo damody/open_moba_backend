@@ -95,13 +95,20 @@ impl StateInitializer {
     /// 呼叫時機：在 BlockedRegions resource 載入 + 所有動態實體（hero/unit/tower/creep）
     /// 建完之後；Searcher region 索引是一次性靜態資料，之後不再重建。
     pub fn populate_region_blockers(ecs: &mut World) {
+        log::warn!("▶▶ populate_region_blockers START");
         let polys: Vec<Vec<Vec2<f32>>> = {
             let regions = ecs.read_resource::<BlockedRegions>();
+            log::warn!("▶▶ BlockedRegions resource 有 {} 個 polygons", regions.0.len());
+            for (i, r) in regions.0.iter().enumerate() {
+                log::warn!("▶▶   poly[{}] '{}' 頂點數={}", i, r.name, r.points.len());
+            }
             regions.0.iter().map(|r| r.points.clone()).collect()
         };
         let mut created: Vec<(specs::Entity, Vec2<f32>)> = Vec::new();
         for poly in &polys {
-            for (p, r) in blocker_circles_for_polygon(poly) {
+            let circles = blocker_circles_for_polygon(poly);
+            log::warn!("▶▶ poly 產生 {} 個 blocker circles", circles.len());
+            for (p, r) in circles {
                 let e = ecs.create_entity()
                     .with(Pos(p))
                     .with(CollisionRadius(r))
@@ -122,9 +129,14 @@ impl StateInitializer {
             }
             searcher.region.xpos.voracious_mt_sort(4);
             searcher.region.ypos.voracious_mt_sort(4);
+            log::warn!("▶▶ searcher.region 寫入 xpos={} ypos={}",
+                searcher.region.xpos.len(), searcher.region.ypos.len());
         }
-        if n > 0 {
-            log::info!("Region blockers 建立完成：{} 個", n);
+        log::warn!("▶▶ populate_region_blockers DONE: {} blockers created (polygons={})", n, polys.len());
+        for (idx, (e, p)) in created.iter().take(3).enumerate() {
+            let r = ecs.read_storage::<CollisionRadius>().get(*e).map(|c| c.0).unwrap_or(0.0);
+            log::warn!("▶▶   blocker[{}] entity={:?} pos=({:.1},{:.1}) r={:.1}",
+                idx, e, p.x, p.y, r);
         }
     }
 
@@ -185,6 +197,11 @@ impl StateInitializer {
 
     /// 設置小兵波
     fn setup_creep_waves(ecs: &mut World, cw: &CreepWaveData) {
+        // Debug 開關：設 OMB_NO_CREEPS=1 完全跳過小兵波載入（碰撞除錯用）
+        if std::env::var("OMB_NO_CREEPS").ok().as_deref() == Some("1") {
+            log::warn!("⚠ OMB_NO_CREEPS=1：跳過 {} 個小兵波載入", cw.CreepWave.len());
+            return;
+        }
         let mut cws = ecs.get_mut::<Vec<CreepWave>>().unwrap();
         log::info!("載入 {} 個小兵波", cw.CreepWave.len());
         for cw_data in cw.CreepWave.iter() {

@@ -8,6 +8,10 @@ use serde_json::json;
 use crate::comp::*;
 use crate::comp::phys::MAX_COLLISION_RADIUS;
 use crate::transport::OutboundMsg;
+use crate::util::geometry::point_in_polygon;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static TICK_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(SystemData)]
 pub struct HeroMoveRead<'a> {
@@ -18,6 +22,8 @@ pub struct HeroMoveRead<'a> {
     turn_speeds: ReadStorage<'a, TurnSpeed>,
     radii: ReadStorage<'a, CollisionRadius>,
     searcher: Read<'a, Searcher>,
+    /// Debug only：驗證 hero 是否進入 polygon 但未被 blocker 擋
+    regions: Read<'a, BlockedRegions>,
 }
 
 #[derive(SystemData)]
@@ -39,12 +45,11 @@ fn hits_any(
     searcher: &Searcher,
     radii: &ReadStorage<CollisionRadius>,
     self_entity: specs::Entity,
+    _regions: &BlockedRegions,
 ) -> bool {
     let q_r = radius + MAX_COLLISION_RADIUS;
     for di in searcher.search_collidable(new_center, q_r, 16) {
-        if di.e == self_entity {
-            continue;
-        }
+        if di.e == self_entity { continue; }
         let Some(other_r) = radii.get(di.e).map(|cr| cr.0) else { continue };
         let touch = radius + other_r;
         if di.dis < touch * touch {
@@ -64,6 +69,7 @@ fn advance_with_collision(
     searcher: &Searcher,
     radii: &ReadStorage<CollisionRadius>,
     self_entity: specs::Entity,
+    regions: &BlockedRegions,
 ) -> (Vec2<f32>, bool) {
     let diff = target - pos;
     let distance = diff.magnitude();
@@ -71,28 +77,24 @@ fn advance_with_collision(
         return (target, true);
     }
     let direction = diff / distance;
-    // 抵達：step 足夠蓋住剩餘距離
     if distance <= step.max(1.0) {
-        if !hits_any(target, radius, searcher, radii, self_entity) {
+        if !hits_any(target, radius, searcher, radii, self_entity, regions) {
             return (target, true);
         }
-        // target 被佔位 → 走到剛好撞前為止（保留目前位置）
         return (pos, false);
     }
     let full = pos + direction * step;
-    if !hits_any(full, radius, searcher, radii, self_entity) {
+    if !hits_any(full, radius, searcher, radii, self_entity, regions) {
         return (full, false);
     }
-    // Wall sliding：只保留 x 或只保留 y 分量
     let only_x = pos + Vec2::new(direction.x * step, 0.0);
-    if !hits_any(only_x, radius, searcher, radii, self_entity) {
+    if !hits_any(only_x, radius, searcher, radii, self_entity, regions) {
         return (only_x, false);
     }
     let only_y = pos + Vec2::new(0.0, direction.y * step);
-    if !hits_any(only_y, radius, searcher, radii, self_entity) {
+    if !hits_any(only_y, radius, searcher, radii, self_entity, regions) {
         return (only_y, false);
     }
-    // 全軸都撞到 → 本 tick 不動
     (pos, false)
 }
 
@@ -108,6 +110,18 @@ impl<'a> System<'a> for Sys {
         let dt = tr.dt.0;
         if dt <= 0.0 {
             return;
+        }
+
+        // 每 120 tick (~2s) log 一次 searcher 各 index 大小，確認 region 已載入
+        let t = TICK_COUNTER.fetch_add(1, Ordering::Relaxed);
+        if t % 120 == 0 {
+            log::warn!(
+                "🔍 searcher sizes: hero={}, creep={}, tower={}, region={}",
+                tr.searcher.hero.xpos.len(),
+                tr.searcher.creep.xpos.len(),
+                tr.searcher.tower.xpos.len(),
+                tr.searcher.region.xpos.len()
+            );
         }
 
         let mut arrived: Vec<specs::Entity> = Vec::new();
@@ -149,6 +163,7 @@ impl<'a> System<'a> for Sys {
                         &tr.searcher,
                         &tr.radii,
                         entity,
+                        &tr.regions,
                     );
                     pos.0 = new_pos;
                     if reached {
