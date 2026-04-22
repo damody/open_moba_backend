@@ -181,7 +181,7 @@ pub fn spawn_td_tower(world: &mut World, pos: Vec2<f32>, kind: TowerKind) -> Ent
         .with(faction)
         .with(vision)
         .with(Facing(0.0))
-        .with(TurnSpeed(45.0_f32.to_radians()))
+        .with(TurnSpeed(360.0_f32.to_radians())) // 每秒 360 度（幾乎瞬轉，氣球一進射程就開火）
         .with(CollisionRadius(tpl.footprint))
         .with(kind) // 供 handle_projectile 查 splash/slow、tower_tick 查 multi-shot
         .build()
