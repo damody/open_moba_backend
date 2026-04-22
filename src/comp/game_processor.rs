@@ -53,6 +53,13 @@ impl GameProcessor {
                     Outcome::GainExperience { target, amount } => {
                         Self::handle_experience_gain(ecs, target, amount as u32)?;
                     }
+                    Outcome::CreepLeaked { ent } => {
+                        remove_uids.push(ent);
+                        Self::handle_creep_leaked(ecs, mqtx, ent)?;
+                    }
+                    Outcome::ApplySlow { target, factor, duration } => {
+                        Self::handle_apply_slow(ecs, target, factor, duration)?;
+                    }
                     _ => {}
                 }
             }
@@ -196,6 +203,7 @@ impl GameProcessor {
         };
 
         // 廣播 hero.stats
+        let lives = ecs.read_resource::<PlayerLives>().0;
         let hero_stats_payload = {
             let heroes = ecs.read_storage::<Hero>();
             let golds = ecs.read_storage::<Gold>();
@@ -218,6 +226,7 @@ impl GameProcessor {
                         "gold": g,
                         "hp": hp,
                         "max_hp": mhp,
+                        "lives": lives,
                     }),
                     p,
                 )
@@ -242,7 +251,14 @@ impl GameProcessor {
     ) -> Result<(), Error> {
         let source_entity = source.ok_or_else(|| failure::err_msg("Missing source entity"))?;
         let target_entity = target.ok_or_else(|| failure::err_msg("Missing target entity"))?;
-        
+
+        // 讀取 TowerKind（TD 模式塔才有），用來決定 splash/slow 參數。
+        // 非 TD 塔（英雄、MOBA 塔）沒有此 Component，走單體傷害。
+        let tower_kind: Option<crate::comp::TowerKind> = {
+            let kinds = ecs.read_storage::<crate::comp::TowerKind>();
+            kinds.get(source_entity).copied()
+        };
+
         let (msd, p2, atk_phys) = {
             let positions = ecs.read_storage::<Pos>();
             let tproperty = ecs.read_storage::<TAttack>();
@@ -252,7 +268,7 @@ impl GameProcessor {
             let tp = tproperty.get(source_entity).ok_or_else(|| failure::err_msg("Source attack properties not found"))?;
             (tp.bullet_speed, p2.0, tp.atk_physic.v)
         };
-        
+
         // 命中由 projectile_tick 的距離判定決定（target 接近時 step >= dist 即命中）。
         // time_left 為安全閥：flight_time_s * 3 + 3 秒，允許高速單位拖著子彈移動。
         let move_speed = msd as f32;
@@ -264,6 +280,15 @@ impl GameProcessor {
         };
         let safety_time_left = flight_time_s * 3.0 + 3.0;
 
+        // 依塔種決定 AoE 半徑與減速（ice）
+        let (splash_radius, slow_factor, slow_duration) = match tower_kind {
+            Some(kind) => {
+                let tpl = kind.template();
+                (tpl.splash_radius, tpl.slow_factor, tpl.slow_duration)
+            }
+            None => (0.0, 0.0, 0.0),
+        };
+
         let ntarget = target_entity.id();
         let e = ecs.create_entity()
             .with(Pos(pos))
@@ -272,11 +297,13 @@ impl GameProcessor {
                 owner: source_entity.clone(),
                 tpos: p2,
                 target: target,
-                radius: 0.,
+                radius: splash_radius,
                 msd: msd,
                 damage_phys: atk_phys,
                 damage_magi: 0.0,
                 damage_real: 0.0,
+                slow_factor,
+                slow_duration,
             })
             .build();
 
@@ -339,6 +366,69 @@ impl GameProcessor {
             "move_speed": msd,
         });
         mqtx.try_send(OutboundMsg::new_s_at("td/all/res", "creep", "C", payload, pos.x, pos.y));
+        Ok(())
+    }
+
+    /// TD 模式（Ice 塔命中時）：附加或刷新 SlowBuff 到目標 creep。
+    /// 若目標已有 buff，取較強（factor 較小）的 factor；remaining 取較長。
+    fn handle_apply_slow(
+        ecs: &mut World,
+        target: Entity,
+        factor: f32,
+        duration: f32,
+    ) -> Result<(), Error> {
+        let mut slow_buffs = ecs.write_storage::<SlowBuff>();
+        let existing = slow_buffs.get(target).copied();
+        let (new_factor, new_remaining) = match existing {
+            Some(b) => (b.factor.min(factor), b.remaining.max(duration)),
+            None => (factor, duration),
+        };
+        slow_buffs.insert(target, SlowBuff {
+            factor: new_factor,
+            remaining: new_remaining,
+        }).ok();
+        Ok(())
+    }
+
+    /// TD 模式：小兵漏怪到終點。扣 `PlayerLives` 1、廣播 `game/lives` 與 entity delete。
+    /// 若生命歸零再廣播 `game/end`（遊戲結束）。
+    fn handle_creep_leaked(
+        ecs: &mut World,
+        mqtx: &crossbeam_channel::Sender<OutboundMsg>,
+        entity: Entity,
+    ) -> Result<(), Error> {
+        let remaining = {
+            let mut lives = ecs.write_resource::<PlayerLives>();
+            lives.0 = (lives.0 - 1).max(0);
+            lives.0
+        };
+        log::info!("💔 小兵漏網！玩家生命 {} (entity={:?})", remaining, entity);
+
+        // 廣播 entity delete 讓前端移除 creep 圖
+        let _ = mqtx.try_send(OutboundMsg::new_s(
+            "td/all/res",
+            "creep",
+            "D",
+            json!({ "id": entity.id() }),
+        ));
+
+        // 廣播專用的 game/lives 事件（前端 HUD 立即更新），不需要 hero.stats
+        let _ = mqtx.try_send(OutboundMsg::new_s(
+            "td/all/res",
+            "game",
+            "lives",
+            json!({ "lives": remaining }),
+        ));
+
+        if remaining <= 0 {
+            let _ = mqtx.try_send(OutboundMsg::new_s(
+                "td/all/res",
+                "game",
+                "end",
+                json!({ "result": "defeat", "reason": "lives_depleted" }),
+            ));
+            log::warn!("☠️ TD 模式：玩家生命歸零，遊戲結束");
+        }
         Ok(())
     }
 

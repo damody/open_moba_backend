@@ -130,17 +130,17 @@ impl<'a> System<'a> for Sys {
     }
 }
 
-/// 創建投射物傷害事件 - 使用新的傷害事件系統
+/// 創建投射物傷害事件 - 使用新的傷害事件系統。
+/// 若 projectile 帶有 slow_factor/slow_duration（Ice 塔）則同時 push ApplySlow。
 fn create_projectile_damage(
-    proj: &Projectile, 
-    target: specs::Entity, 
+    proj: &Projectile,
+    target: specs::Entity,
     outcomes: &mut Vec<Outcome>,
     pos: vek::Vec2<f32>
 ) {
-    // 使用彈道攜帶的傷害資訊創建傷害事件
-    log::debug!("彈道命中目標 {}，物理傷害: {:.1}，魔法傷害: {:.1}，真實傷害: {:.1}", 
+    log::debug!("彈道命中目標 {}，物理傷害: {:.1}，魔法傷害: {:.1}，真實傷害: {:.1}",
         target.id(), proj.damage_phys, proj.damage_magi, proj.damage_real);
-    
+
     outcomes.push(Outcome::Damage {
         pos: pos,
         phys: proj.damage_phys,
@@ -149,4 +149,13 @@ fn create_projectile_damage(
         source: proj.owner,
         target: target,
     });
+
+    // Ice 塔：附加減速 debuff 到目標
+    if proj.slow_factor > 0.0 && proj.slow_factor < 1.0 && proj.slow_duration > 0.0 {
+        outcomes.push(Outcome::ApplySlow {
+            target,
+            factor: proj.slow_factor,
+            duration: proj.slow_duration,
+        });
+    }
 }

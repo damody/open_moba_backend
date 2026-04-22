@@ -23,6 +23,7 @@ pub struct CreepRead<'a> {
     turn_speeds: ReadStorage<'a, TurnSpeed>,
     radii: ReadStorage<'a, CollisionRadius>,
     searcher: Read<'a, Searcher>,
+    slow_buffs: ReadStorage<'a, SlowBuff>,
 }
 
 #[derive(SystemData)]
@@ -73,6 +74,13 @@ impl<'a> System<'a> for Sys {
                         if let Some(path) = tr.paths.get(&creep.path) {
                             if let Some(_b) = creep.block_tower {
                                 // 被檔住了
+                            } else if creep.pidx >= path.check_points.len() {
+                                // TD 模式：走到 path 終點 → 漏怪事件（GameProcessor 扣 PlayerLives）
+                                // 設定 status=Leaked 避免下個 tick 重複觸發
+                                if !matches!(creep.status, CreepStatus::Leaked) {
+                                    outcomes.push(Outcome::CreepLeaked { ent: e.clone() });
+                                    creep.status = CreepStatus::Leaked;
+                                }
                             } else {
                                 if let Some(p) = path.check_points.get(creep.pidx) {
                                     let target_point = p.pos;
@@ -88,7 +96,11 @@ impl<'a> System<'a> for Sys {
                                             next_status = CreepStatus::Walk;
                                         }
                                         CreepStatus::Walk => {
-                                            let step = cp.msd * dt;
+                                            // SlowBuff（Ice 塔命中）：本 tick 的速度乘上 factor
+                                            let slow_mult = tr.slow_buffs.get(e)
+                                                .map(|b| b.factor.clamp(0.01, 1.0))
+                                                .unwrap_or(1.0);
+                                            let step = cp.msd * slow_mult * dt;
                                             let diff = target_point.sub(&pos.0);
                                             let dist_sq = diff.magnitude_squared();
                                             if dist_sq < 0.01 {
@@ -185,6 +197,9 @@ impl<'a> System<'a> for Sys {
                                         }
                                         CreepStatus::Stop => {
                                             next_status = CreepStatus::PreWalk;
+                                        }
+                                        CreepStatus::Leaked => {
+                                            // 不該發生（Leaked 狀態在外層已被 pidx>=len 分支攔下）
                                         }
                                     }
                                     creep.status = next_status;

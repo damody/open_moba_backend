@@ -23,6 +23,7 @@ pub struct TowerRead<'a> {
     searcher : Read<'a, Searcher>,
     factions: ReadStorage<'a, Faction>,
     turn_speeds: ReadStorage<'a, TurnSpeed>,
+    tower_kinds: ReadStorage<'a, TowerKind>,
 }
 
 #[derive(SystemData)]
@@ -149,11 +150,22 @@ impl<'a> System<'a> for Sys {
                                     let angle_diff = normalize_angle(desired - facing.0).abs();
                                     if angle_diff < MOVE_ANGLE_THRESHOLD {
                                         atk.asd_count -= atk.asd.val();
-                                        outcomes.push(Outcome::ProjectileLine2 {
-                                            pos: pos.0.clone(),
-                                            source: Some(e.clone()),
-                                            target: Some(target_entity),
-                                        });
+                                        // Tack Shooter: 一次對視野內 N 個敵人各發一發
+                                        let shots = tr.tower_kinds.get(e)
+                                            .map(|k| k.template().projectiles_per_shot as usize)
+                                            .unwrap_or(1);
+                                        let targets: Vec<Entity> = if shots > 1 {
+                                            hostile_creeps.iter().take(shots).map(|c| c.e).collect()
+                                        } else {
+                                            vec![target_entity]
+                                        };
+                                        for t in targets {
+                                            outcomes.push(Outcome::ProjectileLine2 {
+                                                pos: pos.0.clone(),
+                                                source: Some(e.clone()),
+                                                target: Some(t),
+                                            });
+                                        }
                                     }
                                     // 角度太大 → 繼續轉，本 tick 不開火
                                 }
