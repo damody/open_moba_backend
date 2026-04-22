@@ -184,8 +184,9 @@ impl State {
             script_registry: ScriptRegistry::new(),
         };
 
-        state.initialize_campaign_game(&campaign_data);
+        // 先載 scripts，才能讓 initialize_campaign_game 內的 send_tower_templates 拿到 registry
         state.load_scripts();
+        state.initialize_campaign_game(&campaign_data);
 
         // 立即發送初始心跳，讓前端知道後端已啟動
         state.send_heartbeat();
