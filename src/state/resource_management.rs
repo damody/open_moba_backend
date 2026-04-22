@@ -118,6 +118,9 @@ impl ResourceManager {
             "use_item" => {
                 self.use_item(world, &pd)?;
             }
+            "start_round" => {
+                self.start_round(world)?;
+            }
             _ => {
                 log::warn!("未知的玩家操作: {}", pd.a);
             }
@@ -165,44 +168,229 @@ impl ResourceManager {
     // 私有實現方法
     fn create_tower(&self, world: &mut World, pd: &InboundMsg) -> Result<(), Error> {
         use vek::Vec2;
-        use specs::{Builder, WorldExt};
-        
-        // 從 PlayerData.d 中解析位置信息
-        if let Ok(data) = serde_json::from_value::<serde_json::Map<String, serde_json::Value>>(pd.d.clone()) {
-            if let (Some(x_val), Some(y_val)) = (data.get("x"), data.get("y")) {
-                if let (Some(x), Some(y)) = (x_val.as_f64(), y_val.as_f64()) {
-                    // 創建塔的基本屬性
-                    let tower_pos = Pos(Vec2::new(x as f32, y as f32));
-                    let tower_vel = Vel(Vec2::new(0.0, 0.0));
-                    
-                    // 創建塔組件
-                    let tower = Tower::new();
-                    let tower_property = TProperty::new(100.0, 1, 200.0); // HP, 等級, 建造成本
-                    let tower_attack = TAttack::new(50.0, 1.5, 300.0, 800.0); // 攻擊力, 攻速, 射程, 彈速
-                    
-                    // 創建塔實體
-                    let _tower_entity = world.create_entity()
-                        .with(tower_pos)
-                        .with(tower_vel)
-                        .with(tower)
-                        .with(tower_property)
-                        .with(tower_attack)
-                        .build();
-                        
-                    // 添加到結果中通知其他系統
-                    let mut outcomes = world.write_resource::<Vec<Outcome>>();
-                    outcomes.push(Outcome::Tower { 
-                        pos: Vec2::new(x as f32, y as f32), 
-                        td: TowerData { 
-                            tpty: tower_property, 
-                            tatk: tower_attack 
-                        } 
-                    });
+        use specs::{Builder, WorldExt, Join};
+
+        let x = pd.d.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+        let y = pd.d.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+        let pos = Vec2::new(x, y);
+
+        let is_td = world.read_resource::<GameMode>().is_td();
+        if !is_td {
+            // 舊 MOBA / debug 路徑：直接放一座預設塔（保留向後相容）
+            let tower_property = TProperty::new(100.0, 1, 200.0);
+            let tower_attack = TAttack::new(50.0, 1.5, 300.0, 800.0);
+            let _ = world.create_entity()
+                .with(Pos(pos))
+                .with(Vel(Vec2::new(0.0, 0.0)))
+                .with(Tower::new())
+                .with(tower_property)
+                .with(tower_attack)
+                .build();
+            let mut outcomes = world.write_resource::<Vec<Outcome>>();
+            outcomes.push(Outcome::Tower {
+                pos,
+                td: TowerData { tpty: tower_property, tatk: tower_attack },
+            });
+            return Ok(());
+        }
+
+        // ===== TD 模式：kind + cost + 碰撞檢查 =====
+        let kind_str = pd.d.get("kind").and_then(|v| v.as_str()).unwrap_or("dart");
+        let Some(kind) = TowerKind::from_str(kind_str) else {
+            log::warn!("未知塔類型 '{}'，放棄建造", kind_str);
+            return Ok(());
+        };
+        let tpl = kind.template();
+
+        // 找到玩家英雄（TD 地圖保證只有一個）
+        let hero_entity = {
+            let entities = world.entities();
+            let heroes = world.read_storage::<Hero>();
+            let factions = world.read_storage::<Faction>();
+            let mut found = None;
+            for (e, _h, f) in (&entities, &heroes, &factions).join() {
+                if f.faction_id == FactionType::Player {
+                    found = Some(e);
+                    break;
+                }
+            }
+            found
+        };
+        let Some(hero_entity) = hero_entity else {
+            log::warn!("TD 蓋塔：找不到玩家英雄");
+            return Ok(());
+        };
+
+        // 金幣檢查
+        let has_gold = {
+            let golds = world.read_storage::<Gold>();
+            golds.get(hero_entity).map(|g| g.0).unwrap_or(0) >= tpl.cost
+        };
+        if !has_gold {
+            log::info!("TD 蓋塔：金幣不足（需要 {}）", tpl.cost);
+            return Ok(());
+        }
+
+        // Region 碰撞
+        {
+            let regions = world.read_resource::<BlockedRegions>();
+            for r in regions.0.iter() {
+                if crate::util::geometry::circle_hits_polygon(pos, tpl.footprint, &r.points) {
+                    log::info!("TD 蓋塔：位置 ({:.0},{:.0}) 壓到 region '{}'", pos.x, pos.y, r.name);
+                    return Ok(());
                 }
             }
         }
-        
+
+        // Path 碰撞（圓 vs 線段 + path 半寬）
+        const PATH_HALF_WIDTH: f32 = 80.0;
+        {
+            use std::collections::BTreeMap;
+            let paths = world.read_resource::<BTreeMap<String, Path>>();
+            let clear = tpl.footprint + PATH_HALF_WIDTH;
+            let clear_sq = clear * clear;
+            for (name, path) in paths.iter() {
+                let cps = &path.check_points;
+                for i in 0..cps.len().saturating_sub(1) {
+                    let a = cps[i].pos;
+                    let b = cps[i + 1].pos;
+                    if crate::util::geometry::point_segment_dist_sq(pos, a, b) < clear_sq {
+                        log::info!("TD 蓋塔：位置 ({:.0},{:.0}) 壓到 path '{}'", pos.x, pos.y, name);
+                        return Ok(());
+                    }
+                }
+            }
+        }
+
+        // 其他塔重疊檢查
+        {
+            let entities = world.entities();
+            let towers = world.read_storage::<Tower>();
+            let positions = world.read_storage::<Pos>();
+            let radii = world.read_storage::<CollisionRadius>();
+            for (_e, _t, p, r) in (&entities, &towers, &positions, &radii).join() {
+                let d_sq = (p.0 - pos).magnitude_squared();
+                let min_d = tpl.footprint + r.0;
+                if d_sq < min_d * min_d {
+                    log::info!("TD 蓋塔：位置 ({:.0},{:.0}) 與其他塔重疊", pos.x, pos.y);
+                    return Ok(());
+                }
+            }
+        }
+
+        // 所有檢查通過，扣錢 + spawn 塔
+        {
+            let mut golds = world.write_storage::<Gold>();
+            if let Some(g) = golds.get_mut(hero_entity) {
+                g.0 -= tpl.cost;
+            }
+        }
+        let tower_entity = crate::comp::tower_template::spawn_td_tower(world, pos, kind);
+        world.get_mut::<Searcher>().unwrap().tower.needsort = true;
+        log::info!(
+            "🏗 TD 塔 '{}' 已蓋於 ({:.0},{:.0}) entity={:?} cost={}",
+            tpl.label, pos.x, pos.y, tower_entity, tpl.cost
+        );
+
+        // 廣播 tower.create
+        {
+            let positions = world.read_storage::<Pos>();
+            let properties = world.read_storage::<CProperty>();
+            let radii = world.read_storage::<CollisionRadius>();
+            let hp = properties.get(tower_entity).map(|p| p.hp).unwrap_or(tpl.hp);
+            let mhp = properties.get(tower_entity).map(|p| p.mhp).unwrap_or(tpl.hp);
+            let radius = radii.get(tower_entity).map(|r| r.0).unwrap_or(tpl.footprint);
+            let payload = serde_json::json!({
+                "id": tower_entity.id(),
+                "entity_id": tower_entity.id(),
+                "name": tpl.label,
+                "kind": tpl.kind.key(),
+                "position": { "x": pos.x, "y": pos.y },
+                "hp": hp,
+                "max_hp": mhp,
+                "collision_radius": radius,
+                "range": tpl.range,
+                "is_base": false,
+            });
+            let _ = self.mqtx.send(OutboundMsg::new_s_at(
+                "td/all/res", "tower", "create", payload, pos.x, pos.y,
+            ));
+        }
+
+        // 扣完金幣主動廣播 hero.stats（避免前端 HUD 滯後）
+        self.push_hero_stats(world, hero_entity);
+
         Ok(())
+    }
+
+    /// 處理 TD 模式的 `player/start_round` 指令：把 CurrentCreepWave.is_running
+    /// 切成 true、記錄 wave_start_time = totaltime，並廣播 `game/round` 告訴前端。
+    /// 非 TD 模式忽略（記 log 但不做事）。
+    fn start_round(&self, world: &mut World) -> Result<(), Error> {
+        use serde_json::json;
+
+        let is_td = world.read_resource::<GameMode>().is_td();
+        if !is_td {
+            log::warn!("start_round 指令在非 TD 模式下被忽略");
+            return Ok(());
+        }
+        let totaltime = world.read_resource::<Time>().0;
+        let (round, total, already) = {
+            let mut ccw = world.write_resource::<CurrentCreepWave>();
+            let waves_len = world.read_resource::<Vec<CreepWave>>().len();
+            let already = ccw.is_running || ccw.wave >= waves_len;
+            if !already {
+                ccw.is_running = true;
+                ccw.wave_start_time = totaltime as f32;
+                ccw.path.clear();
+            }
+            (ccw.wave + 1, waves_len, already)
+        };
+        if already {
+            log::info!("start_round 忽略：波已在跑或關卡已結束");
+            return Ok(());
+        }
+        log::info!("▶️ TD 開始第 {}/{} 波 @ t={:.1}s", round, total, totaltime);
+
+        let payload = json!({
+            "round": round,
+            "total": total,
+            "is_running": true,
+        });
+        self.mqtx.send(OutboundMsg::new_s(
+            "td/all/res", "game", "round", payload,
+        ))?;
+        Ok(())
+    }
+
+    /// 主動廣播指定英雄的 hero.stats（gold/lives/hp 等）。供扣錢、漏怪等即時事件使用。
+    pub(crate) fn push_hero_stats(&self, world: &mut World, hero_entity: specs::Entity) {
+        use serde_json::json;
+        let heroes = world.read_storage::<Hero>();
+        let golds = world.read_storage::<Gold>();
+        let props = world.read_storage::<CProperty>();
+        let positions = world.read_storage::<Pos>();
+        let lives = world.read_resource::<PlayerLives>().0;
+        let Some(h) = heroes.get(hero_entity) else { return };
+        let g = golds.get(hero_entity).map(|g| g.0).unwrap_or(0);
+        let (hp, mhp) = props.get(hero_entity).map(|p| (p.hp, p.mhp)).unwrap_or((0.0, 0.0));
+        let pos = positions.get(hero_entity).map(|p| p.0).unwrap_or(vek::Vec2::zero());
+        let payload = json!({
+            "id": hero_entity.id(),
+            "level": h.level,
+            "xp": h.experience,
+            "xp_next": h.experience_to_next,
+            "skill_points": h.skill_points,
+            "ability_levels": h.ability_levels,
+            "abilities": h.abilities,
+            "gold": g,
+            "hp": hp,
+            "max_hp": mhp,
+            "lives": lives,
+        });
+        let _ = self.mqtx.send(OutboundMsg::new_s_at(
+            "td/all/res", "hero", "stats", payload, pos.x, pos.y,
+        ));
     }
 
     fn upgrade_tower(&self, _world: &mut World, _pd: &InboundMsg) -> Result<(), Error> {
@@ -306,6 +494,7 @@ impl ResourceManager {
         let hero = heroes.get(hero_entity);
         let gold = golds.get(hero_entity).map(|g| g.0).unwrap_or(0);
         let pos = positions.get(hero_entity).map(|p| p.0).unwrap_or(vek::Vec2::zero());
+        let lives = world.read_resource::<PlayerLives>().0;
         if let Some(h) = hero {
             let (hp, mhp) = props
                 .get(hero_entity)
@@ -322,6 +511,7 @@ impl ResourceManager {
                 "gold": gold,
                 "hp": hp,
                 "max_hp": mhp,
+                "lives": lives,
             });
             let _ = self.mqtx.send(OutboundMsg::new_s_at(
                 "td/all/res", "hero", "stats", payload, pos.x, pos.y,

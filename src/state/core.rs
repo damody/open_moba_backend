@@ -583,6 +583,7 @@ impl State {
                 // 初始 hero.stats（提供前端 HUD 初始值）
                 let gold = golds.get(entity).map(|g| g.0).unwrap_or(0);
                 let (hp, mhp) = properties.get(entity).map(|p| (p.hp, p.mhp)).unwrap_or((0.0, 0.0));
+                let lives = self.ecs.read_resource::<PlayerLives>().0;
                 let stats_payload = json!({
                     "id": entity.id(),
                     "level": hero.level,
@@ -594,6 +595,7 @@ impl State {
                     "gold": gold,
                     "hp": hp,
                     "max_hp": mhp,
+                    "lives": lives,
                 });
                 let _ = self.mqtx.send(OutboundMsg::new_s_at(
                     "td/all/res", "hero", "stats", stats_payload, pos.0.x, pos.0.y,
@@ -743,6 +745,24 @@ impl State {
                 "td/all/res", "map", "region_blockers", payload,
             ));
             log::info!("已發送 {} 個 Region blocker 圓到前端", count);
+        }
+
+        // 發送氣球路徑（供 TD 模式前端視覺化）
+        {
+            use std::collections::BTreeMap;
+            let paths = self.ecs.read_resource::<BTreeMap<String, Path>>();
+            let paths_json: Vec<serde_json::Value> = paths.iter().map(|(name, p)| {
+                let pts: Vec<serde_json::Value> = p.check_points.iter()
+                    .map(|cp| json!({ "x": cp.pos.x, "y": cp.pos.y }))
+                    .collect();
+                json!({ "name": name, "points": pts })
+            }).collect();
+            let count = paths_json.len();
+            let payload = json!({ "paths": paths_json });
+            let _ = self.mqtx.send(OutboundMsg::new_s(
+                "td/all/res", "map", "paths", payload,
+            ));
+            log::info!("已發送 {} 條 Path 到前端", count);
         }
 
         // 發送戰役資訊
