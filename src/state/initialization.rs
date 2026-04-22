@@ -47,6 +47,18 @@ impl StateInitializer {
     pub fn init_creep_wave(ecs: &mut World, cw: &CreepWaveData) {
         use std::collections::BTreeMap;
 
+        // 根據 map.json 的 GameMode 欄位設置遊戲模式 resource
+        let mode = GameMode::from_opt_str(cw.GameMode.as_deref());
+        log::info!("遊戲模式: {:?}", mode);
+        *ecs.write_resource::<GameMode>() = mode;
+        if mode.is_td() {
+            *ecs.write_resource::<PlayerLives>() = PlayerLives::default();
+            log::info!("TD 模式啟用，玩家生命初始 {}", PlayerLives::DEFAULT);
+            // TD 模式：等待玩家按 StartRound 才出怪
+            let mut ccw = ecs.write_resource::<CurrentCreepWave>();
+            ccw.is_running = false;
+        }
+
         // 設置檢查點
         {
             let mut cps = ecs.get_mut::<BTreeMap<String, CheckPoint>>().unwrap();
@@ -239,10 +251,12 @@ impl StateInitializer {
     pub fn create_campaign_scene(ecs: &mut World, campaign_data: &CampaignData) {
         Self::create_campaign_heroes(ecs, campaign_data);
         // 優先：map.json 的 Structures（script 驅動塔/基地放置）
+        let is_td = ecs.read_resource::<GameMode>().is_td();
         if !campaign_data.map.Structures.is_empty() {
             Self::spawn_structures_from_map(ecs, &campaign_data.map);
-        } else {
+        } else if !is_td {
             // fallback：舊訓練場用的 training_enemies（B01_1 類 / DEBUG 類）
+            // TD 模式下塔由玩家運行時建造，不在場景初始化時生訓練敵人
             Self::create_training_enemies(ecs, campaign_data);
         }
         Self::create_terrain_blockers(ecs);
@@ -286,6 +300,8 @@ impl StateInitializer {
         ecs.register::<TurnSpeed>();
         ecs.register::<CollisionRadius>();
         ecs.register::<RegionBlocker>();
+        ecs.register::<TowerKind>();
+        ecs.register::<SlowBuff>();
     }
 
     fn initialize_resources(ecs: &mut World, _thread_pool: &Arc<ThreadPool>) {
@@ -311,7 +327,9 @@ impl StateInitializer {
         log::info!("自動建立預設玩家: {}", player_name);
         ecs.insert(player_map);
         ecs.insert(Vec::<CreepWave>::new());
-        ecs.insert(CurrentCreepWave { wave: 0, path: vec![] });
+        // 非 TD 模式預設 is_running=true，沿用時間觸發；TD 模式在 init_creep_wave
+        // 讀到 GameMode::TowerDefense 時改為 false，等待 StartRound 指令。
+        ecs.insert(CurrentCreepWave { wave: 0, path: vec![], is_running: true, wave_start_time: 0.0 });
         ecs.insert(Vec::<crate::Outcome>::new());
         ecs.insert(Vec::<TakenDamage>::new());
         ecs.insert(SysMetrics::default());
@@ -324,6 +342,10 @@ impl StateInitializer {
 
         // 初始化不可通行多邊形區域（由 init_creep_wave 載入 map.json 時填入）
         ecs.insert(BlockedRegions::default());
+
+        // 遊戲模式 / 玩家生命（由 init_creep_wave 依 map.json 覆寫）
+        ecs.insert(GameMode::default());
+        ecs.insert(PlayerLives::default());
 
         // 載入裝備 Registry (MVP LoL item system)
         let item_reg = crate::item::ItemRegistry::load_from_path("item-configs/items.json")
