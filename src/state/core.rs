@@ -10,6 +10,7 @@ use core::time::Duration;
 use crate::{comp::*, CreepWave};
 use crate::ue4::import_map::CreepWaveData;
 use crate::ue4::import_campaign::CampaignData;
+use crate::scripting::{self, ScriptRegistry};
 use crate::transport::{OutboundMsg, InboundMsg};
 #[cfg(any(feature = "grpc", feature = "kcp"))]
 use crate::transport::{QueryRequest, Viewport, ViewportMsg};
@@ -62,6 +63,8 @@ pub struct State {
     local_tick: u64,
     /// Value of `local_tick` when visibility diff last ran
     last_visibility_tick: u64,
+    /// Loaded native script DLLs (H1 — process-lifetime, never reloaded).
+    script_registry: ScriptRegistry,
 }
 
 /// Per-player visible entity sets, split by type so that specs `Entity::id()`
@@ -118,15 +121,25 @@ impl State {
             client_visibility: HashMap::new(),
             local_tick: 0,
             last_visibility_tick: 0,
+            script_registry: ScriptRegistry::new(),
         };
 
         state.initialize_standard_game();
+        state.load_scripts();
 
         // 立即發送初始心跳，讓前端知道後端已啟動
         state.send_heartbeat();
         log::info!("📡 初始心跳已發送，後端準備就緒");
 
         state
+    }
+
+    /// 載入所有 native 腳本 DLL。目錄由環境變數 `OMB_SCRIPTS_DIR` 指定，
+    /// 未設定時預設 `./scripts`（相對於執行目錄）。
+    fn load_scripts(&mut self) {
+        let dir_str = std::env::var("OMB_SCRIPTS_DIR").unwrap_or_else(|_| "./scripts".to_string());
+        let dir = std::path::Path::new(&dir_str);
+        self.script_registry = crate::scripting::loader::load_scripts_dir(dir);
     }
 
     /// 創建新的遊戲狀態（戰役模式）
@@ -168,9 +181,11 @@ impl State {
             client_visibility: HashMap::new(),
             local_tick: 0,
             last_visibility_tick: 0,
+            script_registry: ScriptRegistry::new(),
         };
 
         state.initialize_campaign_game(&campaign_data);
+        state.load_scripts();
 
         // 立即發送初始心跳，讓前端知道後端已啟動
         state.send_heartbeat();
@@ -192,6 +207,15 @@ impl State {
 
         // 運行遊戲系統
         self.system_dispatcher.run_systems(&self.ecs)?;
+
+        // 腳本 dispatch 階段（E1 — 序列、獨佔 World）
+        // 放在並行系統之後、其他序列處理之前，確保腳本能看到本 tick 的
+        // 完整戰鬥結果，也能修改狀態讓下游處理看見。
+        scripting::run_script_dispatch(
+            &mut self.ecs,
+            &self.script_registry,
+            self.local_tick,
+        );
 
         // 處理小兵波
         self.resource_manager.process_creep_waves(&mut self.ecs)?;

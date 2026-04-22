@@ -302,6 +302,7 @@ impl StateInitializer {
         ecs.register::<RegionBlocker>();
         ecs.register::<TowerKind>();
         ecs.register::<SlowBuff>();
+        ecs.register::<crate::scripting::ScriptUnitTag>();
     }
 
     fn initialize_resources(ecs: &mut World, _thread_pool: &Arc<ThreadPool>) {
@@ -354,6 +355,9 @@ impl StateInitializer {
                 crate::item::ItemRegistry::default()
             });
         ecs.insert(item_reg);
+
+        // 腳本事件佇列（由 tick 系統推入、ScriptDispatchSystem 於本 tick 尾端抽乾）
+        ecs.insert(crate::scripting::ScriptEventQueue::default());
 
         log::info!("ECS 基本資源初始化完成");
     }

@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use std::time::Instant;
 
 use crate::comp::*;
+use crate::scripting::{ScriptEventQueue, ScriptUnitTag};
 use crate::tick::*;
 use crate::ue4::import_campaign::CampaignData;
 
@@ -23,6 +24,7 @@ impl EcsSetup {
         ecs.register::<Tower>();
         ecs.register::<Creep>();
         ecs.register::<Projectile>();
+        ecs.register::<ScriptUnitTag>();
         
         // Register unsynced resources used by the ECS.
         ecs.insert(TimeOfDay(0.0));
@@ -40,6 +42,7 @@ impl EcsSetup {
         ecs.insert(BTreeMap::<String, Path>::new());
         ecs.insert(BTreeMap::<String, CheckPoint>::new());
         ecs.insert(Searcher::default());
+        ecs.insert(ScriptEventQueue::default());
 
         // Set starting time for the server.
         ecs.write_resource::<TimeOfDay>().0 = 0.0;

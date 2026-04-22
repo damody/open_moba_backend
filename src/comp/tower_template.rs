@@ -177,7 +177,7 @@ pub fn spawn_td_tower(world: &mut World, pos: Vec2<f32>, kind: TowerKind) -> Ent
         def_magic: 0.0,
     };
 
-    world
+    let mut builder = world
         .create_entity()
         .with(Pos(pos))
         .with(Tower::new())
@@ -189,6 +189,16 @@ pub fn spawn_td_tower(world: &mut World, pos: Vec2<f32>, kind: TowerKind) -> Ent
         .with(Facing(0.0))
         .with(TurnSpeed(tpl.turn_speed_deg.to_radians()))
         .with(CollisionRadius(tpl.footprint))
-        .with(kind) // 供 handle_projectile 查 splash/slow、tower_tick 查 multi-shot
-        .build()
+        .with(kind); // 供 handle_projectile 查 splash/slow、tower_tick 查 multi-shot
+
+    // PoC-1：Dart 塔綁定 `tower_dart` 腳本。找不到腳本時 dispatch 會 no-op。
+    let script_id: Option<&'static str> = match kind {
+        TowerKind::Dart => Some("tower_dart"),
+        _ => None,
+    };
+    if let Some(id) = script_id {
+        builder = builder.with(crate::scripting::ScriptUnitTag { unit_id: id.to_string() });
+    }
+
+    builder.build()
 }

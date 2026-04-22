@@ -22,8 +22,23 @@ impl CombatEventHandler {
         target: Entity,
     ) -> Vec<Outcome> {
         let mut next_outcomes = Vec::new();
+
+        // 若攻擊者有 ScriptUnitTag → 排入腳本 AttackHit 事件，在本 tick 結尾的
+        // ScriptDispatchSystem 由腳本的 on_attack_hit 處理（可追加爆擊、濺射等）。
+        {
+            let tags = world.read_storage::<crate::scripting::ScriptUnitTag>();
+            if tags.get(source).is_some() {
+                drop(tags);
+                let mut queue = world.write_resource::<crate::scripting::ScriptEventQueue>();
+                queue.push(crate::scripting::ScriptEvent::AttackHit {
+                    attacker: source,
+                    victim: target,
+                });
+            }
+        }
+
         let mut properties = world.write_storage::<CProperty>();
-        
+
         if let Some(target_props) = properties.get_mut(target) {
             let hp_before = target_props.hp;
             let total_damage = phys + magi + real;
