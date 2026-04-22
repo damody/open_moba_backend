@@ -808,6 +808,54 @@ impl State {
             }
             log::info!("已發送戰役 '{}' 初始化資料到 MQTT", campaign.mission.campaign.name);
         }
+
+        // 發送 TD tower templates：腳本自報 atk/asd/range/splash 等動態屬性，
+        // 與 host 端 TowerKind::template() 的 cost/footprint/label 合併，
+        // 送一次給前端做 placement 預覽、4 塔按鈕、sell 退款計算
+        self.send_tower_templates();
+    }
+
+    /// 收集 script registry 內每支塔腳本的 tower_metadata，合併 host TowerTemplate
+    /// 的 cost/footprint/label，廣播 `game/tower_templates` 給前端。
+    fn send_tower_templates(&self) {
+        use abi_stable::std_types::RSome;
+        use serde_json::json;
+        let mut templates: Vec<serde_json::Value> = Vec::new();
+        for (uid, script) in self.script_registry.iter() {
+            let kind = match uid {
+                "tower_dart" => Some(TowerKind::Dart),
+                "tower_bomb" => Some(TowerKind::Bomb),
+                "tower_tack" => Some(TowerKind::Tack),
+                "tower_ice"  => Some(TowerKind::Ice),
+                _ => None,
+            };
+            let Some(kind) = kind else { continue };
+            let host_tpl = kind.template();
+            let meta = match script.tower_metadata() {
+                RSome(m) => m,
+                _ => continue,
+            };
+            templates.push(json!({
+                "kind": kind.key(),
+                "label": host_tpl.label,
+                "cost": host_tpl.cost,
+                "footprint": host_tpl.footprint,
+                "atk": meta.atk,
+                "asd_interval": meta.asd_interval,
+                "range": meta.range,
+                "bullet_speed": meta.bullet_speed,
+                "splash_radius": meta.splash_radius,
+                "hit_radius": meta.hit_radius,
+                "slow_factor": meta.slow_factor,
+                "slow_duration": meta.slow_duration,
+            }));
+        }
+        let n = templates.len();
+        let payload = json!({ "templates": templates });
+        let _ = self.mqtx.send(OutboundMsg::new_s(
+            "td/all/res", "game", "tower_templates", payload,
+        ));
+        log::info!("已發送 {} 個 tower template 給前端", n);
     }
 }
 

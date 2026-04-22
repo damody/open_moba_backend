@@ -47,6 +47,10 @@ impl ScriptRegistry {
     pub fn keys(&self) -> impl Iterator<Item = &str> {
         self.scripts.keys().map(|s| s.as_str())
     }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &UnitScript_TO<'static, RBox<()>>)> {
+        self.scripts.iter().map(|(k, v)| (k.as_str(), v))
+    }
 }
 
 impl Default for ScriptRegistry {
