@@ -135,11 +135,45 @@ impl State {
     }
 
     /// 載入所有 native 腳本 DLL。目錄由環境變數 `OMB_SCRIPTS_DIR` 指定，
-    /// 未設定時預設 `./scripts`（相對於執行目錄）。
+    /// 未設定時預設 `./scripts`（相對於執行目錄）。載入完就順便把塔 template
+    /// 從腳本 `tower_metadata()` 收集到 `TowerTemplateRegistry` resource。
     fn load_scripts(&mut self) {
         let dir_str = std::env::var("OMB_SCRIPTS_DIR").unwrap_or_else(|_| "./scripts".to_string());
         let dir = std::path::Path::new(&dir_str);
         self.script_registry = crate::scripting::loader::load_scripts_dir(dir);
+        self.populate_tower_template_registry();
+    }
+
+    /// 依 DLL `units()` 順序 iter 所有腳本、取 `tower_metadata()` 建 host 端
+    /// `TowerTemplateRegistry`。非塔腳本（英雄/creep）會回 RNone，自動跳過。
+    fn populate_tower_template_registry(&mut self) {
+        use abi_stable::std_types::RSome;
+        use crate::comp::tower_registry::{TowerTemplate as RuntimeTpl, TowerTemplateRegistry};
+        let mut reg = TowerTemplateRegistry::default();
+        for (uid, script) in self.script_registry.iter_ordered() {
+            let meta = match script.tower_metadata() {
+                RSome(m) => m,
+                _ => continue,
+            };
+            reg.insert(RuntimeTpl {
+                unit_id: uid.to_string(),
+                label: meta.label.to_string(),
+                atk: meta.atk,
+                asd_interval: meta.asd_interval,
+                range: meta.range,
+                bullet_speed: meta.bullet_speed,
+                splash_radius: meta.splash_radius,
+                hit_radius: meta.hit_radius,
+                slow_factor: meta.slow_factor,
+                slow_duration: meta.slow_duration,
+                cost: meta.cost,
+                footprint: meta.footprint,
+                hp: meta.hp,
+                turn_speed_deg: meta.turn_speed_deg,
+            });
+        }
+        log::info!("[tower_registry] {} templates loaded", reg.templates.len());
+        self.ecs.insert(reg);
     }
 
     /// 創建新的遊戲狀態（戰役模式）
@@ -819,36 +853,24 @@ impl State {
     /// 收集 script registry 內每支塔腳本的 tower_metadata，合併 host TowerTemplate
     /// 的 cost/footprint/label，廣播 `game/tower_templates` 給前端。
     fn send_tower_templates(&self) {
-        use abi_stable::std_types::RSome;
         use serde_json::json;
+        let reg = self.ecs.read_resource::<crate::comp::tower_registry::TowerTemplateRegistry>();
         let mut templates: Vec<serde_json::Value> = Vec::new();
-        for (uid, script) in self.script_registry.iter() {
-            let kind = match uid {
-                "tower_dart" => Some(TowerKind::Dart),
-                "tower_bomb" => Some(TowerKind::Bomb),
-                "tower_tack" => Some(TowerKind::Tack),
-                "tower_ice"  => Some(TowerKind::Ice),
-                _ => None,
-            };
-            let Some(kind) = kind else { continue };
-            let host_tpl = kind.template();
-            let meta = match script.tower_metadata() {
-                RSome(m) => m,
-                _ => continue,
-            };
+        // 依 DLL units() 註冊順序 broadcast（Q2 作者意圖優先）
+        for tpl in reg.iter_ordered() {
             templates.push(json!({
-                "kind": kind.key(),
-                "label": host_tpl.label,
-                "cost": host_tpl.cost,
-                "footprint": host_tpl.footprint,
-                "atk": meta.atk,
-                "asd_interval": meta.asd_interval,
-                "range": meta.range,
-                "bullet_speed": meta.bullet_speed,
-                "splash_radius": meta.splash_radius,
-                "hit_radius": meta.hit_radius,
-                "slow_factor": meta.slow_factor,
-                "slow_duration": meta.slow_duration,
+                "kind": tpl.unit_id,
+                "label": tpl.label,
+                "cost": tpl.cost,
+                "footprint": tpl.footprint,
+                "atk": tpl.atk,
+                "asd_interval": tpl.asd_interval,
+                "range": tpl.range,
+                "bullet_speed": tpl.bullet_speed,
+                "splash_radius": tpl.splash_radius,
+                "hit_radius": tpl.hit_radius,
+                "slow_factor": tpl.slow_factor,
+                "slow_duration": tpl.slow_duration,
             }));
         }
         let n = templates.len();

@@ -194,13 +194,17 @@ impl ResourceManager {
             return Ok(());
         }
 
-        // ===== TD 模式：kind + cost + 碰撞檢查 =====
-        let kind_str = pd.d.get("kind").and_then(|v| v.as_str()).unwrap_or("dart");
-        let Some(kind) = TowerKind::from_str(kind_str) else {
-            log::warn!("未知塔類型 '{}'，放棄建造", kind_str);
+        // ===== TD 模式：unit_id + cost + 碰撞檢查 =====
+        // 前端送 unit_id（例如 "tower_dart"）；從 TowerTemplateRegistry 查 template
+        let kind_str = pd.d.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+        let tpl = {
+            let reg = world.read_resource::<crate::comp::tower_registry::TowerTemplateRegistry>();
+            reg.get(kind_str).cloned()
+        };
+        let Some(tpl) = tpl else {
+            log::warn!("未知塔 unit_id '{}'，放棄建造", kind_str);
             return Ok(());
         };
-        let tpl = kind.template();
 
         // 找到玩家英雄（TD 地圖保證只有一個）
         let hero_entity = {
@@ -285,7 +289,13 @@ impl ResourceManager {
                 g.0 -= tpl.cost;
             }
         }
-        let tower_entity = crate::comp::tower_template::spawn_td_tower(world, pos, kind);
+        let tower_entity = match crate::comp::tower_template::spawn_td_tower(world, pos, &tpl.unit_id) {
+            Some(e) => e,
+            None => {
+                log::warn!("spawn_td_tower 失敗 unit_id={}", tpl.unit_id);
+                return Ok(());
+            }
+        };
         world.get_mut::<Searcher>().unwrap().tower.needsort = true;
         log::info!(
             "🏗 TD 塔 '{}' 已蓋於 ({:.0},{:.0}) entity={:?} cost={}",
@@ -304,7 +314,7 @@ impl ResourceManager {
                 "id": tower_entity.id(),
                 "entity_id": tower_entity.id(),
                 "name": tpl.label,
-                "kind": tpl.kind.key(),
+                "kind": tpl.unit_id,
                 "position": { "x": pos.x, "y": pos.y },
                 "hp": hp,
                 "max_hp": mhp,
@@ -435,11 +445,13 @@ impl ResourceManager {
             return Ok(());
         };
 
-        // 依 TowerKind 算退款（85%）
+        // 依 ScriptUnitTag → TowerTemplateRegistry.cost 算退款（85%）
         let refund = {
-            let kinds = world.read_storage::<TowerKind>();
-            kinds.get(target_entity)
-                .map(|k| (k.template().cost as f32 * 0.85) as i32)
+            let tags = world.read_storage::<crate::scripting::ScriptUnitTag>();
+            let reg = world.read_resource::<crate::comp::tower_registry::TowerTemplateRegistry>();
+            tags.get(target_entity)
+                .and_then(|t| reg.get(&t.unit_id))
+                .map(|tpl| (tpl.cost as f32 * 0.85) as i32)
                 .unwrap_or(0)
         };
 

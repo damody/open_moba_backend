@@ -267,13 +267,7 @@ impl GameProcessor {
         let source_entity = source.ok_or_else(|| failure::err_msg("Missing source entity"))?;
         let target_entity = target.ok_or_else(|| failure::err_msg("Missing target entity"))?;
 
-        // 讀取 TowerKind（TD 模式塔才有），用來決定 splash/slow 參數。
-        // 非 TD 塔（英雄、MOBA 塔）沒有此 Component，走單體傷害。
-        let tower_kind: Option<crate::comp::TowerKind> = {
-            let kinds = ecs.read_storage::<crate::comp::TowerKind>();
-            kinds.get(source_entity).copied()
-        };
-
+        // 此 path 只用於非腳本塔（MOBA legacy）；TD 塔走腳本 `spawn_projectile_ex` 直接 spawn
         let (msd, p2, atk_phys) = {
             let positions = ecs.read_storage::<Pos>();
             let tproperty = ecs.read_storage::<TAttack>();
@@ -295,14 +289,8 @@ impl GameProcessor {
         };
         let safety_time_left = flight_time_s * 3.0 + 3.0;
 
-        // 依塔種決定 AoE 半徑與減速（ice）
-        let (splash_radius, slow_factor, slow_duration) = match tower_kind {
-            Some(kind) => {
-                let tpl = kind.template();
-                (tpl.splash_radius, tpl.slow_factor, tpl.slow_duration)
-            }
-            None => (0.0, 0.0, 0.0),
-        };
+        // Legacy path (MOBA 英雄 / 非腳本塔)：單體傷害、無 splash、無 slow
+        let (splash_radius, slow_factor, slow_duration): (f32, f32, f32) = (0.0, 0.0, 0.0);
 
         let ntarget = target_entity.id();
         let e = ecs.create_entity()
@@ -319,12 +307,13 @@ impl GameProcessor {
                 damage_real: 0.0,
                 slow_factor,
                 slow_duration,
+                hit_radius: 0.0,
             })
             .build();
 
         // 前端 flight_time_ms 用於 pursuit 動畫；damage 由後端 "H" 事件授權（不再 optimistic）。
         let flight_time_ms: u64 = (flight_time_s * 1000.0).max(1.0) as u64;
-        let kind_key = tower_kind.map(|k| k.key()).unwrap_or("");
+        let kind_key = "";
         let pjs = json!({
             "id": e.id(),
             "source_id": source_entity.id(),
@@ -477,12 +466,12 @@ impl GameProcessor {
 
         let source_entity = source.ok_or_else(|| failure::err_msg("ProjectileDirectional 缺少 source"))?;
 
-        let (msd, atk_phys, kind_key) = {
+        // 此 path 為 legacy（tower_tick 不再 push ProjectileDirectional；Tack 走腳本
+        // spawn_projectile_ex）。保留 handle 作為備用；kind_key 留空字串
+        let (msd, atk_phys, kind_key): (f32, f32, &str) = {
             let tatks = ecs.read_storage::<TAttack>();
-            let kinds = ecs.read_storage::<crate::comp::TowerKind>();
             let tp = tatks.get(source_entity).ok_or_else(|| failure::err_msg("Source attack properties not found"))?;
-            let k = kinds.get(source_entity).copied().map(|k| k.key()).unwrap_or("");
-            (tp.bullet_speed, tp.atk_physic.v, k)
+            (tp.bullet_speed, tp.atk_physic.v, "")
         };
 
         let initial_dist = (end_pos - pos).magnitude();
@@ -503,6 +492,7 @@ impl GameProcessor {
                 damage_real: 0.0,
                 slow_factor: 0.0,
                 slow_duration: 0.0,
+                hit_radius: 0.0,
             })
             .build();
 
@@ -519,7 +509,7 @@ impl GameProcessor {
             "damage": atk_phys,
             "kind": kind_key,
             "directional": true,
-            "hit_radius": crate::comp::TACK_NEEDLE_HIT_RADIUS,
+            "hit_radius": 80.0_f32, // legacy directional path 用預設
         });
         mqtx.try_send(OutboundMsg::new_s_at("td/all/res", "projectile", "C", pjs, pos.x, pos.y));
         Ok(())
@@ -682,10 +672,11 @@ impl GameProcessor {
         let heroes = ecs.read_storage::<Hero>();
         let units = ecs.read_storage::<Unit>();
         let towers = ecs.read_storage::<Tower>();
-        let tower_kinds = ecs.read_storage::<TowerKind>();
+        let script_tags = ecs.read_storage::<crate::scripting::ScriptUnitTag>();
+        let registry = ecs.read_resource::<crate::comp::tower_registry::TowerTemplateRegistry>();
 
-        // TD 塔優先用 TowerKind label；其次 MOBA 塔顯示「我方塔/敵方塔」；
-        // 再依序 creep / hero / unit。
+        // 優先 creep / hero / unit；其次依 ScriptUnitTag 查 TowerTemplateRegistry label（TD 塔）；
+        // 再其次泛用 Tower；都沒有就 Unknown。
         let name_of = |ent: Entity| -> String {
             if let Some(creep) = creeps.get(ent) {
                 return creep.name.clone();
@@ -696,8 +687,10 @@ impl GameProcessor {
             if let Some(unit) = units.get(ent) {
                 return unit.name.clone();
             }
-            if let Some(kind) = tower_kinds.get(ent) {
-                return kind.template().label.to_string();
+            if let Some(tag) = script_tags.get(ent) {
+                if let Some(tpl) = registry.get(&tag.unit_id) {
+                    return tpl.label.clone();
+                }
             }
             if towers.get(ent).is_some() {
                 return "Tower".to_string();

@@ -38,11 +38,13 @@ pub mod facing;
 pub mod blocked_region;
 pub mod game_mode;
 pub mod tower_template;
+pub mod tower_registry;
 
 pub use self::{
     blocked_region::*,
     game_mode::*,
     tower_template::*,
+    // tower_registry 不 glob export，避免與 tower_template::TowerTemplate 命名衝突
     gold::*,
     inventory::*,
     item_effects::*,

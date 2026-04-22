@@ -8,6 +8,8 @@ use omb_script_abi::{manifest::Manifest_Ref, script::UnitScript_TO};
 
 pub struct ScriptRegistry {
     scripts: HashMap<String, UnitScript_TO<'static, RBox<()>>>,
+    /// 保持腳本 DLL `units()` 回傳順序，前端 UI 按鈕依此排序
+    order: Vec<String>,
     /// Keep manifest refs alive → DLLs stay mapped.
     _manifests: Vec<Manifest_Ref>,
 }
@@ -16,6 +18,7 @@ impl ScriptRegistry {
     pub fn new() -> Self {
         Self {
             scripts: HashMap::new(),
+            order: Vec::new(),
             _manifests: Vec::new(),
         }
     }
@@ -26,6 +29,8 @@ impl ScriptRegistry {
             let id: String = def.unit_id.into();
             if self.scripts.contains_key(&id) {
                 log::warn!("[scripting] duplicate unit_id `{}` — overriding", id);
+            } else {
+                self.order.push(id.clone());
             }
             self.scripts.insert(id, def.script);
         }
@@ -50,6 +55,13 @@ impl ScriptRegistry {
 
     pub fn iter(&self) -> impl Iterator<Item = (&str, &UnitScript_TO<'static, RBox<()>>)> {
         self.scripts.iter().map(|(k, v)| (k.as_str(), v))
+    }
+
+    /// 依 DLL `units()` 註冊順序 iterate
+    pub fn iter_ordered(&self) -> impl Iterator<Item = (&str, &UnitScript_TO<'static, RBox<()>>)> {
+        self.order.iter().filter_map(|id| {
+            self.scripts.get(id).map(|s| (id.as_str(), s))
+        })
     }
 }
 

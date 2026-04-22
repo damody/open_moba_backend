@@ -300,7 +300,6 @@ impl StateInitializer {
         ecs.register::<TurnSpeed>();
         ecs.register::<CollisionRadius>();
         ecs.register::<RegionBlocker>();
-        ecs.register::<TowerKind>();
         ecs.register::<SlowBuff>();
         ecs.register::<crate::scripting::ScriptUnitTag>();
     }
