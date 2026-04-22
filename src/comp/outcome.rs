@@ -299,9 +299,8 @@ pub struct Searcher {
 }
 
 impl Searcher {
-    /// 單位-單位 + 單位-region 碰撞查詢：同時查 hero + creep + tower + region 四個索引，
-    /// 回傳半徑內的實體列表與平方距離。`n` 為每個索引各自取幾個最近者
-    /// （16 在非極端場合即覆蓋所有真實碰撞）。
+    /// 單位-單位 + 單位-region 碰撞查詢：全部走 `SearchNN_XY` 空間索引加速。
+    /// `n` 為每個索引各自取幾個最近者（16 在非極端場合即覆蓋所有真實碰撞）。
     pub fn search_collidable(&self, pos: Vec2<f32>, radius: f32, n: usize) -> Vec<DisIndex> {
         let mut out = Vec::with_capacity(n * 4);
         out.extend(self.hero.SearchNN_XY(pos, radius, n));
@@ -311,6 +310,7 @@ impl Searcher {
         out
     }
 }
+
 
 /// 位置資料結構
 /// 儲存按X和Y座標排序的實體索引，用於快速空間查詢
@@ -428,19 +428,22 @@ impl PosData {
         let mut res = vec![];       // 結果列表
         let mut xdata = vec![];     // X軸範圍內的實體
         let mut ydata = vec![];     // Y軸範圍內的實體
-        
+
         // 在X軸排序陣列中找到最接近的位置
         let xp = self.xpos.binary_search_by(|data| data.p.x.partial_cmp(&pos.x).unwrap());
         let xidx = match xp {
             Ok(x) => {x}
             Err(x) => {x}
         };
-        
+        // 左掃起點修正：binary_search 回 Err(len) 代表 pos.x 大於所有元素，
+        // 此時左掃必須從 len-1 開始，否則 get(len)=None 直接 break，xdata 永遠空。
+        let xleft_start = xidx.min(self.xpos.len().saturating_sub(1));
+
         // 向左搜尋X軸範圍內的實體
         let mut loffset = 0;
         let mut roffset = 1;
         loop {
-            if let Some(p) = self.xpos.get((xidx as i32 - loffset) as usize) {
+            if let Some(p) = self.xpos.get((xleft_start as i32 - loffset) as usize) {
                 if (p.p.x - pos.x).abs() < radius {
                     xdata.push(DisIndex2 { e: p.e, p: p.p });
                 } else {
@@ -451,7 +454,7 @@ impl PosData {
             }
             loffset += 1;
         }
-        
+
         // 向右搜尋X軸範圍內的實體
         loop {
             if let Some(p) = self.xpos.get((xidx as i32 + roffset) as usize) {
@@ -465,19 +468,21 @@ impl PosData {
             }
             roffset += 1;
         }
-        
+
         // 在Y軸排序陣列中找到最接近的位置
         let yp = self.ypos.binary_search_by(|data| data.p.y.partial_cmp(&pos.y).unwrap());
         let yidx = match yp {
             Ok(y) => {y}
             Err(y) => {y}
         };
-        
+        // 同理：Y 軸左掃起點也要 clamp 到 len-1
+        let yleft_start = yidx.min(self.ypos.len().saturating_sub(1));
+
         // 向下搜尋Y軸範圍內的實體
         let mut loffset = 0;
         let mut roffset = 1;
         loop {
-            if let Some(p) = self.ypos.get((yidx as i32 - loffset) as usize) {
+            if let Some(p) = self.ypos.get((yleft_start as i32 - loffset) as usize) {
                 if (p.p.y - pos.y).abs() < radius {
                     ydata.push(DisIndex2 { e: p.e, p: p.p });
                 } else {
@@ -871,6 +876,119 @@ mod tests {
             assert_eq!(results.len(), 0, "不應該找到任何實體");
         }
         
+        /// 細節診斷：再做一次 SearchNN_XY，但這次分段印出 xdata/ydata/intersect 數量
+        #[test]
+        fn diagnose_searchnn_xy() {
+            use crate::comp::blocked_region::blocker_circles_for_polygon;
+            use voracious_radix_sort::RadixSort;
+
+            let poly = vec![
+                Vec2::new(-596.0, 1264.0),
+                Vec2::new(-480.0, 832.0),
+                Vec2::new(1340.0, 1144.0),
+                Vec2::new(1084.0, 1876.0),
+            ];
+            let circles = blocker_circles_for_polygon(&poly);
+            let mut world = World::new();
+            let mut posdata = PosData::new();
+            for (p, _r) in &circles {
+                let e = world.create_entity().build();
+                posdata.xpos.push(PosXIndex { e, p: *p });
+                posdata.ypos.push(PosYIndex { e, p: *p });
+            }
+            posdata.xpos.voracious_mt_sort(4);
+            posdata.ypos.voracious_mt_sort(4);
+
+            let hero = Vec2::new(1329.0, 1160.0);
+            let r = 110.0;
+
+            // 模擬 SearchNN_XY 的 x-axis scan
+            let xp = posdata.xpos.binary_search_by(|d| d.p.x.partial_cmp(&hero.x).unwrap());
+            let xidx = match xp { Ok(x) => x, Err(x) => x };
+            eprintln!("xpos.len={}, hero.x={}, xidx={} (binary_search 結果={:?})",
+                posdata.xpos.len(), hero.x, xidx, xp);
+            // xpos 附近幾個元素
+            for off in -3i32..=3 {
+                let i = (xidx as i32 + off) as usize;
+                if let Some(el) = posdata.xpos.get(i) {
+                    eprintln!("  xpos[{}].p.x = {:.2}  (off={})", i, el.p.x, off);
+                }
+            }
+
+            // 模擬左右掃
+            let mut xcount = 0;
+            let mut loffset = 0i32;
+            loop {
+                if let Some(p) = posdata.xpos.get((xidx as i32 - loffset) as usize) {
+                    if (p.p.x - hero.x).abs() < r {
+                        xcount += 1;
+                    } else { break; }
+                } else { break; }
+                loffset += 1;
+            }
+            let mut roffset = 1i32;
+            loop {
+                if let Some(p) = posdata.xpos.get((xidx as i32 + roffset) as usize) {
+                    if (p.p.x - hero.x).abs() < r {
+                        xcount += 1;
+                    } else { break; }
+                } else { break; }
+                roffset += 1;
+            }
+            eprintln!("xdata scan 共收 {} 個 (loffset 終 {}, roffset 終 {})", xcount, loffset, roffset);
+
+            // 真實呼叫
+            let results = posdata.SearchNN_XY(hero, r, 16);
+            eprintln!("SearchNN_XY 回 {} 個", results.len());
+        }
+
+        /// Repro: 2026-04-22 user 回報 region.xpos=404 時 SearchNN_XY 在
+        /// hero@(1329, 1160) r=110 查詢回空 Vec，但 brute 能找到 10 個。
+        /// 用 MVP_1 region polygon 完整走填充流程重現。
+        #[test]
+        fn repro_searchnn_xy_misses_with_many_entries() {
+            use crate::comp::blocked_region::blocker_circles_for_polygon;
+            use voracious_radix_sort::RadixSort;
+
+            // MVP_1 map.json 的 region_0
+            let poly = vec![
+                Vec2::new(-596.0, 1264.0),
+                Vec2::new(-480.0, 832.0),
+                Vec2::new(1340.0, 1144.0),
+                Vec2::new(1084.0, 1876.0),
+            ];
+            let circles = blocker_circles_for_polygon(&poly);
+            assert!(circles.len() > 50, "polygon 應產生 >50 個 circles，實際 {}", circles.len());
+
+            let mut world = World::new();
+            let mut posdata = PosData::new();
+            for (p, _r) in &circles {
+                let e = world.create_entity().build();
+                posdata.xpos.push(PosXIndex { e, p: *p });
+                posdata.ypos.push(PosYIndex { e, p: *p });
+            }
+            // 模擬 runtime：populate_region_blockers 用的 voracious_mt_sort
+            posdata.xpos.voracious_mt_sort(4);
+            posdata.ypos.voracious_mt_sort(4);
+
+            let hero = Vec2::new(1329.0, 1160.0);
+            let r = 110.0;
+            let results = posdata.SearchNN_XY(hero, r, 16);
+
+            // Brute-force 驗證：期望至少找到幾個 blocker 在範圍內
+            let brute_count = posdata.xpos.iter()
+                .filter(|xi| (xi.p - hero).magnitude() < r)
+                .count();
+            assert!(brute_count > 0, "brute 應找到至少 1 個 blocker (實際 {})", brute_count);
+
+            // 若 SearchNN_XY 正確，結果數應該 > 0（且理想情況 = brute_count）
+            assert!(
+                results.len() > 0,
+                "SearchNN_XY 回空 Vec，但 brute 找到 {} 個！這就是 bug。xpos.len={}",
+                brute_count, posdata.xpos.len()
+            );
+        }
+
         /// 性能測試 - 大量資料
         #[test]
         fn test_performance_large_dataset() {
