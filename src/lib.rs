@@ -3,6 +3,7 @@
 /// Main library crate for the Open MOBA game backend
 
 pub mod comp;
+pub mod scripting;
 pub mod vision;
 pub mod config;
 #[cfg(feature = "mqtt")]
