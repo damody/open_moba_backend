@@ -18,6 +18,11 @@ pub trait UnitScript: Send + Sync {
     #[sabi(last_prefix_field)]
     fn on_spawn(&self, _e: EntityHandle, _w: &mut GameWorldDyn<'_>) {}
 
+    /// Called every tick for entities with `ScriptUnitTag`. Scripts use this
+    /// to drive active behaviour (e.g. towers: find target → spawn projectile).
+    /// `dt` is the tick delta in seconds.
+    fn on_tick(&self, _e: EntityHandle, _dt: f32, _w: &mut GameWorldDyn<'_>) {}
+
     /// Called when the entity dies. `killer` = the killing entity if known.
     fn on_death(
         &self,

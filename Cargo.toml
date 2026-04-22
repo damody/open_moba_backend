@@ -47,6 +47,7 @@ fastrand = "2.0"
 uuid = { version = "1.6.1", features = ["v4", "serde"] }
 parking_lot = "0.12.1"
 ability-system = { path = "ability-system" }
+omoba-core = { path = "../omoba-core", default-features = false }
 hashbrown = "0.15"
 ordered-float = "5.0"
 abi_stable = "0.11"

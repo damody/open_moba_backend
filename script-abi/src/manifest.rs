@@ -1,7 +1,8 @@
 //! Manifest — the root module each script DLL exports.
 //!
-//! Host calls `Manifest_Ref::load_from_file(dll)` then `(manifest.units())()`
-//! to collect every `UnitDef` the DLL provides.
+//! Host calls `Manifest_Ref::load_from_file(dll)` then iterates the
+//! provided function pointers to collect `UnitDef` entries (legacy) and
+//! `AbilityDefFFI` entries (new).
 
 use abi_stable::{
     StableAbi,
@@ -10,6 +11,7 @@ use abi_stable::{
     sabi_types::VersionStrings,
     std_types::{RBox, RString, RVec},
 };
+use crate::ability::AbilityDefFFI;
 use crate::script::UnitScript_TO;
 
 #[repr(C)]
@@ -25,8 +27,13 @@ pub struct UnitDef {
 #[sabi(missing_field(panic))]
 pub struct Manifest {
     /// Returns every unit this DLL provides.
-    #[sabi(last_prefix_field)]
     pub units: extern "C" fn() -> RVec<UnitDef>,
+
+    /// Returns every ability this DLL provides. DLLs that don't define
+    /// abilities still need to export this function returning an empty
+    /// `RVec` (`missing_field(panic)` policy).
+    #[sabi(last_prefix_field)]
+    pub abilities: extern "C" fn() -> RVec<AbilityDefFFI>,
 }
 
 impl RootModule for Manifest_Ref {

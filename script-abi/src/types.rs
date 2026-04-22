@@ -1,6 +1,6 @@
 //! Stable-ABI value types that cross the host/DLL boundary.
 
-use abi_stable::{StableAbi, std_types::ROption};
+use abi_stable::{StableAbi, std_types::{ROption, RString}};
 
 /// Opaque handle to a game entity. Host converts to/from `specs::Entity`.
 #[repr(C)]
@@ -50,4 +50,41 @@ pub enum Target {
     Entity(EntityHandle),
     Point(Vec2f),
     None,
+}
+
+/// 子彈的飛行路徑規格：
+/// - `Homing` 會鎖定 `target` 實體並 per-tick 跟進位置
+/// - `Straight` 從發射位置直線飛到 `end_pos`，Tack 放射針用這個
+#[repr(C)]
+#[derive(StableAbi, Clone, Debug)]
+pub enum PathSpec {
+    Homing { target: EntityHandle },
+    Straight { end_pos: Vec2f },
+}
+
+/// 發射子彈的完整規格。`spawn_projectile_ex` 接這個。
+/// 欄位一次列清所有可能的特性；不用就填 0 / 空字串。
+#[repr(C)]
+#[derive(StableAbi, Clone, Debug)]
+pub struct ProjectileSpec {
+    /// 起始位置（世界座標，backend 單位）
+    pub from: Vec2f,
+    /// 發射者 entity（用於傷害歸屬與 faction filter）
+    pub owner: EntityHandle,
+    /// 路徑規格
+    pub path: PathSpec,
+    /// 子彈飛行速度（backend 單位/秒）
+    pub speed: f32,
+    /// 基礎傷害（物理）
+    pub damage: f32,
+    /// 沿路 hit-test 半徑（只對 Straight 有意義；0 = 不沿路碰撞，只在 end_pos 觸發）
+    pub hit_radius: f32,
+    /// 命中後的 AoE 半徑（0 = 單體）
+    pub splash_radius: f32,
+    /// 命中目標的減速乘數（0 = 不減速，0.5 = 降到 50%）
+    pub slow_factor: f32,
+    /// 減速持續秒數
+    pub slow_duration: f32,
+    /// 前端渲染標籤（"dart"/"bomb"/"tack"/"ice"）—— 決定子彈顏色與視覺
+    pub kind_tag: RString,
 }
