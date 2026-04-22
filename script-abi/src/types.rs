@@ -62,11 +62,12 @@ pub enum PathSpec {
     Straight { end_pos: Vec2f },
 }
 
-/// TD 塔的靜態屬性（由腳本回報，host 合併成完整 template 給前端用）。
-/// 單一事實來源——腳本 `tower_metadata()` 定義這些，host 和 前端共用。
+/// TD 塔的完整 metadata（由腳本回報；host 和前端共用）。
+/// 新增第 5 種塔只要寫新腳本 + 填這個 struct，host 和前端都不用動。
 #[repr(C)]
-#[derive(StableAbi, Clone, Copy, Debug, Default)]
+#[derive(StableAbi, Clone, Debug, Default)]
 pub struct TowerMetadata {
+    // ===== 戰鬥數值 =====
     /// 基礎攻擊力（物理）
     pub atk: f32,
     /// 攻擊間隔秒數
@@ -83,6 +84,18 @@ pub struct TowerMetadata {
     pub slow_factor: f32,
     /// 減速持續秒數
     pub slow_duration: f32,
+
+    // ===== Host/UI 欄位（原本在 tower_template.rs 的 TowerTemplate）=====
+    /// 建造金幣
+    pub cost: i32,
+    /// 放置碰撞半徑（placement validation + 與其他塔 overlap 判定）
+    pub footprint: f32,
+    /// 塔 HP（CProperty.hp / mhp）
+    pub hp: f32,
+    /// 塔轉向速度（度/秒；host tower_tick 用來平滑 rotate facing）
+    pub turn_speed_deg: f32,
+    /// UI 顯示名稱（按鈕 label、sell 面板、log）
+    pub label: RString,
 }
 
 /// 發射子彈的完整規格。`spawn_projectile_ex` 接這個。

@@ -173,6 +173,7 @@ impl CreationEventHandler {
                 damage_real: real_damage, // 真實傷害
                 slow_factor: 0.0,
                 slow_duration: 0.0,
+                hit_radius: 0.0,
             })
             .build();
         

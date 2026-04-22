@@ -27,6 +27,9 @@ pub struct Projectile {
     /// 減速持續秒數
     #[serde(default)]
     pub slow_duration: f32,
+    /// 沿路 hit-test 半徑（無 target 方向性子彈用；0 = 使用預設）
+    #[serde(default)]
+    pub hit_radius: f32,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
