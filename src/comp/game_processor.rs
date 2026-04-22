@@ -394,16 +394,32 @@ impl GameProcessor {
         factor: f32,
         duration: f32,
     ) -> Result<(), Error> {
-        let mut slow_buffs = ecs.write_storage::<SlowBuff>();
-        let existing = slow_buffs.get(target).copied();
-        let (new_factor, new_remaining) = match existing {
-            Some(b) => (b.factor.min(factor), b.remaining.max(duration)),
-            None => (factor, duration),
-        };
-        slow_buffs.insert(target, SlowBuff {
-            factor: new_factor,
-            remaining: new_remaining,
-        }).ok();
+        let new_factor;
+        let new_remaining;
+        {
+            let mut slow_buffs = ecs.write_storage::<SlowBuff>();
+            let existing = slow_buffs.get(target).copied();
+            let (f, r) = match existing {
+                Some(b) => (b.factor.min(factor), b.remaining.max(duration)),
+                None => (factor, duration),
+            };
+            new_factor = f;
+            new_remaining = r;
+            let _ = slow_buffs.insert(target, SlowBuff {
+                factor: f,
+                remaining: r,
+            });
+        }
+        // 立即廣播 creep/S 給前端：更新 move_speed，讓 lerp_duration 重算，視覺上變慢
+        let msd = ecs.read_storage::<CProperty>()
+            .get(target).map(|c| c.msd).unwrap_or(0.0);
+        let effective = msd * new_factor;
+        if let Some(tx) = ecs.read_resource::<Vec<crossbeam_channel::Sender<OutboundMsg>>>().get(0) {
+            let _ = tx.try_send(OutboundMsg::new_s("td/all/res", "creep", "S", json!({
+                "id": target.id(),
+                "move_speed": effective,
+            })));
+        }
         Ok(())
     }
 
@@ -503,6 +519,7 @@ impl GameProcessor {
             "damage": atk_phys,
             "kind": kind_key,
             "directional": true,
+            "hit_radius": crate::comp::TACK_NEEDLE_HIT_RADIUS,
         });
         mqtx.try_send(OutboundMsg::new_s_at("td/all/res", "projectile", "C", pjs, pos.x, pos.y));
         Ok(())
@@ -664,27 +681,30 @@ impl GameProcessor {
         let creeps = ecs.read_storage::<Creep>();
         let heroes = ecs.read_storage::<Hero>();
         let units = ecs.read_storage::<Unit>();
-        
-        let source_name = if let Some(creep) = creeps.get(source) {
-            creep.name.clone()
-        } else if let Some(hero) = heroes.get(source) {
-            hero.name.clone()
-        } else if let Some(unit) = units.get(source) {
-            unit.name.clone()
-        } else {
+        let towers = ecs.read_storage::<Tower>();
+        let tower_kinds = ecs.read_storage::<TowerKind>();
+
+        // TD 塔優先用 TowerKind label；其次 MOBA 塔顯示「我方塔/敵方塔」；
+        // 再依序 creep / hero / unit。
+        let name_of = |ent: Entity| -> String {
+            if let Some(creep) = creeps.get(ent) {
+                return creep.name.clone();
+            }
+            if let Some(hero) = heroes.get(ent) {
+                return hero.name.clone();
+            }
+            if let Some(unit) = units.get(ent) {
+                return unit.name.clone();
+            }
+            if let Some(kind) = tower_kinds.get(ent) {
+                return kind.template().label.to_string();
+            }
+            if towers.get(ent).is_some() {
+                return "Tower".to_string();
+            }
             "Unknown".to_string()
         };
-        
-        let target_name = if let Some(creep) = creeps.get(target) {
-            creep.name.clone()
-        } else if let Some(hero) = heroes.get(target) {
-            hero.name.clone()
-        } else if let Some(unit) = units.get(target) {
-            unit.name.clone()
-        } else {
-            "Unknown".to_string()
-        };
-        
-        (source_name, target_name)
+
+        (name_of(source), name_of(target))
     }
 }

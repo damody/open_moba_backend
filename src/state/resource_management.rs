@@ -243,7 +243,7 @@ impl ResourceManager {
         }
 
         // Path 碰撞（圓 vs 線段 + path 半寬）
-        const PATH_HALF_WIDTH: f32 = 80.0;
+        const PATH_HALF_WIDTH: f32 = 64.0; // 80 × 0.8：視覺路寬縮小 20% 後對應的禁蓋緩衝
         {
             use std::collections::BTreeMap;
             let paths = world.read_resource::<BTreeMap<String, Path>>();

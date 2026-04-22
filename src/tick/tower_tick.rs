@@ -23,7 +23,8 @@ pub struct TowerRead<'a> {
     searcher : Read<'a, Searcher>,
     factions: ReadStorage<'a, Faction>,
     turn_speeds: ReadStorage<'a, TurnSpeed>,
-    tower_kinds: ReadStorage<'a, TowerKind>,
+    // 有 ScriptUnitTag 的塔由腳本 on_tick 自主決策；tower_tick 只幫忙轉向
+    script_tags: ReadStorage<'a, crate::scripting::ScriptUnitTag>,
 }
 
 #[derive(SystemData)]
@@ -68,7 +69,10 @@ impl<'a> System<'a> for Sys {
                 },
                 |_guard, (e, tower, pty, atk, pos, facing)| {
                     let mut outcomes:Vec<Outcome> = Vec::new();
-                    if atk.asd_count < atk.asd.val() {
+                    // 腳本塔：開火/asd_count 由 on_tick 自管；但「找目標 + 轉向」仍由 host 做。
+                    // 非腳本塔：host 管全部（累計 asd、找目標、轉向、開火）。
+                    let is_scripted = tr.script_tags.get(e).is_some();
+                    if !is_scripted && atk.asd_count < atk.asd.val() {
                         atk.asd_count += dt;
                     }
                     if pty.mblock > 0 {
@@ -100,7 +104,11 @@ impl<'a> System<'a> for Sys {
                             }
                         }
                     }
-                    if atk.asd_count >= atk.asd.val() {
+                    // 找目標 + 轉向：
+                    //   - 腳本塔：每 tick 都做（host 負責平滑旋轉、對齊到 script 選的目標）
+                    //   - 非腳本塔：asd_count 就緒才做（效能優化）
+                    let do_seek = is_scripted || atk.asd_count >= atk.asd.val();
+                    if do_seek {
                         let time2 = Instant::now();
                         let elpsed = time2.duration_since(time1);
                         if elpsed.as_secs_f32() < 0.05 {
@@ -128,7 +136,7 @@ impl<'a> System<'a> for Sys {
                                         tower.nearby_creeps.push(NearbyEnt { ent: c.e, dis: c.dis });
                                     }
                                 }
-                                // 轉向目標：算出 desired angle，旋轉 facing，只有對齊才能開火
+                                // 轉向目標：算出 desired angle，旋轉 facing
                                 let target_entity = hostile_creeps[0].e;
                                 let target_pos = tr.pos.get(target_entity).map(|p| p.0).unwrap_or(pos.0);
                                 let diff = target_pos - pos.0;
@@ -147,39 +155,24 @@ impl<'a> System<'a> for Sys {
                                         }
                                     }
 
-                                    let kind = tr.tower_kinds.get(e).copied();
-                                    let is_tack = matches!(kind, Some(crate::comp::TowerKind::Tack));
-                                    let can_fire = is_tack || normalize_angle(desired - facing.0).abs() < MOVE_ANGLE_THRESHOLD;
-                                    if can_fire {
+                                    // 腳本塔：host 只負責轉向，不自動開火（腳本 on_tick 全權決定）
+                                    if is_scripted {
+                                        return outcomes;
+                                    }
+
+                                    // MOBA 塔：角度對齊就發單體 homing 彈
+                                    if normalize_angle(desired - facing.0).abs() < MOVE_ANGLE_THRESHOLD {
                                         atk.asd_count -= atk.asd.val();
-                                        if is_tack {
-                                            // Tack Shooter：八方向放射針（無 target，飛到 range 邊界）
-                                            // 途中第一個打到的敵人消失
-                                            let range = atk.range.val();
-                                            let shots = kind.map(|k| k.template().projectiles_per_shot as usize).unwrap_or(8);
-                                            let count = shots.max(1) as i32;
-                                            for i in 0..count {
-                                                let angle = std::f32::consts::TAU * (i as f32) / (count as f32);
-                                                let dir = Vec2::new(angle.cos(), angle.sin());
-                                                let end = pos.0 + dir * range;
-                                                outcomes.push(Outcome::ProjectileDirectional {
-                                                    pos: pos.0.clone(),
-                                                    source: Some(e.clone()),
-                                                    end_pos: end,
-                                                });
-                                            }
-                                        } else {
-                                            outcomes.push(Outcome::ProjectileLine2 {
-                                                pos: pos.0.clone(),
-                                                source: Some(e.clone()),
-                                                target: Some(target_entity),
-                                            });
-                                        }
+                                        outcomes.push(Outcome::ProjectileLine2 {
+                                            pos: pos.0.clone(),
+                                            source: Some(e.clone()),
+                                            target: Some(target_entity),
+                                        });
                                     }
                                     // 角度太大 → 繼續轉，本 tick 不開火
                                 }
                             } else {
-                                if near_creeps.len() == 0 {
+                                if !is_scripted && near_creeps.len() == 0 {
                                     atk.asd_count = atk.asd.val() - 0.3 - fastrand::u8(..) as f32 * 0.001;
                                 }
                             }

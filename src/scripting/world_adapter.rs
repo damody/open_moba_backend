@@ -7,16 +7,19 @@
 //! surface as small as the PoC-1 (and subsequent PoCs) actually needs.
 
 use abi_stable::std_types::{RNone, ROption, RSome, RStr, RVec};
+use crossbeam_channel::Sender;
 use omb_script_abi::{
-    types::{DamageKind, EntityHandle, Vec2f},
+    types::{DamageKind, EntityHandle, PathSpec, ProjectileSpec, Vec2f},
     world::GameWorld,
 };
 use rand::{Rng, SeedableRng};
 use rand_pcg::Pcg64Mcg;
-use specs::{Entity, Join, World, WorldExt};
+use serde_json::json;
+use specs::{Builder, Entity, Join, World, WorldExt};
 use specs::world::Generation;
 
-use crate::comp::{CProperty, Faction, Pos, Unit};
+use crate::comp::*;
+use crate::transport::OutboundMsg;
 
 /// Host-side adapter. Created fresh for each `run_script_dispatch` call.
 ///
@@ -25,13 +28,16 @@ use crate::comp::{CProperty, Faction, Pos, Unit};
 pub struct WorldAdapter<'a> {
     pub world: &'a mut World,
     pub rng: Pcg64Mcg,
+    /// 廣播給前端的 sender；supply_projectile_ex、emit_explosion 會用到
+    pub mqtx: Sender<OutboundMsg>,
 }
 
 impl<'a> WorldAdapter<'a> {
-    pub fn new(world: &'a mut World, seed: u64) -> Self {
+    pub fn new(world: &'a mut World, seed: u64, mqtx: Sender<OutboundMsg>) -> Self {
         Self {
             world,
             rng: Pcg64Mcg::seed_from_u64(seed),
+            mqtx,
         }
     }
 
@@ -206,13 +212,209 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         _dmg: f32,
         _owner: EntityHandle,
     ) -> EntityHandle {
-        log::debug!("[scripting] spawn_projectile (stub)");
+        log::debug!("[scripting] spawn_projectile (stub; use spawn_projectile_ex)");
         EntityHandle::INVALID
+    }
+
+    fn spawn_projectile_ex(&mut self, spec: ProjectileSpec) -> EntityHandle {
+        let Some(owner_ent) = Self::handle_to_entity(spec.owner) else {
+            return EntityHandle::INVALID;
+        };
+        let from_vek = vek::Vec2::new(spec.from.x, spec.from.y);
+
+        // 依 PathSpec 算 tpos + target option + end_pos（供前端直線渲染）
+        let (target_opt, tpos_vek, end_pos_vek, is_directional, target_id_out) = match spec.path {
+            PathSpec::Homing { target } => {
+                let Some(target_ent) = Self::handle_to_entity(target) else {
+                    return EntityHandle::INVALID;
+                };
+                let tpos = self.world.read_storage::<Pos>()
+                    .get(target_ent).map(|p| p.0).unwrap_or(from_vek);
+                (Some(target_ent), tpos, tpos, false, target.id)
+            }
+            PathSpec::Straight { end_pos } => {
+                let end = vek::Vec2::new(end_pos.x, end_pos.y);
+                (None, end, end, true, 0u32)
+            }
+        };
+
+        let initial_dist = (tpos_vek - from_vek).magnitude();
+        let flight_time_s: f32 = if spec.speed > 0.0 {
+            (initial_dist / spec.speed).max(0.01)
+        } else { 0.01 };
+        let safety = flight_time_s * 3.0 + 1.5;
+
+        let e = self.world.create_entity()
+            .with(Pos(from_vek))
+            .with(Projectile {
+                time_left: safety,
+                owner: owner_ent,
+                tpos: tpos_vek,
+                target: target_opt,
+                radius: spec.splash_radius,
+                msd: spec.speed,
+                damage_phys: spec.damage,
+                damage_magi: 0.0,
+                damage_real: 0.0,
+                slow_factor: spec.slow_factor,
+                slow_duration: spec.slow_duration,
+            })
+            .build();
+
+        let flight_time_ms: u64 = (flight_time_s * 1000.0).max(1.0) as u64;
+        let kind_str = spec.kind_tag.as_str();
+        let pjs = json!({
+            "id": e.id(),
+            "source_id": owner_ent.id(),
+            "target_id": target_id_out,
+            "start_pos": { "x": from_vek.x, "y": from_vek.y },
+            "end_pos":   { "x": end_pos_vek.x, "y": end_pos_vek.y },
+            "move_speed": spec.speed,
+            "flight_time_ms": flight_time_ms,
+            "damage": spec.damage,
+            "kind": kind_str,
+            "directional": is_directional,
+            "hit_radius": spec.hit_radius,
+        });
+        let _ = self.mqtx.try_send(OutboundMsg::new_s_at(
+            "td/all/res", "projectile", "C", pjs, from_vek.x, from_vek.y,
+        ));
+
+        Self::entity_to_handle(e)
+    }
+
+    fn add_slow_buff(&mut self, target: EntityHandle, factor: f32, duration: f32) {
+        let Some(ent) = Self::handle_to_entity(target) else { return };
+        let mut buffs = self.world.write_storage::<SlowBuff>();
+        let existing = buffs.get(ent).copied();
+        let (f, r) = match existing {
+            Some(b) => (b.factor.min(factor), b.remaining.max(duration)),
+            None => (factor, duration),
+        };
+        let _ = buffs.insert(ent, SlowBuff { factor: f, remaining: r });
+    }
+
+    fn emit_explosion(&mut self, pos: Vec2f, radius: f32, duration: f32) {
+        let _ = self.mqtx.try_send(OutboundMsg::new_s_at(
+            "td/all/res", "game", "explosion",
+            json!({
+                "x": pos.x,
+                "y": pos.y,
+                "radius": radius,
+                "duration": duration,
+            }),
+            pos.x, pos.y,
+        ));
     }
 
     fn despawn(&mut self, e: EntityHandle) {
         let Some(ent) = Self::handle_to_entity(e) else { return };
         let _ = self.world.entities().delete(ent);
+    }
+
+    // ---------------- 塔 / 單位屬性 ----------------
+
+    fn get_tower_range(&self, e: EntityHandle) -> f32 {
+        let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
+        self.world.read_storage::<TAttack>()
+            .get(ent).map(|t| t.range.v).unwrap_or(0.0)
+    }
+
+    fn get_tower_atk(&self, e: EntityHandle) -> f32 {
+        let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
+        self.world.read_storage::<TAttack>()
+            .get(ent).map(|t| t.atk_physic.v).unwrap_or(0.0)
+    }
+
+    fn get_asd_interval(&self, e: EntityHandle) -> f32 {
+        let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
+        self.world.read_storage::<TAttack>()
+            .get(ent).map(|t| t.asd.v).unwrap_or(0.0)
+    }
+
+    fn get_asd_count(&self, e: EntityHandle) -> f32 {
+        let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
+        self.world.read_storage::<TAttack>()
+            .get(ent).map(|t| t.asd_count).unwrap_or(0.0)
+    }
+
+    fn set_asd_count(&mut self, e: EntityHandle, v: f32) {
+        let Some(ent) = Self::handle_to_entity(e) else { return };
+        let mut store = self.world.write_storage::<TAttack>();
+        if let Some(t) = store.get_mut(ent) {
+            t.asd_count = v;
+        }
+    }
+
+    fn set_tower_atk(&mut self, e: EntityHandle, v: f32) {
+        let Some(ent) = Self::handle_to_entity(e) else { return };
+        let mut store = self.world.write_storage::<TAttack>();
+        if let Some(t) = store.get_mut(ent) {
+            t.atk_physic.bv = v;
+            t.atk_physic.v = v;
+        }
+    }
+
+    fn set_tower_range(&mut self, e: EntityHandle, v: f32) {
+        let Some(ent) = Self::handle_to_entity(e) else { return };
+        let mut store = self.world.write_storage::<TAttack>();
+        if let Some(t) = store.get_mut(ent) {
+            t.range.bv = v;
+            t.range.v = v;
+        }
+    }
+
+    fn set_asd_interval(&mut self, e: EntityHandle, v: f32) {
+        let Some(ent) = Self::handle_to_entity(e) else { return };
+        let mut store = self.world.write_storage::<TAttack>();
+        if let Some(t) = store.get_mut(ent) {
+            t.asd.bv = v;
+            t.asd.v = v;
+        }
+    }
+
+    fn set_facing(&mut self, e: EntityHandle, angle_rad: f32) {
+        let Some(ent) = Self::handle_to_entity(e) else { return };
+        let mut store = self.world.write_storage::<Facing>();
+        if let Some(f) = store.get_mut(ent) {
+            f.0 = angle_rad;
+        }
+    }
+
+    fn query_nearest_enemy(
+        &self,
+        center: Vec2f,
+        radius: f32,
+        of: EntityHandle,
+    ) -> ROption<EntityHandle> {
+        let Some(of_ent) = Self::handle_to_entity(of) else { return RNone };
+        let entities = self.world.entities();
+        let positions = self.world.read_storage::<Pos>();
+        let factions = self.world.read_storage::<Faction>();
+        let creeps = self.world.read_storage::<Creep>();
+
+        let my_team = match factions.get(of_ent) {
+            Some(f) => f.team_id,
+            None => return RNone,
+        };
+        let r2 = radius * radius;
+        let mut best: Option<(Entity, f32)> = None;
+        // 只選 creep（氣球）為目標；不要誤選隊友/其他塔
+        for (ent, pos, fac, _c) in (&entities, &positions, &factions, &creeps).join() {
+            if fac.team_id == my_team { continue; }
+            let dx = pos.0.x - center.x;
+            let dy = pos.0.y - center.y;
+            let d2 = dx * dx + dy * dy;
+            if d2 <= r2 {
+                if best.map(|(_, b)| d2 < b).unwrap_or(true) {
+                    best = Some((ent, d2));
+                }
+            }
+        }
+        match best {
+            Some((ent, _)) => RSome(Self::entity_to_handle(ent)),
+            None => RNone,
+        }
     }
 
     // ---------------- Side effects ----------------

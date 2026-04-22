@@ -149,7 +149,9 @@ impl<'a> System<'a> for Sys {
                                 log::warn!("{} 沒有陣營信息，無法進行敵友判斷", hero_name);
                             }
                                 
-                            log::info!("{} 有效目標數量: {}", hero_name, valid_targets.len());
+                            if valid_targets.len() > 0 {
+                                log::info!("{} 有效目標數量: {}", hero_name, valid_targets.len());
+                            }
                             
                             if valid_targets.len() > 0 {
                                 // 攻擊最近的敵人：先轉向，角度 < 30° 才能開火

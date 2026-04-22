@@ -9,13 +9,15 @@ use abi_stable::{
     sabi_trait::prelude::TD_Opaque,
     std_types::{RNone, RSome},
 };
+use crossbeam_channel::Sender;
 use omb_script_abi::{
     types::{DamageInfo, DamageKind, EntityHandle, Target},
     world::{GameWorld, GameWorldDyn, GameWorld_TO},
 };
-use specs::{Entity, World, WorldExt};
+use specs::{Entity, Join, World, WorldExt};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
+use crate::transport::OutboundMsg;
 use super::event::{ScriptEvent, ScriptEventQueue, SkillTarget};
 use super::registry::ScriptRegistry;
 use super::tag::ScriptUnitTag;
@@ -23,21 +25,53 @@ use super::world_adapter::WorldAdapter;
 
 /// Main entry point — call once per tick, AFTER all parallel tick systems
 /// have finished and BEFORE `world.maintain()`.
-pub fn run_script_dispatch(world: &mut World, registry: &ScriptRegistry, rng_seed: u64) {
+///
+/// 每 tick 先對所有有 `ScriptUnitTag` 的 entity 派發 `on_tick`，然後 drain
+/// `ScriptEventQueue` 處理其他 hooks（`AttackHit`, `Death` 等）。
+pub fn run_script_dispatch(
+    world: &mut World,
+    registry: &ScriptRegistry,
+    rng_seed: u64,
+    dt: f32,
+    mqtx: Sender<OutboundMsg>,
+) {
+    // 先收集所有帶 tag 的 entity（避免 adapter 建立後又要 read_storage 借用衝突）
+    let tagged: Vec<(Entity, String)> = {
+        let entities = world.entities();
+        let tags = world.read_storage::<ScriptUnitTag>();
+        (&entities, &tags).join().map(|(e, t)| (e, t.unit_id.clone())).collect()
+    };
+
     let events = {
         let mut queue = world.write_resource::<ScriptEventQueue>();
         queue.drain()
     };
-    if events.is_empty() {
+
+    if tagged.is_empty() && events.is_empty() {
         return;
     }
 
     // One adapter per tick; RNG is local to this dispatch pass for
     // deterministic replay (seed driven by tick counter upstream).
-    let mut adapter = WorldAdapter::new(world, rng_seed);
+    let mut adapter = WorldAdapter::new(world, rng_seed, mqtx);
 
+    // Dispatch queued events first（Spawn / AttackHit / Damage / Death / ...）
+    // 這樣新 spawn 的塔 on_spawn 能先初始化 stats，第一次 on_tick 看得到正確值
     for ev in events {
         dispatch_one(&mut adapter, registry, ev);
+    }
+
+    // Dispatch on_tick for every tagged entity（塔主動行為）
+    for (ent, uid) in &tagged {
+        let Some(script) = registry.get(uid) else { continue };
+        let handle = WorldAdapter::entity_to_handle(*ent);
+        let mut world_dyn = world_dyn_of(&mut adapter);
+        let r = catch_unwind(AssertUnwindSafe(|| {
+            script.on_tick(handle, dt, &mut world_dyn);
+        }));
+        if r.is_err() {
+            log::error!("[scripting] panic in on_tick of {}", uid);
+        }
     }
 }
 

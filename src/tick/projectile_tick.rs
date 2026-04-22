@@ -83,9 +83,8 @@ impl<'a> System<'a> for Sys {
 
                     // 無 target 的方向性子彈（Tack 放射針）：飛行途中每 tick 掃描
                     // 命中半徑內任一敵人→直接扣血+消失；不需抵達終點
-                    const NEEDLE_HIT_RADIUS: f32 = 25.0;
                     if proj.target.is_none() && proj.radius < 1.0 {
-                        let near = tr.searcher.creep.SearchNN_XY(pos.0, NEEDLE_HIT_RADIUS, 1);
+                        let near = tr.searcher.creep.SearchNN_XY(pos.0, crate::comp::TACK_NEEDLE_HIT_RADIUS, 1);
                         if let Some(hit) = near.first() {
                             create_projectile_damage(&proj, hit.e, &mut outcomes, pos.0);
                             outcomes.push(Outcome::Death { pos: pos.0.clone(), ent: e.clone() });

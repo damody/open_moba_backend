@@ -27,6 +27,10 @@ impl Component for TowerKind {
     type Storage = DenseVecStorage<Self>;
 }
 
+/// Tack 放射針的命中半徑（backend 單位）；projectile_tick 與 handle_projectile_directional
+/// 共用，前端也會收這個值畫圈讓玩家看見命中範圍。
+pub const TACK_NEEDLE_HIT_RADIUS: f32 = 80.0;
+
 /// 減速 debuff：命中的 creep 在 `remaining` 秒內，移動速度乘上 `factor`。
 /// 由 `projectile_tick` 在命中有 slow_factor>0 的 projectile 時 push `Outcome::ApplySlow`，
 /// GameProcessor 再附加這個 Component；`slow_buff_tick` 每 tick 扣 remaining，歸零移除。
@@ -93,7 +97,7 @@ impl TowerKind {
                 bullet_speed: 900.0,
                 footprint: 50.0,
                 projectiles_per_shot: 1,
-                splash_radius: 100.0,
+                splash_radius: 200.0, // 2x
                 slow_factor: 0.0,
                 slow_duration: 0.0,
                 turn_speed_deg: 360.0,
@@ -191,14 +195,21 @@ pub fn spawn_td_tower(world: &mut World, pos: Vec2<f32>, kind: TowerKind) -> Ent
         .with(CollisionRadius(tpl.footprint))
         .with(kind); // 供 handle_projectile 查 splash/slow、tower_tick 查 multi-shot
 
-    // PoC-1：Dart 塔綁定 `tower_dart` 腳本。找不到腳本時 dispatch 會 no-op。
-    let script_id: Option<&'static str> = match kind {
-        TowerKind::Dart => Some("tower_dart"),
-        _ => None,
+    // 4 塔全部走腳本驅動；找不到腳本時 dispatch 會 no-op，塔就會變成啞巴（log::warn）
+    let script_id: &'static str = match kind {
+        TowerKind::Dart => "tower_dart",
+        TowerKind::Bomb => "tower_bomb",
+        TowerKind::Tack => "tower_tack",
+        TowerKind::Ice  => "tower_ice",
     };
-    if let Some(id) = script_id {
-        builder = builder.with(crate::scripting::ScriptUnitTag { unit_id: id.to_string() });
-    }
+    builder = builder.with(crate::scripting::ScriptUnitTag { unit_id: script_id.to_string() });
 
-    builder.build()
+    let entity = builder.build();
+
+    // 排入 Spawn 事件，讓腳本 on_spawn 初始化 stats（atk/asd/range）。
+    // 下一個 tick 的 run_script_dispatch 會先處理 Spawn，再跑 on_tick。
+    world.write_resource::<crate::scripting::ScriptEventQueue>()
+        .push(crate::scripting::ScriptEvent::Spawn { e: entity });
+
+    entity
 }
