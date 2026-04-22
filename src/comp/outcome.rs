@@ -90,6 +90,20 @@ pub enum Outcome {
         target: Entity,
         factor: f32,
         duration: f32,
+    },
+    /// Bomb 塔 AoE 命中 → 前端渲染「由小到大紅圈」爆炸特效。
+    /// GameProcessor 收到後廣播 `game/explosion` 給前端。
+    Explosion {
+        pos: Vec2<f32>,
+        radius: f32,
+        duration: f32,
+    },
+    /// Tack 塔放射針：無 target，從 `pos` 飛向 `end_pos`。
+    /// projectile_tick 會每 tick 掃描沿路是否命中敵人（第一個打到就消失）。
+    ProjectileDirectional {
+        pos: Vec2<f32>,
+        source: Option<Entity>,
+        end_pos: Vec2<f32>,
     }
 }
 

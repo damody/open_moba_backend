@@ -147,23 +147,32 @@ impl<'a> System<'a> for Sys {
                                         }
                                     }
 
-                                    let angle_diff = normalize_angle(desired - facing.0).abs();
-                                    if angle_diff < MOVE_ANGLE_THRESHOLD {
+                                    let kind = tr.tower_kinds.get(e).copied();
+                                    let is_tack = matches!(kind, Some(crate::comp::TowerKind::Tack));
+                                    let can_fire = is_tack || normalize_angle(desired - facing.0).abs() < MOVE_ANGLE_THRESHOLD;
+                                    if can_fire {
                                         atk.asd_count -= atk.asd.val();
-                                        // Tack Shooter: 一次對視野內 N 個敵人各發一發
-                                        let shots = tr.tower_kinds.get(e)
-                                            .map(|k| k.template().projectiles_per_shot as usize)
-                                            .unwrap_or(1);
-                                        let targets: Vec<Entity> = if shots > 1 {
-                                            hostile_creeps.iter().take(shots).map(|c| c.e).collect()
+                                        if is_tack {
+                                            // Tack Shooter：八方向放射針（無 target，飛到 range 邊界）
+                                            // 途中第一個打到的敵人消失
+                                            let range = atk.range.val();
+                                            let shots = kind.map(|k| k.template().projectiles_per_shot as usize).unwrap_or(8);
+                                            let count = shots.max(1) as i32;
+                                            for i in 0..count {
+                                                let angle = std::f32::consts::TAU * (i as f32) / (count as f32);
+                                                let dir = Vec2::new(angle.cos(), angle.sin());
+                                                let end = pos.0 + dir * range;
+                                                outcomes.push(Outcome::ProjectileDirectional {
+                                                    pos: pos.0.clone(),
+                                                    source: Some(e.clone()),
+                                                    end_pos: end,
+                                                });
+                                            }
                                         } else {
-                                            vec![target_entity]
-                                        };
-                                        for t in targets {
                                             outcomes.push(Outcome::ProjectileLine2 {
                                                 pos: pos.0.clone(),
                                                 source: Some(e.clone()),
-                                                target: Some(t),
+                                                target: Some(target_entity),
                                             });
                                         }
                                     }

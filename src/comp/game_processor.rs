@@ -29,6 +29,9 @@ impl GameProcessor {
                     Outcome::ProjectileLine2 { pos, source, target } => {
                         Self::handle_projectile(ecs, mqtx, pos, source, target)?;
                     }
+                    Outcome::ProjectileDirectional { pos, source, end_pos } => {
+                        Self::handle_projectile_directional(ecs, mqtx, pos, source, end_pos)?;
+                    }
                     Outcome::Creep { cd } => {
                         Self::handle_creep_spawn(ecs, mqtx, cd)?;
                     }
@@ -59,6 +62,18 @@ impl GameProcessor {
                     }
                     Outcome::ApplySlow { target, factor, duration } => {
                         Self::handle_apply_slow(ecs, target, factor, duration)?;
+                    }
+                    Outcome::Explosion { pos, radius, duration } => {
+                        let _ = mqtx.try_send(OutboundMsg::new_s_at(
+                            "td/all/res", "game", "explosion",
+                            json!({
+                                "x": pos.x,
+                                "y": pos.y,
+                                "radius": radius,
+                                "duration": duration,
+                            }),
+                            pos.x, pos.y,
+                        ));
                     }
                     _ => {}
                 }
@@ -309,6 +324,7 @@ impl GameProcessor {
 
         // 前端 flight_time_ms 用於 pursuit 動畫；damage 由後端 "H" 事件授權（不再 optimistic）。
         let flight_time_ms: u64 = (flight_time_s * 1000.0).max(1.0) as u64;
+        let kind_key = tower_kind.map(|k| k.key()).unwrap_or("");
         let pjs = json!({
             "id": e.id(),
             "source_id": source_entity.id(),
@@ -318,6 +334,7 @@ impl GameProcessor {
             "move_speed": move_speed,
             "flight_time_ms": flight_time_ms,
             "damage": atk_phys,
+            "kind": kind_key,
         });
 
         mqtx.try_send(OutboundMsg::new_s_at("td/all/res", "projectile", "C", pjs, pos.x, pos.y));
@@ -429,6 +446,65 @@ impl GameProcessor {
             ));
             log::warn!("☠️ TD 模式：玩家生命歸零，遊戲結束");
         }
+        Ok(())
+    }
+
+    /// Tack 塔放射針：沒有 target，飛向固定 end_pos；命中判定在 projectile_tick 逐 tick 掃描。
+    fn handle_projectile_directional(
+        ecs: &mut World,
+        mqtx: &crossbeam_channel::Sender<OutboundMsg>,
+        pos: vek::Vec2<f32>,
+        source: Option<Entity>,
+        end_pos: vek::Vec2<f32>,
+    ) -> Result<(), Error> {
+        use specs::{Builder, WorldExt};
+
+        let source_entity = source.ok_or_else(|| failure::err_msg("ProjectileDirectional 缺少 source"))?;
+
+        let (msd, atk_phys, kind_key) = {
+            let tatks = ecs.read_storage::<TAttack>();
+            let kinds = ecs.read_storage::<crate::comp::TowerKind>();
+            let tp = tatks.get(source_entity).ok_or_else(|| failure::err_msg("Source attack properties not found"))?;
+            let k = kinds.get(source_entity).copied().map(|k| k.key()).unwrap_or("");
+            (tp.bullet_speed, tp.atk_physic.v, k)
+        };
+
+        let initial_dist = (end_pos - pos).magnitude();
+        let flight_time_s: f32 = if msd > 0.0 { (initial_dist / msd).max(0.01) } else { 0.01 };
+        let safety_time_left = flight_time_s * 1.5 + 0.5;
+
+        let e = ecs.create_entity()
+            .with(Pos(pos))
+            .with(Projectile {
+                time_left: safety_time_left,
+                owner: source_entity,
+                tpos: end_pos,
+                target: None,
+                radius: 0.0,
+                msd,
+                damage_phys: atk_phys,
+                damage_magi: 0.0,
+                damage_real: 0.0,
+                slow_factor: 0.0,
+                slow_duration: 0.0,
+            })
+            .build();
+
+        // 前端渲染用：沒 target_id 時用 end_pos 做 end 位置
+        let flight_time_ms: u64 = (flight_time_s * 1000.0).max(1.0) as u64;
+        let pjs = json!({
+            "id": e.id(),
+            "source_id": source_entity.id(),
+            "target_id": 0, // 0 = 無 target（directional）
+            "start_pos": { "x": pos.x, "y": pos.y },
+            "end_pos":   { "x": end_pos.x, "y": end_pos.y },
+            "move_speed": msd,
+            "flight_time_ms": flight_time_ms,
+            "damage": atk_phys,
+            "kind": kind_key,
+            "directional": true,
+        });
+        mqtx.try_send(OutboundMsg::new_s_at("td/all/res", "projectile", "C", pjs, pos.x, pos.y));
         Ok(())
     }
 

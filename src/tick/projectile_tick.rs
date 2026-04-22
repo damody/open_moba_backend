@@ -81,6 +81,18 @@ impl<'a> System<'a> for Sys {
                     let dist = delta.magnitude();
                     let step = proj.msd * dt;
 
+                    // 無 target 的方向性子彈（Tack 放射針）：飛行途中每 tick 掃描
+                    // 命中半徑內任一敵人→直接扣血+消失；不需抵達終點
+                    const NEEDLE_HIT_RADIUS: f32 = 25.0;
+                    if proj.target.is_none() && proj.radius < 1.0 {
+                        let near = tr.searcher.creep.SearchNN_XY(pos.0, NEEDLE_HIT_RADIUS, 1);
+                        if let Some(hit) = near.first() {
+                            create_projectile_damage(&proj, hit.e, &mut outcomes, pos.0);
+                            outcomes.push(Outcome::Death { pos: pos.0.clone(), ent: e.clone() });
+                            return outcomes;
+                        }
+                    }
+
                     // 命中判定：本 tick 的移動量已足夠抵達目標 → 直接 hit
                     let reached = dist <= step || dist < 1.0;
                     if reached {
@@ -91,10 +103,17 @@ impl<'a> System<'a> for Sys {
                             for target_info in targets.iter() {
                                 create_projectile_damage(&proj, target_info.e, &mut outcomes, pos.0);
                             }
+                            // 爆炸特效事件：由小到大紅圈，0.35s 消失
+                            outcomes.push(Outcome::Explosion {
+                                pos: pos.0,
+                                radius: proj.radius,
+                                duration: 0.35,
+                            });
                         } else if let Some(target) = proj.target {
                             // 單體攻擊
                             create_projectile_damage(&proj, target, &mut outcomes, pos.0);
                         }
+                        // 方向性子彈：抵達 end_pos 但沒打到任何敵人 → 直接消失（上面的 if branch 都不觸發）
                         outcomes.push(Outcome::Death { pos: pos.0.clone(), ent: e.clone() });
                     } else {
                         // 還沒抵達：往目標方向前進一個 step

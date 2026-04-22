@@ -80,6 +80,7 @@ impl TowerKind {
                 splash_radius: 0.0,
                 slow_factor: 0.0,
                 slow_duration: 0.0,
+                turn_speed_deg: 360.0,
             },
             TowerKind::Bomb => TowerTemplate {
                 kind: *self,
@@ -95,6 +96,7 @@ impl TowerKind {
                 splash_radius: 100.0,
                 slow_factor: 0.0,
                 slow_duration: 0.0,
+                turn_speed_deg: 360.0,
             },
             TowerKind::Tack => TowerTemplate {
                 kind: *self,
@@ -102,14 +104,15 @@ impl TowerKind {
                 cost: 400,
                 atk: 8.0,
                 asd: 1.2,
-                range: 220.0,
+                range: 380.0, // 加大以利八方向放針效果
                 hp: 1.0,
-                bullet_speed: 1000.0,
+                bullet_speed: 1400.0,
                 footprint: 40.0,
                 projectiles_per_shot: 8,
                 splash_radius: 0.0,
                 slow_factor: 0.0,
                 slow_duration: 0.0,
+                turn_speed_deg: 3600.0, // 瞬轉
             },
             TowerKind::Ice => TowerTemplate {
                 kind: *self,
@@ -125,6 +128,7 @@ impl TowerKind {
                 splash_radius: 90.0,
                 slow_factor: 0.5,
                 slow_duration: 2.0,
+                turn_speed_deg: 360.0,
             },
         }
     }
@@ -152,6 +156,8 @@ pub struct TowerTemplate {
     pub slow_factor: f32,
     /// 減速持續秒數
     pub slow_duration: f32,
+    /// 塔轉向速度（度/秒）；Tack 需要極大值（3600 = 幾乎瞬發）
+    pub turn_speed_deg: f32,
 }
 
 /// 在指定位置 spawn 一座 TD 塔。回傳新建的 entity。
@@ -181,7 +187,7 @@ pub fn spawn_td_tower(world: &mut World, pos: Vec2<f32>, kind: TowerKind) -> Ent
         .with(faction)
         .with(vision)
         .with(Facing(0.0))
-        .with(TurnSpeed(360.0_f32.to_radians())) // 每秒 360 度（幾乎瞬轉，氣球一進射程就開火）
+        .with(TurnSpeed(tpl.turn_speed_deg.to_radians()))
         .with(CollisionRadius(tpl.footprint))
         .with(kind) // 供 handle_projectile 查 splash/slow、tower_tick 查 multi-shot
         .build()
