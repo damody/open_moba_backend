@@ -398,8 +398,85 @@ impl ResourceManager {
         Ok(())
     }
 
-    fn sell_tower(&self, _world: &mut World, _pd: &InboundMsg) -> Result<(), Error> {
-        // 實現塔出售邏輯
+    /// TD 模式賣塔：退 85% 建造費、刪掉塔 entity、廣播 delete。
+    fn sell_tower(&self, world: &mut World, pd: &InboundMsg) -> Result<(), Error> {
+        use serde_json::json;
+        use specs::{Join, WorldExt};
+
+        let is_td = world.read_resource::<GameMode>().is_td();
+        if !is_td {
+            log::warn!("sell_tower 指令在非 TD 模式下被忽略");
+            return Ok(());
+        }
+
+        let tower_id_u32 = match pd.d.get("tower_id").and_then(|v| v.as_u64()) {
+            Some(v) => v as u32,
+            None => {
+                log::warn!("TD 賣塔：payload 缺少 tower_id");
+                return Ok(());
+            }
+        };
+
+        // 找目標塔 entity
+        let target_entity = {
+            let entities = world.entities();
+            let towers = world.read_storage::<Tower>();
+            let mut found = None;
+            for (e, _t) in (&entities, &towers).join() {
+                if e.id() == tower_id_u32 {
+                    found = Some(e);
+                    break;
+                }
+            }
+            found
+        };
+        let Some(target_entity) = target_entity else {
+            log::warn!("TD 賣塔：找不到塔 id={}", tower_id_u32);
+            return Ok(());
+        };
+
+        // 依 TowerKind 算退款（85%）
+        let refund = {
+            let kinds = world.read_storage::<TowerKind>();
+            kinds.get(target_entity)
+                .map(|k| (k.template().cost as f32 * 0.85) as i32)
+                .unwrap_or(0)
+        };
+
+        // 找英雄（TD 錢包）
+        let hero_entity = {
+            let entities = world.entities();
+            let heroes = world.read_storage::<Hero>();
+            let factions = world.read_storage::<Faction>();
+            let mut found = None;
+            for (e, _h, f) in (&entities, &heroes, &factions).join() {
+                if f.faction_id == FactionType::Player {
+                    found = Some(e);
+                    break;
+                }
+            }
+            found
+        };
+        if let Some(hero_entity) = hero_entity {
+            let mut golds = world.write_storage::<Gold>();
+            if let Some(g) = golds.get_mut(hero_entity) {
+                g.0 += refund;
+            }
+        }
+
+        // 刪塔 + 廣播 delete
+        world.entities().delete(target_entity).ok();
+        let _ = self.mqtx.send(OutboundMsg::new_s(
+            "td/all/res", "tower", "D",
+            json!({ "id": tower_id_u32 }),
+        ));
+
+        // 推新 hero.stats（gold 即時更新）
+        if let Some(hero_entity) = hero_entity {
+            self.push_hero_stats(world, hero_entity);
+        }
+
+        log::info!("🏚 TD 賣塔 id={} 退款 {}", tower_id_u32, refund);
         Ok(())
     }
 
