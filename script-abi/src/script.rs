@@ -3,9 +3,9 @@
 
 use abi_stable::{
     sabi_trait,
-    std_types::{ROption, RStr},
+    std_types::{RNone, ROption, RStr},
 };
-use crate::types::*;
+use crate::types::{DamageInfo, EntityHandle, Target, TowerMetadata};
 use crate::world::GameWorldDyn;
 
 #[sabi_trait]
@@ -22,6 +22,12 @@ pub trait UnitScript: Send + Sync {
     /// to drive active behaviour (e.g. towers: find target → spawn projectile).
     /// `dt` is the tick delta in seconds.
     fn on_tick(&self, _e: EntityHandle, _dt: f32, _w: &mut GameWorldDyn<'_>) {}
+
+    /// 塔的靜態 metadata（atk/asd/range/bullet_speed/...）。
+    /// host 在 startup 時 iter registry 收集，連同 host 端的 cost/footprint/label
+    /// 組成完整 template 廣播給前端（下拉選單成本顯示 + placement 預覽 range）。
+    /// 回 `RNone` 表示「這不是 TD 塔」（英雄/敵人 creep 等）。
+    fn tower_metadata(&self) -> ROption<TowerMetadata> { RNone }
 
     /// Called when the entity dies. `killer` = the killing entity if known.
     fn on_death(

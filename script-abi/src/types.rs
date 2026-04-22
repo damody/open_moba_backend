@@ -62,6 +62,29 @@ pub enum PathSpec {
     Straight { end_pos: Vec2f },
 }
 
+/// TD 塔的靜態屬性（由腳本回報，host 合併成完整 template 給前端用）。
+/// 單一事實來源——腳本 `tower_metadata()` 定義這些，host 和 前端共用。
+#[repr(C)]
+#[derive(StableAbi, Clone, Copy, Debug, Default)]
+pub struct TowerMetadata {
+    /// 基礎攻擊力（物理）
+    pub atk: f32,
+    /// 攻擊間隔秒數
+    pub asd_interval: f32,
+    /// 射程（backend 單位）
+    pub range: f32,
+    /// 子彈飛行速度（backend 單位/秒）
+    pub bullet_speed: f32,
+    /// 命中後 AoE 半徑（0 = 單體）
+    pub splash_radius: f32,
+    /// 沿路命中半徑（Tack 針用；0 = 只在 end_pos 觸發）
+    pub hit_radius: f32,
+    /// 減速乘數（0 = 不減速）
+    pub slow_factor: f32,
+    /// 減速持續秒數
+    pub slow_duration: f32,
+}
+
 /// 發射子彈的完整規格。`spawn_projectile_ex` 接這個。
 /// 欄位一次列清所有可能的特性；不用就填 0 / 空字串。
 #[repr(C)]
