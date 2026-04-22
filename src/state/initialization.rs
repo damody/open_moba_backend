@@ -52,8 +52,8 @@ impl StateInitializer {
         log::info!("遊戲模式: {:?}", mode);
         *ecs.write_resource::<GameMode>() = mode;
         if mode.is_td() {
-            *ecs.write_resource::<PlayerLives>() = PlayerLives::default();
-            log::info!("TD 模式啟用，玩家生命初始 {}", PlayerLives::DEFAULT);
+            *ecs.write_resource::<PlayerLives>() = PlayerLives::td_default();
+            log::info!("TD 模式啟用，玩家生命初始 {}", PlayerLives::TD_INITIAL);
             // TD 模式：等待玩家按 StartRound 才出怪
             let mut ccw = ecs.write_resource::<CurrentCreepWave>();
             ccw.is_running = false;

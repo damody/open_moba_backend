@@ -8,6 +8,9 @@
         "td_cp1",
         "td_cp2",
         "td_cp3",
+        "td_cp4",
+        "td_cp5",
+        "td_cp6",
         "td_exit"
       ]
     }
@@ -37,17 +40,20 @@
     }
   ],
   "CheckPoint": [
-    { "Name": "td_spawn", "Class": "Spawn", "X": -2000.0, "Y": -1000.0 },
-    { "Name": "td_cp1",   "Class": "Path",  "X": -2000.0, "Y": 400.0 },
-    { "Name": "td_cp2",   "Class": "Path",  "X": 1500.0,  "Y": 400.0 },
-    { "Name": "td_cp3",   "Class": "Path",  "X": 1500.0,  "Y": 1600.0 },
-    { "Name": "td_exit",  "Class": "Base",  "X": -800.0,  "Y": 1600.0 }
+    { "Name": "td_spawn", "Class": "Spawn", "X": -1400.0, "Y": -800.0 },
+    { "Name": "td_cp1",   "Class": "Path",  "X":  1400.0, "Y": -800.0 },
+    { "Name": "td_cp2",   "Class": "Path",  "X":  1400.0, "Y": -200.0 },
+    { "Name": "td_cp3",   "Class": "Path",  "X": -1400.0, "Y": -200.0 },
+    { "Name": "td_cp4",   "Class": "Path",  "X": -1400.0, "Y":  400.0 },
+    { "Name": "td_cp5",   "Class": "Path",  "X":  1400.0, "Y":  400.0 },
+    { "Name": "td_cp6",   "Class": "Path",  "X":  1400.0, "Y":  800.0 },
+    { "Name": "td_exit",  "Class": "Base",  "X": -1400.0, "Y":  800.0 }
   ],
   "Tower": [],
   "CreepWave": [
     {
       "Name": "W01",
-      "StartTime": 10.0,
+      "StartTime": 0.0,
       "Detail": [
         {
           "Path": "td_main",
@@ -66,7 +72,7 @@
     },
     {
       "Name": "W02",
-      "StartTime": 40.0,
+      "StartTime": 0.0,
       "Detail": [
         {
           "Path": "td_main",
@@ -89,7 +95,7 @@
     },
     {
       "Name": "W03",
-      "StartTime": 70.0,
+      "StartTime": 0.0,
       "Detail": [
         {
           "Path": "td_main",
@@ -118,7 +124,7 @@
     },
     {
       "Name": "W04",
-      "StartTime": 100.0,
+      "StartTime": 0.0,
       "Detail": [
         {
           "Path": "td_main",
@@ -154,7 +160,7 @@
     },
     {
       "Name": "W05",
-      "StartTime": 130.0,
+      "StartTime": 0.0,
       "Detail": [
         {
           "Path": "td_main",
@@ -205,24 +211,5 @@
     }
   ],
   "Structures": [],
-  "BlockedRegions": [
-    {
-      "Name": "td_region_nw",
-      "Points": [
-        { "X": -2600.0, "Y": -2200.0 },
-        { "X": -1400.0, "Y": -2200.0 },
-        { "X": -1400.0, "Y": -1600.0 },
-        { "X": -2600.0, "Y": -1600.0 }
-      ]
-    },
-    {
-      "Name": "td_region_se",
-      "Points": [
-        { "X": 1800.0, "Y": 800.0 },
-        { "X": 2600.0, "Y": 800.0 },
-        { "X": 2600.0, "Y": 1400.0 },
-        { "X": 1800.0, "Y": 1400.0 }
-      ]
-    }
-  ]
+  "BlockedRegions": []
 }
