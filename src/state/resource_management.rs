@@ -540,35 +540,33 @@ impl ResourceManager {
             }
         }
 
-        // 8. 套 effects（BehaviorFlag → upgrade_flags；StatMod → BuffStore）
+        // 8-9. 套 effects + 遞增 upgrade_levels（合併 Tower write 一次 open）
+        let mut flags_to_add: Vec<String> = Vec::new();
+        let mut stat_mods: Vec<(String, serde_json::Value)> = Vec::new();
         for (effect_idx, effect) in def.effects.iter().enumerate() {
             match effect {
-                UpgradeEffect::BehaviorFlag { flag } => {
-                    let mut towers = world.write_storage::<Tower>();
-                    if let Some(t) = towers.get_mut(tower_entity) {
-                        if !t.upgrade_flags.iter().any(|f| f == flag) {
-                            t.upgrade_flags.push(flag.clone());
-                        }
-                    }
-                }
+                UpgradeEffect::BehaviorFlag { flag } => flags_to_add.push(flag.clone()),
                 UpgradeEffect::StatMod { key, value, op: _ } => {
                     let buff_id = format!("upgrade_{}_{}_{}", path, next_level, effect_idx);
-                    let payload = json!({ key: *value });
-                    let mut store = world.write_resource::<crate::ability_runtime::BuffStore>();
-                    store.add(tower_entity, &buff_id, f32::MAX, payload);
+                    stat_mods.push((buff_id, json!({ key: *value })));
                 }
             }
         }
-
-        // 9. 遞增 upgrade_levels
+        for (buff_id, payload) in stat_mods {
+            let mut store = world.write_resource::<crate::ability_runtime::BuffStore>();
+            store.add(tower_entity, &buff_id, f32::MAX, payload);
+        }
         let new_levels = {
             let mut towers = world.write_storage::<Tower>();
-            if let Some(t) = towers.get_mut(tower_entity) {
-                t.upgrade_levels[path as usize] = next_level;
-                t.upgrade_levels
-            } else {
-                [0u8; 3]
+            let t = towers.get_mut(tower_entity)
+                .expect("tower vanished mid-upgrade");
+            for flag in flags_to_add {
+                if !t.upgrade_flags.iter().any(|f| f == &flag) {
+                    t.upgrade_flags.push(flag);
+                }
             }
+            t.upgrade_levels[path as usize] = next_level;
+            t.upgrade_levels
         };
 
         // 10. 廣播 tower/upgrade
@@ -674,6 +672,12 @@ impl ResourceManager {
             if let Some(g) = golds.get_mut(hero_entity) {
                 g.0 += refund;
             }
+        }
+
+        // 清除 BuffStore 殘留（防止 upgrade_* f32::MAX 永久 buff 累積洩漏）
+        {
+            let mut store = world.write_resource::<crate::ability_runtime::BuffStore>();
+            store.remove_all_for(target_entity);
         }
 
         // 刪塔 + 廣播 delete
