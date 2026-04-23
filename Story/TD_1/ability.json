@@ -80,70 +80,7 @@
             "pierces_immunity": false,
             "affects_buildings": true
         },
-        
-        // ===== 敵人技能 =====
-        "frostbolt": {
-            "id": "frostbolt",
-            "name": "寒冰箭",
-            "description": "發射寒冰投射物，造成魔法傷害並減速目標",
-            "ability_type": "active",
-            "key_binding": "Q",
-            "cooldown": [4.0],
-            "manaCost": [60],
-            "cast_range": [600.0],
-            "cast_time": 0.5,
-            "effects": {
-                "damage": [100],
-                "slowPercent": 0.3,
-                "slowDuration": 2.0
-            },
-            "dispellable": true,
-            "pierces_immunity": false,
-            "affects_buildings": false
-        },
-        
-        "fireball": {
-            "id": "fireball",
-            "name": "火球術", 
-            "description": "發射火球，造成範圍魔法傷害",
-            "ability_type": "active",
-            "key_binding": "W",
-            "cooldown": [5.0],
-            "manaCost": [80],
-            "cast_range": [650.0],
-            "cast_time": 0.6,
-            "effects": {
-                "damage": [150],
-                "aoeRadius": 150,
-                "burnDamage": 20,
-                "burnDuration": 3.0
-            },
-            "dispellable": true,
-            "pierces_immunity": false,
-            "affects_buildings": true
-        },
-        
-        "meteor_strike": {
-            "id": "meteor_strike",
-            "name": "隕石衝擊",
-            "description": "召喚隕石攻擊指定區域",
-            "ability_type": "active",
-            "key_binding": "R",
-            "cooldown": [15.0],
-            "manaCost": [200],
-            "cast_range": [800.0],
-            "cast_time": 1.0,
-            "effects": {
-                "damage": [400],
-                "radius": 300,
-                "stunDuration": 1.5,
-                "delayTime": 1.5
-            },
-            "dispellable": false,
-            "pierces_immunity": false,
-            "affects_buildings": true
-        },
-        
+
         // ===== 中立生物技能 =====
         "frost_attack": {
             "id": "frost_attack",

@@ -50,7 +50,6 @@
             "attack_range": 550.0,
             "move_speed": 285.0,
             "ai_type": "defensive",
-            "abilities": ["frostbolt"],
             "exp_reward": 80,
             "gold_reward": 45
         },
@@ -65,7 +64,6 @@
             "attack_range": 600.0,
             "move_speed": 290.0,
             "ai_type": "aggressive",
-            "abilities": ["fireball"],
             "exp_reward": 100,
             "gold_reward": 60
         },
@@ -80,7 +78,6 @@
             "attack_range": 700.0,
             "move_speed": 300.0,
             "ai_type": "aggressive",
-            "abilities": ["meteor_strike", "frostbolt", "fireball"],
             "exp_reward": 400,
             "gold_reward": 200
         }
