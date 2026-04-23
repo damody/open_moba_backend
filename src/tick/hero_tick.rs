@@ -24,6 +24,7 @@ pub struct HeroRead<'a> {
     turn_speeds: ReadStorage<'a, TurnSpeed>,
     move_targets: ReadStorage<'a, MoveTarget>,
     buff_store: Read<'a, crate::ability_runtime::BuffStore>,
+    is_buildings: ReadStorage<'a, IsBuilding>,
 }
 
 #[derive(SystemData)]
@@ -87,9 +88,12 @@ impl<'a> System<'a> for Sys {
                         return outcomes;
                     }
 
-                    // 攻擊速度乘數：buff 的 attack_speed_multiplier 連乘（例：sniper 0.7 = 變慢）
-                    // effective_interval = base / multiplier，multiplier 越小越慢。
-                    let asd_mult = tr.buff_store.product_mult(e, "attack_speed_multiplier").max(0.01);
+                    // 用 UnitStats 聚合攻速（Dota ATTACKSPEED_BONUS_CONSTANT 100 → 1 + 100/100 = 2× AS）
+                    let stats = crate::ability_runtime::UnitStats::from_refs(
+                        &*tr.buff_store,
+                        tr.is_buildings.get(e).is_some(),
+                    );
+                    let asd_mult = stats.final_attack_speed_mult(e).max(0.01);
                     let effective_interval = atk.asd.v / asd_mult;
 
                     // 直接更新攻擊冷卻時間
@@ -112,9 +116,9 @@ impl<'a> System<'a> for Sys {
                         if elpsed.as_secs_f32() < 0.05 {
                             // 搜尋攻擊範圍內的所有單位
                             let search_n = 10; // 搜尋最近的 10 個目標
-                            // 攻擊範圍 = 基礎值 + 所有 buff 的 range_bonus 加總
-                            let range_bonus = tr.buff_store.sum_add(e, "range_bonus");
-                            let attack_range = atk.range.v + range_bonus;
+                            // 攻擊範圍：UnitStats 聚合（Dota ATTACK_RANGE_BONUS + ATTACK_RANGE_BONUS_UNIQUE，MAX_ATTACK_RANGE clamp）
+                            let attack_range = stats.final_attack_range(atk.range.v, e);
+                            let range_bonus = attack_range - atk.range.v;
                             let search_range = attack_range + 50.0; // 稍微擴大搜尋範圍以確保不遺漏邊界目標
                             let (creep_targets, _) =
                                 tr.searcher.creep.SearchNN_XY2(pos.0, attack_range, search_range, search_n);

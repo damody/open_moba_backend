@@ -9,10 +9,27 @@ use crossbeam_channel::Sender;
 use serde_json::json;
 use specs::{shred, Entities, Read, ReadStorage, SystemData, Write, World};
 
-use crate::ability_runtime::BuffStore;
+use crate::ability_runtime::{BuffStore, UnitStats};
 use crate::comp::*;
 use crate::scripting::{ScriptEvent, ScriptEventQueue};
 use crate::transport::OutboundMsg;
+
+/// 位移類 payload key — 任一存在於過期 buff 的 payload 就要重算 creep 移速並廣播 `creep/S`。
+/// 對應 Dota MOVESPEED_BONUS_* / MOVESPEED_ABSOLUTE / MIN / MAX / LIMIT。
+const MOVESPEED_PAYLOAD_KEYS: &[&str] = &[
+    "move_speed_bonus",           // 舊 alias
+    "movespeed_bonus_constant",
+    "movespeed_base_override",
+    "movespeed_bonus_percentage",
+    "movespeed_bonus_percentage_unique",
+    "movespeed_bonus_percentage_unique_2",
+    "movespeed_bonus_unique",
+    "movespeed_bonus_unique_2",
+    "movespeed_absolute",
+    "movespeed_absolute_min",
+    "movespeed_limit",
+    "movespeed_max",
+];
 
 #[derive(SystemData)]
 pub struct BuffTickData<'a> {
@@ -21,6 +38,7 @@ pub struct BuffTickData<'a> {
     buffs: Write<'a, BuffStore>,
     creeps: ReadStorage<'a, Creep>,
     cpropertys: ReadStorage<'a, CProperty>,
+    is_buildings: ReadStorage<'a, IsBuilding>,
     mqtx: Write<'a, Vec<Sender<OutboundMsg>>>,
     script_events: Write<'a, ScriptEventQueue>,
 }
@@ -46,14 +64,20 @@ impl<'a> System<'a> for Sys {
                 modifier_id: _buff_id.clone(),
             });
 
-            // 含 move_speed_bonus 的 buff 過期 → 對 creep 發 creep/S，重算 effective
-            // （此時 sum_add 已不含過期那筆 → 自然還原或剩餘疊加）
-            if payload.get("move_speed_bonus").is_some() {
+            // 若 payload 任一 key 屬於位移類 → 對 creep 重算 effective 並廣播 creep/S。
+            // 用 UnitStats 套完整 Dota 公式（而非舊的 clamp 0.01-1.0）。
+            let touches_movespeed = MOVESPEED_PAYLOAD_KEYS
+                .iter()
+                .any(|k| payload.get(*k).is_some());
+            if touches_movespeed {
                 let is_creep = data.creeps.get(entity).is_some();
                 if is_creep {
                     if let (Some(ref t), Some(cp)) = (&tx, data.cpropertys.get(entity)) {
-                        let sum = data.buffs.sum_add(entity, "move_speed_bonus");
-                        let effective = cp.msd * (1.0 + sum).clamp(0.01, 1.0);
+                        let stats = UnitStats::from_refs(
+                            &*data.buffs,
+                            data.is_buildings.get(entity).is_some(),
+                        );
+                        let effective = stats.final_move_speed(cp.msd, entity);
                         let _ = t.try_send(OutboundMsg::new_s(
                             "td/all/res",
                             "creep",

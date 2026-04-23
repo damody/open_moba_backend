@@ -43,7 +43,7 @@ use serde_json::{self, json};
 use crate::ue4::import_map::CreepWaveData;
 use crate::ue4::import_campaign::CampaignData;
 
-const TPS: u64 = 10;
+const TPS: u64 = 30;
 
 fn read_input() -> Option<String> {
     let mut buffer = String::new();

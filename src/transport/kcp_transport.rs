@@ -89,7 +89,7 @@ pub async fn start(
             // 把 out_rx 的訊息彙整成 100ms window 的批次，一起寫入 KCP，降低 per-message overhead。
             // Client 端協定不變：仍是一個 framed GameEvent 一幀，這邊只是把多幀一次寫入。
             use std::time::{Duration, Instant};
-            const BATCH_WINDOW: Duration = Duration::from_millis(100);
+            const BATCH_WINDOW: Duration = Duration::from_millis(33);
             'outer: loop {
                 // 等第一筆訊息（阻塞）
                 let first = match out_rx.recv() {

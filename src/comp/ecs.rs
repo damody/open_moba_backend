@@ -251,19 +251,19 @@ where
     type SystemData = (T::SystemData, ReadExpect<'a, SysMetrics>);
 
     fn run(&mut self, data: Self::SystemData) {
-        span!(_guard, "run", &format!("{}::Sys::run", T::NAME));
-        self.cpu_stats.reset();
+        // 舊版每次 run 會做三件浪費：
+        //   1. format!("{}::Sys::run", T::NAME) alloc（每 tick × 13 systems）
+        //   2. cpu_stats.reset/end 的 Vec<(Instant, ParMode)> 分配
+        //   3. SysMetrics.stats.lock().insert(String::new) — Mutex 把 par_join 排序化
+        // SysMetrics HashMap 目前無人讀，全部砍掉；若之後要重啟 profiling，
+        // 在這裡改用 lock-free per-thread 統計即可。
+        let start = std::time::Instant::now();
         T::run(self, data.0);
-        let millis = self.cpu_stats.end().as_millis();
-        let name = T::NAME;
+        let millis = start.elapsed().as_millis();
         if millis > 500 {
+            let name = T::NAME;
             tracing::warn!(?millis, ?name, "slow system execution");
         }
-        data.1
-            .stats
-            .lock()
-            .unwrap()
-            .insert(T::NAME.to_string(), self.cpu_stats.clone());
     }
 }
 

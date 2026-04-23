@@ -25,6 +25,7 @@ pub struct HeroMoveRead<'a> {
     /// Debug only：驗證 hero 是否進入 polygon 但未被 blocker 擋
     regions: Read<'a, BlockedRegions>,
     buff_store: Read<'a, crate::ability_runtime::BuffStore>,
+    is_buildings: ReadStorage<'a, IsBuilding>,
 }
 
 #[derive(SystemData)]
@@ -146,14 +147,14 @@ impl<'a> System<'a> for Sys {
             let target = move_target.0;
             let diff = target - pos.0;
             let distance = diff.magnitude();
-            // 移速聚合：
-            // - move_speed_bonus（加法，負值 = 減速；Ice 塔 slow 等）
-            // - move_speed_multiplier（乘法；sniper_mode 等）
-            // effective = base × (1 + sum_bonus).max(0) × product_mult
-            let msd_bonus = tr.buff_store.sum_add(entity, "move_speed_bonus");
-            let msd_mult = tr.buff_store.product_mult(entity, "move_speed_multiplier");
-            let msd_factor = (1.0 + msd_bonus).max(0.0) * msd_mult;
-            let step = property.msd * msd_factor * dt;
+            // 用 UnitStats 聚合移速（對應 Dota MOVESPEED_BONUS_* / MOVESPEED_ABSOLUTE /
+            // MOVESPEED_MAX/MIN/LIMIT）；建築物會被 is_buildings 跳過（hero 不會）。
+            let stats = crate::ability_runtime::UnitStats::from_refs(
+                &*tr.buff_store,
+                tr.is_buildings.get(entity).is_some(),
+            );
+            let effective_msd = stats.final_move_speed(property.msd, entity);
+            let step = effective_msd * dt;
 
             // 先轉向目標方向
             if distance > 0.5 {

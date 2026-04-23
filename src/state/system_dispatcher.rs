@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 use rayon::ThreadPool;
-use specs::{World, DispatcherBuilder};
+use specs::{World, Dispatcher, DispatcherBuilder};
 use failure::Error;
 
 use crate::comp::*;
@@ -12,26 +12,27 @@ use crate::tick::*;
 pub struct SystemDispatcher {
     /// 執行緒池
     thread_pool: Arc<ThreadPool>,
+    /// 快取的 dispatcher — 首次 run_systems 時建，之後重用。
+    /// 舊版每 tick 重建 DispatcherBuilder + 13 個 Job，會吃掉幾 ms；
+    /// specs 的 Dispatcher 本來就設計成一次建好重複用。
+    dispatcher: Option<Dispatcher<'static, 'static>>,
 }
 
 impl SystemDispatcher {
     /// 創建新的系統分派器
     pub fn new(thread_pool: Arc<ThreadPool>) -> Self {
-        Self { thread_pool }
+        Self { thread_pool, dispatcher: None }
     }
 
     /// 運行所有遊戲系統
-    pub fn run_systems(&self, world: &World) -> Result<(), Error> {
-        let mut dispatch_builder = DispatcherBuilder::new()
-            .with_pool(Arc::clone(&self.thread_pool));
-
-        // 構建系統調度順序
-        self.build_system_dependencies(&mut dispatch_builder);
-
-        // 建立並運行調度器
-        let mut dispatcher = dispatch_builder.build();
-        dispatcher.dispatch(world);
-
+    pub fn run_systems(&mut self, world: &World) -> Result<(), Error> {
+        if self.dispatcher.is_none() {
+            let mut builder = DispatcherBuilder::new()
+                .with_pool(Arc::clone(&self.thread_pool));
+            self.build_system_dependencies(&mut builder);
+            self.dispatcher = Some(builder.build());
+        }
+        self.dispatcher.as_mut().unwrap().dispatch(world);
         Ok(())
     }
 
@@ -89,7 +90,8 @@ impl SystemDispatcher {
         dispatch::<hero_tick::Sys>(dispatch_builder, &["tower_sys", "hero_move_sys"]);
         dispatch::<item_tick::Sys>(dispatch_builder, &["hero_sys"]);
         dispatch::<buff_tick::Sys>(dispatch_builder, &["item_sys"]);
-        dispatch::<summon_tick::Sys>(dispatch_builder, &["buff_sys"]);
+        dispatch::<regen_tick::Sys>(dispatch_builder, &["buff_sys"]);
+        dispatch::<summon_tick::Sys>(dispatch_builder, &["regen_sys"]);
         dispatch::<creep_tick::Sys>(dispatch_builder, &["summon_sys"]);
         dispatch::<creep_wave::Sys>(dispatch_builder, &["creep_sys"]);
         dispatch::<damage_tick::Sys>(dispatch_builder, &["creep_wave_sys"]);

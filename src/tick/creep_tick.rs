@@ -24,6 +24,7 @@ pub struct CreepRead<'a> {
     radii: ReadStorage<'a, CollisionRadius>,
     searcher: Read<'a, Searcher>,
     buff_store: Read<'a, crate::ability_runtime::BuffStore>,
+    is_buildings: ReadStorage<'a, IsBuilding>,
 }
 
 #[derive(SystemData)]
@@ -100,11 +101,14 @@ impl<'a> System<'a> for Sys {
                                             if tr.buff_store.is_rooted(e) {
                                                 return outcomes;
                                             }
-                                            // Slow buff（Ice 塔命中等）：所有 buff 的 move_speed_bonus
-                                            // 加總（負值 = 減速）；多個 attacker 的 slow 可疊加。
-                                            let slow_bonus = tr.buff_store.sum_add(e, "move_speed_bonus");
-                                            let slow_mult = (1.0 + slow_bonus).clamp(0.01, 1.0);
-                                            let step = cp.msd * slow_mult * dt;
+                                            // 用 UnitStats 聚合所有位移類 buff（含 Ice 塔的 slow，
+                                            // 對應 MOVESPEED_BONUS_CONSTANT / MOVESPEED_BONUS_PERCENTAGE 等）
+                                            let stats = crate::ability_runtime::UnitStats::from_refs(
+                                                &*tr.buff_store,
+                                                tr.is_buildings.get(e).is_some(),
+                                            );
+                                            let effective_msd = stats.final_move_speed(cp.msd, e);
+                                            let step = effective_msd * dt;
                                             let diff = target_point.sub(&pos.0);
                                             let dist_sq = diff.magnitude_squared();
                                             if dist_sq < 0.01 {
