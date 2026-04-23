@@ -18,6 +18,13 @@ pub struct DllUnit {
     pub tower: Option<TowerStats>,
 }
 
+/// 為什麼不像 `omb/src/scripting/registry.rs` 那樣保留 `Manifest_Ref`：
+/// 我們把所有需要的資料（`TowerStats`、`serde_json::Value`、`String`）
+/// eagerly 拷貝成 owned 型別，`DllData` 內沒有任何 vtable 或 DLL 記憶體
+/// 指標。加上 `declare_root_module_statics!` 用 static OnceCell 讓 DLL
+/// 在 process lifetime 內保持 mapped，所以丟掉 `Manifest_Ref` 無害。
+/// 若未來加入 `UnitScript_TO` / `AbilityScript_TO` 欄位到 `DllUnit`，
+/// 必須改成保留 `Manifest_Ref` 才安全。
 pub fn load(dll_path: &Path) -> Result<DllData> {
     let m = Manifest_Ref::load_from_file(dll_path)
         .with_context(|| format!("loading manifest from {}", dll_path.display()))?;
