@@ -633,6 +633,27 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         ((base + bonus) * mult).max(0.0)
     }
 
+    fn get_tower_upgrade(&self, e: EntityHandle, path: u8) -> u8 {
+        let Some(ent) = Self::handle_to_entity(e) else { return 0 };
+        let towers = self.world.read_storage::<Tower>();
+        towers.get(ent)
+            .and_then(|t| t.upgrade_levels.get(path as usize))
+            .copied()
+            .unwrap_or(0)
+    }
+
+    fn has_tower_flag(&self, e: EntityHandle, flag: RStr<'_>) -> bool {
+        let Some(ent) = Self::handle_to_entity(e) else { return false };
+        let towers = self.world.read_storage::<Tower>();
+        towers.get(ent)
+            .map(|t| t.upgrade_flags.iter().any(|f| f == flag.as_str()))
+            .unwrap_or(false)
+    }
+
+    fn apply_tower_permanent_buff(&mut self, e: EntityHandle, buff_id: RStr<'_>, modifiers_json: RStr<'_>) {
+        self.add_stat_buff(e, buff_id, f32::MAX, modifiers_json);
+    }
+
     fn get_final_attack_range(&self, e: EntityHandle) -> f32 {
         let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
         let base = self.world.read_storage::<TAttack>()

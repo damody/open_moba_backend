@@ -403,8 +403,194 @@ impl ResourceManager {
         ));
     }
 
-    fn upgrade_tower(&self, _world: &mut World, _pd: &InboundMsg) -> Result<(), Error> {
-        // 實現塔升級邏輯
+    fn upgrade_tower(&self, world: &mut World, pd: &InboundMsg) -> Result<(), Error> {
+        use serde_json::json;
+        use specs::{Join, WorldExt};
+        use omoba_core::tower_meta::{UpgradeEffect, StatOp};
+
+        // 1. TD 模式檢查
+        let is_td = world.read_resource::<GameMode>().is_td();
+        if !is_td {
+            log::warn!("upgrade_tower 指令在非 TD 模式下被忽略");
+            return Ok(());
+        }
+
+        // 2. 解析 tower_id + path
+        let tower_id_u32 = match pd.d.get("tower_id").and_then(|v| v.as_u64()) {
+            Some(v) => v as u32,
+            None => {
+                log::warn!("TD 升級：payload 缺少 tower_id");
+                return Ok(());
+            }
+        };
+        let path = match pd.d.get("path").and_then(|v| v.as_u64()) {
+            Some(v) => v as u8,
+            None => {
+                log::warn!("TD 升級：payload 缺少 path");
+                return Ok(());
+            }
+        };
+        if path >= 3 {
+            log::warn!("TD 升級：path {} 無效（必須 0..=2）", path);
+            let _ = self.mqtx.send(OutboundMsg::new_s(
+                "td/all/res", "tower", "upgrade_reject",
+                json!({
+                    "tower_id": tower_id_u32,
+                    "path": path,
+                    "reason": "invalid_path",
+                }),
+            ));
+            return Ok(());
+        }
+
+        // 3. 找塔 entity 並取 levels + unit_id
+        let tower_info = {
+            let entities = world.entities();
+            let towers = world.read_storage::<Tower>();
+            let tags = world.read_storage::<crate::scripting::ScriptUnitTag>();
+            let mut found: Option<(specs::Entity, [u8; 3], String)> = None;
+            for (e, t, tag) in (&entities, &towers, &tags).join() {
+                if e.id() == tower_id_u32 {
+                    found = Some((e, t.upgrade_levels, tag.unit_id.clone()));
+                    break;
+                }
+            }
+            found
+        };
+        let Some((tower_entity, levels, unit_id)) = tower_info else {
+            log::warn!("TD 升級：找不到塔 id={}", tower_id_u32);
+            return Ok(());
+        };
+
+        // 4. 規則驗證
+        if let Err(rej) = crate::comp::tower_upgrade_rules::validate_upgrade(levels, path) {
+            log::info!("TD 升級：規則拒絕 id={} path={} levels={:?} → {:?}",
+                tower_id_u32, path, levels, rej);
+            let reason = match rej {
+                crate::comp::tower_upgrade_rules::UpgradeRejection::AlreadyMaxed => "already_maxed",
+                crate::comp::tower_upgrade_rules::UpgradeRejection::TwoPrimaryPaths => "two_primary_paths",
+                crate::comp::tower_upgrade_rules::UpgradeRejection::TwoSecondaryPaths => "two_secondary_paths",
+                crate::comp::tower_upgrade_rules::UpgradeRejection::ThirdPathLocked => "third_path_locked",
+            };
+            let _ = self.mqtx.send(OutboundMsg::new_s(
+                "td/all/res", "tower", "upgrade_reject",
+                json!({
+                    "tower_id": tower_id_u32,
+                    "path": path,
+                    "reason": reason,
+                }),
+            ));
+            return Ok(());
+        }
+        let next_level = levels[path as usize] + 1;
+
+        // 5. 查 UpgradeDef（clone 出來以釋放 borrow）
+        let def = {
+            let reg = world.read_resource::<crate::comp::tower_upgrade_registry::TowerUpgradeRegistry>();
+            reg.get(&unit_id, path, next_level).cloned()
+        };
+        let Some(def) = def else {
+            log::warn!("TD 升級：找不到 UpgradeDef kind={} path={} level={}",
+                unit_id, path, next_level);
+            return Ok(());
+        };
+
+        // 6. 找英雄 + 金幣檢查
+        let hero_entity = {
+            let entities = world.entities();
+            let heroes = world.read_storage::<Hero>();
+            let factions = world.read_storage::<Faction>();
+            let mut found = None;
+            for (e, _h, f) in (&entities, &heroes, &factions).join() {
+                if f.faction_id == FactionType::Player {
+                    found = Some(e);
+                    break;
+                }
+            }
+            found
+        };
+        let Some(hero_entity) = hero_entity else {
+            log::warn!("TD 升級：找不到玩家英雄");
+            return Ok(());
+        };
+
+        let has_gold = {
+            let golds = world.read_storage::<Gold>();
+            golds.get(hero_entity).map(|g| g.0).unwrap_or(0) >= def.cost
+        };
+        if !has_gold {
+            log::info!("TD 升級：金幣不足（需要 {}）", def.cost);
+            let _ = self.mqtx.send(OutboundMsg::new_s(
+                "td/all/res", "tower", "upgrade_reject",
+                json!({
+                    "tower_id": tower_id_u32,
+                    "path": path,
+                    "reason": "insufficient_gold",
+                    "cost": def.cost,
+                }),
+            ));
+            return Ok(());
+        }
+
+        // 7. 扣錢
+        {
+            let mut golds = world.write_storage::<Gold>();
+            if let Some(g) = golds.get_mut(hero_entity) {
+                g.0 -= def.cost;
+            }
+        }
+
+        // 8. 套 effects（BehaviorFlag → upgrade_flags；StatMod → BuffStore）
+        for (effect_idx, effect) in def.effects.iter().enumerate() {
+            match effect {
+                UpgradeEffect::BehaviorFlag { flag } => {
+                    let mut towers = world.write_storage::<Tower>();
+                    if let Some(t) = towers.get_mut(tower_entity) {
+                        if !t.upgrade_flags.iter().any(|f| f == flag) {
+                            t.upgrade_flags.push(flag.clone());
+                        }
+                    }
+                }
+                UpgradeEffect::StatMod { key, value, op: _ } => {
+                    let buff_id = format!("upgrade_{}_{}_{}", path, next_level, effect_idx);
+                    let payload = json!({ key: *value });
+                    let mut store = world.write_resource::<crate::ability_runtime::BuffStore>();
+                    store.add(tower_entity, &buff_id, f32::MAX, payload);
+                }
+            }
+        }
+
+        // 9. 遞增 upgrade_levels
+        let new_levels = {
+            let mut towers = world.write_storage::<Tower>();
+            if let Some(t) = towers.get_mut(tower_entity) {
+                t.upgrade_levels[path as usize] = next_level;
+                t.upgrade_levels
+            } else {
+                [0u8; 3]
+            }
+        };
+
+        // 10. 廣播 tower/upgrade
+        let tower_pos = world.read_storage::<Pos>().get(tower_entity).map(|p| p.0)
+            .unwrap_or(vek::Vec2::zero());
+        let payload = json!({
+            "tower_id": tower_id_u32,
+            "path": path,
+            "level": next_level,
+            "name": def.name,
+            "levels": [new_levels[0], new_levels[1], new_levels[2]],
+        });
+        let _ = self.mqtx.send(OutboundMsg::new_s_at(
+            "td/all/res", "tower", "upgrade", payload, tower_pos.x, tower_pos.y,
+        ));
+
+        log::info!("⬆️ TD 升級塔 id={} path={} → L{} ({}) cost={}",
+            tower_id_u32, path, next_level, def.name, def.cost);
+
+        // 11. 推 hero.stats（gold 即時更新）
+        self.push_hero_stats(world, hero_entity);
+
         Ok(())
     }
 
@@ -445,14 +631,28 @@ impl ResourceManager {
             return Ok(());
         };
 
-        // 依 ScriptUnitTag → TowerTemplateRegistry.cost 算退款（85%）
+        // 依 ScriptUnitTag → TowerTemplateRegistry.cost 算退款（85% base + 75% 升級費）
         let refund = {
             let tags = world.read_storage::<crate::scripting::ScriptUnitTag>();
             let reg = world.read_resource::<crate::comp::tower_registry::TowerTemplateRegistry>();
-            tags.get(target_entity)
+            let towers = world.read_storage::<Tower>();
+            let ureg = world.read_resource::<crate::comp::tower_upgrade_registry::TowerUpgradeRegistry>();
+            let base_refund = tags.get(target_entity)
                 .and_then(|t| reg.get(&t.unit_id))
                 .map(|tpl| (tpl.cost as f32 * 0.85) as i32)
-                .unwrap_or(0)
+                .unwrap_or(0);
+            let upgrade_refund = if let (Some(t), Some(tag)) = (towers.get(target_entity), tags.get(target_entity)) {
+                let mut total = 0i32;
+                for path in 0..3u8 {
+                    for level in 1..=t.upgrade_levels[path as usize] {
+                        if let Some(def) = ureg.get(&tag.unit_id, path, level) {
+                            total += (def.cost as f32 * 0.75) as i32;
+                        }
+                    }
+                }
+                total
+            } else { 0 };
+            base_refund + upgrade_refund
         };
 
         // 找英雄（TD 錢包）

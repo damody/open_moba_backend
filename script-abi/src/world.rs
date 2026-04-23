@@ -153,6 +153,16 @@ pub trait GameWorld: Send {
     /// 再乘以 `damage_out_multiplier_product`。
     fn get_final_atk(&self, e: EntityHandle) -> f32;
 
+    /// 取得該塔第 `path` 路線已升級的等級（0..=4）。
+    fn get_tower_upgrade(&self, e: EntityHandle, path: u8) -> u8;
+
+    /// 該塔是否掛了指定的 behavior flag（e.g. "triple_shot"）。
+    fn has_tower_flag(&self, e: EntityHandle, flag: RStr<'_>) -> bool;
+
+    /// 對 tower entity 套一個永久 stat buff（供 upgrade 使用）。
+    /// `modifiers_json` 應為 `{"key": value}` 形式（與 add_stat_buff 同）。
+    fn apply_tower_permanent_buff(&mut self, e: EntityHandle, buff_id: RStr<'_>, modifiers_json: RStr<'_>);
+
     /// 回傳單位的「實際」攻擊射程：`base_range + attack_range_bonus_sum`。
     fn get_final_attack_range(&self, e: EntityHandle) -> f32;
 
