@@ -789,5 +789,30 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         let is_bldg = self.world.read_storage::<IsBuilding>().get(ent).is_some();
         crate::ability_runtime::UnitStats::from_refs(&*buffs, is_bldg).hp_regen(0.0, ent)
     }
+
+    fn get_stat_bonus(&self, e: EntityHandle, key: RStr<'_>) -> f32 {
+        let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
+        self.world.read_resource::<crate::ability_runtime::BuffStore>()
+            .sum_add(ent, key.as_str())
+    }
+
+    fn deal_damage_splash(
+        &mut self,
+        at: Vec2f,
+        radius: f32,
+        damage: f32,
+        kind: DamageKind,
+        source: ROption<EntityHandle>,
+    ) {
+        // 以 source 為 "of" 參考；若 source 無則以 at 對 "空" 做查詢（query_enemies_in_range 需要一個 of）。
+        let of = match source {
+            ROption::RSome(h) => h,
+            ROption::RNone => return,
+        };
+        let targets = self.query_enemies_in_range(at, radius, of);
+        for th in targets.iter() {
+            self.deal_damage(*th, damage, kind, source);
+        }
+    }
 }
 

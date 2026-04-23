@@ -223,4 +223,19 @@ pub trait GameWorld: Send {
 
     /// HP regen / 秒（已套 DISABLE_HEALING 與 HP_REGEN_AMPLIFY_PERCENTAGE）。
     fn get_hp_regen(&self, e: EntityHandle) -> f32;
+
+    /// 直接讀 BuffStore 加法聚合（`sum_add(e, key)`）。
+    /// 供塔腳本讀 upgrade buff 寫入的任意 key（例如 `crit_chance`, `slow_factor_override`）。
+    fn get_stat_bonus(&self, e: EntityHandle, key: RStr<'_>) -> f32;
+
+    /// 對 `at` 點做圓形範圍傷害；射程內所有敵方單位吃 `damage`。
+    /// 用於 ring_of_fire / mega_crit 這類 upgrade 派生的 AoE 傷害。
+    fn deal_damage_splash(
+        &mut self,
+        at: Vec2f,
+        radius: f32,
+        damage: f32,
+        kind: DamageKind,
+        source: ROption<EntityHandle>,
+    );
 }
