@@ -4,10 +4,13 @@
 //! 過期 buff 若 payload 含 `move_speed_bonus` 且 target 還活著且是 Creep →
 //! 廣播 `creep/S { id, move_speed }` 讓 client 重算 lerp（buff_id 不再限定
 //! "slow"，因為現在 slow buff_id 是 `slow_{attacker_id}` 多 instance）。
+//!
+//! **DoT (Task 15)**：payload 含 `dot_damage` 的 buff 每秒對 target 扣 HP。
+//! 以 1 秒累計槽 (`dot_accum: f32`) 控制頻率，累積到 1s 時觸發一次整批 dot。
 
 use crossbeam_channel::Sender;
 use serde_json::json;
-use specs::{shred, Entities, Read, ReadStorage, SystemData, Write, World};
+use specs::{shred, Entities, Join, Read, ReadStorage, SystemData, Write, World};
 
 use crate::ability_runtime::{BuffStore, UnitStats};
 use crate::comp::*;
@@ -33,11 +36,11 @@ const MOVESPEED_PAYLOAD_KEYS: &[&str] = &[
 
 #[derive(SystemData)]
 pub struct BuffTickData<'a> {
-    _entities: Entities<'a>,
+    entities: Entities<'a>,
     dt: Read<'a, DeltaTime>,
     buffs: Write<'a, BuffStore>,
     creeps: ReadStorage<'a, Creep>,
-    cpropertys: ReadStorage<'a, CProperty>,
+    cpropertys: specs::WriteStorage<'a, CProperty>,
     is_buildings: ReadStorage<'a, IsBuilding>,
     mqtx: Write<'a, Vec<Sender<OutboundMsg>>>,
     script_events: Write<'a, ScriptEventQueue>,
@@ -55,6 +58,29 @@ impl<'a> System<'a> for Sys {
         let dt = data.dt.0;
         let expired = data.buffs.tick(dt);
         let tx = data.mqtx.get(0).cloned();
+
+        // DoT (Task 15)：連續扣血，每 tick dot_damage * dt，達 dot/s 持續傷害
+        // 累積到單次廣播避免每 tick 刷 creep/H
+        let dot_targets: Vec<(specs::Entity, f32)> = (&data.entities)
+            .join()
+            .filter_map(|e| {
+                let d = data.buffs.sum_add(e, "dot_damage");
+                if d > 0.0 { Some((e, d)) } else { None }
+            })
+            .collect();
+        for (entity, dot) in dot_targets {
+            if let Some(cp) = data.cpropertys.get_mut(entity) {
+                cp.hp = (cp.hp - dot * dt).max(0.0);
+                if let Some(t) = tx.as_ref() {
+                    let _ = t.try_send(OutboundMsg::new_s(
+                        "td/all/res",
+                        if data.creeps.get(entity).is_some() { "creep" } else { "entity" },
+                        "H",
+                        json!({ "id": entity.id(), "hp": cp.hp, "max_hp": cp.mhp }),
+                    ));
+                }
+            }
+        }
 
         for (entity, _buff_id, payload) in expired {
             // 每條過期 buff push ModifierRemoved 事件，讓腳本的 on_modifier_removed

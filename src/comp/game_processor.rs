@@ -669,11 +669,19 @@ impl GameProcessor {
         let mut max_hp = 0.0f32;
         let mut died = false;
 
+        // damage_taken_bonus 聚合（Task 14）：目標身上所有 buff 的此 key sum_add
+        // 例：Ice Embrittlement L3 對被減速 creep +25% 傷害
+        let dmg_taken_bonus = {
+            let bs = ecs.read_resource::<crate::ability_runtime::BuffStore>();
+            bs.sum_add(target, "damage_taken_bonus")
+        };
+        let dmg_multiplier = (1.0 + dmg_taken_bonus).max(0.0);
+
         {
             let mut properties = ecs.write_storage::<CProperty>();
             if let Some(target_props) = properties.get_mut(target) {
                 let hp_before = target_props.hp;
-                let total_damage = phys + magi + real;
+                let total_damage = (phys + magi + real) * dmg_multiplier;
                 target_props.hp -= total_damage;
                 hp_after = target_props.hp;
                 max_hp = target_props.mhp;
