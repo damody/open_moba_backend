@@ -22,12 +22,39 @@ pub fn load(story_dir: &Path) -> Result<EntityData> {
 
 fn strip_line_comments(src: &str) -> String {
     src.lines()
-        .map(|l| {
-            let trimmed = l.trim_start();
-            if trimmed.starts_with("//") { "" } else { l }
-        })
+        .map(strip_line)
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// 掃一行 JSON，砍掉第一個「字串字面值外」的 `//` 之後所有內容。
+/// 字串字面值：雙引號包起來，`\"` 視為 escape。
+fn strip_line(line: &str) -> String {
+    let bytes = line.as_bytes();
+    let mut in_str = false;
+    let mut escape = false;
+    let mut i = 0;
+    while i < bytes.len() {
+        let c = bytes[i];
+        if in_str {
+            if escape {
+                escape = false;
+            } else if c == b'\\' {
+                escape = true;
+            } else if c == b'"' {
+                in_str = false;
+            }
+        } else {
+            if c == b'"' {
+                in_str = true;
+            } else if c == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'/' {
+                // 字串外的 // → 截掉
+                return line[..i].trim_end().to_string();
+            }
+        }
+        i += 1;
+    }
+    line.to_string()
 }
 
 fn parse(v: serde_json::Value) -> Result<EntityData> {
@@ -108,11 +135,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn strip_comments_keeps_strings() {
-        let src = "{\n  // hello\n  \"a\": 1,\n  \"url\": \"http://x\"\n}";
+    fn strip_removes_line_leading_comment() {
+        let src = "{\n  // hello\n  \"a\": 1\n}";
         let out = strip_line_comments(src);
         assert!(!out.contains("hello"));
+        assert!(out.contains("\"a\": 1"));
+    }
+
+    #[test]
+    fn strip_preserves_double_slash_inside_string() {
+        let src = "{\n  \"url\": \"http://x\"\n}";
+        let out = strip_line_comments(src);
         assert!(out.contains("http://x"));
+    }
+
+    #[test]
+    fn strip_cuts_trailing_comment_but_keeps_json() {
+        let src = "{\n  \"hp\": 100, // 100hp\n  \"dmg\": 5\n}";
+        let out = strip_line_comments(src);
+        assert!(!out.contains("100hp"));
+        // 原本那行前半 "hp": 100, 必須保留
+        assert!(out.contains("\"hp\": 100,"));
+        // 下一行不受影響
+        assert!(out.contains("\"dmg\": 5"));
     }
 
     #[test]
