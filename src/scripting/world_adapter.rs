@@ -160,6 +160,35 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         }
     }
 
+    fn advance_with_collision(
+        &mut self,
+        e: EntityHandle,
+        target: Vec2f,
+        step: f32,
+    ) -> Vec2f {
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return target;
+        };
+        let pos = match self.world.read_storage::<Pos>().get(ent) {
+            Some(p) => p.0,
+            None => return target,
+        };
+        let radius = self
+            .world
+            .read_storage::<CollisionRadius>()
+            .get(ent)
+            .map(|r| r.0)
+            .unwrap_or(30.0);
+        let target_vek = vek::Vec2::new(target.x, target.y);
+        let searcher = self.world.read_resource::<Searcher>();
+        let radii = self.world.read_storage::<CollisionRadius>();
+        let regions = self.world.read_resource::<BlockedRegions>();
+        let (new_pos, _reached) = crate::tick::hero_move_tick::advance_with_collision(
+            pos, target_vek, step, radius, &searcher, &radii, ent, &regions,
+        );
+        Vec2f::new(new_pos.x, new_pos.y)
+    }
+
     fn deal_damage(
         &mut self,
         target: EntityHandle,

@@ -35,6 +35,16 @@ pub trait GameWorld: Send {
 
     // ---- Mutate ----
     fn set_pos(&mut self, e: EntityHandle, p: Vec2f);
+    /// 計算 `e` 朝 `target` 位移 `step` 後的合法位置（避開其他 CollisionRadius
+    /// 實體與 BlockedRegion blocker）。策略：直接走 → 只走 X 軸 → 只走 Y 軸 → 停。
+    /// 回傳 post-collision 位置；DLL 拿到後可自行 `set_pos` 與 `set_facing`。
+    /// 適用於腳本化召喚物/主動位移單位（如 saika_gunner）。
+    fn advance_with_collision(
+        &mut self,
+        e: EntityHandle,
+        target: Vec2f,
+        step: f32,
+    ) -> Vec2f;
     fn deal_damage(
         &mut self,
         target: EntityHandle,

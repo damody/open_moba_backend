@@ -40,7 +40,7 @@ pub struct Sys;
 
 /// 檢查若單位移動到 `new_center` 是否會撞進任何其他有 CollisionRadius 的實體。
 /// Region 阻擋透過 blocker entities 一起走 Searcher 查詢，不再需要 polygon 測試。
-fn hits_any(
+pub(crate) fn hits_any(
     new_center: Vec2<f32>,
     radius: f32,
     searcher: &Searcher,
@@ -62,7 +62,7 @@ fn hits_any(
 
 /// 計算避開其他單位的下一步位置：嘗試直接走 → 只走 X → 只走 Y → 停。
 /// 回傳 (新位置, 是否抵達目標範圍)。
-fn advance_with_collision(
+pub(crate) fn advance_with_collision(
     pos: Vec2<f32>,
     target: Vec2<f32>,
     step: f32,
