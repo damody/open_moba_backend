@@ -1,5 +1,4 @@
 /// MQTT 模組
-/// 
-/// 提供 MQTT 相關功能，包括測試介面
-
-pub mod test_interface;
+///
+/// 舊 test_interface 已隨 ability-system sub-crate 搬遷一併移除；
+/// 新的測試入口走 MCP server / KCP + gRPC query API。

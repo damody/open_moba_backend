@@ -278,15 +278,12 @@ impl StateInitializer {
         ecs.register::<Unit>();
         ecs.register::<Faction>();
         ecs.register::<CircularVision>();
-        ecs.register::<Ability>();
-        ecs.register::<AbilityEffect>();
+        // 舊 Ability/AbilityEffect/Skill/SkillEffect 已隨 skill_system 移除。
         ecs.register::<Enemy>();
         ecs.register::<Campaign>();
         ecs.register::<Stage>();
         ecs.register::<DamageInstance>();
         ecs.register::<DamageResult>();
-        ecs.register::<Skill>();
-        ecs.register::<SkillEffect>();
         ecs.register::<MoveTarget>();
         ecs.register::<Player>();
         ecs.register::<Last<Pos>>();
@@ -374,13 +371,11 @@ impl StateInitializer {
     fn setup_campaign_specific_resources(ecs: &mut World) {
         use std::collections::BTreeMap;
         
-        // 設置戰役特有的資源
+        // 設置戰役特有的資源（舊 Ability BTreeMap / AbilityEffect / SkillInput
+        // 已隨 skill_system 移除；技能 metadata 由 AbilityRegistry resource 承載）
         ecs.insert(BTreeMap::<String, Hero>::new());
-        ecs.insert(BTreeMap::<String, Ability>::new());
         ecs.insert(BTreeMap::<String, Enemy>::new());
-        ecs.insert(Vec::<AbilityEffect>::new());
         ecs.insert(Vec::<DamageInstance>::new());
-        ecs.insert(Vec::<SkillInput>::new());
         
         log::info!("設置戰役特有資源");
     }

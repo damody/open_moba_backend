@@ -54,10 +54,8 @@ impl EcsSetup {
     pub fn setup_ecs_world_with_campaign(thread_pool: &Arc<ThreadPool>) -> specs::World {
         let mut ecs = Self::setup_ecs_world(thread_pool);
         
-        // 註冊戰役相關組件
+        // 註冊戰役相關組件（舊 Skill/Ability/*Effect 已隨 skill_system 移除）
         ecs.register::<Hero>();
-        ecs.register::<Ability>();
-        ecs.register::<AbilityEffect>();
         ecs.register::<Enemy>();
         ecs.register::<Campaign>();
         ecs.register::<Stage>();
@@ -65,17 +63,12 @@ impl EcsSetup {
         ecs.register::<Faction>();
         ecs.register::<DamageInstance>();
         ecs.register::<DamageResult>();
-        ecs.register::<Skill>();
-        ecs.register::<SkillEffect>();
         ecs.register::<CircularVision>();
-        
+
         // 戰役相關資源
         ecs.insert(BTreeMap::<String, Hero>::new());
-        ecs.insert(BTreeMap::<String, Ability>::new());
         ecs.insert(BTreeMap::<String, Enemy>::new());
-        ecs.insert(Vec::<AbilityEffect>::new());
         ecs.insert(Vec::<DamageInstance>::new());
-        ecs.insert(Vec::<SkillInput>::new());
         
         // 載入地形高度圖
         if let Ok(heightmap) = Self::load_terrain_heightmap() {

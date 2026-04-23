@@ -121,15 +121,6 @@ async fn main() -> std::result::Result<(), Error> {
     );
     let mut clock = Clock::new(Duration::from_secs_f64(1.0 / TPS as f64));
 
-    // 啟動 MQTT 測試介面
-    #[cfg(feature = "mqtt")]
-    {
-        use crate::mqtt::test_interface::MqttTestInterfaceManager;
-        let test_interface = MqttTestInterfaceManager::new(handle.tx.clone());
-        test_interface.start(server_addr.clone(), server_port.clone());
-        log::info!("MQTT test interface started, listening on topic ability_test/command");
-    }
-
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || {
         loop {

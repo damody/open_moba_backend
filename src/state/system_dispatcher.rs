@@ -87,8 +87,7 @@ impl SystemDispatcher {
         dispatch::<tower_tick::Sys>(dispatch_builder, &["projectile_sys"]);
         dispatch::<hero_move_tick::Sys>(dispatch_builder, &["projectile_sys"]);
         dispatch::<hero_tick::Sys>(dispatch_builder, &["tower_sys", "hero_move_sys"]);
-        dispatch::<skill_tick::Sys>(dispatch_builder, &["hero_sys"]);
-        dispatch::<item_tick::Sys>(dispatch_builder, &["skill_sys"]);
+        dispatch::<item_tick::Sys>(dispatch_builder, &["hero_sys"]);
         dispatch::<slow_buff_tick::Sys>(dispatch_builder, &["item_sys"]);
         dispatch::<creep_tick::Sys>(dispatch_builder, &["slow_buff_sys"]);
         dispatch::<creep_wave::Sys>(dispatch_builder, &["creep_sys"]);
@@ -121,9 +120,8 @@ impl SystemDispatcher {
         log::info!("視野系統群組（待實現）");
     }
 
-    fn build_effects_systems(&self, dispatch_builder: &mut DispatcherBuilder<'_, '_>) {
-        dispatch::<skill_tick::Sys>(dispatch_builder, &[]);
-        // 其他特效系統
+    fn build_effects_systems(&self, _dispatch_builder: &mut DispatcherBuilder<'_, '_>) {
+        // 舊 skill_tick 已移除。新的技能 dispatch 由 scripting/dispatch 驅動。
     }
 
     fn get_active_system_count(&self) -> usize {

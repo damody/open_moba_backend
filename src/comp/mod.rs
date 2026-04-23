@@ -18,12 +18,10 @@ pub mod creep;
 pub mod check_point;
 pub mod player;
 pub mod hero;
-pub mod ability;
 pub mod enemy;
 pub mod campaign;
 pub mod unit;
 pub mod damage;
-pub mod skill;
 pub mod heightmap;
 pub mod circular_vision;
 pub mod circular_vision_refactored;
@@ -66,12 +64,10 @@ pub use self::{
     clock::*,
     check_point::*,
     hero::*,
-    ability::*,
     enemy::*,
     campaign::*,
     unit::*,
     damage::*,
-    skill::*,
     heightmap::*,
     circular_vision::*,
 };

@@ -18,14 +18,14 @@ impl CampaignManager {
             heroes.insert(hero.id.clone(), hero);
         }
         
-        // 初始化技能
-        let mut abilities = ecs.get_mut::<BTreeMap<String, Ability>>().unwrap();
-        for (ability_id, ability_data) in &campaign_data.ability.abilities {
-            let ability = Ability::from_campaign_data(ability_data);
-            log::info!("Loading ability: {} ({})", ability.name, ability.key_binding);
-            abilities.insert(ability_id.clone(), ability);
-        }
-        
+        // 舊 Ability ECS resource 已隨 skill_system 移除；技能 metadata
+        // 改由 scripts/base_content DLL 透過 AbilityScript 註冊，可透過
+        // `AbilityRegistry` resource 查詢（scripting/registry.rs）。
+        log::info!(
+            "Campaign has {} ability defs (metadata now served by DLL registry)",
+            campaign_data.ability.abilities.len()
+        );
+
         // 初始化敵人
         let mut enemies = ecs.get_mut::<BTreeMap<String, Enemy>>().unwrap();
         for enemy_data in &campaign_data.entity.enemies {
@@ -146,33 +146,15 @@ impl CampaignManager {
         }
     }
     
-    fn create_hero_abilities(ecs: &mut World, hero_entity: specs::Entity, ability_ids: &[String], campaign_data: &CampaignData) {
-        for ability_id in ability_ids {
-            if let Some(ability_data) = campaign_data.ability.abilities.get(ability_id) {
-                let mut ability = Ability::from_campaign_data(ability_data);
-                
-                let initial_level = if ability_id == "sniper_mode" || ability_id == "saika_reinforcements" {
-                    1
-                } else {
-                    0
-                };
-                ability.current_level = initial_level;
-                
-                let ability_entity = ecs.create_entity()
-                    .with(ability)
-                    .build();
-                    
-                let mut skill = Skill::new(ability_id.clone(), hero_entity);
-                skill.current_level = initial_level;
-                skill.level_up();
-                
-                let skill_entity = ecs.create_entity()
-                    .with(skill)
-                    .build();
-                    
-                log::info!("Created ability '{}' and skill instance for hero", ability_data.name);
-            }
-        }
+    fn create_hero_abilities(_ecs: &mut World, _hero_entity: specs::Entity, ability_ids: &[String], _campaign_data: &CampaignData) {
+        // 舊路徑：為每個 ability 建 Ability/Skill ECS entity。
+        // 新架構：hero.abilities: Vec<String> + hero.ability_levels: HashMap<String, i32>
+        // 已承載玩家習得狀態；ability 邏輯由 DLL AbilityScript 執行，不需要
+        // ECS Component。這個函式保留空殼以相容呼叫點。
+        log::debug!(
+            "[campaign_manager] skipping legacy Ability/Skill entity creation for {} abilities (handled by AbilityRegistry / AbilityScript)",
+            ability_ids.len()
+        );
     }
     
     fn create_training_enemies(ecs: &mut World, campaign_data: &CampaignData) {
