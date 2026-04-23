@@ -22,19 +22,25 @@ impl CreationEventHandler {
         info!("創建小兵於位置: ({}, {})", cd.pos.x, cd.pos.y);
 
         let display_name = cd.creep.label.clone().unwrap_or_else(|| cd.creep.name.clone());
+        let creep_name = cd.creep.name.clone();
         let hp = cd.cdata.hp;
         let mhp = cd.cdata.mhp;
         let msd = cd.cdata.msd;
         let pos = cd.pos;
         let radius = cd.collision_radius;
 
+        // Creep 統一掛 ScriptUnitTag（預設全單位腳本化）
+        let unit_id = format!("creep_{}", creep_name);
         // 創建小兵實體
         let entity = world.create_entity()
             .with(Pos(cd.pos))
             .with(cd.creep)
             .with(cd.cdata)
             .with(CollisionRadius(radius))
+            .with(crate::scripting::ScriptUnitTag { unit_id: unit_id.clone() })
             .build();
+        world.write_resource::<crate::scripting::ScriptEventQueue>()
+            .push(crate::scripting::ScriptEvent::Spawn { e: entity });
 
         // Payload shape matches client expectations (top-level position/hp/max_hp/name)
         let payload = json!({

@@ -452,6 +452,8 @@ impl GameProcessor {
             _ => Faction::new(FactionType::Enemy, 1),
         };
         let turn_speed_rad = cd.turn_speed_deg.to_radians();
+        // Creep 統一掛 ScriptUnitTag（預設全單位腳本化）；unit_id = "creep_{name}"
+        let unit_id = format!("creep_{}", creep_name);
         let e = ecs.create_entity()
             .with(Pos(cd.pos))
             .with(cd.creep)
@@ -460,7 +462,10 @@ impl GameProcessor {
             .with(bounty)
             .with(Facing(0.0))
             .with(TurnSpeed(turn_speed_rad))
+            .with(crate::scripting::ScriptUnitTag { unit_id: unit_id.clone() })
             .build();
+        ecs.write_resource::<crate::scripting::ScriptEventQueue>()
+            .push(crate::scripting::ScriptEvent::Spawn { e });
         // Payload shape matches client expectations (top-level position/hp/max_hp)
         let payload = json!({
             "entity_id": e.id(),

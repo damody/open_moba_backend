@@ -421,6 +421,9 @@ impl StateInitializer {
 
             let hero_turn_rad = hero_data.turn_speed.unwrap_or(180.0).to_radians();
             let hero_radius = hero_data.collision_radius.unwrap_or(30.0);
+            // Hero 統一掛 ScriptUnitTag（預設全單位腳本化）；unit_id = "hero_{HeroJD.id}"
+            // 若 registry 無對應腳本，dispatch 會 silent skip，host hero_tick 仍跑預設 auto-attack
+            let unit_id = format!("hero_{}", hero_data.id);
             let hero_entity = ecs.create_entity()
                 .with(hero_pos)
                 .with(hero_vel)
@@ -435,9 +438,17 @@ impl StateInitializer {
                 .with(Facing(0.0))
                 .with(TurnSpeed(hero_turn_rad))
                 .with(CollisionRadius(hero_radius))
+                .with(crate::scripting::ScriptUnitTag { unit_id: unit_id.clone() })
                 .build();
 
-            log::info!("創建戰役英雄實體: {:?}（含 Gold/Inventory/ItemEffects）", hero_entity);
+            // 排 on_spawn 事件，讓可能存在的 hero unit script 初始化
+            ecs.write_resource::<crate::scripting::ScriptEventQueue>()
+                .push(crate::scripting::ScriptEvent::Spawn { e: hero_entity });
+
+            log::info!(
+                "創建戰役英雄實體: {:?} unit_id={}（含 Gold/Inventory/ItemEffects + ScriptUnitTag）",
+                hero_entity, unit_id
+            );
         }
     }
 
@@ -590,6 +601,8 @@ impl StateInitializer {
                     20.0
                 ).with_precision(360);
 
+                // MOBA 訓練敵人也一併掛 ScriptUnitTag（統一規則）
+                let unit_uid = format!("unit_{}", enemy_data.id);
                 let _unit_entity = ecs.create_entity()
                     .with(unit_pos)
                     .with(unit_vel)
@@ -599,7 +612,10 @@ impl StateInitializer {
                     .with(unit_attack)
                     .with(enemy_vision)
                     .with(CollisionRadius(20.0))
+                    .with(crate::scripting::ScriptUnitTag { unit_id: unit_uid.clone() })
                     .build();
+                ecs.write_resource::<crate::scripting::ScriptEventQueue>()
+                    .push(crate::scripting::ScriptEvent::Spawn { e: _unit_entity });
 
                 log::info!("創建訓練敵人單位 '{}' 於位置 ({}, {})", enemy_data.name, x, y);
             }
