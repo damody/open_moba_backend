@@ -53,7 +53,22 @@ fn method_from_trait_item(f: &TraitItemFn, group: ApiGroup, sub: Option<String>)
 
 fn render_sig(sig: &syn::Signature) -> String {
     use quote::ToTokens;
-    sig.to_token_stream().to_string()
+    let raw = sig.to_token_stream().to_string();
+    // quote 用 space 分隔每個 token；塞回接近手寫的樣子
+    raw.replace(" < ", "<")
+        .replace(" > ", ">")
+        .replace(" <", "<")
+        .replace("> ", ">")
+        .replace(" , ", ", ")
+        .replace(" ,", ",")
+        .replace(" ( ", "(")
+        .replace(" (", "(")
+        .replace(" ) ", ") ")
+        .replace(" )", ")")
+        .replace(" :: ", "::")
+        .replace(" : ", ": ")
+        .replace("& ", "&")
+        .replace("' ", "'")
 }
 
 fn extract_doc(attrs: &[syn::Attribute]) -> String {
@@ -72,22 +87,47 @@ fn extract_doc(attrs: &[syn::Attribute]) -> String {
 }
 
 pub fn scan_world(src: &str) -> Result<Vec<ApiMethod>> {
-    use regex::Regex;
     let file: File = syn::parse_str(src).context("parse world.rs")?;
     let headers: Vec<(usize, String)> = {
-        let re = Regex::new(r"^\s*//\s*----\s*(.+?)\s*----").unwrap();
-        src.lines().enumerate()
-            .filter_map(|(i, l)| re.captures(l).map(|c| (i + 1, c[1].trim().to_string())))
-            .collect()
+        let dash_re = regex::Regex::new(r"^\s*//\s*----\s*(.+?)\s*----").unwrap();
+        let eq_start = regex::Regex::new(r"^\s*//\s*={6,}\s*$").unwrap();
+        let eq_title = regex::Regex::new(r"^\s*//\s*(.+?)\s*$").unwrap();
+        let lines: Vec<&str> = src.lines().collect();
+        let mut out: Vec<(usize, String)> = Vec::new();
+        let mut i = 0;
+        while i < lines.len() {
+            let l = lines[i];
+            if let Some(c) = dash_re.captures(l) {
+                out.push((i + 1, c[1].trim().to_string()));
+            } else if eq_start.is_match(l) {
+                // 往下找 title 行 + 收尾 `====`；title 是 `// <text>`（非純 `=`）
+                if i + 2 < lines.len() {
+                    let next = lines[i + 1];
+                    let close = lines[i + 2];
+                    if eq_start.is_match(close) {
+                        if let Some(t) = eq_title.captures(next) {
+                            let title = t[1].trim().to_string();
+                            // 排除 title 行本身是 `====...`
+                            if !title.chars().all(|c| c == '=' || c.is_whitespace()) {
+                                out.push((i + 3, title));  // header 結束於第 3 行
+                                i += 2;
+                            }
+                        }
+                    }
+                }
+            }
+            i += 1;
+        }
+        out
     };
     let pick_header = |line: usize| -> Option<String> {
         headers.iter().rev().find(|(h, _)| *h <= line).map(|(_, n)| n.clone())
     };
     let group_of = |hdr: &str| -> ApiGroup {
         let l = hdr.to_ascii_lowercase();
-        if l.contains("query") { ApiGroup::WorldQuery }
+        if l.contains("query") || hdr.contains("查詢") { ApiGroup::WorldQuery }
         else if l.contains("mutate") { ApiGroup::WorldMutate }
-        else if l.contains("tower") || l.contains("單位屬性") { ApiGroup::WorldTower }
+        else if l.contains("tower") || hdr.contains("單位屬性") { ApiGroup::WorldTower }
         else if l.contains("rng") || l.contains("deterministic") { ApiGroup::WorldRng }
         else if l.contains("log") { ApiGroup::WorldLog }
         else if l.contains("vfx") || l.contains("side effect") { ApiGroup::WorldVfx }
@@ -184,5 +224,31 @@ mod tests {
         assert_eq!(hooks[1].name, "on_tick");
         assert!(hooks[1].doc.contains("tick delta"));
         assert!(hooks[0].signature.contains("on_spawn"));
+    }
+
+    #[test]
+    fn scans_real_script_abi() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("script-abi/src");
+        let spec = scan(&dir).unwrap();
+        assert!(spec.unit_hooks.len() >= 15, "got only {} unit hooks", spec.unit_hooks.len());
+        assert!(spec.ability_hooks.iter().any(|m| m.name == "execute"));
+        assert!(spec.world_methods.iter().any(|m| m.name == "get_final_armor"));
+        assert!(spec.stat_keys.iter().any(|k| k.const_name == "PREATTACK_BONUS_DAMAGE"));
+
+        // Regression guard for I1: un-`----` sections must not end up as WorldLog
+        let armor = spec.world_methods.iter().find(|m| m.name == "get_final_armor")
+            .expect("get_final_armor should be present");
+        assert!(
+            !matches!(armor.group, crate::lib::model::ApiGroup::WorldLog),
+            "get_final_armor got grouped as WorldLog (I1 regression); actual: {:?}", armor.group
+        );
+
+        let sum_stat = spec.world_methods.iter().find(|m| m.name == "sum_stat")
+            .expect("sum_stat should be present");
+        assert!(
+            !matches!(sum_stat.group, crate::lib::model::ApiGroup::WorldLog),
+            "sum_stat got grouped as WorldLog (I1 regression); actual: {:?}", sum_stat.group
+        );
     }
 }
