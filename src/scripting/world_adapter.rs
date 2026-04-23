@@ -365,7 +365,7 @@ impl<'a> GameWorld for WorldAdapter<'a> {
                 slow_factor: spec.slow_factor,
                 slow_duration: spec.slow_duration,
                 hit_radius: spec.hit_radius,
-                stun_duration: 0.0,
+                stun_duration: spec.stun_duration,
             })
             .build();
 

@@ -650,13 +650,25 @@ impl GameProcessor {
             };
             let mqtx_list = ecs.read_resource::<Vec<crossbeam_channel::Sender<OutboundMsg>>>();
             if let Some(tx) = mqtx_list.get(0) {
-                // HP-only update. Action "H" keeps this separate from real move events;
-                // the position in `new_s_at` is only used for viewport filtering (not the payload).
-                let _ = tx.send(OutboundMsg::new_s_at("td/all/res", entity_type, "H", json!({
-                    "id": target.id(),
-                    "hp": hp_after,
-                    "max_hp": max_hp,
-                }), tp.x, tp.y));
+                let total = phys + magi + real;
+                if total <= 0.0 {
+                    // Miss 廣播：accuracy 擲骰失敗導致 0 傷害 → 前端顯示 "Miss"
+                    let _ = tx.send(OutboundMsg::new_s_at(
+                        "td/all/res",
+                        entity_type,
+                        "Miss",
+                        json!({ "id": target.id() }),
+                        tp.x, tp.y,
+                    ));
+                } else {
+                    // HP-only update. Action "H" keeps this separate from real move events;
+                    // the position in `new_s_at` is only used for viewport filtering (not the payload).
+                    let _ = tx.send(OutboundMsg::new_s_at("td/all/res", entity_type, "H", json!({
+                        "id": target.id(),
+                        "hp": hp_after,
+                        "max_hp": max_hp,
+                    }), tp.x, tp.y));
+                }
             }
         }
 
