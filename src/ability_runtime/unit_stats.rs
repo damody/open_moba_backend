@@ -1,0 +1,320 @@
+//! `UnitStats` — 集中「最終屬性」計算 helper。
+//!
+//! Dota 2 modifier property 系統的 host 端實裝：
+//! 所有 tick 系統（creep_tick / hero_tick / tower_tick / damage pipeline）
+//! 統一透過這裡取最終數值，避免各自呼 `BuffStore::sum_add` 造成 key 拼寫分歧。
+//!
+//! 建築物識別：`IsBuilding` component 存在 → 跳過 movespeed / respawn / vision
+//! / illusion / bounty 類屬性聚合。
+//!
+//! 讀 base value：若 entity 有 component 欄位就用那個當 base（TAttack.atk_physic
+//! 為 atk base、CProperty.msd 為 move base 等）；其餘未內建欄位的屬性（crit /
+//! armor / magic_resist 等）由 spawn 腳本 `on_spawn` 打 duration=∞ 的 base_stats
+//! buff 提供基底。
+
+use omb_script_abi::stat_keys as sk;
+use omb_script_abi::types::DamageKind;
+use specs::Entity;
+
+use crate::ability_runtime::BuffStore;
+
+/// Per-tick snapshot of a unit's stat-aggregation context.
+/// Build once, query N times — cheap (holds references only).
+pub struct UnitStats<'a> {
+    pub buffs: &'a BuffStore,
+    pub is_building: bool,
+}
+
+impl<'a> UnitStats<'a> {
+    /// 建一個 `UnitStats`。呼叫端需自行取 `BuffStore` 和 `IsBuilding` 的 borrow，
+    /// 再傳進來 — 這樣符合 specs `SystemData` 的 resource lock 流程，
+    /// 避免在 System 內部再 `read_resource` 衝突。
+    ///
+    /// 典型用法（System run 裡）：
+    /// ```ignore
+    /// let stats = UnitStats::from_refs(&*buffs, is_buildings.get(e).is_some());
+    /// let msd = stats.final_move_speed(cp.msd, e);
+    /// ```
+    pub fn from_refs(buffs: &'a BuffStore, is_building: bool) -> Self {
+        Self { buffs, is_building }
+    }
+
+    // ================= 位移 =================
+
+    pub fn final_move_speed(&self, base: f32, e: Entity) -> f32 {
+        if self.is_building {
+            return 0.0;
+        }
+        let abs = self.buffs.sum_add(e, sk::MOVESPEED_ABSOLUTE);
+        let effective = if abs > 0.0 {
+            abs
+        } else {
+            let override_base = self.buffs.sum_add(e, sk::MOVESPEED_BASE_OVERRIDE);
+            let base_eff = if override_base > 0.0 { override_base } else { base };
+            let bonus_c = self.buffs.sum_add(e, sk::MOVESPEED_BONUS_CONSTANT)
+                + self.buffs.sum_add(e, sk::MOVESPEED_BONUS_UNIQUE)
+                + self.buffs.sum_add(e, sk::MOVESPEED_BONUS_UNIQUE_2);
+            let pct = self.buffs.sum_add(e, sk::MOVESPEED_BONUS_PERCENTAGE)
+                + self.buffs.sum_add(e, sk::MOVESPEED_BONUS_PERCENTAGE_UNIQUE)
+                + self.buffs.sum_add(e, sk::MOVESPEED_BONUS_PERCENTAGE_UNIQUE_2);
+            (base_eff + bonus_c) * (1.0 + pct)
+        };
+        self.apply_move_clamp(effective, e)
+    }
+
+    fn apply_move_clamp(&self, v: f32, e: Entity) -> f32 {
+        let min_abs = self.buffs.sum_add(e, sk::MOVESPEED_ABSOLUTE_MIN);
+        let max_abs = self.buffs.sum_add(e, sk::MOVESPEED_MAX);
+        let limit = self.buffs.sum_add(e, sk::MOVESPEED_LIMIT);
+        let mut r = v;
+        if min_abs > 0.0 && r < min_abs {
+            r = min_abs;
+        }
+        if max_abs > 0.0 && r > max_abs {
+            r = max_abs;
+        }
+        if limit > 0.0 && r > limit {
+            r = limit;
+        }
+        r.max(0.0)
+    }
+
+    pub fn turn_rate_mult(&self, e: Entity) -> f32 {
+        if self.is_building {
+            return 1.0;
+        }
+        1.0 + self.buffs.sum_add(e, sk::TURN_RATE_PERCENTAGE)
+    }
+
+    // ================= 攻擊 =================
+
+    pub fn final_atk(&self, base: f32, e: Entity) -> f32 {
+        let bonus = self.buffs.sum_add(e, sk::PREATTACK_BONUS_DAMAGE)
+            + self.buffs.sum_add(e, sk::BASEATTACK_BONUS_DAMAGE);
+        let pct_total = self.buffs.sum_add(e, sk::TOTALDAMAGEOUTGOING_PERCENTAGE);
+        let pct_base = self.buffs.sum_add(e, sk::BASEDAMAGEOUTGOING_PERCENTAGE)
+            + self.buffs.sum_add(e, sk::BASEDAMAGEOUTGOING_PERCENTAGE_UNIQUE);
+        let mult = 1.0 + pct_total + pct_base;
+        ((base + bonus) * mult).max(0.0)
+    }
+
+    /// 攻速倍數（乘到 base attack interval 上）。
+    /// Dota: effective_attacks_per_sec = base × (1 + as_bonus / 100)
+    /// 簡化：以 bonus/100 當 multiplier 加成；fixed_attack_rate 若設則覆蓋
+    pub fn final_attack_speed_mult(&self, e: Entity) -> f32 {
+        let fixed = self.buffs.sum_add(e, sk::FIXED_ATTACK_RATE);
+        if fixed > 0.0 {
+            return fixed;
+        }
+        let as_bonus = self.buffs.sum_add(e, sk::ATTACKSPEED_BONUS_CONSTANT);
+        (1.0 + as_bonus / 100.0).max(0.1)
+    }
+
+    /// 射程 = base + ATTACK_RANGE_BONUS + ATTACK_RANGE_BONUS_UNIQUE，
+    /// 再由 MAX_ATTACK_RANGE 上限（若設）。
+    pub fn final_attack_range(&self, base: f32, e: Entity) -> f32 {
+        let bonus = self.buffs.sum_add(e, sk::ATTACK_RANGE_BONUS)
+            + self.buffs.sum_add(e, sk::ATTACK_RANGE_BONUS_UNIQUE);
+        let r = (base + bonus).max(0.0);
+        let max = self.buffs.sum_add(e, sk::MAX_ATTACK_RANGE);
+        if max > 0.0 && r > max {
+            max
+        } else {
+            r
+        }
+    }
+
+    pub fn final_cast_range(&self, base: f32, e: Entity) -> f32 {
+        (base
+            + self.buffs.sum_add(e, sk::CAST_RANGE_BONUS)
+            + self.buffs.sum_add(e, sk::CAST_RANGE_BONUS_STACKING))
+            .max(0.0)
+    }
+
+    // ================= 防禦 =================
+
+    pub fn final_armor(&self, base: f32, e: Entity) -> f32 {
+        base + self.buffs.sum_add(e, sk::PHYSICAL_ARMOR_BONUS)
+            + self.buffs.sum_add(e, sk::PHYSICAL_ARMOR_BONUS_UNIQUE)
+            + self.buffs.sum_add(e, sk::PHYSICAL_ARMOR_BONUS_UNIQUE_ACTIVE)
+    }
+
+    /// 魔抗：0..1 = 百分比。direct_modification 若存在 → 覆蓋 base + bonus。
+    pub fn final_magic_resist(&self, base: f32, e: Entity) -> f32 {
+        let direct = self.buffs.sum_add(e, sk::MAGICAL_RESISTANCE_DIRECT_MODIFICATION);
+        if direct > 0.0 {
+            return direct.clamp(0.0, 1.0);
+        }
+        let bonus = self.buffs.sum_add(e, sk::MAGICAL_RESISTANCE_BONUS);
+        let decrepify = self.buffs.sum_add(e, sk::MAGICAL_RESISTANCE_DECREPIFY_UNIQUE);
+        // Dota 疊加公式：1 - (1-r1)(1-r2)...
+        let combined = 1.0 - (1.0 - base) * (1.0 - bonus / 100.0) * (1.0 - decrepify / 100.0);
+        combined.clamp(-1.0, 1.0)
+    }
+
+    // ================= 命中率 =================
+
+    pub fn evasion_chance(&self, e: Entity) -> f32 {
+        (self.buffs.sum_add(e, sk::EVASION_CONSTANT)
+            - self.buffs.sum_add(e, sk::NEGATIVE_EVASION_CONSTANT))
+        .clamp(0.0, 1.0)
+    }
+
+    pub fn miss_chance(&self, e: Entity) -> f32 {
+        self.buffs.sum_add(e, sk::MISS_PERCENTAGE).clamp(0.0, 1.0)
+    }
+
+    /// 回 (chance, multiplier)；chance 為 0..1；multiplier 預設 1.0（無暴擊）
+    pub fn crit(&self, e: Entity) -> (f32, f32) {
+        let chance = self.buffs.sum_add(e, sk::PREATTACK_CRITICALSTRIKE).clamp(0.0, 1.0);
+        let mult_raw = self.buffs.sum_add(e, sk::CRIT_MULTIPLIER);
+        let mult = if mult_raw > 0.0 { mult_raw } else { 1.0 };
+        (chance, mult)
+    }
+
+    // ================= CD / 施法 =================
+
+    /// Cooldown percentage multiplier: final_cd = base_cd × (1 + pct + stacking)
+    pub fn cooldown_mult(&self, e: Entity) -> f32 {
+        let pct = self.buffs.sum_add(e, sk::COOLDOWN_PERCENTAGE);
+        let stacking = self.buffs.sum_add(e, sk::COOLDOWN_PERCENTAGE_STACKING);
+        (1.0 + pct + stacking).max(0.1)
+    }
+
+    pub fn cast_time_mult(&self, e: Entity) -> f32 {
+        (1.0 + self.buffs.sum_add(e, sk::CASTTIME_PERCENTAGE)).max(0.1)
+    }
+
+    pub fn mana_cost_mult(&self, e: Entity) -> f32 {
+        (1.0 + self.buffs.sum_add(e, sk::MANACOST_PERCENTAGE)).max(0.0)
+    }
+
+    // ================= 回復 =================
+
+    pub fn hp_regen(&self, base: f32, e: Entity) -> f32 {
+        if self.buffs.has(e, sk::DISABLE_HEALING)
+            || self.buffs.sum_add(e, sk::DISABLE_HEALING) > 0.5
+        {
+            return 0.0;
+        }
+        let bonus = self.buffs.sum_add(e, sk::HEALTH_REGEN_CONSTANT);
+        let pct = self.buffs.sum_add(e, sk::HEALTH_REGEN_PERCENTAGE);
+        let amp = 1.0 + self.buffs.sum_add(e, sk::HP_REGEN_AMPLIFY_PERCENTAGE);
+        ((base + bonus) * (1.0 + pct) * amp).max(0.0)
+    }
+
+    pub fn mana_regen(&self, base: f32, e: Entity) -> f32 {
+        let base_override = self.buffs.sum_add(e, sk::BASE_MANA_REGEN);
+        let base_eff = if base_override > 0.0 { base_override } else { base };
+        let bonus = self.buffs.sum_add(e, sk::MANA_REGEN_CONSTANT)
+            + self.buffs.sum_add(e, sk::MANA_REGEN_CONSTANT_UNIQUE);
+        let pct = self.buffs.sum_add(e, sk::MANA_REGEN_PERCENTAGE);
+        let total_pct = self.buffs.sum_add(e, sk::MANA_REGEN_TOTAL_PERCENTAGE);
+        (((base_eff + bonus) * (1.0 + pct)) * (1.0 + total_pct)).max(0.0)
+    }
+
+    // ================= HP / Mana 上限 =================
+
+    pub fn max_hp_bonus(&self, e: Entity) -> f32 {
+        self.buffs.sum_add(e, sk::HEALTH_BONUS)
+            + self.buffs.sum_add(e, sk::EXTRA_HEALTH_BONUS)
+    }
+
+    pub fn max_mp_bonus(&self, e: Entity) -> f32 {
+        self.buffs.sum_add(e, sk::MANA_BONUS)
+            + self.buffs.sum_add(e, sk::EXTRA_MANA_BONUS)
+    }
+
+    // ================= Damage pipeline 入口 =================
+
+    /// 計算 `e`（victim）承受 `raw` damage 後的 final 值（含 block / armor / resist / prevention）。
+    /// NOTE: evasion / miss 由呼叫端先 roll，此函式假設攻擊已命中。
+    pub fn apply_incoming_damage(
+        &self,
+        raw: f32,
+        kind: DamageKind,
+        e: Entity,
+        base_armor: f32,
+        base_resist: f32,
+    ) -> f32 {
+        // 1. 絕對免疫
+        match kind {
+            DamageKind::Physical
+                if self.buffs.sum_add(e, sk::ABSOLUTE_NO_DAMAGE_PHYSICAL) > 0.5 =>
+            {
+                return 0.0
+            }
+            DamageKind::Magical
+                if self.buffs.sum_add(e, sk::ABSOLUTE_NO_DAMAGE_MAGICAL) > 0.5 =>
+            {
+                return 0.0
+            }
+            DamageKind::Pure
+                if self.buffs.sum_add(e, sk::ABSOLUTE_NO_DAMAGE_PURE) > 0.5 =>
+            {
+                return 0.0
+            }
+            _ => {}
+        }
+
+        // 2. Block（無法避免、先套）
+        let unavoid_block = self.buffs.sum_add(e, sk::TOTAL_CONSTANT_BLOCK_UNAVOIDABLE_PRE_ARMOR);
+        let after_unavoid = (raw - unavoid_block).max(0.0);
+
+        // 3. Armor / Resist
+        let after_defense = match kind {
+            DamageKind::Physical => {
+                let armor = self.final_armor(base_armor, e);
+                after_unavoid * armor_to_mult(armor)
+            }
+            DamageKind::Magical => {
+                let resist = self.final_magic_resist(base_resist, e);
+                after_unavoid * (1.0 - resist)
+            }
+            DamageKind::Pure => after_unavoid,
+            _ => after_unavoid,
+        };
+
+        // 4. 類型 block（post-armor）
+        let kind_block = self.buffs.sum_add(
+            e,
+            match kind {
+                DamageKind::Physical => sk::PHYSICAL_CONSTANT_BLOCK,
+                DamageKind::Magical => sk::MAGICAL_CONSTANT_BLOCK,
+                _ => sk::TOTAL_CONSTANT_BLOCK,
+            },
+        );
+        let after_kind_block = (after_defense - kind_block).max(0.0);
+
+        // 5. Incoming percentage
+        let pct_all = 1.0 + self.buffs.sum_add(e, sk::INCOMING_DAMAGE_PERCENTAGE);
+        let pct_kind = 1.0
+            + match kind {
+                DamageKind::Physical => self.buffs.sum_add(e, sk::INCOMING_PHYSICAL_DAMAGE_PERCENTAGE),
+                _ => 0.0,
+            };
+        let after_pct = after_kind_block * pct_all * pct_kind;
+
+        // 6. Incoming constant
+        let k_const = match kind {
+            DamageKind::Physical => self.buffs.sum_add(e, sk::INCOMING_PHYSICAL_DAMAGE_CONSTANT),
+            DamageKind::Magical => self.buffs.sum_add(e, sk::INCOMING_SPELL_DAMAGE_CONSTANT),
+            _ => 0.0,
+        };
+        (after_pct + k_const).max(0.0)
+    }
+}
+
+/// Dota armor → damage multiplier。
+/// armor > 0 → 減傷；armor < 0 → 增傷；armor = 0 → 1.0。
+/// 公式：`1 - (0.06 * armor) / (1 + 0.06 * |armor|)`
+pub fn armor_to_mult(armor: f32) -> f32 {
+    let abs = armor.abs();
+    let k = 0.06 * abs;
+    if armor >= 0.0 {
+        1.0 - (0.06 * armor) / (1.0 + k)
+    } else {
+        1.0 + (0.06 * abs) / (1.0 + k)
+    }
+}
+

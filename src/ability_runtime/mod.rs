@@ -5,6 +5,8 @@
 
 pub mod buff_store;
 pub mod registry;
+pub mod unit_stats;
 
 pub use buff_store::{BuffEntry, BuffStore};
 pub use registry::AbilityRegistry;
+pub use unit_stats::{armor_to_mult, UnitStats};
