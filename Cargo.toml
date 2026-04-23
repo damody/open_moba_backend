@@ -74,6 +74,8 @@ maud = { version = "0.26", optional = true }
 syn = { version = "2", features = ["full", "visit", "parsing"], optional = true }
 clap = { version = "4", features = ["derive"], optional = true }
 anyhow = { version = "1", optional = true }
+quote = { version = "1", optional = true }
+proc-macro2 = { version = "1", features = ["span-locations"], optional = true }
 
 [build-dependencies]
 tonic-build = { version = "0.12", optional = true }
@@ -84,4 +86,4 @@ default = ["kcp"]
 mqtt = ["rumqttc"]
 grpc = ["tonic", "prost", "async-stream", "tokio-stream/sync", "tonic-build", "tokio/sync", "tokio/time"]
 kcp = ["tokio_kcp", "prost", "prost-build", "tokio/sync", "tokio/time", "tokio/net", "tokio/io-util"]
-gen-docs = ["maud", "syn", "clap", "anyhow"]
+gen-docs = ["maud", "syn", "clap", "anyhow", "quote", "proc-macro2"]
