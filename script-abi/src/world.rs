@@ -176,4 +176,41 @@ pub trait GameWorld: Send {
 
     /// 從腳本端主動 push `StateChanged` 事件。
     fn trigger_state_changed(&mut self, e: EntityHandle, state_id: RStr<'_>, active: bool);
+
+    // ============================================================
+    // Dota 2 modifier property 完整查詢（Phase E）
+    // ============================================================
+
+    /// 實際護甲 = base + PHYSICAL_ARMOR_BONUS (+ UNIQUE + UNIQUE_ACTIVE)。
+    /// base 來自 `CProperty.def_physic`。
+    fn get_final_armor(&self, e: EntityHandle) -> f32;
+
+    /// 實際魔抗（0..1）。支援 MAGICAL_RESISTANCE_DIRECT_MODIFICATION 覆蓋、
+    /// MAGICAL_RESISTANCE_BONUS / DECREPIFY_UNIQUE 疊加。
+    /// base 來自 `CProperty.def_magic`。
+    fn get_final_magic_resist(&self, e: EntityHandle) -> f32;
+
+    /// 閃避機率（0..1）= EVASION_CONSTANT - NEGATIVE_EVASION_CONSTANT clamp。
+    fn get_evasion_chance(&self, e: EntityHandle) -> f32;
+
+    /// Miss 機率（0..1）= MISS_PERCENTAGE clamp。
+    fn get_miss_chance(&self, e: EntityHandle) -> f32;
+
+    /// 暴擊機率 = PREATTACK_CRITICALSTRIKE clamp 0..1。
+    fn get_crit_chance(&self, e: EntityHandle) -> f32;
+
+    /// 暴擊倍率 = CRIT_MULTIPLIER（預設 1.0，若 buff payload 未設）。
+    fn get_crit_multiplier(&self, e: EntityHandle) -> f32;
+
+    /// 冷卻倍率 = 1 + COOLDOWN_PERCENTAGE + COOLDOWN_PERCENTAGE_STACKING。
+    fn get_cooldown_mult(&self, e: EntityHandle) -> f32;
+
+    /// 是否為建築物（有 `IsBuilding` marker component）。
+    fn is_building(&self, e: EntityHandle) -> bool;
+
+    /// HP 上限加值 = HEALTH_BONUS + EXTRA_HEALTH_BONUS。
+    fn get_max_hp_bonus(&self, e: EntityHandle) -> f32;
+
+    /// HP regen / 秒（已套 DISABLE_HEALING 與 HP_REGEN_AMPLIFY_PERCENTAGE）。
+    fn get_hp_regen(&self, e: EntityHandle) -> f32;
 }

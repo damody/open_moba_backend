@@ -1,16 +1,25 @@
 /// 戰鬥相關事件處理
 
 use specs::{Entity, World, WriteStorage, ReadStorage, WorldExt};
+use crate::ability_runtime::UnitStats;
 use crate::comp::*;
 use crate::transport::OutboundMsg;
 use crossbeam_channel::Sender;
+use omb_script_abi::stat_keys as sk;
+use omb_script_abi::types::DamageKind;
 use serde_json::json;
 
 /// 戰鬥事件處理器
 pub struct CombatEventHandler;
 
 impl CombatEventHandler {
-    /// 處理傷害事件
+    /// 處理傷害事件 — 完整 Dota 2 pipeline：
+    /// 1. 對 attacker 扣 Attacked 事件先 push（本 unit 被攻擊）
+    /// 2. Evasion / miss roll → miss 就 push AttackFail 直接 return
+    /// 3. UnitStats::apply_incoming_damage 套 armor / resist / block / prevention / incoming%
+    /// 4. 扣 HP，套 MIN_HEALTH 下限
+    /// 5. 死亡檢查：若有 REINCARNATION buff → Respawn 事件、HP 補滿、不發 Death
+    /// 6. push AttackHit / AttackLanded 事件
     pub fn handle_damage(
         world: &mut World,
         mqtx: &Sender<OutboundMsg>,
@@ -23,12 +32,52 @@ impl CombatEventHandler {
     ) -> Vec<Outcome> {
         let mut next_outcomes = Vec::new();
 
-        // 不論 attacker/victim 是否有 ScriptUnitTag 都 push 事件 — dispatch 端
-        // 會檢查 tag 再派發到對應 hook（no-op 開銷極小）。push 順序：
-        //   AttackHit  → attacker 側 on_attack_hit（legacy）
-        //   AttackLanded → attacker 側 on_attack_landed（帶 damage 數值）
-        //   Attacked   → victim 側 on_attacked（用於護盾計數等）
-        let total_dmg_for_event = phys + magi + real;
+        // ---- 先發 Attacked 給 victim 側（命中與否都發）----
+        world.write_resource::<crate::scripting::ScriptEventQueue>()
+            .push(crate::scripting::ScriptEvent::Attacked {
+                attacker: source,
+                victim: target,
+            });
+
+        // ---- Evasion / miss roll（基於 target 的閃避 + attacker 的 miss）----
+        let (miss_chance, evasion) = {
+            let buffs = world.read_resource::<crate::ability_runtime::BuffStore>();
+            let is_bldgs = world.read_storage::<IsBuilding>();
+            let tgt_stats = UnitStats::from_refs(&*buffs, is_bldgs.get(target).is_some());
+            let src_stats = UnitStats::from_refs(&*buffs, is_bldgs.get(source).is_some());
+            (src_stats.miss_chance(source), tgt_stats.evasion_chance(target))
+        };
+        let miss_roll = 1.0 - (1.0 - miss_chance) * (1.0 - evasion);
+        if miss_roll > 0.0 && fastrand::f32() < miss_roll {
+            world.write_resource::<crate::scripting::ScriptEventQueue>()
+                .push(crate::scripting::ScriptEvent::AttackFail {
+                    attacker: source,
+                    victim: target,
+                });
+            let target_name = Self::get_entity_name(world, target);
+            log::info!("🌀 {} 閃避攻擊（miss={:.2}, evasion={:.2}）", target_name, miss_chance, evasion);
+            return next_outcomes;
+        }
+
+        // ---- 套 UnitStats::apply_incoming_damage 逐類型減免 ----
+        // CProperty 的 def_physic 當 armor；def_magic 當 magic_resist (0..1)。
+        let (final_phys, final_magi, final_real) = {
+            let buffs = world.read_resource::<crate::ability_runtime::BuffStore>();
+            let is_bldgs = world.read_storage::<IsBuilding>();
+            let cps = world.read_storage::<CProperty>();
+            let tgt_stats = UnitStats::from_refs(&*buffs, is_bldgs.get(target).is_some());
+            let (base_armor, base_resist) = cps.get(target)
+                .map(|cp| (cp.def_physic, cp.def_magic))
+                .unwrap_or((0.0, 0.0));
+            (
+                tgt_stats.apply_incoming_damage(phys, DamageKind::Physical, target, base_armor, base_resist),
+                tgt_stats.apply_incoming_damage(magi, DamageKind::Magical, target, base_armor, base_resist),
+                tgt_stats.apply_incoming_damage(real, DamageKind::Pure, target, base_armor, base_resist),
+            )
+        };
+        let final_total = final_phys + final_magi + final_real;
+
+        // ---- 先發 AttackHit / AttackLanded（含 final damage 數值）----
         {
             let mut queue = world.write_resource::<crate::scripting::ScriptEventQueue>();
             queue.push(crate::scripting::ScriptEvent::AttackHit {
@@ -38,52 +87,79 @@ impl CombatEventHandler {
             queue.push(crate::scripting::ScriptEvent::AttackLanded {
                 attacker: source,
                 victim: target,
-                damage: total_dmg_for_event,
-            });
-            queue.push(crate::scripting::ScriptEvent::Attacked {
-                attacker: source,
-                victim: target,
+                damage: final_total,
             });
         }
 
-        let mut properties = world.write_storage::<CProperty>();
+        // ---- 扣 HP，套 MIN_HEALTH 下限 ----
+        let min_health = {
+            let buffs = world.read_resource::<crate::ability_runtime::BuffStore>();
+            buffs.sum_add(target, sk::MIN_HEALTH)
+        };
+        let has_reincarnation = {
+            let buffs = world.read_resource::<crate::ability_runtime::BuffStore>();
+            buffs.has(target, sk::REINCARNATION)
+        };
 
-        if let Some(target_props) = properties.get_mut(target) {
-            let hp_before = target_props.hp;
-            let total_damage = phys + magi + real;
-            target_props.hp -= total_damage;
-            let hp_after = target_props.hp;
-            
-            // 獲取攻擊者和目標名稱
-            let (source_name, target_name) = Self::get_entity_names(world, source, target);
-            
-            // 格式化傷害信息
-            let damage_info = Self::format_damage_info(phys, magi, real, total_damage);
-            
-            log::info!("⚔️ {} 攻擊 {} | {} | HP: {:.1} → {:.1}/{:.1}", 
-                source_name, target_name, damage_info, hp_before, hp_after, target_props.mhp
-            );
-            
-            // 檢查是否死亡
-            if target_props.hp <= 0.0 {
-                target_props.hp = 0.0;
+        let mut died = false;
+        {
+            let mut properties = world.write_storage::<CProperty>();
+            if let Some(target_props) = properties.get_mut(target) {
+                let hp_before = target_props.hp;
+                target_props.hp -= final_total;
+                // MIN_HEALTH clamp：> 0 時 HP 不低於此值
+                if min_health > 0.0 && target_props.hp < min_health {
+                    target_props.hp = min_health;
+                }
+                if target_props.hp <= 0.0 {
+                    target_props.hp = 0.0;
+                    died = true;
+                }
+                let hp_after = target_props.hp;
+
+                let (source_name, target_name) = Self::get_entity_names(world, source, target);
+                let damage_info = Self::format_damage_info(final_phys, final_magi, final_real, final_total);
+                log::info!("⚔️ {} 攻擊 {} | {} | HP: {:.1} → {:.1}/{:.1}",
+                    source_name, target_name, damage_info, hp_before, hp_after, target_props.mhp
+                );
+            }
+        }
+
+        // ---- 死亡處理：reincarnation 優先 ----
+        if died {
+            if has_reincarnation {
+                // 補滿 HP，push Respawn；不發 Death
+                {
+                    let mut properties = world.write_storage::<CProperty>();
+                    if let Some(p) = properties.get_mut(target) {
+                        p.hp = p.mhp;
+                    }
+                }
+                // 移除 reincarnation（一次性）
+                {
+                    let mut buffs = world.write_resource::<crate::ability_runtime::BuffStore>();
+                    buffs.remove(target, sk::REINCARNATION);
+                }
+                let target_name = Self::get_entity_name(world, target);
+                log::info!("✨ {} 重生！", target_name);
+                world.write_resource::<crate::scripting::ScriptEventQueue>()
+                    .push(crate::scripting::ScriptEvent::Respawn { e: target });
+            } else {
+                let target_name = Self::get_entity_name(world, target);
                 log::info!("💀 {} 死亡！", target_name);
                 next_outcomes.push(Outcome::Death { pos, ent: target });
-                // drop mutable storage borrow before writing to ScriptEventQueue
-                drop(properties);
                 world.write_resource::<crate::scripting::ScriptEventQueue>()
                     .push(crate::scripting::ScriptEvent::Death {
                         victim: target,
                         killer: Some(source),
                     });
-                return next_outcomes;
             }
         }
 
         next_outcomes
     }
 
-    /// 處理治療事件
+    /// 處理治療事件 — 套 `HEAL_RECEIVED_MULTIPLIER` 與 `DISABLE_HEALING` 判定。
     pub fn handle_heal(
         world: &mut World,
         _mqtx: &Sender<OutboundMsg>,
@@ -91,21 +167,40 @@ impl CombatEventHandler {
         target: Entity,
         amount: f32,
     ) -> Vec<Outcome> {
-        let mut properties = world.write_storage::<CProperty>();
-        
-        let mut actual_heal: f32 = 0.0;
-        if let Some(target_props) = properties.get_mut(target) {
-            let hp_before = target_props.hp;
-            target_props.hp = (target_props.hp + amount).min(target_props.mhp);
-            let hp_after = target_props.hp;
-            actual_heal = hp_after - hp_before;
+        // 先查 buff 套 modifier
+        let effective_amount = {
+            let buffs = world.read_resource::<crate::ability_runtime::BuffStore>();
+            let disabled = buffs.has(target, sk::DISABLE_HEALING)
+                || buffs.sum_add(target, sk::DISABLE_HEALING) > 0.5;
+            if disabled {
+                0.0
+            } else {
+                let mult = 1.0 + buffs.sum_add(target, sk::HEAL_RECEIVED_MULTIPLIER);
+                amount * mult
+            }
+        };
 
+        if effective_amount <= 0.0 {
             let target_name = Self::get_entity_name(world, target);
-            log::info!("💚 {} 回復 {:.1} HP | HP: {:.1} → {:.1}/{:.1}",
-                target_name, amount, hp_before, hp_after, target_props.mhp
-            );
+            log::info!("🚫 {} 治療被阻擋（disable_healing 或倍率歸零）", target_name);
+            return Vec::new();
         }
-        drop(properties);
+
+        let mut actual_heal: f32 = 0.0;
+        {
+            let mut properties = world.write_storage::<CProperty>();
+            if let Some(target_props) = properties.get_mut(target) {
+                let hp_before = target_props.hp;
+                target_props.hp = (target_props.hp + effective_amount).min(target_props.mhp);
+                let hp_after = target_props.hp;
+                actual_heal = hp_after - hp_before;
+
+                let target_name = Self::get_entity_name(world, target);
+                log::info!("💚 {} 回復 {:.1} HP（原 {:.1} × 倍率）| HP: {:.1} → {:.1}/{:.1}",
+                    target_name, actual_heal, amount, hp_before, hp_after, target_props.mhp
+                );
+            }
+        }
 
         if actual_heal > 0.0 {
             let mut queue = world.write_resource::<crate::scripting::ScriptEventQueue>();

@@ -694,5 +694,79 @@ impl<'a> GameWorld for WorldAdapter<'a> {
                 active,
             });
     }
+
+    // ---------------- Dota 2 property 完整查詢 ----------------
+
+    fn get_final_armor(&self, e: EntityHandle) -> f32 {
+        let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
+        let buffs = self.world.read_resource::<crate::ability_runtime::BuffStore>();
+        let is_bldg = self.world.read_storage::<IsBuilding>().get(ent).is_some();
+        let base = self.world.read_storage::<CProperty>()
+            .get(ent).map(|c| c.def_physic).unwrap_or(0.0);
+        crate::ability_runtime::UnitStats::from_refs(&*buffs, is_bldg).final_armor(base, ent)
+    }
+
+    fn get_final_magic_resist(&self, e: EntityHandle) -> f32 {
+        let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
+        let buffs = self.world.read_resource::<crate::ability_runtime::BuffStore>();
+        let is_bldg = self.world.read_storage::<IsBuilding>().get(ent).is_some();
+        let base = self.world.read_storage::<CProperty>()
+            .get(ent).map(|c| c.def_magic).unwrap_or(0.0);
+        crate::ability_runtime::UnitStats::from_refs(&*buffs, is_bldg).final_magic_resist(base, ent)
+    }
+
+    fn get_evasion_chance(&self, e: EntityHandle) -> f32 {
+        let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
+        let buffs = self.world.read_resource::<crate::ability_runtime::BuffStore>();
+        let is_bldg = self.world.read_storage::<IsBuilding>().get(ent).is_some();
+        crate::ability_runtime::UnitStats::from_refs(&*buffs, is_bldg).evasion_chance(ent)
+    }
+
+    fn get_miss_chance(&self, e: EntityHandle) -> f32 {
+        let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
+        let buffs = self.world.read_resource::<crate::ability_runtime::BuffStore>();
+        let is_bldg = self.world.read_storage::<IsBuilding>().get(ent).is_some();
+        crate::ability_runtime::UnitStats::from_refs(&*buffs, is_bldg).miss_chance(ent)
+    }
+
+    fn get_crit_chance(&self, e: EntityHandle) -> f32 {
+        let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
+        let buffs = self.world.read_resource::<crate::ability_runtime::BuffStore>();
+        let is_bldg = self.world.read_storage::<IsBuilding>().get(ent).is_some();
+        crate::ability_runtime::UnitStats::from_refs(&*buffs, is_bldg).crit(ent).0
+    }
+
+    fn get_crit_multiplier(&self, e: EntityHandle) -> f32 {
+        let Some(ent) = Self::handle_to_entity(e) else { return 1.0 };
+        let buffs = self.world.read_resource::<crate::ability_runtime::BuffStore>();
+        let is_bldg = self.world.read_storage::<IsBuilding>().get(ent).is_some();
+        crate::ability_runtime::UnitStats::from_refs(&*buffs, is_bldg).crit(ent).1
+    }
+
+    fn get_cooldown_mult(&self, e: EntityHandle) -> f32 {
+        let Some(ent) = Self::handle_to_entity(e) else { return 1.0 };
+        let buffs = self.world.read_resource::<crate::ability_runtime::BuffStore>();
+        let is_bldg = self.world.read_storage::<IsBuilding>().get(ent).is_some();
+        crate::ability_runtime::UnitStats::from_refs(&*buffs, is_bldg).cooldown_mult(ent)
+    }
+
+    fn is_building(&self, e: EntityHandle) -> bool {
+        let Some(ent) = Self::handle_to_entity(e) else { return false };
+        self.world.read_storage::<IsBuilding>().get(ent).is_some()
+    }
+
+    fn get_max_hp_bonus(&self, e: EntityHandle) -> f32 {
+        let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
+        let buffs = self.world.read_resource::<crate::ability_runtime::BuffStore>();
+        let is_bldg = self.world.read_storage::<IsBuilding>().get(ent).is_some();
+        crate::ability_runtime::UnitStats::from_refs(&*buffs, is_bldg).max_hp_bonus(ent)
+    }
+
+    fn get_hp_regen(&self, e: EntityHandle) -> f32 {
+        let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
+        let buffs = self.world.read_resource::<crate::ability_runtime::BuffStore>();
+        let is_bldg = self.world.read_storage::<IsBuilding>().get(ent).is_some();
+        crate::ability_runtime::UnitStats::from_refs(&*buffs, is_bldg).hp_regen(0.0, ent)
+    }
 }
 
