@@ -297,6 +297,10 @@ impl<'a> GameWorld for WorldAdapter<'a> {
             .with(TurnSpeed(std::f32::consts::PI))
             .with(CollisionRadius(30.0))
             .with(summoned)
+            // 綁 ScriptUnitTag 讓 dispatch tick 呼叫 UnitScript::on_tick 驅動 AI
+            .with(crate::scripting::ScriptUnitTag {
+                unit_id: unit_type_str.to_string(),
+            })
             .build();
 
         // 廣播給前端
