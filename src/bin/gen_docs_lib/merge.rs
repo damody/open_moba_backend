@@ -89,9 +89,36 @@ pub fn merge(
         });
     }
 
-    // 4. Remaining impls → warnings (orphan UnitScript; AbilityScript expected to
-    //    attach to abilities list, not units — don't warn for those).
+    // 3.5. Collect dangling ability references (hero/creep lists that name
+    //      ability ids not exported by the DLL manifest).
+    let dangling_ability_refs: Vec<(String, String)> = {
+        let known: std::collections::HashSet<&str> =
+            dll.abilities.iter().map(|a| a.id.as_str()).collect();
+        let mut v = Vec::new();
+        for u in &units {
+            for ab in &u.abilities {
+                if !known.contains(ab.as_str()) {
+                    v.push((u.id.clone(), ab.clone()));
+                }
+            }
+        }
+        v
+    };
+
+    // 4. 剩下的 impl 處理：
+    //    - UnitScript 但對不到 DLL manifest/entity.json → push warning（可能是 orphan）。
+    //    - AbilityScript：當前 pipeline 不把 impl 的 overrides/world_calls 綁回
+    //      `AbilityEntry`（Task 7 範圍），只保留 JSON 層級 metadata。若未來 Task 10
+    //      想在 ability card 顯示 "implemented in X.rs / calls Y"，需要在 `AbilityEntry`
+    //      加 overrides/world_calls/source_file 欄位並在這裡多一個 drain pass。
+    //      目前靜默丟棄；orphan warning 不對 AbilityScript 發出。
     let mut warnings = warnings;
+    for (unit_id, ab) in dangling_ability_refs {
+        warnings.push(Warning {
+            source: format!("entity.json#{}", unit_id),
+            message: format!("unit '{}' references unknown ability '{}'", unit_id, ab),
+        });
+    }
     for (k, i) in by_id {
         if i.trait_name == "UnitScript" {
             warnings.push(Warning {
