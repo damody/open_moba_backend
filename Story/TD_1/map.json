@@ -19,7 +19,7 @@
     {
       "Name": "td_basic",
       "Label": "基礎氣球",
-      "HP": 60.0,
+      "HP": 120.0,
       "DefendPhysic": 0.0,
       "DefendMagic": 0.0,
       "MoveSpeed": 120.0,
@@ -30,7 +30,7 @@
     {
       "Name": "td_tough",
       "Label": "強化氣球",
-      "HP": 150.0,
+      "HP": 300.0,
       "DefendPhysic": 1.0,
       "DefendMagic": 0.0,
       "MoveSpeed": 100.0,
@@ -40,14 +40,54 @@
     }
   ],
   "CheckPoint": [
-    { "Name": "td_spawn", "Class": "Spawn", "X": -1400.0, "Y": -800.0 },
-    { "Name": "td_cp1",   "Class": "Path",  "X":  1400.0, "Y": -800.0 },
-    { "Name": "td_cp2",   "Class": "Path",  "X":  1400.0, "Y": -200.0 },
-    { "Name": "td_cp3",   "Class": "Path",  "X": -1400.0, "Y": -200.0 },
-    { "Name": "td_cp4",   "Class": "Path",  "X": -1400.0, "Y":  400.0 },
-    { "Name": "td_cp5",   "Class": "Path",  "X":  1400.0, "Y":  400.0 },
-    { "Name": "td_cp6",   "Class": "Path",  "X":  1400.0, "Y":  800.0 },
-    { "Name": "td_exit",  "Class": "Base",  "X": -1400.0, "Y":  800.0 }
+    {
+      "Name": "td_spawn",
+      "Class": "Spawn",
+      "X": -1400.0,
+      "Y": -800.0
+    },
+    {
+      "Name": "td_cp1",
+      "Class": "Path",
+      "X": 1400.0,
+      "Y": -800.0
+    },
+    {
+      "Name": "td_cp2",
+      "Class": "Path",
+      "X": 1400.0,
+      "Y": -200.0
+    },
+    {
+      "Name": "td_cp3",
+      "Class": "Path",
+      "X": -1400.0,
+      "Y": -200.0
+    },
+    {
+      "Name": "td_cp4",
+      "Class": "Path",
+      "X": -1400.0,
+      "Y": 400.0
+    },
+    {
+      "Name": "td_cp5",
+      "Class": "Path",
+      "X": 1400.0,
+      "Y": 400.0
+    },
+    {
+      "Name": "td_cp6",
+      "Class": "Path",
+      "X": 1400.0,
+      "Y": 800.0
+    },
+    {
+      "Name": "td_exit",
+      "Class": "Base",
+      "X": -1400.0,
+      "Y": 800.0
+    }
   ],
   "Tower": [],
   "CreepWave": [
@@ -58,14 +98,70 @@
         {
           "Path": "td_main",
           "Creeps": [
-            { "Time": 0.0, "Creep": "td_basic" },
-            { "Time": 1.2, "Creep": "td_basic" },
-            { "Time": 2.4, "Creep": "td_basic" },
-            { "Time": 3.6, "Creep": "td_basic" },
-            { "Time": 4.8, "Creep": "td_basic" },
-            { "Time": 6.0, "Creep": "td_basic" },
-            { "Time": 7.2, "Creep": "td_basic" },
-            { "Time": 8.4, "Creep": "td_basic" }
+            {
+              "Time": 0.0,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 0.0,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 1.2,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 1.2,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 2.4,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 2.4,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 3.6,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 3.6,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 4.8,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 4.8,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 6.0,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 6.0,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 7.2,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 7.2,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 8.4,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 8.4,
+              "Creep": "td_basic"
+            }
           ]
         }
       ]
@@ -77,18 +173,102 @@
         {
           "Path": "td_main",
           "Creeps": [
-            { "Time": 0.0, "Creep": "td_basic" },
-            { "Time": 1.0, "Creep": "td_basic" },
-            { "Time": 2.0, "Creep": "td_basic" },
-            { "Time": 3.0, "Creep": "td_basic" },
-            { "Time": 4.0, "Creep": "td_basic" },
-            { "Time": 5.0, "Creep": "td_basic" },
-            { "Time": 6.0, "Creep": "td_tough" },
-            { "Time": 7.0, "Creep": "td_basic" },
-            { "Time": 8.0, "Creep": "td_basic" },
-            { "Time": 9.0, "Creep": "td_basic" },
-            { "Time": 10.0, "Creep": "td_basic" },
-            { "Time": 11.0, "Creep": "td_tough" }
+            {
+              "Time": 0.0,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 0.0,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 1.0,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 1.0,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 2.0,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 2.0,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 3.0,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 3.0,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 4.0,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 4.0,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 5.0,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 5.0,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 6.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 6.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 7.0,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 7.0,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 8.0,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 8.0,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 9.0,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 9.0,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 10.0,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 10.0,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 11.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 11.0,
+              "Creep": "td_tough"
+            }
           ]
         }
       ]
@@ -100,24 +280,150 @@
         {
           "Path": "td_main",
           "Creeps": [
-            { "Time": 0.0, "Creep": "td_basic" },
-            { "Time": 0.8, "Creep": "td_basic" },
-            { "Time": 1.6, "Creep": "td_tough" },
-            { "Time": 2.4, "Creep": "td_basic" },
-            { "Time": 3.2, "Creep": "td_basic" },
-            { "Time": 4.0, "Creep": "td_tough" },
-            { "Time": 4.8, "Creep": "td_basic" },
-            { "Time": 5.6, "Creep": "td_basic" },
-            { "Time": 6.4, "Creep": "td_tough" },
-            { "Time": 7.2, "Creep": "td_basic" },
-            { "Time": 8.0, "Creep": "td_basic" },
-            { "Time": 8.8, "Creep": "td_tough" },
-            { "Time": 9.6, "Creep": "td_basic" },
-            { "Time": 10.4, "Creep": "td_basic" },
-            { "Time": 11.2, "Creep": "td_tough" },
-            { "Time": 12.0, "Creep": "td_tough" },
-            { "Time": 12.8, "Creep": "td_tough" },
-            { "Time": 13.6, "Creep": "td_tough" }
+            {
+              "Time": 0.0,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 0.0,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 0.8,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 0.8,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 1.6,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 1.6,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 2.4,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 2.4,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 3.2,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 3.2,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 4.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 4.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 4.8,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 4.8,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 5.6,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 5.6,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 6.4,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 6.4,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 7.2,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 7.2,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 8.0,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 8.0,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 8.8,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 8.8,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 9.6,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 9.6,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 10.4,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 10.4,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 11.2,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 11.2,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 12.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 12.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 12.8,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 12.8,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 13.6,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 13.6,
+              "Creep": "td_tough"
+            }
           ]
         }
       ]
@@ -129,31 +435,206 @@
         {
           "Path": "td_main",
           "Creeps": [
-            { "Time": 0.0, "Creep": "td_tough" },
-            { "Time": 0.6, "Creep": "td_basic" },
-            { "Time": 1.2, "Creep": "td_basic" },
-            { "Time": 1.8, "Creep": "td_tough" },
-            { "Time": 2.4, "Creep": "td_basic" },
-            { "Time": 3.0, "Creep": "td_basic" },
-            { "Time": 3.6, "Creep": "td_tough" },
-            { "Time": 4.2, "Creep": "td_basic" },
-            { "Time": 4.8, "Creep": "td_basic" },
-            { "Time": 5.4, "Creep": "td_tough" },
-            { "Time": 6.0, "Creep": "td_basic" },
-            { "Time": 6.6, "Creep": "td_basic" },
-            { "Time": 7.2, "Creep": "td_tough" },
-            { "Time": 7.8, "Creep": "td_tough" },
-            { "Time": 8.4, "Creep": "td_tough" },
-            { "Time": 9.0, "Creep": "td_tough" },
-            { "Time": 9.6, "Creep": "td_tough" },
-            { "Time": 10.2, "Creep": "td_tough" },
-            { "Time": 10.8, "Creep": "td_tough" },
-            { "Time": 11.4, "Creep": "td_tough" },
-            { "Time": 12.0, "Creep": "td_tough" },
-            { "Time": 12.6, "Creep": "td_tough" },
-            { "Time": 13.2, "Creep": "td_tough" },
-            { "Time": 13.8, "Creep": "td_tough" },
-            { "Time": 14.4, "Creep": "td_tough" }
+            {
+              "Time": 0.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 0.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 0.6,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 0.6,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 1.2,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 1.2,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 1.8,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 1.8,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 2.4,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 2.4,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 3.0,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 3.0,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 3.6,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 3.6,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 4.2,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 4.2,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 4.8,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 4.8,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 5.4,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 5.4,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 6.0,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 6.0,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 6.6,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 6.6,
+              "Creep": "td_basic"
+            },
+            {
+              "Time": 7.2,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 7.2,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 7.8,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 7.8,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 8.4,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 8.4,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 9.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 9.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 9.6,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 9.6,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 10.2,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 10.2,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 10.8,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 10.8,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 11.4,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 11.4,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 12.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 12.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 12.6,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 12.6,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 13.2,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 13.2,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 13.8,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 13.8,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 14.4,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 14.4,
+              "Creep": "td_tough"
+            }
           ]
         }
       ]
@@ -165,46 +646,326 @@
         {
           "Path": "td_main",
           "Creeps": [
-            { "Time": 0.0, "Creep": "td_tough" },
-            { "Time": 0.5, "Creep": "td_tough" },
-            { "Time": 1.0, "Creep": "td_tough" },
-            { "Time": 1.5, "Creep": "td_tough" },
-            { "Time": 2.0, "Creep": "td_tough" },
-            { "Time": 2.5, "Creep": "td_tough" },
-            { "Time": 3.0, "Creep": "td_tough" },
-            { "Time": 3.5, "Creep": "td_tough" },
-            { "Time": 4.0, "Creep": "td_tough" },
-            { "Time": 4.5, "Creep": "td_tough" },
-            { "Time": 5.0, "Creep": "td_tough" },
-            { "Time": 5.5, "Creep": "td_tough" },
-            { "Time": 6.0, "Creep": "td_tough" },
-            { "Time": 6.5, "Creep": "td_tough" },
-            { "Time": 7.0, "Creep": "td_tough" },
-            { "Time": 7.5, "Creep": "td_tough" },
-            { "Time": 8.0, "Creep": "td_tough" },
-            { "Time": 8.5, "Creep": "td_tough" },
-            { "Time": 9.0, "Creep": "td_tough" },
-            { "Time": 9.5, "Creep": "td_tough" },
-            { "Time": 10.0, "Creep": "td_tough" },
-            { "Time": 10.5, "Creep": "td_tough" },
-            { "Time": 11.0, "Creep": "td_tough" },
-            { "Time": 11.5, "Creep": "td_tough" },
-            { "Time": 12.0, "Creep": "td_tough" },
-            { "Time": 12.5, "Creep": "td_tough" },
-            { "Time": 13.0, "Creep": "td_tough" },
-            { "Time": 13.5, "Creep": "td_tough" },
-            { "Time": 14.0, "Creep": "td_tough" },
-            { "Time": 14.5, "Creep": "td_tough" },
-            { "Time": 15.0, "Creep": "td_tough" },
-            { "Time": 15.5, "Creep": "td_tough" },
-            { "Time": 16.0, "Creep": "td_tough" },
-            { "Time": 16.5, "Creep": "td_tough" },
-            { "Time": 17.0, "Creep": "td_tough" },
-            { "Time": 17.5, "Creep": "td_tough" },
-            { "Time": 18.0, "Creep": "td_tough" },
-            { "Time": 18.5, "Creep": "td_tough" },
-            { "Time": 19.0, "Creep": "td_tough" },
-            { "Time": 19.5, "Creep": "td_tough" }
+            {
+              "Time": 0.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 0.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 0.5,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 0.5,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 1.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 1.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 1.5,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 1.5,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 2.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 2.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 2.5,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 2.5,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 3.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 3.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 3.5,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 3.5,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 4.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 4.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 4.5,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 4.5,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 5.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 5.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 5.5,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 5.5,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 6.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 6.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 6.5,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 6.5,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 7.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 7.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 7.5,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 7.5,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 8.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 8.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 8.5,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 8.5,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 9.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 9.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 9.5,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 9.5,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 10.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 10.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 10.5,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 10.5,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 11.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 11.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 11.5,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 11.5,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 12.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 12.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 12.5,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 12.5,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 13.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 13.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 13.5,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 13.5,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 14.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 14.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 14.5,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 14.5,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 15.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 15.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 15.5,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 15.5,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 16.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 16.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 16.5,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 16.5,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 17.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 17.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 17.5,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 17.5,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 18.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 18.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 18.5,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 18.5,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 19.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 19.0,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 19.5,
+              "Creep": "td_tough"
+            },
+            {
+              "Time": 19.5,
+              "Creep": "td_tough"
+            }
           ]
         }
       ]
