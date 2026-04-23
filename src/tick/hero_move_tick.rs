@@ -137,6 +137,12 @@ impl<'a> System<'a> for Sys {
             &tw.move_targets,
             &mut tw.facings,
         ).join() {
+            // Root / stun 狀態：完全凍結（不轉向、不位移、不消耗 MoveTarget）
+            if tr.buff_store.is_rooted(entity) {
+                broadcasts.push((entity.id(), pos.0.x, pos.0.y, facing.0));
+                continue;
+            }
+
             let target = move_target.0;
             let diff = target - pos.0;
             let distance = diff.magnitude();

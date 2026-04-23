@@ -96,6 +96,20 @@ impl BuffStore {
             .fold(1.0f64, |acc, v| acc * v) as f32
     }
 
+    /// 控制類 buff 判定 — 這些 buff_id 出現在單位身上代表其處於特定 CC 狀態。
+    /// 約定：`stun` 同時禁攻擊與移動；`silence` 禁技能施放；`root` 只禁移動。
+    pub fn is_stunned(&self, entity: Entity) -> bool {
+        self.has(entity, "stun")
+    }
+
+    pub fn is_rooted(&self, entity: Entity) -> bool {
+        self.has(entity, "root") || self.has(entity, "stun")
+    }
+
+    pub fn is_silenced(&self, entity: Entity) -> bool {
+        self.has(entity, "silence") || self.has(entity, "stun")
+    }
+
     /// 倒數所有 buff 並回傳過期的 `(Entity, buff_id)` 清單。
     pub fn tick(&mut self, dt: f32) -> Vec<(Entity, String)> {
         let mut expired = Vec::new();

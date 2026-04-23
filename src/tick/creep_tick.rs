@@ -96,6 +96,10 @@ impl<'a> System<'a> for Sys {
                                             next_status = CreepStatus::Walk;
                                         }
                                         CreepStatus::Walk => {
+                                            // Root / stun：本 tick 完全不前進（閉包提早返回 → 此 creep 本 tick 無 outcomes）
+                                            if tr.buff_store.is_rooted(e) {
+                                                return outcomes;
+                                            }
                                             // Slow buff（Ice 塔命中）：從 BuffStore 讀取
                                             // payload.factor；無則不減速（1.0）
                                             let slow_mult = tr.buff_store

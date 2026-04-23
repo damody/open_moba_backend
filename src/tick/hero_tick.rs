@@ -82,6 +82,11 @@ impl<'a> System<'a> for Sys {
                 |_guard, (e, hero, pty, atk, pos, facing)| {
                     let mut outcomes: Vec<Outcome> = Vec::new();
 
+                    // Stun 狀態：暈眩中不攻擊、不累積冷卻（asd_count 凍結）
+                    if tr.buff_store.is_stunned(e) {
+                        return outcomes;
+                    }
+
                     // 攻擊速度乘數：buff 的 attack_speed_multiplier 連乘（例：sniper 0.7 = 變慢）
                     // effective_interval = base / multiplier，multiplier 越小越慢。
                     let asd_mult = tr.buff_store.product_mult(e, "attack_speed_multiplier").max(0.01);
