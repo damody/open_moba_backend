@@ -24,7 +24,9 @@ impl TowerUpgradeRegistry {
     }
 
     fn insert(&mut self, def: TowerUpgradeDef) {
-        self.defs.insert((def.tower_kind.clone(), def.path, def.level), def);
+        let key = (def.tower_kind.clone(), def.path, def.level);
+        let prev = self.defs.insert(key.clone(), def);
+        debug_assert!(prev.is_none(), "duplicate upgrade def for {:?}", key);
     }
 
     // Dart Monkey (base 200): Path 0 Sharp, Path 1 Quick, Path 2 Crit
@@ -501,10 +503,19 @@ mod tests {
         let reg = TowerUpgradeRegistry::new();
         let bases = [("tower_dart", 200), ("tower_bomb", 650), ("tower_tack", 400), ("tower_ice", 400)];
         for (kind, base) in bases {
-            for level in 1..=4 {
-                let def = reg.get(kind, 0, level).unwrap();
-                assert_eq!(def.cost, upgrade_cost(base, level), "{} path 0 L{}", kind, level);
+            for path in 0..3u8 {
+                for level in 1..=4 {
+                    let def = reg.get(kind, path, level).unwrap();
+                    assert_eq!(def.cost, upgrade_cost(base, level),
+                        "{} path {} L{}", kind, path, level);
+                }
             }
         }
+    }
+
+    #[test]
+    fn no_duplicate_keys() {
+        let reg = TowerUpgradeRegistry::new();
+        assert_eq!(reg.defs.len(), 48);
     }
 }
