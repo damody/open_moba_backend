@@ -81,6 +81,7 @@ pub struct EnemyJD {
     
     // AI 行為
     pub ai_type: String,     // aggressive, defensive, patrol
+    #[serde(default)]
     pub abilities: Vec<String>,
 
     // 獎勵
