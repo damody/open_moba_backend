@@ -23,18 +23,27 @@ impl CombatEventHandler {
     ) -> Vec<Outcome> {
         let mut next_outcomes = Vec::new();
 
-        // 若攻擊者有 ScriptUnitTag → 排入腳本 AttackHit 事件，在本 tick 結尾的
-        // ScriptDispatchSystem 由腳本的 on_attack_hit 處理（可追加爆擊、濺射等）。
+        // 不論 attacker/victim 是否有 ScriptUnitTag 都 push 事件 — dispatch 端
+        // 會檢查 tag 再派發到對應 hook（no-op 開銷極小）。push 順序：
+        //   AttackHit  → attacker 側 on_attack_hit（legacy）
+        //   AttackLanded → attacker 側 on_attack_landed（帶 damage 數值）
+        //   Attacked   → victim 側 on_attacked（用於護盾計數等）
+        let total_dmg_for_event = phys + magi + real;
         {
-            let tags = world.read_storage::<crate::scripting::ScriptUnitTag>();
-            if tags.get(source).is_some() {
-                drop(tags);
-                let mut queue = world.write_resource::<crate::scripting::ScriptEventQueue>();
-                queue.push(crate::scripting::ScriptEvent::AttackHit {
-                    attacker: source,
-                    victim: target,
-                });
-            }
+            let mut queue = world.write_resource::<crate::scripting::ScriptEventQueue>();
+            queue.push(crate::scripting::ScriptEvent::AttackHit {
+                attacker: source,
+                victim: target,
+            });
+            queue.push(crate::scripting::ScriptEvent::AttackLanded {
+                attacker: source,
+                victim: target,
+                damage: total_dmg_for_event,
+            });
+            queue.push(crate::scripting::ScriptEvent::Attacked {
+                attacker: source,
+                victim: target,
+            });
         }
 
         let mut properties = world.write_storage::<CProperty>();
@@ -60,9 +69,17 @@ impl CombatEventHandler {
                 target_props.hp = 0.0;
                 log::info!("💀 {} 死亡！", target_name);
                 next_outcomes.push(Outcome::Death { pos, ent: target });
+                // drop mutable storage borrow before writing to ScriptEventQueue
+                drop(properties);
+                world.write_resource::<crate::scripting::ScriptEventQueue>()
+                    .push(crate::scripting::ScriptEvent::Death {
+                        victim: target,
+                        killer: Some(source),
+                    });
+                return next_outcomes;
             }
         }
-        
+
         next_outcomes
     }
 
@@ -76,17 +93,33 @@ impl CombatEventHandler {
     ) -> Vec<Outcome> {
         let mut properties = world.write_storage::<CProperty>();
         
+        let mut actual_heal: f32 = 0.0;
         if let Some(target_props) = properties.get_mut(target) {
             let hp_before = target_props.hp;
             target_props.hp = (target_props.hp + amount).min(target_props.mhp);
             let hp_after = target_props.hp;
-            
+            actual_heal = hp_after - hp_before;
+
             let target_name = Self::get_entity_name(world, target);
-            log::info!("💚 {} 回復 {:.1} HP | HP: {:.1} → {:.1}/{:.1}", 
+            log::info!("💚 {} 回復 {:.1} HP | HP: {:.1} → {:.1}/{:.1}",
                 target_name, amount, hp_before, hp_after, target_props.mhp
             );
         }
-        
+        drop(properties);
+
+        if actual_heal > 0.0 {
+            let mut queue = world.write_resource::<crate::scripting::ScriptEventQueue>();
+            queue.push(crate::scripting::ScriptEvent::HealReceived {
+                target,
+                amount: actual_heal,
+                source: None,
+            });
+            queue.push(crate::scripting::ScriptEvent::HealthGained {
+                e: target,
+                amount: actual_heal,
+            });
+        }
+
         Vec::new()
     }
 

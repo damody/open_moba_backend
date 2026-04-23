@@ -11,6 +11,7 @@ use specs::{shred, Entities, Read, ReadStorage, SystemData, Write, World};
 
 use crate::ability_runtime::BuffStore;
 use crate::comp::*;
+use crate::scripting::{ScriptEvent, ScriptEventQueue};
 use crate::transport::OutboundMsg;
 
 #[derive(SystemData)]
@@ -21,6 +22,7 @@ pub struct BuffTickData<'a> {
     creeps: ReadStorage<'a, Creep>,
     cpropertys: ReadStorage<'a, CProperty>,
     mqtx: Write<'a, Vec<Sender<OutboundMsg>>>,
+    script_events: Write<'a, ScriptEventQueue>,
 }
 
 #[derive(Default)]
@@ -37,6 +39,13 @@ impl<'a> System<'a> for Sys {
         let tx = data.mqtx.get(0).cloned();
 
         for (entity, _buff_id, payload) in expired {
+            // 每條過期 buff push ModifierRemoved 事件，讓腳本的 on_modifier_removed
+            // 能 hook 到（例：某 stacking debuff 過期時補一個 refresh buff）。
+            data.script_events.push(ScriptEvent::ModifierRemoved {
+                e: entity,
+                modifier_id: _buff_id.clone(),
+            });
+
             // 含 move_speed_bonus 的 buff 過期 → 對 creep 發 creep/S，重算 effective
             // （此時 sum_add 已不含過期那筆 → 自然還原或剩餘疊加）
             if payload.get("move_speed_bonus").is_some() {

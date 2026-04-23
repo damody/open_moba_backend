@@ -20,6 +20,7 @@ use specs::world::Generation;
 
 use crate::ability_runtime::BuffStore;
 use crate::comp::*;
+use crate::scripting::event::{ScriptEvent, ScriptEventQueue};
 use crate::transport::OutboundMsg;
 
 /// Host-side adapter. Created fresh for each `run_script_dispatch` call.
@@ -228,14 +229,24 @@ impl<'a> GameWorld for WorldAdapter<'a> {
 
     fn add_buff(&mut self, target: EntityHandle, buff_id: RStr<'_>, duration: f32) {
         let Some(ent) = Self::handle_to_entity(target) else { return };
-        let mut store = self.world.write_resource::<BuffStore>();
-        store.add(ent, buff_id.as_str(), duration, serde_json::Value::Null);
+        let id_owned = buff_id.as_str().to_string();
+        {
+            let mut store = self.world.write_resource::<BuffStore>();
+            store.add(ent, &id_owned, duration, serde_json::Value::Null);
+        }
+        self.world.write_resource::<ScriptEventQueue>()
+            .push(ScriptEvent::ModifierAdded { e: ent, modifier_id: id_owned });
     }
 
     fn remove_buff(&mut self, target: EntityHandle, buff_id: RStr<'_>) {
         let Some(ent) = Self::handle_to_entity(target) else { return };
-        let mut store = self.world.write_resource::<BuffStore>();
-        store.remove(ent, buff_id.as_str());
+        let id_owned = buff_id.as_str().to_string();
+        {
+            let mut store = self.world.write_resource::<BuffStore>();
+            store.remove(ent, &id_owned);
+        }
+        self.world.write_resource::<ScriptEventQueue>()
+            .push(ScriptEvent::ModifierRemoved { e: ent, modifier_id: id_owned });
     }
 
     fn has_buff(&self, target: EntityHandle, buff_id: RStr<'_>) -> bool {
@@ -254,8 +265,13 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         let Some(ent) = Self::handle_to_entity(target) else { return };
         let payload: serde_json::Value =
             serde_json::from_str(modifiers_json.as_str()).unwrap_or(serde_json::Value::Null);
-        let mut store = self.world.write_resource::<BuffStore>();
-        store.add(ent, buff_id.as_str(), duration, payload);
+        let id_owned = buff_id.as_str().to_string();
+        {
+            let mut store = self.world.write_resource::<BuffStore>();
+            store.add(ent, &id_owned, duration, payload);
+        }
+        self.world.write_resource::<ScriptEventQueue>()
+            .push(ScriptEvent::ModifierAdded { e: ent, modifier_id: id_owned });
     }
 
     fn spawn_projectile(
@@ -571,6 +587,112 @@ impl<'a> GameWorld for WorldAdapter<'a> {
     }
     fn log_error(&self, msg: RStr<'_>) {
         log::error!("[script] {}", msg.as_str());
+    }
+
+    // ---------------- Dota 2 modifier 風格聚合 ----------------
+
+    fn sum_stat(&self, e: EntityHandle, stat_key: RStr<'_>) -> f32 {
+        let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
+        self.world.read_resource::<BuffStore>().sum_add(ent, stat_key.as_str())
+    }
+
+    fn product_stat(&self, e: EntityHandle, stat_key: RStr<'_>) -> f32 {
+        let Some(ent) = Self::handle_to_entity(e) else { return 1.0 };
+        self.world.read_resource::<BuffStore>().product_mult(ent, stat_key.as_str())
+    }
+
+    fn get_final_move_speed(&self, e: EntityHandle) -> f32 {
+        let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
+        let base = self.world.read_storage::<CProperty>().get(ent).map(|p| p.msd).unwrap_or(0.0);
+        let store = self.world.read_resource::<BuffStore>();
+        let bonus = store.sum_add(ent, "move_speed_bonus");
+        let mult = store.product_mult(ent, "move_speed_multiplier");
+        // 絕對值覆蓋 > clamp min/max > 否則 base * (1+bonus) * mult
+        let abs_set: f32 = store.sum_add(ent, "move_speed_absolute");
+        let mut result = if abs_set > 0.0 {
+            abs_set
+        } else {
+            base * (1.0 + bonus) * mult
+        };
+        let min = store.sum_add(ent, "move_speed_min");
+        let max = store.sum_add(ent, "move_speed_max");
+        if min > 0.0 && result < min { result = min; }
+        if max > 0.0 && result > max { result = max; }
+        result.max(0.0)
+    }
+
+    fn get_final_atk(&self, e: EntityHandle) -> f32 {
+        let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
+        let base = self.world.read_storage::<TAttack>()
+            .get(ent).map(|t| t.atk_physic.v).unwrap_or(0.0);
+        let store = self.world.read_resource::<BuffStore>();
+        let bonus = store.sum_add(ent, "bonus_damage")
+            + store.sum_add(ent, "base_damage_bonus")
+            + store.sum_add(ent, "damage_bonus");
+        let mult = store.product_mult(ent, "damage_out_multiplier");
+        ((base + bonus) * mult).max(0.0)
+    }
+
+    fn get_final_attack_range(&self, e: EntityHandle) -> f32 {
+        let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
+        let base = self.world.read_storage::<TAttack>()
+            .get(ent).map(|t| t.range.v).unwrap_or(0.0);
+        let store = self.world.read_resource::<BuffStore>();
+        let bonus = store.sum_add(ent, "attack_range_bonus")
+            + store.sum_add(ent, "range_bonus");
+        (base + bonus).max(0.0)
+    }
+
+    fn get_buff_remaining(&self, e: EntityHandle, buff_id: RStr<'_>) -> f32 {
+        let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
+        self.world.read_resource::<BuffStore>()
+            .get(ent, buff_id.as_str())
+            .map(|b| b.remaining)
+            .unwrap_or(0.0)
+    }
+
+    fn current_mana(&self, e: EntityHandle) -> f32 {
+        // 沒有 current_mana component — 目前回 max（視為永遠滿）。
+        // 如果之後加 `ManaPool` component，這裡要改成讀 current。
+        let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
+        self.world.read_storage::<Hero>().get(ent).map(|h| h.get_max_mana()).unwrap_or(0.0)
+    }
+
+    fn spend_mana(&mut self, e: EntityHandle, amount: f32, ability_id: RStr<'_>) -> bool {
+        let Some(ent) = Self::handle_to_entity(e) else { return false };
+        // 目前沒有 mana storage，永遠視為成功；push 事件讓腳本 hook。
+        self.world.write_resource::<ScriptEventQueue>()
+            .push(ScriptEvent::SpentMana {
+                caster: ent,
+                cost: amount,
+                ability_id: ability_id.as_str().to_string(),
+            });
+        true
+    }
+
+    fn restore_mana(&mut self, e: EntityHandle, amount: f32) {
+        let Some(ent) = Self::handle_to_entity(e) else { return };
+        self.world.write_resource::<ScriptEventQueue>()
+            .push(ScriptEvent::ManaGained { e: ent, amount });
+    }
+
+    fn trigger_modifier_added(&mut self, e: EntityHandle, modifier_id: RStr<'_>) {
+        let Some(ent) = Self::handle_to_entity(e) else { return };
+        self.world.write_resource::<ScriptEventQueue>()
+            .push(ScriptEvent::ModifierAdded {
+                e: ent,
+                modifier_id: modifier_id.as_str().to_string(),
+            });
+    }
+
+    fn trigger_state_changed(&mut self, e: EntityHandle, state_id: RStr<'_>, active: bool) {
+        let Some(ent) = Self::handle_to_entity(e) else { return };
+        self.world.write_resource::<ScriptEventQueue>()
+            .push(ScriptEvent::StateChanged {
+                e: ent,
+                state_id: state_id.as_str().to_string(),
+                active,
+            });
     }
 }
 

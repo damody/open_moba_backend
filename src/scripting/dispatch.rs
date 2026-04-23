@@ -227,6 +227,106 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
                 script.on_attack_hit(handle, victim_handle, world_dyn);
             });
         }
+
+        ScriptEvent::Respawn { e } => {
+            with_script(adapter, registry, e, |script, handle, world_dyn| {
+                script.on_respawn(handle, world_dyn);
+            });
+        }
+
+        ScriptEvent::AttackStart { attacker, target } => {
+            let target_handle = target.map(WorldAdapter::entity_to_handle);
+            let t_opt = match target_handle {
+                Some(h) => RSome(h),
+                None => RNone,
+            };
+            with_script(adapter, registry, attacker, move |script, handle, world_dyn| {
+                script.on_attack_start(handle, t_opt, world_dyn);
+            });
+        }
+
+        ScriptEvent::AttackLanded { attacker, victim, damage } => {
+            let victim_handle = WorldAdapter::entity_to_handle(victim);
+            with_script(adapter, registry, attacker, |script, handle, world_dyn| {
+                script.on_attack_landed(handle, victim_handle, damage, world_dyn);
+            });
+        }
+
+        ScriptEvent::AttackFail { attacker, victim } => {
+            let victim_handle = WorldAdapter::entity_to_handle(victim);
+            with_script(adapter, registry, attacker, |script, handle, world_dyn| {
+                script.on_attack_fail(handle, victim_handle, world_dyn);
+            });
+        }
+
+        ScriptEvent::Attacked { attacker, victim } => {
+            let attacker_handle = WorldAdapter::entity_to_handle(attacker);
+            with_script(adapter, registry, victim, |script, handle, world_dyn| {
+                script.on_attacked(handle, attacker_handle, world_dyn);
+            });
+        }
+
+        ScriptEvent::HealthGained { e, amount } => {
+            with_script(adapter, registry, e, |script, handle, world_dyn| {
+                script.on_health_gained(handle, amount, world_dyn);
+            });
+        }
+
+        ScriptEvent::ManaGained { e, amount } => {
+            with_script(adapter, registry, e, |script, handle, world_dyn| {
+                script.on_mana_gained(handle, amount, world_dyn);
+            });
+        }
+
+        ScriptEvent::SpentMana { caster, cost, ability_id } => {
+            let id_clone = ability_id.clone();
+            with_script(adapter, registry, caster, move |script, handle, world_dyn| {
+                script.on_spent_mana(handle, cost, (&*id_clone).into(), world_dyn);
+            });
+        }
+
+        ScriptEvent::HealReceived { target, amount, source } => {
+            let source_opt = match source.map(WorldAdapter::entity_to_handle) {
+                Some(h) => RSome(h),
+                None => RNone,
+            };
+            with_script(adapter, registry, target, move |script, handle, world_dyn| {
+                script.on_heal_received(handle, amount, source_opt, world_dyn);
+            });
+        }
+
+        ScriptEvent::StateChanged { e, state_id, active } => {
+            let id_clone = state_id.clone();
+            with_script(adapter, registry, e, move |script, handle, world_dyn| {
+                script.on_state_changed(handle, (&*id_clone).into(), active, world_dyn);
+            });
+        }
+
+        ScriptEvent::ModifierAdded { e, modifier_id } => {
+            let id_clone = modifier_id.clone();
+            with_script(adapter, registry, e, move |script, handle, world_dyn| {
+                script.on_modifier_added(handle, (&*id_clone).into(), world_dyn);
+            });
+        }
+
+        ScriptEvent::ModifierRemoved { e, modifier_id } => {
+            let id_clone = modifier_id.clone();
+            with_script(adapter, registry, e, move |script, handle, world_dyn| {
+                script.on_modifier_removed(handle, (&*id_clone).into(), world_dyn);
+            });
+        }
+
+        ScriptEvent::Order { e, order_kind, target } => {
+            let kind_clone = order_kind.clone();
+            let target_abi = match target {
+                SkillTarget::Entity(t) => Target::Entity(WorldAdapter::entity_to_handle(t)),
+                SkillTarget::Point(x, y) => Target::Point(omb_script_abi::types::Vec2f { x, y }),
+                SkillTarget::None => Target::None,
+            };
+            with_script(adapter, registry, e, move |script, handle, world_dyn| {
+                script.on_order(handle, (&*kind_clone).into(), target_abi, world_dyn);
+            });
+        }
     }
 }
 
