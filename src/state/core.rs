@@ -6,6 +6,7 @@ use specs::{World, WorldExt};
 use crossbeam_channel::{Receiver, Sender};
 use failure::Error;
 use core::time::Duration;
+use std::time::Instant;
 
 use crate::{comp::*, CreepWave};
 use crate::ue4::import_map::CreepWaveData;
@@ -255,11 +256,14 @@ impl State {
         self.drain_viewport_updates();
 
         // 運行遊戲系統
+        let t_run = Instant::now();
         self.system_dispatcher.run_systems(&self.ecs)?;
+        let run_systems_ns = t_run.elapsed().as_nanos();
 
         // 腳本 dispatch 階段（E1 — 序列、獨佔 World）
         // 放在並行系統之後、其他序列處理之前，確保腳本能看到本 tick 的
         // 完整戰鬥結果，也能修改狀態讓下游處理看見。
+        let t_dispatch = Instant::now();
         scripting::run_script_dispatch(
             &mut self.ecs,
             &self.script_registry,
@@ -267,12 +271,24 @@ impl State {
             dt.as_secs_f32(),
             self.mqtx.clone(),
         );
+        let script_dispatch_ns = t_dispatch.elapsed().as_nanos();
 
         // 處理小兵波
         self.resource_manager.process_creep_waves(&mut self.ecs)?;
 
         // 處理遊戲結果
+        let t_outcomes = Instant::now();
         self.resource_manager.process_outcomes(&mut self.ecs)?;
+        let process_outcomes_ns = t_outcomes.elapsed().as_nanos();
+
+        {
+            use crate::comp::{TickPhase, TickProfile};
+            let mut profile = self.ecs.write_resource::<TickProfile>();
+            profile.record_phase(TickPhase::RunSystems, run_systems_ns);
+            profile.record_phase(TickPhase::ScriptDispatch, script_dispatch_ns);
+            profile.record_phase(TickPhase::ProcessOutcomes, process_outcomes_ns);
+            profile.finish_tick_and_maybe_log();
+        }
 
         // 處理玩家資料
         self.resource_manager.process_player_data(&mut self.ecs, &self.mqrx)?;

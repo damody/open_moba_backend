@@ -1,11 +1,12 @@
 pub mod phys;
 pub mod resources;
 pub mod state;
-pub mod ecs_setup;
 pub mod campaign_manager;
 pub mod mqtt_handler;
 pub mod game_processor;
 pub use game_processor::GameProcessor;
+pub mod tick_profile;
+pub use tick_profile::{TickProfile, Phase as TickPhase};
 pub mod last;
 pub mod outcome;
 pub mod projectile;

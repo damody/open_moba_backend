@@ -564,7 +564,7 @@ impl<'a> GameWorld for WorldAdapter<'a> {
     // ---------------- Log ----------------
 
     fn log_info(&self, msg: RStr<'_>) {
-        log::info!("[script] {}", msg.as_str());
+        log::debug!("[script] {}", msg.as_str());
     }
     fn log_warn(&self, msg: RStr<'_>) {
         log::warn!("[script] {}", msg.as_str());

@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::time::Instant;
 use failure::Error;
 use serde_json::json;
 use specs::{World, WorldExt, Entity, Builder, storage::{WriteStorage, ReadStorage}};
@@ -8,19 +9,78 @@ use crate::transport::OutboundMsg;
 use crate::Outcome;
 use crate::Projectile;
 
+fn outcome_kind(o: &Outcome) -> &'static str {
+    match o {
+        Outcome::Damage { .. } => "Damage",
+        Outcome::ProjectileLine2 { .. } => "ProjectileLine2",
+        Outcome::Death { .. } => "Death",
+        Outcome::Creep { .. } => "Creep",
+        Outcome::CreepStop { .. } => "CreepStop",
+        Outcome::CreepWalk { .. } => "CreepWalk",
+        Outcome::Tower { .. } => "Tower",
+        Outcome::Heal { .. } => "Heal",
+        Outcome::UpdateAttack { .. } => "UpdateAttack",
+        Outcome::GainExperience { .. } => "GainExperience",
+        Outcome::SpawnUnit { .. } => "SpawnUnit",
+        Outcome::CreepLeaked { .. } => "CreepLeaked",
+        Outcome::AddBuff { .. } => "AddBuff",
+        Outcome::Explosion { .. } => "Explosion",
+        Outcome::ProjectileDirectional { .. } => "ProjectileDirectional",
+    }
+}
+
 pub struct GameProcessor;
 
 impl GameProcessor {
     pub fn process_outcomes(ecs: &mut World, mqtx: &crossbeam_channel::Sender<OutboundMsg>) -> Result<(), Error> {
         let mut remove_uids = vec![];
         let mut next_outcomes = vec![];
-        
+        let mut variant_timings: Vec<(&'static str, u128)> = Vec::new();
+
         {
             let mut ocs = ecs.get_mut::<Vec<Outcome>>().unwrap();
-            let mut outcomes = vec![];
-            outcomes.append(ocs);
-            
+            let mut raw_outcomes = vec![];
+            raw_outcomes.append(ocs);
+
+            let damage_merge_start = Instant::now();
+            let mut merged_damage_count: u64 = 0;
+            let outcomes = {
+                let mut first_dmg_idx: std::collections::HashMap<Entity, usize> =
+                    std::collections::HashMap::new();
+                let mut aggregated: Vec<Outcome> = Vec::with_capacity(raw_outcomes.len());
+                for out in raw_outcomes {
+                    if let Outcome::Damage {
+                        phys: p, magi: m, real: r, target: t, ..
+                    } = &out
+                    {
+                        if let Some(&idx) = first_dmg_idx.get(t) {
+                            if let Outcome::Damage {
+                                phys: ap, magi: am, real: ar, ..
+                            } = &mut aggregated[idx]
+                            {
+                                *ap += *p;
+                                *am += *m;
+                                *ar += *r;
+                                merged_damage_count += 1;
+                                continue;
+                            }
+                        }
+                        first_dmg_idx.insert(*t, aggregated.len());
+                    }
+                    aggregated.push(out);
+                }
+                aggregated
+            };
+            if merged_damage_count > 0 {
+                variant_timings.push((
+                    "DamageMerge",
+                    damage_merge_start.elapsed().as_nanos(),
+                ));
+            }
+
             for out in outcomes {
+                let kind = outcome_kind(&out);
+                let t0 = Instant::now();
                 match out {
                     Outcome::Death { pos: p, ent: e } => {
                         remove_uids.push(e);
@@ -77,12 +137,21 @@ impl GameProcessor {
                     }
                     _ => {}
                 }
+                variant_timings.push((kind, t0.elapsed().as_nanos()));
             }
         }
-        
+
         ecs.delete_entities(&remove_uids[..]);
         ecs.write_resource::<Vec<Outcome>>().clear();
         ecs.write_resource::<Vec<Outcome>>().append(&mut next_outcomes);
+
+        {
+            let mut profile = ecs.write_resource::<TickProfile>();
+            for (kind, ns) in variant_timings {
+                profile.record_variant(kind, ns);
+            }
+        }
+
         Ok(())
     }
     
@@ -617,7 +686,7 @@ impl GameProcessor {
                     parts.join(", ")
                 };
 
-                log::info!("⚔️ {} 攻擊 {} | {} damage | HP: {:.1} → {:.1}/{:.1}",
+                log::debug!("⚔️ {} 攻擊 {} | {} damage | HP: {:.1} → {:.1}/{:.1}",
                     source_name, target_name, damage_parts, hp_before, hp_after, target_props.mhp
                 );
 
@@ -625,7 +694,7 @@ impl GameProcessor {
                     target_props.hp = 0.0;
                     hp_after = 0.0;
                     died = true;
-                    log::info!("💀 {} died from damage!", target_name);
+                    log::debug!("💀 {} died from damage!", target_name);
                 }
             }
         }

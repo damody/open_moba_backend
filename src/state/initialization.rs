@@ -331,6 +331,7 @@ impl StateInitializer {
         ecs.insert(Vec::<crate::Outcome>::new());
         ecs.insert(Vec::<TakenDamage>::new());
         ecs.insert(SysMetrics::default());
+        ecs.insert(crate::comp::TickProfile::default());
         
         // 初始化 MQTT 通道資源
         ecs.insert(Vec::<crossbeam_channel::Sender<crate::transport::OutboundMsg>>::new());
