@@ -237,6 +237,107 @@ fn ability_card(a: &crate::lib::model::AbilityEntry) -> Markup {
         }
     }
 }
-fn section_api(_c: &Catalog) -> Markup { html! { section #api { h2 { "Script API" } p { "(coming)" } } } }
-fn section_stat_keys(_c: &Catalog) -> Markup { html! { section #stat-keys { h2 { "Stat Keys" } p { "(coming)" } } } }
-fn section_coverage(_c: &Catalog) -> Markup { html! { section #coverage { h2 { "Coverage Matrix" } p { "(coming)" } } } }
+fn section_api(c: &Catalog) -> Markup {
+    // Compute which methods are actually used (to dim unused)
+    let used: std::collections::HashSet<&str> = c.units.iter()
+        .flat_map(|u| u.world_calls.iter().map(|s| s.as_str()))
+        .collect();
+    let used_hooks: std::collections::HashSet<&str> = c.units.iter()
+        .flat_map(|u| u.overrides.iter().map(|s| s.as_str()))
+        .collect();
+
+    html! {
+        section #unit-hooks {
+            h2 { "UnitScript Hooks (" (c.api.unit_hooks.len()) ")" }
+            @for m in &c.api.unit_hooks { (method_entry(m, used_hooks.contains(m.name.as_str()))) }
+        }
+        section #ability-hooks {
+            h2 { "AbilityScript (" (c.api.ability_hooks.len()) ")" }
+            @for m in &c.api.ability_hooks { (method_entry(m, true)) }
+        }
+        section #world {
+            h2 { "GameWorld API (" (c.api.world_methods.len()) ")" }
+            @for m in &c.api.world_methods { (method_entry(m, used.contains(m.name.as_str()))) }
+        }
+    }
+}
+
+fn method_entry(m: &crate::lib::model::ApiMethod, used: bool) -> Markup {
+    let data_used = if used { "1" } else { "0" };
+    let search = format!("{} {}", m.name, m.doc);
+    html! {
+        div.api-method data-used=(data_used) data-search=(search) {
+            div {
+                @if let Some(g) = &m.sub_group { span.tag { (g) } " " }
+                code.sig { (m.signature) }
+            }
+            @if !m.doc.is_empty() { div.doc { (m.doc) } }
+        }
+    }
+}
+
+fn section_stat_keys(c: &Catalog) -> Markup {
+    use crate::lib::model::StatSection;
+    let groups = [
+        (StatSection::All, "Section 1 · 全單位通用"),
+        (StatSection::NonBuilding, "Section 2 · 僅非建築物"),
+        (StatSection::Visual, "Section 3 · 視覺 / 前端"),
+    ];
+    html! {
+        section #stat-keys {
+            h2 { "Stat Keys (" (c.api.stat_keys.len()) ")" }
+            @for (sec, label) in groups.iter() {
+                h3 { (label) }
+                table.kv.stat-table {
+                    thead { tr { th { "const" } th { "string" } th { "group" } th { "doc" } } }
+                    tbody {
+                        @for s in c.api.stat_keys.iter().filter(|s| &s.section == sec) {
+                            tr data-search=(format!("{} {} {}", s.const_name, s.string_value, s.doc)) {
+                                td { code { (s.const_name) } }
+                                td { code { "\"" (s.string_value) "\"" } }
+                                td { @if let Some(g) = &s.sub_group { (g) } }
+                                td.mono { (s.doc) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn section_coverage(c: &Catalog) -> Markup {
+    // Only units with impl data
+    let units: Vec<&UnitEntry> = c.units.iter()
+        .filter(|u| !u.overrides.is_empty() || !u.world_calls.is_empty())
+        .collect();
+    let hook_names: Vec<&str> = c.api.unit_hooks.iter().map(|m| m.name.as_str()).collect();
+
+    html! {
+        section #coverage {
+            h2 { "Coverage Matrix" }
+            p.sub { "每格表示該 unit 有 override 對應 UnitScript hook" }
+            div style="overflow-x:auto" {
+                table.matrix {
+                    thead {
+                        tr {
+                            th.sticky-col { "unit" }
+                            @for h in &hook_names { th { (h) } }
+                        }
+                    }
+                    tbody {
+                        @for u in &units {
+                            tr {
+                                td.sticky-col { code { (u.id) } }
+                                @for h in &hook_names {
+                                    @let on = u.overrides.iter().any(|o| o == h);
+                                    td { @if on { "✓" } }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
