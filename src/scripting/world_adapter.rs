@@ -241,6 +241,83 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         EntityHandle::INVALID
     }
 
+    fn spawn_summoned_unit(
+        &mut self,
+        pos: Vec2f,
+        unit_type: RStr<'_>,
+        owner: EntityHandle,
+        duration: f32,
+    ) -> EntityHandle {
+        let Some(owner_ent) = Self::handle_to_entity(owner) else {
+            return EntityHandle::INVALID;
+        };
+        let unit_type_str = unit_type.as_str();
+
+        // 繼承 owner 的 faction（陣營 + team_id）
+        let faction = {
+            let factions = self.world.read_storage::<Faction>();
+            factions.get(owner_ent).cloned().unwrap_or_else(|| Faction::new(FactionType::Player, 0))
+        };
+
+        let Some(unit) = Unit::create_summon_unit(unit_type_str, (pos.x, pos.y), faction.team_id) else {
+            return EntityHandle::INVALID;
+        };
+
+        // Unit 內嵌數值映射出 CProperty + TAttack（hero/creep 的基礎屬性 component）
+        let cprop = CProperty {
+            hp: unit.current_hp as f32,
+            mhp: unit.max_hp as f32,
+            msd: unit.move_speed,
+            def_physic: unit.base_armor,
+            def_magic: unit.magic_resistance,
+        };
+        let tatk = TAttack {
+            atk_physic: Vf32::new(unit.base_damage as f32),
+            asd: Vf32::new(1.0 / unit.attack_speed.max(0.01)),
+            range: Vf32::new(unit.attack_range),
+            asd_count: 0.0,
+            bullet_speed: 1000.0,
+        };
+
+        let summon_time = self.world.read_resource::<Time>().0 as f32;
+        let summoned = SummonedUnit::new(
+            owner_ent,
+            if duration > 0.0 { Some(duration) } else { None },
+            summon_time,
+        );
+
+        let e = self.world.create_entity()
+            .with(Pos(vek::Vec2::new(pos.x, pos.y)))
+            .with(Vel(vek::Vec2::new(0.0, 0.0)))
+            .with(unit.clone())
+            .with(faction)
+            .with(cprop)
+            .with(tatk)
+            .with(Facing(0.0))
+            .with(TurnSpeed(std::f32::consts::PI))
+            .with(CollisionRadius(30.0))
+            .with(summoned)
+            .build();
+
+        // 廣播給前端
+        let _ = self.mqtx.try_send(OutboundMsg::new_s_at(
+            "td/all/res", "unit", "C",
+            json!({
+                "id": e.id(),
+                "unit_id": unit_type_str,
+                "name": unit.name,
+                "position": { "x": pos.x, "y": pos.y },
+                "hp": unit.current_hp,
+                "max_hp": unit.max_hp,
+                "move_speed": unit.move_speed,
+                "duration": duration,
+            }),
+            pos.x, pos.y,
+        ));
+
+        Self::entity_to_handle(e)
+    }
+
     fn spawn_projectile_ex(&mut self, spec: ProjectileSpec) -> EntityHandle {
         let Some(owner_ent) = Self::handle_to_entity(spec.owner) else {
             return EntityHandle::INVALID;

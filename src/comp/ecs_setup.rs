@@ -62,6 +62,7 @@ impl EcsSetup {
         ecs.register::<Stage>();
         ecs.register::<Unit>();
         ecs.register::<Faction>();
+        ecs.register::<SummonedUnit>();
         ecs.register::<DamageInstance>();
         ecs.register::<DamageResult>();
         ecs.register::<CircularVision>();

@@ -66,6 +66,16 @@ pub trait GameWorld: Send {
         dmg: f32,
         owner: EntityHandle,
     ) -> EntityHandle;
+    /// 召喚一個單位：在 `pos` 生成 `unit_type` 指定的預設模板（saika_gunner、
+    /// archer、swordsman、mage 等），陣營繼承 `owner`，`duration > 0` 秒後
+    /// 由 `summon_tick` 自動 despawn；傳 0 代表永久。回傳新 entity handle。
+    fn spawn_summoned_unit(
+        &mut self,
+        pos: Vec2f,
+        unit_type: RStr<'_>,
+        owner: EntityHandle,
+        duration: f32,
+    ) -> EntityHandle;
     /// TD-mode 通用發射 API：依 `ProjectileSpec` 建立 projectile entity 並
     /// 廣播 projectile/C 給前端。支援 Homing / Straight / AoE / Slow。
     fn spawn_projectile_ex(&mut self, spec: ProjectileSpec) -> EntityHandle;
