@@ -1,5 +1,5 @@
 pub mod tower_tick;
-pub mod slow_buff_tick;
+pub mod buff_tick;
 pub mod hero_tick;
 pub mod hero_move_tick;
 pub mod damage_tick;

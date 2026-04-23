@@ -375,8 +375,10 @@ impl GameProcessor {
         Ok(())
     }
 
-    /// TD 模式（Ice 塔命中時）：附加或刷新 SlowBuff 到目標 creep。
-    /// 若目標已有 buff，取較強（factor 較小）的 factor；remaining 取較長。
+    /// TD 模式（Ice 塔命中時）：附加或刷新 slow buff 到目標 creep。
+    /// 統一寫入 `BuffStore`（buff_id="slow"，payload={factor}），由 `buff_tick`
+    /// 倒數、`creep_tick` 讀取套用移速乘數。
+    /// 疊加規則：factor 取 min（較強）、remaining 取 max（較長）。
     fn handle_apply_slow(
         ecs: &mut World,
         target: Entity,
@@ -386,18 +388,17 @@ impl GameProcessor {
         let new_factor;
         let new_remaining;
         {
-            let mut slow_buffs = ecs.write_storage::<SlowBuff>();
-            let existing = slow_buffs.get(target).copied();
-            let (f, r) = match existing {
-                Some(b) => (b.factor.min(factor), b.remaining.max(duration)),
+            let mut store = ecs.write_resource::<crate::ability_runtime::BuffStore>();
+            let (f, r) = match store.get(target, "slow") {
+                Some(e) => {
+                    let prev = e.payload.get("factor").and_then(|v| v.as_f64()).unwrap_or(1.0) as f32;
+                    (prev.min(factor), e.remaining.max(duration))
+                }
                 None => (factor, duration),
             };
             new_factor = f;
             new_remaining = r;
-            let _ = slow_buffs.insert(target, SlowBuff {
-                factor: f,
-                remaining: r,
-            });
+            store.add(target, "slow", r, json!({ "factor": f }));
         }
         // 立即廣播 creep/S 給前端：更新 move_speed，讓 lerp_duration 重算，視覺上變慢
         let msd = ecs.read_storage::<CProperty>()

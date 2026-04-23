@@ -297,7 +297,7 @@ impl StateInitializer {
         ecs.register::<TurnSpeed>();
         ecs.register::<CollisionRadius>();
         ecs.register::<RegionBlocker>();
-        ecs.register::<SlowBuff>();
+        // SlowBuff component 已移除，slow 走 ability_runtime::BuffStore resource
         ecs.register::<crate::scripting::ScriptUnitTag>();
     }
 

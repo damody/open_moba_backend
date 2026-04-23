@@ -18,6 +18,7 @@ use serde_json::json;
 use specs::{Builder, Entity, Join, World, WorldExt};
 use specs::world::Generation;
 
+use crate::ability_runtime::BuffStore;
 use crate::comp::*;
 use crate::transport::OutboundMsg;
 
@@ -196,17 +197,22 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         }
     }
 
-    fn add_buff(&mut self, _target: EntityHandle, buff_id: RStr<'_>, _duration: f32) {
-        log::debug!("[scripting] add_buff (stub) id={}", buff_id.as_str());
+    fn add_buff(&mut self, target: EntityHandle, buff_id: RStr<'_>, duration: f32) {
+        let Some(ent) = Self::handle_to_entity(target) else { return };
+        let mut store = self.world.write_resource::<BuffStore>();
+        store.add(ent, buff_id.as_str(), duration, serde_json::Value::Null);
     }
 
-    fn remove_buff(&mut self, _target: EntityHandle, buff_id: RStr<'_>) {
-        log::debug!("[scripting] remove_buff (stub) id={}", buff_id.as_str());
+    fn remove_buff(&mut self, target: EntityHandle, buff_id: RStr<'_>) {
+        let Some(ent) = Self::handle_to_entity(target) else { return };
+        let mut store = self.world.write_resource::<BuffStore>();
+        store.remove(ent, buff_id.as_str());
     }
 
-    fn has_buff(&self, _target: EntityHandle, buff_id: RStr<'_>) -> bool {
-        log::debug!("[scripting] has_buff (stub) id={} → false", buff_id.as_str());
-        false
+    fn has_buff(&self, target: EntityHandle, buff_id: RStr<'_>) -> bool {
+        let Some(ent) = Self::handle_to_entity(target) else { return false };
+        let store = self.world.read_resource::<BuffStore>();
+        store.has(ent, buff_id.as_str())
     }
 
     fn spawn_projectile(
@@ -292,13 +298,16 @@ impl<'a> GameWorld for WorldAdapter<'a> {
 
     fn add_slow_buff(&mut self, target: EntityHandle, factor: f32, duration: f32) {
         let Some(ent) = Self::handle_to_entity(target) else { return };
-        let mut buffs = self.world.write_storage::<SlowBuff>();
-        let existing = buffs.get(ent).copied();
-        let (f, r) = match existing {
-            Some(b) => (b.factor.min(factor), b.remaining.max(duration)),
+        let mut store = self.world.write_resource::<BuffStore>();
+        // 疊加規則：factor 取 min（更強）、duration 取 max（更長）
+        let (final_factor, final_duration) = match store.get(ent, "slow") {
+            Some(e) => {
+                let prev = e.payload.get("factor").and_then(|v| v.as_f64()).unwrap_or(1.0) as f32;
+                (prev.min(factor), e.remaining.max(duration))
+            }
             None => (factor, duration),
         };
-        let _ = buffs.insert(ent, SlowBuff { factor: f, remaining: r });
+        store.add(ent, "slow", final_duration, json!({ "factor": final_factor }));
     }
 
     fn emit_explosion(&mut self, pos: Vec2f, radius: f32, duration: f32) {

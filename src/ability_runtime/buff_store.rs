@@ -1,0 +1,104 @@
+//! `BuffStore` — host 端統一的 buff 儲存與倒數系統。
+//!
+//! 取代原本散在多處的 buff 實作（`SlowBuff` component + `slow_buff_tick`）。
+//! 所有來自 DLL 腳本的 `world.add_buff` / `world.add_slow_buff` 最終都寫
+//! 到這個 resource；每 tick 由 `tick::buff_tick` 倒數，過期自動移除。
+//!
+//! 每筆 buff 可攜帶 `payload: serde_json::Value`，讓 host 系統（例如
+//! `creep_tick` 的移速計算）從 buff 身上讀出數值（如 slow factor）。
+
+use serde_json::Value;
+use specs::Entity;
+use std::collections::HashMap;
+
+#[derive(Debug, Clone)]
+pub struct BuffEntry {
+    pub remaining: f32,
+    pub payload: Value,
+}
+
+/// 以 `(Entity, buff_id)` 為 key 的 O(1) buff 索引。
+#[derive(Default, Debug)]
+pub struct BuffStore {
+    buffs: HashMap<(Entity, String), BuffEntry>,
+}
+
+impl BuffStore {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 新增或刷新 buff。若已存在：duration 取 max、payload 覆蓋（交由呼叫端
+    /// 決定是否合併/疊加——例如 `add_slow_buff` 自行處理 factor.min）。
+    pub fn add(&mut self, entity: Entity, buff_id: &str, duration: f32, payload: Value) {
+        let key = (entity, buff_id.to_string());
+        match self.buffs.get_mut(&key) {
+            Some(e) => {
+                if duration > e.remaining {
+                    e.remaining = duration;
+                }
+                e.payload = payload;
+            }
+            None => {
+                self.buffs.insert(
+                    key,
+                    BuffEntry {
+                        remaining: duration,
+                        payload,
+                    },
+                );
+            }
+        }
+    }
+
+    pub fn remove(&mut self, entity: Entity, buff_id: &str) {
+        self.buffs.remove(&(entity, buff_id.to_string()));
+    }
+
+    pub fn has(&self, entity: Entity, buff_id: &str) -> bool {
+        self.buffs.contains_key(&(entity, buff_id.to_string()))
+    }
+
+    pub fn get(&self, entity: Entity, buff_id: &str) -> Option<&BuffEntry> {
+        self.buffs.get(&(entity, buff_id.to_string()))
+    }
+
+    /// 清除 entity 的所有 buff（單位死亡時呼叫）。
+    pub fn remove_all_for(&mut self, entity: Entity) {
+        self.buffs.retain(|(e, _), _| *e != entity);
+    }
+
+    /// 迭代某單位身上所有 buff（供 creep_tick 算移速乘數等）。
+    pub fn iter_for(&self, entity: Entity) -> impl Iterator<Item = (&str, &BuffEntry)> {
+        self.buffs.iter().filter_map(move |((e, id), v)| {
+            if *e == entity {
+                Some((id.as_str(), v))
+            } else {
+                None
+            }
+        })
+    }
+
+    /// 倒數所有 buff 並回傳過期的 `(Entity, buff_id)` 清單。
+    pub fn tick(&mut self, dt: f32) -> Vec<(Entity, String)> {
+        let mut expired = Vec::new();
+        self.buffs.retain(|(e, id), v| {
+            v.remaining -= dt;
+            if v.remaining <= 0.0 {
+                expired.push((*e, id.clone()));
+                false
+            } else {
+                true
+            }
+        });
+        expired
+    }
+
+    pub fn len(&self) -> usize {
+        self.buffs.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.buffs.is_empty()
+    }
+}

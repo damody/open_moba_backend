@@ -1,30 +1,17 @@
-//! TD 塔 spawn 輔助 + SlowBuff component。
+//! TD 塔 spawn 輔助。
 //!
 //! 塔的所有靜態屬性（cost/atk/range/footprint/label/...）由腳本 `tower_metadata()`
 //! 回報、host 在 `load_scripts()` 結束時填 `TowerTemplateRegistry` resource。
 //! 這支模組只負責「拿 unit_id 到 registry 查 template → 建 entity」。
 //!
-//! 舊的硬編 `TowerKind` enum 與 `TowerTemplate` 已在 PR-5 移除：
-//! 之後新增第 5 種塔只要寫新腳本 + 重 build DLL，host 不用改。
+//! 舊的硬編 `TowerKind` enum 與 `TowerTemplate` 已在 PR-5 移除。
+//! `SlowBuff` component 已被統一 `BuffStore` 取代（buff_id="slow"）。
 
 use serde::{Deserialize, Serialize};
-use specs::{Builder, Component, Entity, VecStorage, World, WorldExt};
+use specs::{Builder, Component, Entity, World, WorldExt};
 use vek::Vec2;
 
 use super::*;
-
-/// 減速 debuff：命中的 creep 在 `remaining` 秒內，移動速度乘上 `factor`。
-/// 由 `projectile_tick` 在命中有 slow_factor>0 的 projectile 時 push `Outcome::ApplySlow`，
-/// GameProcessor 再附加這個 Component；`slow_buff_tick` 每 tick 扣 remaining，歸零移除。
-#[derive(Clone, Copy, Debug)]
-pub struct SlowBuff {
-    pub factor: f32,
-    pub remaining: f32,
-}
-
-impl Component for SlowBuff {
-    type Storage = VecStorage<Self>;
-}
 
 /// 在指定位置依 `unit_id` spawn 一座 TD 塔。
 /// 從 `TowerTemplateRegistry` resource 查 template；找不到就回 None（log warning）。

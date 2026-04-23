@@ -23,7 +23,7 @@ pub struct CreepRead<'a> {
     turn_speeds: ReadStorage<'a, TurnSpeed>,
     radii: ReadStorage<'a, CollisionRadius>,
     searcher: Read<'a, Searcher>,
-    slow_buffs: ReadStorage<'a, SlowBuff>,
+    buff_store: Read<'a, crate::ability_runtime::BuffStore>,
 }
 
 #[derive(SystemData)]
@@ -96,9 +96,12 @@ impl<'a> System<'a> for Sys {
                                             next_status = CreepStatus::Walk;
                                         }
                                         CreepStatus::Walk => {
-                                            // SlowBuff（Ice 塔命中）：本 tick 的速度乘上 factor
-                                            let slow_mult = tr.slow_buffs.get(e)
-                                                .map(|b| b.factor.clamp(0.01, 1.0))
+                                            // Slow buff（Ice 塔命中）：從 BuffStore 讀取
+                                            // payload.factor；無則不減速（1.0）
+                                            let slow_mult = tr.buff_store
+                                                .get(e, "slow")
+                                                .and_then(|b| b.payload.get("factor").and_then(|v| v.as_f64()))
+                                                .map(|f| (f as f32).clamp(0.01, 1.0))
                                                 .unwrap_or(1.0);
                                             let step = cp.msd * slow_mult * dt;
                                             let diff = target_point.sub(&pos.0);
