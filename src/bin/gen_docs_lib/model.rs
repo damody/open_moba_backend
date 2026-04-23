@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum UnitKind { Tower, Hero, Creep, Unknown }
 
 #[derive(Debug, Clone, Default)]
@@ -87,7 +87,6 @@ pub enum ApiGroup {
     WorldRng,
     WorldLog,
     WorldVfx,
-    StatKey(StatSection),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
