@@ -3,8 +3,6 @@
 //!
 //! Design: docs/plans/2026-04-23-build-time-catalog-design.md
 
-#![allow(dead_code)]
-
 #[path = "gen_docs_lib/mod.rs"]
 mod lib;
 
@@ -162,8 +160,13 @@ fn now_rfc3339() -> String {
 }
 
 fn git_short_sha() -> Result<String> {
+    use std::process::Stdio;
     let out = std::process::Command::new("git")
         .args(["rev-parse", "--short", "HEAD"])
+        .stderr(Stdio::null())
         .output()?;
+    if !out.status.success() {
+        anyhow::bail!("git rev-parse failed");
+    }
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
