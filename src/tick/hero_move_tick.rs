@@ -24,6 +24,7 @@ pub struct HeroMoveRead<'a> {
     searcher: Read<'a, Searcher>,
     /// Debug only：驗證 hero 是否進入 polygon 但未被 blocker 擋
     regions: Read<'a, BlockedRegions>,
+    buff_store: Read<'a, crate::ability_runtime::BuffStore>,
 }
 
 #[derive(SystemData)]
@@ -139,7 +140,9 @@ impl<'a> System<'a> for Sys {
             let target = move_target.0;
             let diff = target - pos.0;
             let distance = diff.magnitude();
-            let step = property.msd * dt;
+            // 移動速度乘數：buff 的 move_speed_multiplier 連乘（例：sniper 0.5 = 半速）
+            let msd_mult = tr.buff_store.product_mult(entity, "move_speed_multiplier");
+            let step = property.msd * msd_mult * dt;
 
             // 先轉向目標方向
             if distance > 0.5 {

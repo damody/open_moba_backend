@@ -82,8 +82,13 @@ impl<'a> System<'a> for Sys {
                 |_guard, (e, hero, pty, atk, pos, facing)| {
                     let mut outcomes: Vec<Outcome> = Vec::new();
 
+                    // 攻擊速度乘數：buff 的 attack_speed_multiplier 連乘（例：sniper 0.7 = 變慢）
+                    // effective_interval = base / multiplier，multiplier 越小越慢。
+                    let asd_mult = tr.buff_store.product_mult(e, "attack_speed_multiplier").max(0.01);
+                    let effective_interval = atk.asd.v / asd_mult;
+
                     // 直接更新攻擊冷卻時間
-                    if atk.asd_count < atk.asd.v {
+                    if atk.asd_count < effective_interval {
                         atk.asd_count += dt;
                     }
 
@@ -94,7 +99,7 @@ impl<'a> System<'a> for Sys {
                     }
 
                     // 當攻擊冷卻時間到達時，嘗試攻擊
-                    if atk.asd_count >= atk.asd.v {
+                    if atk.asd_count >= effective_interval {
                         let time2 = Instant::now();
                         let elpsed = time2.duration_since(time1);
 
@@ -178,7 +183,7 @@ impl<'a> System<'a> for Sys {
 
                                     let angle_diff = normalize_angle(desired - facing.0).abs();
                                     if angle_diff < MOVE_ANGLE_THRESHOLD {
-                                        atk.asd_count -= atk.asd.v;
+                                        atk.asd_count -= effective_interval;
                                         outcomes.push(Outcome::ProjectileLine2 {
                                             pos: pos.0.clone(),
                                             source: Some(e.clone()),
@@ -191,7 +196,7 @@ impl<'a> System<'a> for Sys {
                                 }
                             } else {
                                 // 沒有有效目標時，減少一些攻擊冷卻時間避免過度檢查
-                                atk.asd_count = atk.asd.v - 0.3 - fastrand::u8(..) as f32 * 0.001;
+                                atk.asd_count = effective_interval - 0.3 - fastrand::u8(..) as f32 * 0.001;
                                 log::trace!("{} 沒有找到有效目標，減少攻擊冷卻時間: {:.3}", hero_name, atk.asd_count);
                             }
                         }
