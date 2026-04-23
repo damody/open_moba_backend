@@ -1,0 +1,10 @@
+[server]
+MAP = "map.json"
+MAX_PLAYER = 10000
+SERVER_IP = "localhost"
+SERVER_PORT = "50061"
+CLIENT_ID = "omobab"
+PLAYER_NAME = "player1"
+RENDER_DELAY_MS = 100
+# 壓力測試場景：1000 塔 × 1000 × 10000HP 怪（由 scripts/gen_stress_map.py 生成）
+STORY = "TD_STRESS"
