@@ -79,6 +79,23 @@ impl BuffStore {
         })
     }
 
+    /// 加法聚合：對 entity 身上所有 buff，若 `payload[stat_id]` 是數字則加總。
+    /// 慣例：`_bonus` 後綴的 stat 用這個（例 `range_bonus`、`damage_bonus`）。
+    pub fn sum_add(&self, entity: Entity, stat_id: &str) -> f32 {
+        self.iter_for(entity)
+            .filter_map(|(_, e)| e.payload.get(stat_id).and_then(|v| v.as_f64()))
+            .sum::<f64>() as f32
+    }
+
+    /// 乘法聚合：對 entity 身上所有 buff，若 `payload[stat_id]` 是數字則連乘。
+    /// 空集合回 1.0。慣例：`_multiplier` 後綴的 stat 用這個
+    /// （例 `attack_speed_multiplier`、`move_speed_multiplier`）。
+    pub fn product_mult(&self, entity: Entity, stat_id: &str) -> f32 {
+        self.iter_for(entity)
+            .filter_map(|(_, e)| e.payload.get(stat_id).and_then(|v| v.as_f64()))
+            .fold(1.0f64, |acc, v| acc * v) as f32
+    }
+
     /// 倒數所有 buff 並回傳過期的 `(Entity, buff_id)` 清單。
     pub fn tick(&mut self, dt: f32) -> Vec<(Entity, String)> {
         let mut expired = Vec::new();

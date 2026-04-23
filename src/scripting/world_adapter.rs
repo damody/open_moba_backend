@@ -215,6 +215,20 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         store.has(ent, buff_id.as_str())
     }
 
+    fn add_stat_buff(
+        &mut self,
+        target: EntityHandle,
+        buff_id: RStr<'_>,
+        duration: f32,
+        modifiers_json: RStr<'_>,
+    ) {
+        let Some(ent) = Self::handle_to_entity(target) else { return };
+        let payload: serde_json::Value =
+            serde_json::from_str(modifiers_json.as_str()).unwrap_or(serde_json::Value::Null);
+        let mut store = self.world.write_resource::<BuffStore>();
+        store.add(ent, buff_id.as_str(), duration, payload);
+    }
+
     fn spawn_projectile(
         &mut self,
         _from: Vec2f,

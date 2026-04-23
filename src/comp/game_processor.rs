@@ -268,14 +268,18 @@ impl GameProcessor {
         let target_entity = target.ok_or_else(|| failure::err_msg("Missing target entity"))?;
 
         // 此 path 只用於非腳本塔（MOBA legacy）；TD 塔走腳本 `spawn_projectile_ex` 直接 spawn
+        // 最終 damage = base * (1 + sum(damage_bonus buffs))，取自 source 身上 BuffStore 聚合
         let (msd, p2, atk_phys) = {
             let positions = ecs.read_storage::<Pos>();
             let tproperty = ecs.read_storage::<TAttack>();
+            let buff_store = ecs.read_resource::<crate::ability_runtime::BuffStore>();
 
             let _p1 = positions.get(source_entity).ok_or_else(|| failure::err_msg("Source position not found"))?;
             let p2 = positions.get(target_entity).ok_or_else(|| failure::err_msg("Target position not found"))?;
             let tp = tproperty.get(source_entity).ok_or_else(|| failure::err_msg("Source attack properties not found"))?;
-            (tp.bullet_speed, p2.0, tp.atk_physic.v)
+            let dmg_bonus = buff_store.sum_add(source_entity, "damage_bonus");
+            let final_atk = tp.atk_physic.v * (1.0 + dmg_bonus);
+            (tp.bullet_speed, p2.0, final_atk)
         };
 
         // 命中由 projectile_tick 的距離判定決定（target 接近時 step >= dist 即命中）。

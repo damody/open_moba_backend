@@ -47,6 +47,17 @@ pub trait GameWorld: Send {
     fn remove_buff(&mut self, target: EntityHandle, buff_id: RStr<'_>);
     /// 查詢 target 身上是否有指定 buff（toggle 技能判斷是否要 remove 用）。
     fn has_buff(&self, target: EntityHandle, buff_id: RStr<'_>) -> bool;
+    /// 加帶 payload 的 buff — `modifiers_json` 是一份 JSON 物件字串，例：
+    /// `{"range_bonus":300.0,"damage_bonus":0.3,"attack_speed_multiplier":0.7}`。
+    /// host 端的 tower_tick / hero_tick 等系統會從 BuffStore 聚合這些值套用
+    /// 到單位屬性計算。命名慣例：`_bonus` 為加法加成，`_multiplier` 為乘法倍率。
+    fn add_stat_buff(
+        &mut self,
+        target: EntityHandle,
+        buff_id: RStr<'_>,
+        duration: f32,
+        modifiers_json: RStr<'_>,
+    );
     fn spawn_projectile(
         &mut self,
         from: Vec2f,

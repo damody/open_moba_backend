@@ -23,6 +23,7 @@ pub struct HeroRead<'a> {
     units : ReadStorage<'a, Unit>,
     turn_speeds: ReadStorage<'a, TurnSpeed>,
     move_targets: ReadStorage<'a, MoveTarget>,
+    buff_store: Read<'a, crate::ability_runtime::BuffStore>,
 }
 
 #[derive(SystemData)]
@@ -96,12 +97,14 @@ impl<'a> System<'a> for Sys {
                     if atk.asd_count >= atk.asd.v {
                         let time2 = Instant::now();
                         let elpsed = time2.duration_since(time1);
-                        
+
                         // 防止過度計算
                         if elpsed.as_secs_f32() < 0.05 {
                             // 搜尋攻擊範圍內的所有單位
                             let search_n = 10; // 搜尋最近的 10 個目標
-                            let attack_range = atk.range.v; // 攻擊範圍
+                            // 攻擊範圍 = 基礎值 + 所有 buff 的 range_bonus 加總
+                            let range_bonus = tr.buff_store.sum_add(e, "range_bonus");
+                            let attack_range = atk.range.v + range_bonus;
                             let search_range = attack_range + 50.0; // 稍微擴大搜尋範圍以確保不遺漏邊界目標
                             let (creep_targets, _) =
                                 tr.searcher.creep.SearchNN_XY2(pos.0, attack_range, search_range, search_n);
@@ -120,8 +123,8 @@ impl<'a> System<'a> for Sys {
                                 .unwrap_or_else(|| format!("英雄 {}", e.id()));
                             
                             if potential_targets.len() > 0 {
-                                log::trace!("{} 在位置 ({:.0}, {:.0}) 搜尋到 {} 個潛在目標，攻擊範圍: {}", 
-                                    hero_name, pos.0.x, pos.0.y, potential_targets.len(), atk.range.v);
+                                log::trace!("{} 在位置 ({:.0}, {:.0}) 搜尋到 {} 個潛在目標，攻擊範圍: {} (基礎 {} + buff {})",
+                                    hero_name, pos.0.x, pos.0.y, potential_targets.len(), attack_range, atk.range.v, range_bonus);
                             } else {
                                 log::trace!("{} 沒有找到目標", hero_name);
                             }
