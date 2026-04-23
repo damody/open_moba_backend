@@ -1,6 +1,7 @@
 :root{
   --bg:#fafafa; --fg:#222; --panel:#fff; --border:#ddd; --muted:#666;
   --accent:#2563eb; --warn:#d4351c; --used:#0a7a2f; --unused:#aaa;
+  --topbar-h:50px;
 }
 body.dark{
   --bg:#15171c; --fg:#e6e6e6; --panel:#1d2027; --border:#2a2e37;
@@ -21,10 +22,10 @@ code,pre,.mono{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
 body.dark .warnings{background:#3a1f1c}
 .warnings h2{margin:.2rem 0 .4rem;font-size:1rem;color:var(--warn)}
 .warnings ul{margin:0;padding-left:1.2rem}
-.layout{display:flex;min-height:calc(100vh - 50px)}
+.layout{display:flex;min-height:calc(100vh - var(--topbar-h))}
 .sidebar{width:260px;flex:0 0 260px;border-right:1px solid var(--border);
-  background:var(--panel);padding:1rem;position:sticky;top:50px;align-self:flex-start;
-  height:calc(100vh - 50px);overflow-y:auto}
+  background:var(--panel);padding:1rem;position:sticky;top:var(--topbar-h);align-self:flex-start;
+  height:calc(100vh - var(--topbar-h));overflow-y:auto}
 .sidebar h3{margin:.8rem 0 .3rem;font-size:.75rem;color:var(--muted);
   text-transform:uppercase;letter-spacing:.08em}
 .sidebar ul{list-style:none;padding:0;margin:0}
@@ -49,11 +50,12 @@ body.dark .tag.ability{background:#1d2b45;border-color:#2b4373;color:#8cb4ff}
 .api-method{padding:.6rem 0;border-bottom:1px dashed var(--border)}
 .api-method .sig{font-size:.85rem;color:var(--accent);word-break:break-all}
 .api-method .doc{color:var(--muted);margin-top:.2rem;white-space:pre-wrap;font-size:.9rem}
-.api-method.unused{opacity:.45}
+.api-method.unused{opacity:.55}
+.api-method.unused .sig{color:var(--unused)}
 table.matrix{border-collapse:collapse;font-size:.8rem}
 table.matrix th,table.matrix td{border:1px solid var(--border);padding:.2rem .4rem;text-align:center}
 table.matrix th.sticky-col,table.matrix td.sticky-col{
   position:sticky;left:0;background:var(--panel);text-align:left;z-index:2}
-table.matrix thead th{position:sticky;top:50px;background:var(--panel);z-index:3}
+table.matrix thead th{position:sticky;top:var(--topbar-h);background:var(--panel);z-index:3}
 .hidden{display:none !important}
 .footer{border-top:1px solid var(--border);padding:.6rem 1rem;color:var(--muted);font-size:.8rem}

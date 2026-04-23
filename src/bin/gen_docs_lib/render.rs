@@ -108,7 +108,7 @@ fn section_units(c: &Catalog) -> Markup {
 }
 
 fn tower_card(u: &UnitEntry) -> Markup {
-    let t = u.tower.as_ref().cloned().unwrap_or_default();
+    let t = match u.tower.as_ref() { Some(t) => t, None => return html!{} };
     let search = format!("{} {} tower", u.id, t.label);
     html! {
         div.card data-search=(search) {

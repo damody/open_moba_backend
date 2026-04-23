@@ -3,24 +3,29 @@
   const onlyUsed = document.getElementById('only-used');
   const dark = document.getElementById('dark');
 
-  function filter(){
+  function applyFilters(){
     const needle = (q.value || '').toLowerCase();
+    const onlyUsedActive = onlyUsed && onlyUsed.checked;
     document.querySelectorAll('[data-search]').forEach(el=>{
       const hay = el.dataset.search.toLowerCase();
-      el.classList.toggle('hidden', needle && !hay.includes(needle));
+      const needleMismatch = needle && !hay.includes(needle);
+      let unusedFilter = false;
+      if (onlyUsedActive && el.classList.contains('api-method')) {
+        unusedFilter = el.dataset.used !== '1';
+      }
+      el.classList.toggle('hidden', needleMismatch || unusedFilter);
     });
   }
-  function applyOnlyUsed(){
+  function applyUnusedDim(){
     document.querySelectorAll('.api-method').forEach(el=>{
-      const used = el.dataset.used === '1';
-      el.classList.toggle('unused', !used);
-      if (onlyUsed.checked){ el.classList.toggle('hidden', !used); }
+      el.classList.toggle('unused', el.dataset.used !== '1');
     });
   }
   function applyDark(){ document.body.classList.toggle('dark', dark.checked); }
 
-  if (q) q.addEventListener('input', filter);
-  if (onlyUsed) onlyUsed.addEventListener('change', applyOnlyUsed);
+  if (q) q.addEventListener('input', applyFilters);
+  if (onlyUsed) onlyUsed.addEventListener('change', applyFilters);
   if (dark) dark.addEventListener('change', applyDark);
-  applyOnlyUsed();
+  applyUnusedDim();
+  applyFilters();
 })();
