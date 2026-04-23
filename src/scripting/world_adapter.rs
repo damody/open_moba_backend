@@ -204,6 +204,11 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         log::debug!("[scripting] remove_buff (stub) id={}", buff_id.as_str());
     }
 
+    fn has_buff(&self, _target: EntityHandle, buff_id: RStr<'_>) -> bool {
+        log::debug!("[scripting] has_buff (stub) id={} → false", buff_id.as_str());
+        false
+    }
+
     fn spawn_projectile(
         &mut self,
         _from: Vec2f,

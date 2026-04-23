@@ -142,6 +142,20 @@ impl State {
         let dir = std::path::Path::new(&dir_str);
         self.script_registry = crate::scripting::loader::load_scripts_dir(dir);
         self.populate_tower_template_registry();
+        self.populate_ability_registry();
+    }
+
+    /// 把 `ScriptRegistry` 收集到的 AbilityDef metadata 複製到 ECS 的
+    /// `AbilityRegistry` resource，供 client `list_abilities` / `get_ability_detail`
+    /// query 查閱。Handler 本身保留在 ScriptRegistry 由 skill dispatch 使用。
+    fn populate_ability_registry(&mut self) {
+        use crate::ability_runtime::AbilityRegistry;
+        let mut reg = AbilityRegistry::new();
+        for (_id, def, _script) in self.script_registry.iter_abilities() {
+            reg.register(def.clone());
+        }
+        log::info!("[ability_registry] {} abilities loaded", reg.len());
+        self.ecs.insert(reg);
     }
 
     /// 依 DLL `units()` 順序 iter 所有腳本、取 `tower_metadata()` 建 host 端

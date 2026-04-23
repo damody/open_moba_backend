@@ -45,6 +45,8 @@ pub trait GameWorld: Send {
     fn heal(&mut self, target: EntityHandle, amount: f32);
     fn add_buff(&mut self, target: EntityHandle, buff_id: RStr<'_>, duration: f32);
     fn remove_buff(&mut self, target: EntityHandle, buff_id: RStr<'_>);
+    /// 查詢 target 身上是否有指定 buff（toggle 技能判斷是否要 remove 用）。
+    fn has_buff(&self, target: EntityHandle, buff_id: RStr<'_>) -> bool;
     fn spawn_projectile(
         &mut self,
         from: Vec2f,
