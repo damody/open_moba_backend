@@ -85,6 +85,14 @@ impl ScriptRegistry {
         self.abilities.len()
     }
 
+    /// 以 ability_id 直查 metadata + handler（供 SkillCast dispatch 使用）。
+    pub fn get_ability(
+        &self,
+        ability_id: &str,
+    ) -> Option<&(AbilityDef, AbilityScript_TO<'static, RBox<()>>)> {
+        self.abilities.get(ability_id)
+    }
+
     pub fn get(&self, unit_id: &str) -> Option<&UnitScript_TO<'static, RBox<()>>> {
         self.scripts.get(unit_id)
     }

@@ -190,12 +190,96 @@ impl MqttHandler {
                     "screen_request" => {
                         Self::handle_screen_request(ecs, mqtx, d)?;
                     }
+                    "skill" => {
+                        Self::handle_skill(ecs, mqtx, d)?;
+                    }
                     _ => {}
                 }
             } else {
                 log::warn!("json error");
             }
         }
+        Ok(())
+    }
+
+    /// 玩家施放技能：把 InboundMsg 轉成 `ScriptEvent::SkillCast` 放入 queue，
+    /// 下一次 `run_script_dispatch` 會呼叫對應 `AbilityScript::execute`。
+    ///
+    /// Payload 格式：
+    /// ```json
+    /// { "t": "skill", "a": "cast", "name": "player1",
+    ///   "d": { "ability_id": "sniper_mode",
+    ///          "target_entity": 42,          // 可選
+    ///          "target_position": [x, y] } } // 可選
+    /// ```
+    pub fn handle_skill(ecs: &mut World, _mqtx: &Sender<OutboundMsg>, pd: InboundMsg) -> Result<(), Error> {
+        use crate::scripting::event::{ScriptEvent, ScriptEventQueue, SkillTarget};
+        use specs::Join;
+
+        if pd.a.as_str() != "cast" {
+            return Ok(());
+        }
+
+        let ability_id = pd
+            .d
+            .get("ability_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        if ability_id.is_empty() {
+            log::warn!("[skill/cast] missing ability_id for player '{}'", pd.name);
+            return Ok(());
+        }
+
+        let target_entity_id = pd
+            .d
+            .get("target_entity")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as u32);
+        let target_pos = pd.d.get("target_position").and_then(|v| {
+            let arr = v.as_array()?;
+            if arr.len() != 2 {
+                return None;
+            }
+            let x = arr[0].as_f64()? as f32;
+            let y = arr[1].as_f64()? as f32;
+            Some((x, y))
+        });
+
+        // 玩家對應的 hero entity：match by hero.name == pd.name
+        let caster = {
+            let entities = ecs.entities();
+            let heroes = ecs.read_storage::<Hero>();
+            (&entities, &heroes)
+                .join()
+                .find(|(_, h)| h.name == pd.name)
+                .map(|(e, _)| e)
+        };
+        let Some(caster) = caster else {
+            log::warn!("[skill/cast] no hero entity for player '{}'", pd.name);
+            return Ok(());
+        };
+
+        // target_entity id 轉 specs::Entity（掃 entities 找 matching id）
+        let target = match (target_entity_id, target_pos) {
+            (Some(id), _) => {
+                let entities = ecs.entities();
+                let found = entities.join().find(|e| e.id() == id);
+                match found {
+                    Some(e) => SkillTarget::Entity(e),
+                    None => SkillTarget::None,
+                }
+            }
+            (None, Some((x, y))) => SkillTarget::Point(x, y),
+            (None, None) => SkillTarget::None,
+        };
+
+        let mut queue = ecs.write_resource::<ScriptEventQueue>();
+        queue.push(ScriptEvent::SkillCast {
+            caster,
+            skill_id: ability_id,
+            target,
+        });
         Ok(())
     }
 }

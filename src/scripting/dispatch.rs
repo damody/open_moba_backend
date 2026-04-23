@@ -140,14 +140,72 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
         }
 
         ScriptEvent::SkillCast { caster, skill_id, target } => {
+            let caster_handle = WorldAdapter::entity_to_handle(caster);
             let target_abi = match target {
                 SkillTarget::Entity(e) => Target::Entity(WorldAdapter::entity_to_handle(e)),
                 SkillTarget::Point(x, y) => Target::Point(omb_script_abi::types::Vec2f { x, y }),
                 SkillTarget::None => Target::None,
             };
-            with_script(adapter, registry, caster, move |script, handle, world_dyn| {
-                script.on_skill_cast(handle, (&*skill_id).into(), target_abi, world_dyn);
-            });
+
+            // 取 caster 英雄身上該技能的等級（未習得則預設 1 讓腳本至少 fire）
+            let level: u8 = {
+                let heroes = adapter.world.read_storage::<crate::comp::Hero>();
+                heroes
+                    .get(caster)
+                    .and_then(|h| h.ability_levels.get(&skill_id).copied())
+                    .map(|lv| lv.max(1) as u8)
+                    .unwrap_or(1)
+            };
+
+            // 1) 先呼叫 caster unit 本身的 on_skill_cast（pre-processing 機會）
+            {
+                let skill_id_for_unit = skill_id.clone();
+                let target_for_unit = target_abi.clone();
+                with_script(adapter, registry, caster, move |script, handle, world_dyn| {
+                    script.on_skill_cast(
+                        handle,
+                        (&*skill_id_for_unit).into(),
+                        target_for_unit,
+                        world_dyn,
+                    );
+                });
+            }
+
+            // 2) 呼叫 ability 本身的 execute（DLL handler 實際執行效果）
+            if let Some((def, ability_script)) = registry.get_ability(&skill_id) {
+                let level_data_json = def
+                    .get_level_data(level)
+                    .and_then(|ld| serde_json::to_string(ld).ok())
+                    .unwrap_or_else(|| "{}".to_string());
+
+                let mut world_dyn = world_dyn_of(adapter);
+                let r = catch_unwind(AssertUnwindSafe(|| {
+                    ability_script.execute(
+                        caster_handle,
+                        target_abi,
+                        level,
+                        (&*level_data_json).into(),
+                        &mut world_dyn,
+                    )
+                }));
+                match r {
+                    Ok(res) if res.is_err() => {
+                        log::warn!(
+                            "[scripting] ability '{}' execute returned error",
+                            skill_id
+                        );
+                    }
+                    Ok(_) => {}
+                    Err(_) => {
+                        log::error!("[scripting] panic in AbilityScript::execute of {}", skill_id);
+                    }
+                }
+            } else {
+                log::debug!(
+                    "[scripting] SkillCast '{}' has no registered AbilityScript handler",
+                    skill_id
+                );
+            }
         }
 
         ScriptEvent::AttackHit { attacker, victim } => {
