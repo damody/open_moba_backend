@@ -38,6 +38,8 @@ pub mod blocked_region;
 pub mod game_mode;
 pub mod tower_template;
 pub mod tower_registry;
+pub mod tower_upgrade_rules;
+pub mod tower_upgrade_registry;
 pub mod building;
 pub use building::IsBuilding;
 

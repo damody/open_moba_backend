@@ -143,7 +143,14 @@ impl State {
         let dir = std::path::Path::new(&dir_str);
         self.script_registry = crate::scripting::loader::load_scripts_dir(dir);
         self.populate_tower_template_registry();
+        self.populate_tower_upgrade_registry();
         self.populate_ability_registry();
+    }
+
+    /// 建立靜態 48 塔升級配表 resource（目前 Dart 12 條已填，其餘為 stub）。
+    fn populate_tower_upgrade_registry(&mut self) {
+        let reg = crate::comp::tower_upgrade_registry::TowerUpgradeRegistry::new();
+        self.ecs.insert(reg);
     }
 
     /// 把 `ScriptRegistry` 收集到的 AbilityDef metadata 複製到 ECS 的
