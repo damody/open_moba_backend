@@ -140,6 +140,19 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
         }
 
         ScriptEvent::SkillCast { caster, skill_id, target } => {
+            // Silence 檢查：施法者若有 silence/stun buff，跳過整個 cast
+            {
+                let store = adapter.world.read_resource::<crate::ability_runtime::BuffStore>();
+                if store.is_silenced(caster) {
+                    log::info!(
+                        "[scripting] skill '{}' by entity {} blocked — silenced/stunned",
+                        skill_id,
+                        caster.id()
+                    );
+                    return;
+                }
+            }
+
             let caster_handle = WorldAdapter::entity_to_handle(caster);
             let target_abi = match target {
                 SkillTarget::Entity(e) => Target::Entity(WorldAdapter::entity_to_handle(e)),

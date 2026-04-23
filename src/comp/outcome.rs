@@ -91,6 +91,15 @@ pub enum Outcome {
         factor: f32,
         duration: f32,
     },
+    /// 通用 buff 施加 outcome：GameProcessor 收到後寫入 `BuffStore`。
+    /// 例：attack_stun_chance 命中擲骰成功 → AddBuff{"stun", ...}。
+    AddBuff {
+        target: Entity,
+        buff_id: String,
+        duration: f32,
+        #[serde(default)]
+        payload: serde_json::Value,
+    },
     /// Bomb 塔 AoE 命中 → 前端渲染「由小到大紅圈」爆炸特效。
     /// GameProcessor 收到後廣播 `game/explosion` 給前端。
     Explosion {

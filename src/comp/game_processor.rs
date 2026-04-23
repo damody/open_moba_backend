@@ -63,6 +63,10 @@ impl GameProcessor {
                     Outcome::ApplySlow { target, factor, duration } => {
                         Self::handle_apply_slow(ecs, target, factor, duration)?;
                     }
+                    Outcome::AddBuff { target, buff_id, duration, payload } => {
+                        let mut store = ecs.write_resource::<crate::ability_runtime::BuffStore>();
+                        store.add(target, &buff_id, duration, payload);
+                    }
                     Outcome::Explosion { pos, radius, duration } => {
                         let _ = mqtx.try_send(OutboundMsg::new_s_at(
                             "td/all/res", "game", "explosion",
@@ -269,7 +273,9 @@ impl GameProcessor {
 
         // 此 path 只用於非腳本塔（MOBA legacy）；TD 塔走腳本 `spawn_projectile_ex` 直接 spawn
         // 最終 damage = base * (1 + sum(damage_bonus buffs))，取自 source 身上 BuffStore 聚合
-        let (msd, p2, atk_phys) = {
+        // 同時讀取 source 身上任何 buff 的 attack_stun_chance / attack_stun_duration，擲骰
+        // 決定此發 projectile 命中後是否暈眩目標（matchlock_gun 的 87% 機率）
+        let (msd, p2, atk_phys, stun_duration_roll) = {
             let positions = ecs.read_storage::<Pos>();
             let tproperty = ecs.read_storage::<TAttack>();
             let buff_store = ecs.read_resource::<crate::ability_runtime::BuffStore>();
@@ -279,7 +285,24 @@ impl GameProcessor {
             let tp = tproperty.get(source_entity).ok_or_else(|| failure::err_msg("Source attack properties not found"))?;
             let dmg_bonus = buff_store.sum_add(source_entity, "damage_bonus");
             let final_atk = tp.atk_physic.v * (1.0 + dmg_bonus);
-            (tp.bullet_speed, p2.0, final_atk)
+
+            // 取 source 身上任一 buff 中最強的 attack_stun_chance + 對應 duration
+            let mut stun_chance = 0.0f32;
+            let mut stun_duration = 0.0f32;
+            for (_, entry) in buff_store.iter_for(source_entity) {
+                let c = entry.payload.get("attack_stun_chance").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+                let d = entry.payload.get("attack_stun_duration").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+                if c > stun_chance {
+                    stun_chance = c;
+                    stun_duration = d;
+                }
+            }
+            let stun_roll = if stun_chance > 0.0 && stun_duration > 0.0 && fastrand::f32() < stun_chance {
+                stun_duration
+            } else {
+                0.0
+            };
+            (tp.bullet_speed, p2.0, final_atk, stun_roll)
         };
 
         // 命中由 projectile_tick 的距離判定決定（target 接近時 step >= dist 即命中）。
@@ -312,6 +335,7 @@ impl GameProcessor {
                 slow_factor,
                 slow_duration,
                 hit_radius: 0.0,
+                stun_duration: stun_duration_roll,
             })
             .build();
 
@@ -498,6 +522,7 @@ impl GameProcessor {
                 slow_factor: 0.0,
                 slow_duration: 0.0,
                 hit_radius: 0.0,
+                stun_duration: 0.0,
             })
             .build();
 

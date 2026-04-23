@@ -30,6 +30,10 @@ pub struct Projectile {
     /// 沿路 hit-test 半徑（無 target 方向性子彈用；0 = 使用預設）
     #[serde(default)]
     pub hit_radius: f32,
+    /// 命中後對目標施加的 stun 持續秒數（0 = 不暈眩）。
+    /// 由 handle_projectile 在發射時擲骰決定（例：matchlock_gun 的 attack_stun_chance）。
+    #[serde(default)]
+    pub stun_duration: f32,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

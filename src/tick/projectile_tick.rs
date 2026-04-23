@@ -205,4 +205,14 @@ fn create_projectile_damage(
             duration: proj.slow_duration,
         });
     }
+
+    // matchlock_gun 等 on-hit stun：handle_projectile 擲骰後把時長寫在 proj 上
+    if proj.stun_duration > 0.0 {
+        outcomes.push(Outcome::AddBuff {
+            target,
+            buff_id: "stun".to_string(),
+            duration: proj.stun_duration,
+            payload: serde_json::Value::Null,
+        });
+    }
 }

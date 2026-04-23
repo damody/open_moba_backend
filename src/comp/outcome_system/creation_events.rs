@@ -174,6 +174,7 @@ impl CreationEventHandler {
                 slow_factor: 0.0,
                 slow_duration: 0.0,
                 hit_radius: 0.0,
+                stun_duration: 0.0,
             })
             .build();
         
