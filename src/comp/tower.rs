@@ -9,6 +9,12 @@ pub struct Tower {
     pub nearby_creeps: Vec<NearbyEnt>,
     pub block_creeps: Vec<Entity>,
     pub buffs: Vec<TModify>,
+    #[serde(default)]
+    pub upgrade_levels: [u8; 3],
+    #[serde(default)]
+    pub upgrade_flags: Vec<String>,
+    #[serde(default)]
+    pub ultimate_cooldown: f32,
 }
 impl Tower {
     pub fn new() -> Self {
@@ -16,6 +22,9 @@ impl Tower {
             nearby_creeps: vec![],
             block_creeps: vec![],
             buffs: vec![],
+            upgrade_levels: [0; 3],
+            upgrade_flags: vec![],
+            ultimate_cooldown: 0.0,
         }
     }
 }
