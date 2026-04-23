@@ -132,4 +132,48 @@ pub trait GameWorld: Send {
     fn log_info(&self, msg: RStr<'_>);
     fn log_warn(&self, msg: RStr<'_>);
     fn log_error(&self, msg: RStr<'_>);
+
+    // ============================================================
+    // Dota 2 modifier 風格聚合查詢 API
+    // ============================================================
+
+    /// 加法聚合：回傳 `e` 身上所有 buff payload 中 `stat_key` 欄位的和。
+    /// 慣例：`_bonus` 後綴 stat 用這個（例 `range_bonus`、`bonus_damage`）。
+    fn sum_stat(&self, e: EntityHandle, stat_key: RStr<'_>) -> f32;
+
+    /// 乘法聚合：回傳 `e` 身上所有 buff payload 中 `stat_key` 欄位的積。
+    /// 空集合回 1.0。慣例：`_multiplier` 後綴 stat 用這個。
+    fn product_stat(&self, e: EntityHandle, stat_key: RStr<'_>) -> f32;
+
+    /// 回傳單位的「實際」移速：`base_msd * (1 + move_speed_bonus_sum) *
+    /// move_speed_multiplier_product`，並 clamp 到 `move_speed_min/max`（若有 buff）。
+    fn get_final_move_speed(&self, e: EntityHandle) -> f32;
+
+    /// 回傳單位的「實際」攻擊力：`base_atk + bonus_damage_sum + base_damage_bonus_sum`，
+    /// 再乘以 `damage_out_multiplier_product`。
+    fn get_final_atk(&self, e: EntityHandle) -> f32;
+
+    /// 回傳單位的「實際」攻擊射程：`base_range + attack_range_bonus_sum`。
+    fn get_final_attack_range(&self, e: EntityHandle) -> f32;
+
+    /// 回傳指定 buff 還剩多少秒；不存在回 0。
+    fn get_buff_remaining(&self, e: EntityHandle, buff_id: RStr<'_>) -> f32;
+
+    /// 讀取當前 mana（英雄/可施法單位）。無法取得時回 0。
+    fn current_mana(&self, e: EntityHandle) -> f32;
+
+    /// 扣 mana；足夠時扣除並回傳 true，不足回 false。
+    /// 會自動 push `SpentMana` 事件供腳本 hook。
+    fn spend_mana(&mut self, e: EntityHandle, amount: f32, ability_id: RStr<'_>) -> bool;
+
+    /// 補 mana，自動 push `ManaGained` 事件。
+    fn restore_mana(&mut self, e: EntityHandle, amount: f32);
+
+    /// 從腳本端主動 push 一個 `ModifierAdded` 事件（進階用）。
+    /// 一般呼叫 `add_buff` / `add_stat_buff` 時會自動 push；
+    /// 這個 API 用於不想改 BuffStore 但要發 hook 的情況。
+    fn trigger_modifier_added(&mut self, e: EntityHandle, modifier_id: RStr<'_>);
+
+    /// 從腳本端主動 push `StateChanged` 事件。
+    fn trigger_state_changed(&mut self, e: EntityHandle, state_id: RStr<'_>, active: bool);
 }

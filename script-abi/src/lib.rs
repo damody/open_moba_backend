@@ -7,12 +7,14 @@
 pub mod ability;
 pub mod manifest;
 pub mod script;
+pub mod stat_keys;
 pub mod types;
 pub mod world;
 
 pub mod prelude {
     pub use crate::ability::{AbilityDefFFI, AbilityScript, AbilityScript_TO};
     pub use crate::script::{UnitScript, UnitScript_TO};
+    pub use crate::stat_keys;
     pub use crate::types::*;
     pub use crate::world::{GameWorld, GameWorldDyn, GameWorld_TO};
     pub use abi_stable::{
