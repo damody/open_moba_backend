@@ -136,11 +136,25 @@ fn read_story_from_game_toml(path: &Path) -> String {
 }
 
 fn default_dll_path() -> PathBuf {
-    let release = PathBuf::from("target/release/base_content.dll");
-    if release.exists() {
-        return release;
+    // Try common locations in order. First existing wins.
+    let candidates: &[&str] = &[
+        // omb 自己 build 出來（未來若整合進同 workspace 用）
+        "target/release/base_content.dll",
+        "target/debug/base_content.dll",
+        // run.bat 把 DLL copy 到 omb/scripts/ 下的 staged 位置
+        "scripts/base_content.dll",
+        // scripts/ 這個獨立 workspace 直接 build 出來的位置
+        "../scripts/target/release/base_content.dll",
+        "../scripts/target/debug/base_content.dll",
+    ];
+    for c in candidates {
+        let p = PathBuf::from(c);
+        if p.exists() {
+            return p;
+        }
     }
-    PathBuf::from("target/debug/base_content.dll")
+    // Fall back to the conventional release path for a clear error message
+    PathBuf::from("target/release/base_content.dll")
 }
 
 fn now_rfc3339() -> String {
