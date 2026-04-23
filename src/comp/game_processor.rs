@@ -284,7 +284,14 @@ impl GameProcessor {
             let p2 = positions.get(target_entity).ok_or_else(|| failure::err_msg("Target position not found"))?;
             let tp = tproperty.get(source_entity).ok_or_else(|| failure::err_msg("Source attack properties not found"))?;
             let dmg_bonus = buff_store.sum_add(source_entity, "damage_bonus");
-            let final_atk = tp.atk_physic.v * (1.0 + dmg_bonus);
+            let mut final_atk = tp.atk_physic.v * (1.0 + dmg_bonus);
+
+            // Accuracy 擲骰：base 命中率 1.0 + sum(accuracy_bonus) buffs；clamp [0,1]。
+            // miss → damage=0（projectile 仍飛行，前端可由 0 傷害判定顯示 miss）。
+            let accuracy = (1.0 + buff_store.sum_add(source_entity, "accuracy_bonus")).clamp(0.0, 1.0);
+            if accuracy < 1.0 && fastrand::f32() > accuracy {
+                final_atk = 0.0;
+            }
 
             // 取 source 身上任一 buff 中最強的 attack_stun_chance + 對應 duration
             let mut stun_chance = 0.0f32;
