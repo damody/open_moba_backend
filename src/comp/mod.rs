@@ -38,6 +38,8 @@ pub mod blocked_region;
 pub mod game_mode;
 pub mod tower_template;
 pub mod tower_registry;
+pub mod building;
+pub use building::IsBuilding;
 
 pub use self::{
     blocked_region::*,

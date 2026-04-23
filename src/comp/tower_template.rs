@@ -42,6 +42,7 @@ pub fn spawn_td_tower(world: &mut World, pos: Vec2<f32>, unit_id: &str) -> Optio
         .create_entity()
         .with(Pos(pos))
         .with(Tower::new())
+        .with(IsBuilding)
         .with(tprop)
         .with(cprop)
         .with(tatk)

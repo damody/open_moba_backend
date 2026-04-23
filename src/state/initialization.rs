@@ -300,6 +300,7 @@ impl StateInitializer {
         ecs.register::<RegionBlocker>();
         // SlowBuff component 已移除，slow 走 ability_runtime::BuffStore resource
         ecs.register::<crate::scripting::ScriptUnitTag>();
+        ecs.register::<IsBuilding>();
     }
 
     fn initialize_resources(ecs: &mut World, _thread_pool: &Arc<ThreadPool>) {
