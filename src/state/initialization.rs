@@ -355,6 +355,9 @@ impl StateInitializer {
         // 腳本事件佇列（由 tick 系統推入、ScriptDispatchSystem 於本 tick 尾端抽乾）
         ecs.insert(crate::scripting::ScriptEventQueue::default());
 
+        // Buff 系統資源（取代舊的 SlowBuff component）— creep_tick / buff_tick 都會讀
+        ecs.insert(crate::ability_runtime::BuffStore::new());
+
         log::info!("ECS 基本資源初始化完成");
     }
 
