@@ -4,7 +4,6 @@ use std::collections::HashMap;
 use vek::Vec2;
 
 pub mod handler;
-pub mod heroes;
 
 pub use handler::{AbilityHandler, AbilityRegistry};
 
@@ -167,24 +166,14 @@ pub struct AbilityProcessor {
 }
 
 impl AbilityProcessor {
+    /// 空 registry。原硬編碼的 8 個英雄 handler 已搬至
+    /// `scripts/base_content/src/heroes/`（DLL 腳本），透過 `AbilityScript`
+    /// FFI trait 註冊；本 sub-crate 的 `AbilityHandler` 僅作為舊呼叫點的
+    /// 過渡殼，不再自動註冊任何 handler。
     pub fn new() -> Self {
-        let mut registry = AbilityRegistry::new();
-        
-        // 註冊雜賀孫市的技能
-        registry.register(Box::new(heroes::B01_saika_magoichi::SniperModeHandler::new()));
-        registry.register(Box::new(heroes::B01_saika_magoichi::SaikaReinforcementsHandler::new()));
-        registry.register(Box::new(heroes::B01_saika_magoichi::RainIronCannonHandler::new()));
-        registry.register(Box::new(heroes::B01_saika_magoichi::ThreeStageHandler::new()));
-        
-        // 註冊伊達政宗的技能
-        registry.register(Box::new(heroes::B02_date_masamune::FlameBladeHandler::new()));
-        registry.register(Box::new(heroes::B02_date_masamune::FireDashHandler::new()));
-        registry.register(Box::new(heroes::B02_date_masamune::FlameAssaultHandler::new()));
-        registry.register(Box::new(heroes::B02_date_masamune::MatchlockGunHandler::new()));
-        
         Self {
-            configs: HashMap::with_capacity(32), // 預分配容量
-            registry,
+            configs: HashMap::with_capacity(32),
+            registry: AbilityRegistry::new(),
             #[cfg(feature = "metrics")]
             execution_count: std::sync::atomic::AtomicU64::new(0),
         }

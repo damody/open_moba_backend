@@ -5,12 +5,10 @@
 pub mod processor;
 pub mod effects;
 pub mod input_handler;
-pub mod abilities;
 
 pub use processor::SkillProcessor;
 pub use effects::EffectManager;
 pub use input_handler::InputHandler;
-pub use abilities::AbilityManager;
 
 use specs::{
     shred, Entities, Read, ReadStorage, Write, WriteStorage, SystemData, World,
