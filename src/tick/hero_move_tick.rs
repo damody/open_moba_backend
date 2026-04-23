@@ -146,9 +146,14 @@ impl<'a> System<'a> for Sys {
             let target = move_target.0;
             let diff = target - pos.0;
             let distance = diff.magnitude();
-            // 移動速度乘數：buff 的 move_speed_multiplier 連乘（例：sniper 0.5 = 半速）
+            // 移速聚合：
+            // - move_speed_bonus（加法，負值 = 減速；Ice 塔 slow 等）
+            // - move_speed_multiplier（乘法；sniper_mode 等）
+            // effective = base × (1 + sum_bonus).max(0) × product_mult
+            let msd_bonus = tr.buff_store.sum_add(entity, "move_speed_bonus");
             let msd_mult = tr.buff_store.product_mult(entity, "move_speed_multiplier");
-            let step = property.msd * msd_mult * dt;
+            let msd_factor = (1.0 + msd_bonus).max(0.0) * msd_mult;
+            let step = property.msd * msd_factor * dt;
 
             // 先轉向目標方向
             if distance > 0.5 {

@@ -421,20 +421,6 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         Self::entity_to_handle(e)
     }
 
-    fn add_slow_buff(&mut self, target: EntityHandle, factor: f32, duration: f32) {
-        let Some(ent) = Self::handle_to_entity(target) else { return };
-        let mut store = self.world.write_resource::<BuffStore>();
-        // 疊加規則：factor 取 min（更強）、duration 取 max（更長）
-        let (final_factor, final_duration) = match store.get(ent, "slow") {
-            Some(e) => {
-                let prev = e.payload.get("factor").and_then(|v| v.as_f64()).unwrap_or(1.0) as f32;
-                (prev.min(factor), e.remaining.max(duration))
-            }
-            None => (factor, duration),
-        };
-        store.add(ent, "slow", final_duration, json!({ "factor": final_factor }));
-    }
-
     fn emit_explosion(&mut self, pos: Vec2f, radius: f32, duration: f32) {
         let _ = self.mqtx.try_send(OutboundMsg::new_s_at(
             "td/all/res", "game", "explosion",

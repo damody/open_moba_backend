@@ -89,9 +89,6 @@ pub trait GameWorld: Send {
     /// TD-mode 通用發射 API：依 `ProjectileSpec` 建立 projectile entity 並
     /// 廣播 projectile/C 給前端。支援 Homing / Straight / AoE / Slow。
     fn spawn_projectile_ex(&mut self, spec: ProjectileSpec) -> EntityHandle;
-    /// 套用減速 buff：目標 creep 在 `duration` 秒內移動速度乘 `factor`。
-    /// 新 buff 取更強（factor 較小）、更長（duration 取 max）。
-    fn add_slow_buff(&mut self, target: EntityHandle, factor: f32, duration: f32);
     /// 發爆炸特效事件給前端（由小到大紅圈）。不造成傷害；傷害由 projectile 本身的 splash。
     fn emit_explosion(&mut self, pos: Vec2f, radius: f32, duration: f32);
     fn despawn(&mut self, e: EntityHandle);

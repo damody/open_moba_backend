@@ -1,8 +1,9 @@
 //! Buff tick：每 tick 呼叫 `BuffStore::tick(dt)` 倒數、移除過期項。
 //!
-//! 取代舊 `slow_buff_tick`；`SlowBuff` component 已廢除，所有 buff 統一
-//! 走 `ability_runtime::BuffStore` resource。過期 buff 若需廣播給 client
-//! （例如 slow 解除時要回復移速），此處順便發訊息。
+//! 取代舊 `slow_buff_tick`；所有 buff 統一走 `ability_runtime::BuffStore`。
+//! 過期 buff 若 payload 含 `move_speed_bonus` 且 target 還活著且是 Creep →
+//! 廣播 `creep/S { id, move_speed }` 讓 client 重算 lerp（buff_id 不再限定
+//! "slow"，因為現在 slow buff_id 是 `slow_{attacker_id}` 多 instance）。
 
 use crossbeam_channel::Sender;
 use serde_json::json;
@@ -17,6 +18,7 @@ pub struct BuffTickData<'a> {
     _entities: Entities<'a>,
     dt: Read<'a, DeltaTime>,
     buffs: Write<'a, BuffStore>,
+    creeps: ReadStorage<'a, Creep>,
     cpropertys: ReadStorage<'a, CProperty>,
     mqtx: Write<'a, Vec<Sender<OutboundMsg>>>,
 }
@@ -34,16 +36,22 @@ impl<'a> System<'a> for Sys {
         let expired = data.buffs.tick(dt);
         let tx = data.mqtx.get(0).cloned();
 
-        for (entity, buff_id) in expired {
-            // 特定 buff 過期需要 client 端還原（例：slow 解除 → 廣播原速）
-            if buff_id == "slow" {
-                if let (Some(ref t), Some(cp)) = (&tx, data.cpropertys.get(entity)) {
-                    let _ = t.try_send(OutboundMsg::new_s(
-                        "td/all/res",
-                        "creep",
-                        "S",
-                        json!({ "id": entity.id(), "move_speed": cp.msd }),
-                    ));
+        for (entity, _buff_id, payload) in expired {
+            // 含 move_speed_bonus 的 buff 過期 → 對 creep 發 creep/S，重算 effective
+            // （此時 sum_add 已不含過期那筆 → 自然還原或剩餘疊加）
+            if payload.get("move_speed_bonus").is_some() {
+                let is_creep = data.creeps.get(entity).is_some();
+                if is_creep {
+                    if let (Some(ref t), Some(cp)) = (&tx, data.cpropertys.get(entity)) {
+                        let sum = data.buffs.sum_add(entity, "move_speed_bonus");
+                        let effective = cp.msd * (1.0 + sum).clamp(0.01, 1.0);
+                        let _ = t.try_send(OutboundMsg::new_s(
+                            "td/all/res",
+                            "creep",
+                            "S",
+                            json!({ "id": entity.id(), "move_speed": effective }),
+                        ));
+                    }
                 }
             }
         }

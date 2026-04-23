@@ -178,7 +178,9 @@ impl<'a> System<'a> for Sys {
 }
 
 /// 創建投射物傷害事件 - 使用新的傷害事件系統。
-/// 若 projectile 帶有 slow_factor/slow_duration（Ice 塔）則同時 push ApplySlow。
+/// 若 projectile 帶有 slow_factor/slow_duration（Ice 塔）則同時 push `AddBuff`：
+/// 以 `slow_{owner_id}` 為 buff_id 保證多攻擊者可加總聚合，
+/// payload 寫 `move_speed_bonus = -(1 - factor)`（負值 = 減速）。
 fn create_projectile_damage(
     proj: &Projectile,
     target: specs::Entity,
@@ -199,10 +201,12 @@ fn create_projectile_damage(
 
     // Ice 塔：附加減速 debuff 到目標
     if proj.slow_factor > 0.0 && proj.slow_factor < 1.0 && proj.slow_duration > 0.0 {
-        outcomes.push(Outcome::ApplySlow {
+        let bonus = -(1.0 - proj.slow_factor);  // factor=0.5 → bonus=-0.5
+        outcomes.push(Outcome::AddBuff {
             target,
-            factor: proj.slow_factor,
+            buff_id: format!("slow_{}", proj.owner.id()),
             duration: proj.slow_duration,
+            payload: serde_json::json!({ "move_speed_bonus": bonus }),
         });
     }
 

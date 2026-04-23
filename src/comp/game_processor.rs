@@ -60,12 +60,8 @@ impl GameProcessor {
                         remove_uids.push(ent);
                         Self::handle_creep_leaked(ecs, mqtx, ent)?;
                     }
-                    Outcome::ApplySlow { target, factor, duration } => {
-                        Self::handle_apply_slow(ecs, target, factor, duration)?;
-                    }
                     Outcome::AddBuff { target, buff_id, duration, payload } => {
-                        let mut store = ecs.write_resource::<crate::ability_runtime::BuffStore>();
-                        store.add(target, &buff_id, duration, payload);
+                        Self::handle_add_buff(ecs, target, buff_id, duration, payload)?;
                     }
                     Outcome::Explosion { pos, radius, duration } => {
                         let _ = mqtx.try_send(OutboundMsg::new_s_at(
@@ -410,40 +406,39 @@ impl GameProcessor {
         Ok(())
     }
 
-    /// TD 模式（Ice 塔命中時）：附加或刷新 slow buff 到目標 creep。
-    /// 統一寫入 `BuffStore`（buff_id="slow"，payload={factor}），由 `buff_tick`
-    /// 倒數、`creep_tick` 讀取套用移速乘數。
-    /// 疊加規則：factor 取 min（較強）、remaining 取 max（較長）。
-    fn handle_apply_slow(
+    /// 通用 buff 寫入：把 `Outcome::AddBuff` 對應到 `BuffStore`。若 payload 含
+    /// `move_speed_bonus` 且 target 是 Creep，立即廣播 `creep/S` 讓 client 端
+    /// lerp 移速變慢（replaces 舊的 handle_apply_slow 專用廣播）。
+    fn handle_add_buff(
         ecs: &mut World,
         target: Entity,
-        factor: f32,
+        buff_id: String,
         duration: f32,
+        payload: serde_json::Value,
     ) -> Result<(), Error> {
-        let new_factor;
-        let new_remaining;
+        let has_move_speed_bonus = payload.get("move_speed_bonus").and_then(|v| v.as_f64()).is_some();
         {
             let mut store = ecs.write_resource::<crate::ability_runtime::BuffStore>();
-            let (f, r) = match store.get(target, "slow") {
-                Some(e) => {
-                    let prev = e.payload.get("factor").and_then(|v| v.as_f64()).unwrap_or(1.0) as f32;
-                    (prev.min(factor), e.remaining.max(duration))
-                }
-                None => (factor, duration),
-            };
-            new_factor = f;
-            new_remaining = r;
-            store.add(target, "slow", r, json!({ "factor": f }));
+            store.add(target, &buff_id, duration, payload);
         }
-        // 立即廣播 creep/S 給前端：更新 move_speed，讓 lerp_duration 重算，視覺上變慢
-        let msd = ecs.read_storage::<CProperty>()
-            .get(target).map(|c| c.msd).unwrap_or(0.0);
-        let effective = msd * new_factor;
-        if let Some(tx) = ecs.read_resource::<Vec<crossbeam_channel::Sender<OutboundMsg>>>().get(0) {
-            let _ = tx.try_send(OutboundMsg::new_s("td/all/res", "creep", "S", json!({
-                "id": target.id(),
-                "move_speed": effective,
-            })));
+        // 只針對有移速影響、且是 creep 的目標廣播（hero 走 hero_move_tick 每幀發位置，不需要離散更新）
+        if has_move_speed_bonus {
+            let is_creep = ecs.read_storage::<Creep>().get(target).is_some();
+            if is_creep {
+                let msd = ecs.read_storage::<CProperty>()
+                    .get(target).map(|c| c.msd).unwrap_or(0.0);
+                let sum = {
+                    let store = ecs.read_resource::<crate::ability_runtime::BuffStore>();
+                    store.sum_add(target, "move_speed_bonus")
+                };
+                let effective = msd * (1.0 + sum).clamp(0.01, 1.0);
+                if let Some(tx) = ecs.read_resource::<Vec<crossbeam_channel::Sender<OutboundMsg>>>().get(0) {
+                    let _ = tx.try_send(OutboundMsg::new_s("td/all/res", "creep", "S", json!({
+                        "id": target.id(),
+                        "move_speed": effective,
+                    })));
+                }
+            }
         }
         Ok(())
     }

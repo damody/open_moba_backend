@@ -84,13 +84,6 @@ pub enum Outcome {
     CreepLeaked {
         ent: Entity,
     },
-    /// TD 模式：projectile 命中後套用減速 debuff 到目標 creep。
-    /// GameProcessor 在目標身上 insert/refresh SlowBuff component。
-    ApplySlow {
-        target: Entity,
-        factor: f32,
-        duration: f32,
-    },
     /// 通用 buff 施加 outcome：GameProcessor 收到後寫入 `BuffStore`。
     /// 例：attack_stun_chance 命中擲骰成功 → AddBuff{"stun", ...}。
     AddBuff {

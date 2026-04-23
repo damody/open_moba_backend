@@ -100,13 +100,10 @@ impl<'a> System<'a> for Sys {
                                             if tr.buff_store.is_rooted(e) {
                                                 return outcomes;
                                             }
-                                            // Slow buff（Ice 塔命中）：從 BuffStore 讀取
-                                            // payload.factor；無則不減速（1.0）
-                                            let slow_mult = tr.buff_store
-                                                .get(e, "slow")
-                                                .and_then(|b| b.payload.get("factor").and_then(|v| v.as_f64()))
-                                                .map(|f| (f as f32).clamp(0.01, 1.0))
-                                                .unwrap_or(1.0);
+                                            // Slow buff（Ice 塔命中等）：所有 buff 的 move_speed_bonus
+                                            // 加總（負值 = 減速）；多個 attacker 的 slow 可疊加。
+                                            let slow_bonus = tr.buff_store.sum_add(e, "move_speed_bonus");
+                                            let slow_mult = (1.0 + slow_bonus).clamp(0.01, 1.0);
                                             let step = cp.msd * slow_mult * dt;
                                             let diff = target_point.sub(&pos.0);
                                             let dist_sq = diff.magnitude_squared();

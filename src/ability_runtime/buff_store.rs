@@ -1,7 +1,7 @@
 //! `BuffStore` — host 端統一的 buff 儲存與倒數系統。
 //!
 //! 取代原本散在多處的 buff 實作（`SlowBuff` component + `slow_buff_tick`）。
-//! 所有來自 DLL 腳本的 `world.add_buff` / `world.add_slow_buff` 最終都寫
+//! 所有來自 DLL 腳本的 `world.add_buff` / `world.add_stat_buff` 最終都寫
 //! 到這個 resource；每 tick 由 `tick::buff_tick` 倒數，過期自動移除。
 //!
 //! 每筆 buff 可攜帶 `payload: serde_json::Value`，讓 host 系統（例如
@@ -29,7 +29,8 @@ impl BuffStore {
     }
 
     /// 新增或刷新 buff。若已存在：duration 取 max、payload 覆蓋（交由呼叫端
-    /// 決定是否合併/疊加——例如 `add_slow_buff` 自行處理 factor.min）。
+    /// 決定是否合併/疊加——例如 slow 用 buff_id = `slow_{attacker}` 每個來源
+    /// 一個 entry，由 `sum_add("move_speed_bonus")` 加總聚合）。
     pub fn add(&mut self, entity: Entity, buff_id: &str, duration: f32, payload: Value) {
         let key = (entity, buff_id.to_string());
         match self.buffs.get_mut(&key) {
@@ -110,13 +111,15 @@ impl BuffStore {
         self.has(entity, "silence") || self.has(entity, "stun")
     }
 
-    /// 倒數所有 buff 並回傳過期的 `(Entity, buff_id)` 清單。
-    pub fn tick(&mut self, dt: f32) -> Vec<(Entity, String)> {
+    /// 倒數所有 buff 並回傳過期的 `(Entity, buff_id, payload)` 清單。
+    /// 呼叫端可依 payload 內容決定是否廣播（例：payload 含 move_speed_bonus
+    /// 表示這是移速影響類 buff，要發 creep/S 還原訊息）。
+    pub fn tick(&mut self, dt: f32) -> Vec<(Entity, String, Value)> {
         let mut expired = Vec::new();
         self.buffs.retain(|(e, id), v| {
             v.remaining -= dt;
             if v.remaining <= 0.0 {
-                expired.push((*e, id.clone()));
+                expired.push((*e, id.clone(), v.payload.clone()));
                 false
             } else {
                 true
