@@ -701,8 +701,25 @@ impl ResourceManager {
         let x = pd.d.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
         let y = pd.d.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
 
-        // 找到匹配的英雄實體
-        let target_entity = {
+        // 若 pd.d.entity_id 存在，直接對該 entity 下 MoveTarget（召喚物 / saika_gunner 用）；
+        // 否則 fallback 成 Hero 名稱匹配（原行為）。
+        let explicit_id = pd.d.get("entity_id").and_then(|v| v.as_u64());
+
+        let target_entity = if let Some(eid) = explicit_id {
+            // 用 entity id 找 alive entity；不限 Hero — 只要 alive 即可
+            let entities = world.entities();
+            let mut found = None;
+            for e in (&entities).join() {
+                if e.id() as u64 == eid {
+                    found = Some(e);
+                    break;
+                }
+            }
+            if found.is_none() {
+                log::warn!("move_player: entity_id={} 不存在或已死亡", eid);
+            }
+            found
+        } else {
             let entities = world.entities();
             let heroes = world.read_storage::<Hero>();
             let mut found = None;
@@ -712,7 +729,6 @@ impl ResourceManager {
                     break;
                 }
             }
-            // 若沒找到名稱匹配的，取第一個英雄
             if found.is_none() {
                 for (e, _) in (&entities, &heroes).join() {
                     found = Some(e);
@@ -726,8 +742,12 @@ impl ResourceManager {
         if let Some(entity) = target_entity {
             let mut move_targets = world.write_storage::<MoveTarget>();
             let _ = move_targets.insert(entity, MoveTarget(Vec2::new(x, y)));
-            log::info!("設定英雄移動目標: ({}, {})", x, y);
-        } else {
+            if let Some(eid) = explicit_id {
+                log::info!("設定 entity {} 移動目標: ({}, {})", eid, x, y);
+            } else {
+                log::info!("設定英雄移動目標: ({}, {})", x, y);
+            }
+        } else if explicit_id.is_none() {
             log::warn!("找不到英雄實體: {}", pd.name);
         }
 
