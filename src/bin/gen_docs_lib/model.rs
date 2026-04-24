@@ -112,6 +112,7 @@ pub struct StatKey {
     pub doc: String,
     pub section: StatSection,
     pub sub_group: Option<String>,
+    pub aggregation: String,
 }
 
 #[derive(Debug, Clone, Default)]

@@ -153,51 +153,35 @@ pub fn scan_world(src: &str) -> Result<Vec<ApiMethod>> {
     Ok(out)
 }
 
-pub fn scan_stat_keys(src: &str) -> Result<Vec<StatKey>> {
-    use regex::Regex;
-    let file: File = syn::parse_str(src).context("parse stat_keys.rs")?;
-
-    let sec_re = Regex::new(r"^//\s*SECTION\s+(\d)").unwrap();
-    let sec_lines: Vec<(usize, StatSection)> = src.lines().enumerate()
-        .filter_map(|(i, l)| sec_re.captures(l).and_then(|c| match &c[1] {
-            "1" => Some((i + 1, StatSection::All)),
-            "2" => Some((i + 1, StatSection::NonBuilding)),
-            "3" => Some((i + 1, StatSection::Visual)),
-            _ => None,
-        }))
-        .collect();
-    let sub_re = Regex::new(r"^\s*//\s*----\s*(.+?)\s*----").unwrap();
-    let sub_headers: Vec<(usize, String)> = src.lines().enumerate()
-        .filter_map(|(i, l)| sub_re.captures(l).map(|c| (i + 1, c[1].trim().to_string())))
-        .collect();
-
-    let pick_section = |line: usize| -> StatSection {
-        sec_lines.iter().rev().find(|(h, _)| *h <= line).map(|(_, s)| *s).unwrap_or(StatSection::All)
-    };
-    let pick_sub = |line: usize| -> Option<String> {
-        sub_headers.iter().rev().find(|(h, _)| *h <= line).map(|(_, n)| n.clone())
+pub fn scan_stat_keys(_src: &str) -> Result<Vec<StatKey>> {
+    use omb_script_abi::stat_keys::{
+        self as sk_mod, Aggregation, StatKey as StatKeyEnum, StatSection as StatSectionEnum,
     };
 
-    let mut out = Vec::new();
-    for item in &file.items {
-        if let Item::Const(c) = item {
-            use syn::spanned::Spanned;
-            let line = c.span().start().line;
-            let name = c.ident.to_string();
-            let value = match &*c.expr {
-                syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(s), .. }) => s.value(),
-                syn::Expr::Path(_) => continue,
-                _ => continue,
-            };
-            out.push(StatKey {
-                const_name: name,
-                string_value: value,
-                doc: extract_doc(&c.attrs),
-                section: pick_section(line),
-                sub_group: pick_sub(line),
-            });
-        }
-    }
+    let out = sk_mod::ALL
+        .iter()
+        .map(|&v| StatKey {
+            const_name: format!("{:?}", v),
+            string_value: v.as_str().to_string(),
+            doc: String::new(),
+            section: match v.section() {
+                StatSectionEnum::All => StatSection::All,
+                StatSectionEnum::NonBuilding => StatSection::NonBuilding,
+                StatSectionEnum::Visual => StatSection::Visual,
+            },
+            sub_group: None,
+            aggregation: match v.aggregation() {
+                Aggregation::SumAdd => "SumAdd".to_string(),
+                Aggregation::SumAddThenMul1Plus => "SumAddThenMul1Plus".to_string(),
+                Aggregation::ProductMult => "ProductMult".to_string(),
+                Aggregation::Chance => "Chance".to_string(),
+                Aggregation::PassThrough => "PassThrough".to_string(),
+            },
+        })
+        .collect();
+
+    // Silence unused-import warnings on StatKeyEnum (kept for future per-variant doc hooks).
+    let _ = std::marker::PhantomData::<StatKeyEnum>;
     Ok(out)
 }
 
@@ -234,7 +218,7 @@ mod tests {
         assert!(spec.unit_hooks.len() >= 15, "got only {} unit hooks", spec.unit_hooks.len());
         assert!(spec.ability_hooks.iter().any(|m| m.name == "execute"));
         assert!(spec.world_methods.iter().any(|m| m.name == "get_final_armor"));
-        assert!(spec.stat_keys.iter().any(|k| k.const_name == "PREATTACK_BONUS_DAMAGE"));
+        assert!(spec.stat_keys.iter().any(|k| k.const_name == "PreattackBonusDamage"));
 
         // Regression guard for I1: un-`----` sections must not end up as WorldLog
         let armor = spec.world_methods.iter().find(|m| m.name == "get_final_armor")

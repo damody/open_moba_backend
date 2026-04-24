@@ -289,13 +289,20 @@ fn section_stat_keys(c: &Catalog) -> Markup {
             @for (sec, label) in groups.iter() {
                 h3 { (label) }
                 table.kv.stat-table {
-                    thead { tr { th { "const" } th { "string" } th { "group" } th { "doc" } } }
+                    thead { tr {
+                        th { "variant" }
+                        th { "string" }
+                        th { "group" }
+                        th { "aggregation" }
+                        th { "doc" }
+                    } }
                     tbody {
                         @for s in c.api.stat_keys.iter().filter(|s| &s.section == sec) {
-                            tr data-search=(format!("{} {} {}", s.const_name, s.string_value, s.doc)) {
+                            tr data-search=(format!("{} {} {} {}", s.const_name, s.string_value, s.aggregation, s.doc)) {
                                 td { code { (s.const_name) } }
                                 td { code { "\"" (s.string_value) "\"" } }
                                 td { @if let Some(g) = &s.sub_group { (g) } }
+                                td { code { (s.aggregation) } }
                                 td.mono { (s.doc) }
                             }
                         }
