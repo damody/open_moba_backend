@@ -24,7 +24,7 @@ struct Args {
     #[arg(long)]
     dll: Option<PathBuf>,
     /// script-abi source directory
-    #[arg(long, default_value = "script-abi/src")]
+    #[arg(long, default_value = "../scripts/script-abi/src")]
     abi_src: PathBuf,
     /// base_content source directory (for coverage scan)
     #[arg(long, default_value = "../scripts/base_content/src")]
@@ -135,13 +135,15 @@ fn read_story_from_game_toml(path: &Path) -> String {
 
 fn default_dll_path() -> PathBuf {
     // Try common locations in order. First existing wins.
+    // NOTE: staged DLL (scripts/base_content.dll, 由 run.bat / stress 腳本 copy
+    // 過來) 是最權威的正本，必須放第一位；避免誤載到陳舊的 target/release/。
     let candidates: &[&str] = &[
-        // omb 自己 build 出來（未來若整合進同 workspace 用）
+        // run.bat / stress 腳本 stage 的 staged 正本 — 最權威
+        "scripts/base_content.dll",
+        // fallback: omb 自家 target（若未來整合進同 workspace）
         "target/release/base_content.dll",
         "target/debug/base_content.dll",
-        // run.bat 把 DLL copy 到 omb/scripts/ 下的 staged 位置
-        "scripts/base_content.dll",
-        // scripts/ 這個獨立 workspace 直接 build 出來的位置
+        // fallback: scripts/ 這個獨立 workspace 直接 build 出來的位置
         "../scripts/target/release/base_content.dll",
         "../scripts/target/debug/base_content.dll",
     ];
@@ -151,8 +153,8 @@ fn default_dll_path() -> PathBuf {
             return p;
         }
     }
-    // Fall back to the conventional release path for a clear error message
-    PathBuf::from("target/release/base_content.dll")
+    // Fall back to the conventional staged path for a clear error message
+    PathBuf::from("scripts/base_content.dll")
 }
 
 fn now_rfc3339() -> String {
