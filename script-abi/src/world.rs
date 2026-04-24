@@ -68,14 +68,6 @@ pub trait GameWorld: Send {
         duration: f32,
         modifiers_json: RStr<'_>,
     );
-    fn spawn_projectile(
-        &mut self,
-        from: Vec2f,
-        to: EntityHandle,
-        speed: f32,
-        dmg: f32,
-        owner: EntityHandle,
-    ) -> EntityHandle;
     /// 召喚一個單位：在 `pos` 生成 `unit_type` 指定的預設模板（saika_gunner、
     /// archer、swordsman、mage 等），陣營繼承 `owner`，`duration > 0` 秒後
     /// 由 `summon_tick` 自動 despawn；傳 0 代表永久。回傳新 entity handle。
@@ -112,6 +104,9 @@ pub trait GameWorld: Send {
     fn set_asd_interval(&mut self, e: EntityHandle, v: f32);
     /// 設塔/單位 facing 角度（radians，+X = 0，CCW）
     fn set_facing(&mut self, e: EntityHandle, angle_rad: f32);
+    /// 讀單位當前 facing 角度（radians，+X = 0，CCW）。
+    /// 無 `Facing` component 的實體回 0.0。
+    fn get_facing(&self, e: EntityHandle) -> f32;
     /// 查射程內最近的敵人（過濾 faction）；無則 RNone
     fn query_nearest_enemy(
         &self,

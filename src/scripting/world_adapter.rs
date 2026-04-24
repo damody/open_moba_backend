@@ -274,18 +274,6 @@ impl<'a> GameWorld for WorldAdapter<'a> {
             .push(ScriptEvent::ModifierAdded { e: ent, modifier_id: id_owned });
     }
 
-    fn spawn_projectile(
-        &mut self,
-        _from: Vec2f,
-        _to: EntityHandle,
-        _speed: f32,
-        _dmg: f32,
-        _owner: EntityHandle,
-    ) -> EntityHandle {
-        log::debug!("[scripting] spawn_projectile (stub; use spawn_projectile_ex)");
-        EntityHandle::INVALID
-    }
-
     fn spawn_summoned_unit(
         &mut self,
         pos: Vec2f,
@@ -522,6 +510,11 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         if let Some(f) = store.get_mut(ent) {
             f.0 = angle_rad;
         }
+    }
+
+    fn get_facing(&self, e: EntityHandle) -> f32 {
+        let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
+        self.world.read_storage::<Facing>().get(ent).map(|f| f.0).unwrap_or(0.0)
     }
 
     fn query_nearest_enemy(
