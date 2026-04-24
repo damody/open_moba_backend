@@ -60,6 +60,29 @@ pub trait AbilityScript: Send + Sync {
         _world: &mut GameWorldDyn<'_>,
     ) {
     }
+
+    /// 技能被學會（或升等）時觸發。
+    /// Passive 技用這個把永久 buff 套上；Active / Toggle / Ultimate 預設忽略。
+    fn on_learn(
+        &self,
+        _caster: EntityHandle,
+        _new_level: u8,
+        _world: &mut GameWorldDyn<'_>,
+    ) {
+    }
+
+    /// 攻擊者命中目標時觸發 — host 會對 attacker 已學的每個 passive ability 輪詢此 hook。
+    /// Passive 技能（如雜賀雨鐵砲）用此實作「普攻附帶的額外效果」。
+    /// 預設 no-op。
+    fn on_attack_hit(
+        &self,
+        _owner: EntityHandle,
+        _attacker: EntityHandle,
+        _victim: EntityHandle,
+        _level: u8,
+        _world: &mut GameWorldDyn<'_>,
+    ) {
+    }
 }
 
 /// `AbilityDef` + the script that implements it — one entry per ability

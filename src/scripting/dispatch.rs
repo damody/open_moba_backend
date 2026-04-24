@@ -153,6 +153,32 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
                 }
             }
 
+            // Cooldown / Passive gate：
+            // - Passive 技能不該走 SkillCast 路徑（on_learn 已處理）
+            // - Active / Toggle / Ultimate：若仍在 CD 中直接拒絕
+            {
+                let heroes = adapter.world.read_storage::<crate::comp::Hero>();
+                if let Some(hero) = heroes.get(caster) {
+                    if hero.is_on_cooldown(&skill_id) {
+                        log::info!(
+                            "[scripting] skill '{}' blocked — on cooldown ({:.1}s remaining)",
+                            skill_id,
+                            hero.get_cooldown(&skill_id)
+                        );
+                        return;
+                    }
+                }
+                if let Some((def, _)) = registry.get_ability(&skill_id) {
+                    if def.ability_type == omoba_core::ability_meta::AbilityType::Passive {
+                        log::info!(
+                            "[scripting] skill '{}' is passive — cannot be cast actively",
+                            skill_id
+                        );
+                        return;
+                    }
+                }
+            }
+
             let caster_handle = WorldAdapter::entity_to_handle(caster);
             let target_abi = match target {
                 SkillTarget::Entity(e) => Target::Entity(WorldAdapter::entity_to_handle(e)),
@@ -186,31 +212,49 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
 
             // 2) 呼叫 ability 本身的 execute（DLL handler 實際執行效果）
             if let Some((def, ability_script)) = registry.get_ability(&skill_id) {
-                let level_data_json = def
-                    .get_level_data(level)
+                let level_data = def.get_level_data(level).cloned();
+                let level_data_json = level_data
+                    .as_ref()
                     .and_then(|ld| serde_json::to_string(ld).ok())
                     .unwrap_or_else(|| "{}".to_string());
+                let cd_seconds = level_data.as_ref().map(|ld| ld.cooldown).unwrap_or(0.0);
 
-                let mut world_dyn = world_dyn_of(adapter);
-                let r = catch_unwind(AssertUnwindSafe(|| {
-                    ability_script.execute(
-                        caster_handle,
-                        target_abi,
-                        level,
-                        (&*level_data_json).into(),
-                        &mut world_dyn,
-                    )
-                }));
-                match r {
-                    Ok(res) if res.is_err() => {
-                        log::warn!(
-                            "[scripting] ability '{}' execute returned error",
-                            skill_id
-                        );
+                let exec_ok = {
+                    let mut world_dyn = world_dyn_of(adapter);
+                    let r = catch_unwind(AssertUnwindSafe(|| {
+                        ability_script.execute(
+                            caster_handle,
+                            target_abi,
+                            level,
+                            (&*level_data_json).into(),
+                            &mut world_dyn,
+                        )
+                    }));
+                    match r {
+                        Ok(res) if res.is_err() => {
+                            log::warn!(
+                                "[scripting] ability '{}' execute returned error",
+                                skill_id
+                            );
+                            false
+                        }
+                        Ok(_) => true,
+                        Err(_) => {
+                            log::error!(
+                                "[scripting] panic in AbilityScript::execute of {}",
+                                skill_id
+                            );
+                            false
+                        }
                     }
-                    Ok(_) => {}
-                    Err(_) => {
-                        log::error!("[scripting] panic in AbilityScript::execute of {}", skill_id);
+                    // world_dyn 在此 block 結束時釋放 adapter 的借用
+                };
+
+                // 執行成功後啟動 CD；失敗不扣 CD（讓玩家重試）
+                if exec_ok && cd_seconds > 0.0 {
+                    let mut heroes = adapter.world.write_storage::<crate::comp::Hero>();
+                    if let Some(hero) = heroes.get_mut(caster) {
+                        hero.start_cooldown(&skill_id, cd_seconds);
                     }
                 }
             } else {
@@ -221,11 +265,72 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
             }
         }
 
+        ScriptEvent::SkillLearn { caster, skill_id, new_level } => {
+            // 派發 on_learn；Passive 技在此套永久 buff
+            if let Some((_def, ability_script)) = registry.get_ability(&skill_id) {
+                let caster_handle = WorldAdapter::entity_to_handle(caster);
+                let mut world_dyn = world_dyn_of(adapter);
+                let r = catch_unwind(AssertUnwindSafe(|| {
+                    ability_script.on_learn(caster_handle, new_level, &mut world_dyn);
+                }));
+                if r.is_err() {
+                    log::error!("[scripting] panic in AbilityScript::on_learn of {}", skill_id);
+                }
+            }
+        }
+
         ScriptEvent::AttackHit { attacker, victim } => {
             let victim_handle = WorldAdapter::entity_to_handle(victim);
+            // 1) UnitScript hook（tower / creep 等用這個做命中附加效果）
             with_script(adapter, registry, attacker, |script, handle, world_dyn| {
                 script.on_attack_hit(handle, victim_handle, world_dyn);
             });
+
+            // 2) 若 attacker 是 Hero，輪詢已學的 Passive ability 並呼 on_attack_hit。
+            //    先 snapshot passive ids + levels 避免 dispatch 中借用 hero storage 與 world_dyn 衝突。
+            let passive_calls: Vec<(String, u8)> = {
+                let heroes = adapter.world.read_storage::<crate::comp::Hero>();
+                match heroes.get(attacker) {
+                    Some(hero) => hero
+                        .ability_levels
+                        .iter()
+                        .filter(|(_, lv)| **lv > 0)
+                        .filter_map(|(ability_id, lv)| {
+                            registry.get_ability(ability_id).and_then(|(def, _)| {
+                                if def.ability_type == omoba_core::ability_meta::AbilityType::Passive {
+                                    Some((ability_id.clone(), (*lv).max(1) as u8))
+                                } else {
+                                    None
+                                }
+                            })
+                        })
+                        .collect(),
+                    None => Vec::new(),
+                }
+            };
+            if !passive_calls.is_empty() {
+                let attacker_handle = WorldAdapter::entity_to_handle(attacker);
+                for (ability_id, lv) in passive_calls {
+                    if let Some((_, ability_script)) = registry.get_ability(&ability_id) {
+                        let mut world_dyn = world_dyn_of(adapter);
+                        let r = catch_unwind(AssertUnwindSafe(|| {
+                            ability_script.on_attack_hit(
+                                attacker_handle,
+                                attacker_handle,
+                                victim_handle,
+                                lv,
+                                &mut world_dyn,
+                            );
+                        }));
+                        if r.is_err() {
+                            log::error!(
+                                "[scripting] panic in passive AbilityScript::on_attack_hit of {}",
+                                ability_id
+                            );
+                        }
+                    }
+                }
+            }
         }
 
         ScriptEvent::Respawn { e } => {

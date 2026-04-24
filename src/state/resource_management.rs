@@ -901,29 +901,42 @@ impl ResourceManager {
             Some(e) => e,
             None => return Ok(()),
         };
-        let mut heroes = world.write_storage::<Hero>();
-        if let Some(hero) = heroes.get_mut(hero_e) {
-            if hero.skill_points <= 0 {
-                log::info!("upgrade_skill: 無可用技能點 (slot {})", slot);
-                return Ok(());
-            }
-            let ability_id = match hero.abilities.get(idx) {
-                Some(a) => a.clone(),
-                None => {
-                    log::warn!("upgrade_skill: 英雄無 slot {} 技能", slot);
+        // 成功升級後要 push SkillLearn event；先用 Option 暫存
+        let mut learn_info: Option<(String, u8)> = None;
+        {
+            let mut heroes = world.write_storage::<Hero>();
+            if let Some(hero) = heroes.get_mut(hero_e) {
+                if hero.skill_points <= 0 {
+                    log::info!("upgrade_skill: 無可用技能點 (slot {})", slot);
                     return Ok(());
                 }
-            };
-            let cur = hero.ability_levels.get(&ability_id).copied().unwrap_or(0);
-            let new_lvl = (cur + 1).min(5);
-            hero.ability_levels.insert(ability_id.clone(), new_lvl);
-            hero.skill_points -= 1;
-            log::info!(
-                "⬆️  技能升級：slot {} ({}) → {} (剩餘技能點 {})",
-                slot, ability_id, new_lvl, hero.skill_points
-            );
+                let ability_id = match hero.abilities.get(idx) {
+                    Some(a) => a.clone(),
+                    None => {
+                        log::warn!("upgrade_skill: 英雄無 slot {} 技能", slot);
+                        return Ok(());
+                    }
+                };
+                let cur = hero.ability_levels.get(&ability_id).copied().unwrap_or(0);
+                let new_lvl = (cur + 1).min(5);
+                hero.ability_levels.insert(ability_id.clone(), new_lvl);
+                hero.skill_points -= 1;
+                log::info!(
+                    "⬆️  技能升級：slot {} ({}) → {} (剩餘技能點 {})",
+                    slot, ability_id, new_lvl, hero.skill_points
+                );
+                learn_info = Some((ability_id, new_lvl.max(1) as u8));
+            }
         }
-        drop(heroes);
+        // 推 SkillLearn event，讓 Passive 技能在 dispatch 時套 on_learn 鉤子
+        if let Some((ability_id, new_level)) = learn_info {
+            let mut queue = world.write_resource::<crate::scripting::ScriptEventQueue>();
+            queue.push(crate::scripting::ScriptEvent::SkillLearn {
+                caster: hero_e,
+                skill_id: ability_id,
+                new_level,
+            });
+        }
         self.broadcast_hero_update(world, hero_e);
         Ok(())
     }

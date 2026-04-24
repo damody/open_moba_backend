@@ -101,6 +101,13 @@ pub enum ScriptEvent {
         skill_id: String,
         target: SkillTarget,
     },
+    /// 英雄習得技能（或升等）時 push。dispatch 會呼對應 AbilityScript::on_learn；
+    /// Passive 技用此時機套永久 buff。
+    SkillLearn {
+        caster: Entity,
+        skill_id: String,
+        new_level: u8,
+    },
     Order {
         e: Entity,
         order_kind: String,
