@@ -35,6 +35,8 @@ pub enum TypedOutbound {
     TowerUpgrade(super::kcp_transport::game_proto::TowerUpgrade),
     BuffAdd(super::kcp_transport::game_proto::BuffAdd),
     BuffRemove(super::kcp_transport::game_proto::BuffRemove),
+    HeroStatic(super::kcp_transport::game_proto::HeroStatic),
+    HeroHot(super::kcp_transport::game_proto::HeroHot),
     GameRound(super::kcp_transport::game_proto::GameRound),
     GameLives(super::kcp_transport::game_proto::GameLives),
     GameEnd(super::kcp_transport::game_proto::GameEnd),

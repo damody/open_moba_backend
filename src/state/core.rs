@@ -559,6 +559,7 @@ impl State {
         let atks = self.ecs.read_storage::<TAttack>();
         let positions = self.ecs.read_storage::<Pos>();
         let buff_store = self.ecs.read_resource::<crate::ability_runtime::BuffStore>();
+        #[cfg(not(feature = "kcp"))]
         let lives = self.ecs.read_resource::<PlayerLives>().0;
 
         for e in hero_entities {
@@ -567,17 +568,32 @@ impl State {
             let prop = props.get(e);
             let (hp, mhp) = prop.map(|p| (p.hp, p.mhp)).unwrap_or((0.0, 0.0));
             let (armor_b, mres_b, msd_b) = prop.map(|p| (p.def_physic, p.def_magic, p.msd)).unwrap_or((0.0, 0.0, 0.0));
-            let (atk_dmg_b, atk_int_b, atk_rng_b, bullet_spd) = atks.get(e)
-                .map(|a| (a.atk_physic.v, a.asd.v, a.range.v, a.bullet_speed))
-                .unwrap_or((0.0, 0.0, 0.0, 0.0));
             let pos = positions.get(e).map(|p| p.0).unwrap_or(vek::Vec2::zero());
-            let payload = crate::state::resource_management::build_hero_stats_payload(
-                e, h, gold, hp, mhp, armor_b, mres_b, msd_b,
-                atk_dmg_b, atk_int_b, atk_rng_b, bullet_spd, lives, &buff_store,
-            );
-            let _ = self.mqtx.send(OutboundMsg::new_s_at(
-                "td/all/res", "hero", "stats", payload, pos.x, pos.y,
-            ));
+
+            #[cfg(feature = "kcp")]
+            {
+                let (atk_dmg_b, atk_int_b, atk_rng_b) = atks.get(e)
+                    .map(|a| (a.atk_physic.v, a.asd.v, a.range.v))
+                    .unwrap_or((0.0, 0.0, 0.0));
+                let msg = crate::state::resource_management::build_hero_hot_msg(
+                    e, h, gold, hp, mhp, armor_b, mres_b, msd_b,
+                    atk_dmg_b, atk_int_b, atk_rng_b, &buff_store, pos,
+                );
+                let _ = self.mqtx.send(msg);
+            }
+            #[cfg(not(feature = "kcp"))]
+            {
+                let (atk_dmg_b, atk_int_b, atk_rng_b, bullet_spd) = atks.get(e)
+                    .map(|a| (a.atk_physic.v, a.asd.v, a.range.v, a.bullet_speed))
+                    .unwrap_or((0.0, 0.0, 0.0, 0.0));
+                let payload = crate::state::resource_management::build_hero_stats_payload(
+                    e, h, gold, hp, mhp, armor_b, mres_b, msd_b,
+                    atk_dmg_b, atk_int_b, atk_rng_b, bullet_spd, lives, &buff_store,
+                );
+                let _ = self.mqtx.send(OutboundMsg::new_s_at(
+                    "td/all/res", "hero", "stats", payload, pos.x, pos.y,
+                ));
+            }
         }
     }
 
@@ -849,24 +865,42 @@ impl State {
                 )) {
                     log::error!("無法發送英雄初始化資料: {}", e);
                 }
-                // 初始 hero.stats（提供前端 HUD 初始值）
+                // P3: 初始推 HeroStatic（冷資料）+ HeroHot（熱資料）；非 kcp fallback 到 legacy hero.stats
                 let gold = golds.get(entity).map(|g| g.0).unwrap_or(0);
                 let prop = properties.get(entity);
                 let (hp, mhp) = prop.map(|p| (p.hp, p.mhp)).unwrap_or((0.0, 0.0));
                 let (armor_b, mres_b, msd_b) = prop.map(|p| (p.def_physic, p.def_magic, p.msd)).unwrap_or((0.0, 0.0, 0.0));
-                let (atk_dmg_b, atk_int_b, atk_rng_b, bullet_spd) = atks.get(entity)
-                    .map(|a| (a.atk_physic.v, a.asd.v, a.range.v, a.bullet_speed))
-                    .unwrap_or((0.0, 0.0, 0.0, 0.0));
-                let lives = self.ecs.read_resource::<PlayerLives>().0;
                 let buff_store = self.ecs.read_resource::<crate::ability_runtime::BuffStore>();
-                let stats_payload = crate::state::resource_management::build_hero_stats_payload(
-                    entity, hero, gold, hp, mhp, armor_b, mres_b, msd_b,
-                    atk_dmg_b, atk_int_b, atk_rng_b, bullet_spd, lives, &buff_store,
-                );
+
+                #[cfg(feature = "kcp")]
+                {
+                    let (atk_dmg_b, atk_int_b, atk_rng_b) = atks.get(entity)
+                        .map(|a| (a.atk_physic.v, a.asd.v, a.range.v))
+                        .unwrap_or((0.0, 0.0, 0.0));
+                    // HeroStatic 先，client 端 shim 會快取後續 HeroHot 抵達時才合併 emit
+                    let static_msg = crate::state::resource_management::build_hero_static_msg(entity, hero, pos.0);
+                    let _ = self.mqtx.send(static_msg);
+                    let hot_msg = crate::state::resource_management::build_hero_hot_msg(
+                        entity, hero, gold, hp, mhp, armor_b, mres_b, msd_b,
+                        atk_dmg_b, atk_int_b, atk_rng_b, &buff_store, pos.0,
+                    );
+                    let _ = self.mqtx.send(hot_msg);
+                }
+                #[cfg(not(feature = "kcp"))]
+                {
+                    let (atk_dmg_b, atk_int_b, atk_rng_b, bullet_spd) = atks.get(entity)
+                        .map(|a| (a.atk_physic.v, a.asd.v, a.range.v, a.bullet_speed))
+                        .unwrap_or((0.0, 0.0, 0.0, 0.0));
+                    let lives = self.ecs.read_resource::<PlayerLives>().0;
+                    let stats_payload = crate::state::resource_management::build_hero_stats_payload(
+                        entity, hero, gold, hp, mhp, armor_b, mres_b, msd_b,
+                        atk_dmg_b, atk_int_b, atk_rng_b, bullet_spd, lives, &buff_store,
+                    );
+                    let _ = self.mqtx.send(OutboundMsg::new_s_at(
+                        "td/all/res", "hero", "stats", stats_payload, pos.0.x, pos.0.y,
+                    ));
+                }
                 drop(buff_store);
-                let _ = self.mqtx.send(OutboundMsg::new_s_at(
-                    "td/all/res", "hero", "stats", stats_payload, pos.0.x, pos.0.y,
-                ));
                 log::info!("已發送英雄 '{}' 初始化資料到 MQTT", hero.name);
 
                 // 廣播 4 個技能的完整定義（名稱/描述/per-level 數值）給前端做 tooltip

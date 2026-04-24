@@ -521,38 +521,51 @@ impl GameProcessor {
             }
         };
 
-        // 廣播 hero.stats
-        let lives = ecs.read_resource::<PlayerLives>().0;
-        let hero_stats_payload = {
+        // P3: kill bounty 廣播 HeroHot（gold/xp 改了）；升級時另加發 HeroStatic。
+        // 非 kcp build: 仍是一次性 hero.stats JSON。
+        {
             let heroes = ecs.read_storage::<Hero>();
             let golds = ecs.read_storage::<Gold>();
             let props = ecs.read_storage::<CProperty>();
             let atks = ecs.read_storage::<TAttack>();
             let positions = ecs.read_storage::<Pos>();
             let buff_store = ecs.read_resource::<crate::ability_runtime::BuffStore>();
-            let h = heroes.get(hero_e);
-            let g = golds.get(hero_e).map(|g| g.0).unwrap_or(0);
-            let prop = props.get(hero_e);
-            let (hp, mhp) = prop.map(|p| (p.hp, p.mhp)).unwrap_or((0.0, 0.0));
-            let (armor_b, mres_b, msd_b) = prop.map(|p| (p.def_physic, p.def_magic, p.msd)).unwrap_or((0.0, 0.0, 0.0));
-            let (atk_dmg_b, atk_int_b, atk_rng_b, bullet_spd) = atks.get(hero_e)
-                .map(|a| (a.atk_physic.v, a.asd.v, a.range.v, a.bullet_speed))
-                .unwrap_or((0.0, 0.0, 0.0, 0.0));
-            let p = positions.get(hero_e).map(|p| p.0).unwrap_or(vek::Vec2::zero());
-            h.map(|h| {
-                (
-                    crate::state::resource_management::build_hero_stats_payload(
+            if let Some(h) = heroes.get(hero_e) {
+                let g = golds.get(hero_e).map(|g| g.0).unwrap_or(0);
+                let prop = props.get(hero_e);
+                let (hp, mhp) = prop.map(|p| (p.hp, p.mhp)).unwrap_or((0.0, 0.0));
+                let (armor_b, mres_b, msd_b) = prop.map(|p| (p.def_physic, p.def_magic, p.msd)).unwrap_or((0.0, 0.0, 0.0));
+                let p = positions.get(hero_e).map(|p| p.0).unwrap_or(vek::Vec2::zero());
+                #[cfg(feature = "kcp")]
+                {
+                    let (atk_dmg_b, atk_int_b, atk_rng_b) = atks.get(hero_e)
+                        .map(|a| (a.atk_physic.v, a.asd.v, a.range.v))
+                        .unwrap_or((0.0, 0.0, 0.0));
+                    if leveled_up {
+                        let static_msg = crate::state::resource_management::build_hero_static_msg(hero_e, h, p);
+                        let _ = mqtx.send(static_msg);
+                    }
+                    let hot_msg = crate::state::resource_management::build_hero_hot_msg(
+                        hero_e, h, g, hp, mhp, armor_b, mres_b, msd_b,
+                        atk_dmg_b, atk_int_b, atk_rng_b, &buff_store, p,
+                    );
+                    let _ = mqtx.send(hot_msg);
+                }
+                #[cfg(not(feature = "kcp"))]
+                {
+                    let lives = ecs.read_resource::<PlayerLives>().0;
+                    let (atk_dmg_b, atk_int_b, atk_rng_b, bullet_spd) = atks.get(hero_e)
+                        .map(|a| (a.atk_physic.v, a.asd.v, a.range.v, a.bullet_speed))
+                        .unwrap_or((0.0, 0.0, 0.0, 0.0));
+                    let payload = crate::state::resource_management::build_hero_stats_payload(
                         hero_e, h, g, hp, mhp, armor_b, mres_b, msd_b,
                         atk_dmg_b, atk_int_b, atk_rng_b, bullet_spd, lives, &buff_store,
-                    ),
-                    p,
-                )
-            })
-        };
-        if let Some((payload, pos)) = hero_stats_payload {
-            let _ = mqtx.send(OutboundMsg::new_s_at(
-                "td/all/res", "hero", "stats", payload, pos.x, pos.y,
-            ));
+                    );
+                    let _ = mqtx.send(OutboundMsg::new_s_at(
+                        "td/all/res", "hero", "stats", payload, p.x, p.y,
+                    ));
+                }
+            }
         }
         if leveled_up {
             log::info!("🎉 hero entity {:?} 升級！", hero_e);

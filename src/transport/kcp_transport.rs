@@ -139,7 +139,10 @@ fn is_dedupable(msg_type: &str, action: &str) -> bool {
             | ("creep", "H") | ("hero", "H") | ("unit", "H") | ("entity", "H")
             | ("entity", "F")
             | ("creep", "S")
-            | ("hero", "stats")
+            // P3: hero.stats 拆成兩條 prost 事件，仍為 latest-wins（hot 每 0.3s 推一次；
+            // static 只在 level up / ability learn 觸發，多個在 33ms 內可 dedupe）。
+            | ("hero", "hot")
+            | ("hero", "static")
     )
 }
 
@@ -316,6 +319,12 @@ pub async fn start(
                             }
                             TypedOutbound::BuffRemove(m) => {
                                 game_event::TypedPayload::BuffRemove(m.clone())
+                            }
+                            TypedOutbound::HeroStatic(m) => {
+                                game_event::TypedPayload::HeroStatic(m.clone())
+                            }
+                            TypedOutbound::HeroHot(m) => {
+                                game_event::TypedPayload::HeroHot(m.clone())
                             }
                             TypedOutbound::GameRound(m) => {
                                 game_event::TypedPayload::GameRound(m.clone())
