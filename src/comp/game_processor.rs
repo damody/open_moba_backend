@@ -461,7 +461,11 @@ impl GameProcessor {
             ""
         };
 
-        if !entity_type.is_empty() {
+        // P7.1: projectile 在 client 端靠 flight_time_ms 本地 auto-destroy
+        // （omfx 的 finished 列表在動畫時間到時自動 remove scene node），
+        // server 不用送 projectile.D。creep/tower/hero 死亡事件仍需 server
+        // 權威，因為死亡時機 client 無法預測。
+        if !entity_type.is_empty() && entity_type != "projectile" {
             let _ = mqtx.send(make_entity_death(entity_type, entity.id()));
         }
 

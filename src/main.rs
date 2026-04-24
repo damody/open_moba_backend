@@ -101,29 +101,42 @@ async fn main() -> std::result::Result<(), Error> {
     ).await?;
 
     // === TEMP: P7 checkpoint dumper — revert after measurement ===
+    // 顯示 per-window delta（不是累積！）— 修正前一版誤導。
     #[cfg(feature = "kcp")]
     {
+        use std::collections::HashMap;
         let counter = handle.counter.clone();
         std::thread::spawn(move || {
-            let mut last_bytes: u64 = 0;
-            let mut last_msgs: u64 = 0;
+            let mut last_total_bytes: u64 = 0;
+            let mut last_total_msgs: u64 = 0;
+            let mut last_per: HashMap<(String, String), (u64, u64)> = HashMap::new();
             loop {
                 std::thread::sleep(std::time::Duration::from_secs(5));
                 let snap = counter.snapshot();
-                let dbytes = snap.total_bytes - last_bytes;
-                let dmsgs = snap.total_msgs - last_msgs;
-                last_bytes = snap.total_bytes;
-                last_msgs = snap.total_msgs;
+                let dbytes = snap.total_bytes - last_total_bytes;
+                let dmsgs = snap.total_msgs - last_total_msgs;
+                last_total_bytes = snap.total_bytes;
+                last_total_msgs = snap.total_msgs;
                 log::info!(
-                    "[kcp-p7 5s] bytes={} ({}B/s)  msgs={} ({}m/s)  total={}B",
+                    "[kcp-p7 Δ5s] bytes={} ({}B/s)  msgs={} ({}m/s)  cum_total={}B",
                     dbytes, dbytes / 5, dmsgs, dmsgs / 5, snap.total_bytes
                 );
-                let mut per: Vec<_> = snap.per_event.iter().collect();
-                per.sort_by_key(|(_, v)| std::cmp::Reverse(v.0));
-                for ((t, a), (b, m)) in per.into_iter().take(12) {
+                // Per-event delta
+                let mut deltas: Vec<((String, String), (u64, u64))> = Vec::new();
+                for (k, v) in snap.per_event.iter() {
+                    let prev = last_per.get(k).copied().unwrap_or((0, 0));
+                    let db = v.0 - prev.0;
+                    let dm = v.1 - prev.1;
+                    if db > 0 || dm > 0 {
+                        deltas.push((k.clone(), (db, dm)));
+                    }
+                    last_per.insert(k.clone(), *v);
+                }
+                deltas.sort_by_key(|(_, v)| std::cmp::Reverse(v.0));
+                for ((t, a), (db, dm)) in deltas.into_iter().take(12) {
                     log::info!(
-                        "[kcp-p7 5s]   {:>14}.{:<10}  bytes={:>10}  msgs={:>8}",
-                        t, a, b, m
+                        "[kcp-p7 Δ5s]   {:>14}.{:<10}  +bytes={:>8}  +msgs={:>6}",
+                        t, a, db, dm
                     );
                 }
             }
