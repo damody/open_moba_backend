@@ -378,12 +378,14 @@ impl ResourceManager {
             "is_running": true,
         });
         #[cfg(feature = "kcp")]
-        let msg = OutboundMsg::new_typed(
+        let msg = OutboundMsg::new_typed_all(
             "td/all/res", "game", "round",
             crate::transport::TypedOutbound::GameRound(proto_build::game_round(round as u32, total as u32, true)),
             payload,
         );
-        #[cfg(not(feature = "kcp"))]
+        #[cfg(all(not(feature = "kcp"), any(feature = "grpc")))]
+        let msg = OutboundMsg::new_s_all("td/all/res", "game", "round", payload);
+        #[cfg(not(any(feature = "grpc", feature = "kcp")))]
         let msg = OutboundMsg::new_s("td/all/res", "game", "round", payload);
         self.mqtx.send(msg)?;
         Ok(())
@@ -745,10 +747,13 @@ impl ResourceManager {
         // 刪塔 + 廣播 delete
         world.entities().delete(target_entity).ok();
         #[cfg(feature = "kcp")]
-        let msg = OutboundMsg::new_typed(
+        // P5: tower entity already captured pos at spawn; use AoiEntity lookup
+        // so only players in the tower's viewport pay the teardown bandwidth.
+        let msg = OutboundMsg::new_typed_aoi_entity(
             "td/all/res", "tower", "D",
             crate::transport::TypedOutbound::EntityDeath(proto_build::entity_death(tower_id_u32)),
             json!({ "id": tower_id_u32 }),
+            tower_id_u32 as u64,
         );
         #[cfg(not(feature = "kcp"))]
         let msg = OutboundMsg::new_s("td/all/res", "tower", "D",

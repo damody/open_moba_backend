@@ -9,8 +9,9 @@ use tokio::sync::Mutex;
 
 use tokio_kcp::{KcpConfig, KcpListener, KcpNoDelayConfig, KcpStream};
 
-use super::types::{InboundMsg, OutboundMsg, TransportHandle, QueryRequest, QueryResponse, TypedOutbound, Viewport, ViewportMsg};
+use super::types::{BroadcastPolicy, InboundMsg, OutboundMsg, TransportHandle, QueryRequest, QueryResponse, TypedOutbound, Viewport, ViewportMsg};
 use super::metrics::KcpBytesCounter;
+use crate::aoi::AoiGrid;
 
 // Include the generated proto code
 pub mod game_proto {
@@ -96,11 +97,71 @@ async fn read_framed<R: AsyncReadExt + Unpin>(
     }
 }
 
-/// Per-client session: holds a sender to push outbound events
+/// Per-client session: holds a sender to push outbound events.
+///
+/// P5: channel payload is `Arc<[u8]>` — the broadcast thread encodes + compresses
+/// each frame ONCE and then hands out cheap `Arc::clone` references to every
+/// target session. No per-session encode, no per-session payload copy.
 struct ClientSession {
     player_name: String,
-    event_tx: tokio::sync::mpsc::Sender<Vec<u8>>,
+    event_tx: tokio::sync::mpsc::Sender<Arc<[u8]>>,
     viewport: Option<Viewport>,
+}
+
+/// Pure-function policy dispatch used by both the broadcast thread and unit
+/// tests. Returns the list of session IDs that should receive the frame.
+///
+/// `sessions` is a borrow into the live session map; `aoi_lookup` is a callback
+/// the broadcast thread wires to `AoiGrid::lookup_pos` (tests can stub it).
+/// This lets us unit-test the dispatch rules without spinning up KCP / tokio.
+#[cfg(test)]
+fn select_targets_for_policy(
+    policy: Option<&BroadcastPolicy>,
+    topic: &str,
+    entity_pos: Option<(f32, f32)>,
+    sessions: &std::collections::BTreeMap<String, (String, Option<Viewport>)>,
+    aoi_lookup: &dyn Fn(u64) -> Option<(f32, f32)>,
+) -> Vec<String> {
+    match policy {
+        Some(BroadcastPolicy::All) => sessions.keys().cloned().collect(),
+        Some(BroadcastPolicy::PlayerOnly(name)) => sessions.iter()
+            .filter(|(_, (player_name, _))| player_name == name)
+            .map(|(id, _)| id.clone())
+            .collect(),
+        Some(BroadcastPolicy::AoiPoint(x, y)) => sessions.iter()
+            .filter(|(_, (_, vp))| match vp {
+                Some(v) => v.contains(*x, *y),
+                None => true,
+            })
+            .map(|(id, _)| id.clone())
+            .collect(),
+        Some(BroadcastPolicy::AoiEntity(eid)) => match aoi_lookup(*eid) {
+            Some((x, y)) => sessions.iter()
+                .filter(|(_, (_, vp))| match vp {
+                    Some(v) => v.contains(x, y),
+                    None => true,
+                })
+                .map(|(id, _)| id.clone())
+                .collect(),
+            None => sessions.keys().cloned().collect(),
+        },
+        None => {
+            let is_broadcast = topic.contains("/all/");
+            sessions.iter()
+                .filter(|(_, (player_name, vp))| {
+                    let topic_ok = is_broadcast
+                        || topic.contains(&format!("/{}/", player_name))
+                        || player_name.is_empty();
+                    if !topic_ok { return false; }
+                    match (entity_pos, vp) {
+                        (Some((x, y)), Some(v)) => v.contains(x, y),
+                        _ => true,
+                    }
+                })
+                .map(|(id, _)| id.clone())
+                .collect()
+        }
+    }
 }
 
 // ===== Batch-window dedupe =====
@@ -211,9 +272,17 @@ pub async fn start(
     // and the game loop can snapshot/reset the observed wire volume.
     let counter: Arc<KcpBytesCounter> = Arc::new(KcpBytesCounter::new());
 
+    // P5: shared AOI broadphase grid. Game loop rebuilds per tick, transport
+    // thread reads for `BroadcastPolicy::AoiEntity` lookups. `std::sync::Mutex`
+    // (not `tokio::sync::Mutex`) because both touch-points are synchronous
+    // code holding the lock for microseconds — no `.await` while locked.
+    let aoi: Arc<std::sync::Mutex<AoiGrid>> =
+        Arc::new(std::sync::Mutex::new(AoiGrid::new()));
+
     // Background thread: read from out_rx and broadcast to all sessions
     let sessions_broadcast = sessions.clone();
     let counter_broadcast = counter.clone();
+    let aoi_broadcast = aoi.clone();
     thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -383,35 +452,103 @@ pub async fn start(
                             frame.len(),
                         );
 
+                        // P5 fan-out: encode/compress ONCE, then hand each
+                        // target session a cheap `Arc::clone`. Zero-copy across
+                        // sessions; the mpsc<Arc<[u8]>> channel forwards the
+                        // same byte slice into the KCP writer.
+                        let frame_arc: Arc<[u8]> = Arc::from(frame.into_boxed_slice());
+
                         let sessions = sessions_broadcast.lock().await;
                         let mut to_remove = Vec::new();
+
+                        // Resolve BroadcastPolicy → target session IDs.
+                        //
+                        // Policy dispatch is explicit (P5). If `msg.policy` is
+                        // None we fall back to the legacy topic-based heuristic
+                        // for un-migrated emit sites. The legacy path also
+                        // honours `entity_pos` viewport filtering for AOI —
+                        // keeps creep/projectile events AOI-gated during the
+                        // per-site migration rollout.
+                        let targets: Vec<String> = match &msg.policy {
+                            Some(BroadcastPolicy::All) => {
+                                sessions.keys().cloned().collect()
+                            }
+                            Some(BroadcastPolicy::PlayerOnly(name)) => {
+                                // Session map is keyed by session_id (kcp_<addr>);
+                                // we need to find the session whose player_name
+                                // matches. O(N) but N = players (≤ ~32).
+                                sessions.iter()
+                                    .filter(|(_, s)| &s.player_name == name)
+                                    .map(|(id, _)| id.clone())
+                                    .collect()
+                            }
+                            Some(BroadcastPolicy::AoiPoint(x, y)) => {
+                                sessions.iter()
+                                    .filter(|(_, s)| match &s.viewport {
+                                        Some(vp) => vp.contains(*x, *y),
+                                        None => true, // no viewport yet → pass through (heartbeat / join flow)
+                                    })
+                                    .map(|(id, _)| id.clone())
+                                    .collect()
+                            }
+                            Some(BroadcastPolicy::AoiEntity(eid)) => {
+                                // Resolve entity_id → pos via AoiGrid. If the
+                                // grid doesn't know this entity (spawned this
+                                // tick after rebuild, or already dead), fall
+                                // back to broadcast to avoid silently dropping.
+                                let pos_opt = aoi_broadcast.lock()
+                                    .ok()
+                                    .and_then(|g| g.lookup_pos(*eid));
+                                match pos_opt {
+                                    Some((x, y)) => sessions.iter()
+                                        .filter(|(_, s)| match &s.viewport {
+                                            Some(vp) => vp.contains(x, y),
+                                            None => true,
+                                        })
+                                        .map(|(id, _)| id.clone())
+                                        .collect(),
+                                    None => sessions.keys().cloned().collect(),
+                                }
+                            }
+                            None => {
+                                // Legacy topic-based routing. "/all/" ⇒ broadcast;
+                                // "/<player_name>/" ⇒ per-player. entity_pos
+                                // provides viewport filter for both.
+                                let is_broadcast = msg.topic.contains("/all/");
+                                sessions.iter()
+                                    .filter(|(_, s)| {
+                                        let topic_ok = is_broadcast
+                                            || msg.topic.contains(&format!("/{}/", s.player_name))
+                                            || s.player_name.is_empty();
+                                        if !topic_ok { return false; }
+                                        match (msg.entity_pos, &s.viewport) {
+                                            (Some((x, y)), Some(vp)) => vp.contains(x, y),
+                                            _ => true,
+                                        }
+                                    })
+                                    .map(|(id, _)| id.clone())
+                                    .collect()
+                            }
+                        };
+
                         let is_per_player_topic = !msg.topic.contains("/all/") && msg.topic.starts_with("td/") && msg.topic.ends_with("/res");
                         let mut route_hits = 0u32;
-                        for (id, session) in sessions.iter() {
-                            // Filter by topic: broadcast or for this player
-                            let is_broadcast = msg.topic.contains("/all/");
-                            let is_for_player = msg.topic.contains(&format!("/{}/", session.player_name));
-                            if is_broadcast || is_for_player || session.player_name.is_empty() {
-                                // Viewport filtering: only check entities that have a position
-                                let in_viewport = match (msg.entity_pos, &session.viewport) {
-                                    (Some((x, y)), Some(vp)) => vp.contains(x, y),
-                                    _ => true, // no position or no viewport → pass through
-                                };
-                                if in_viewport {
-                                    if session.event_tx.try_send(frame.clone()).is_err() {
-                                        to_remove.push(id.clone());
-                                    } else {
-                                        route_hits += 1;
-                                    }
-                                } else if is_per_player_topic {
-                                    log::debug!("⚠ per-player event at {:?} blocked by vp filter for '{}'",
-                                        msg.entity_pos, session.player_name);
+                        for target in &targets {
+                            if let Some(session) = sessions.get(target) {
+                                // `Arc::clone` is a refcount bump; the actual
+                                // bytes are NOT copied. The mpsc channel
+                                // forwards the Arc<[u8]> into the writer task.
+                                if session.event_tx.try_send(frame_arc.clone()).is_err() {
+                                    to_remove.push(target.clone());
+                                } else {
+                                    route_hits += 1;
                                 }
                             }
                         }
                         if is_per_player_topic {
-                            log::debug!("📡 routed per-player topic='{}' hits={} (sessions={})",
-                                msg.topic, route_hits, sessions.len());
+                            log::debug!("📡 routed per-player topic='{}' policy={:?} hits={}/{} (sessions={})",
+                                msg.topic, msg.policy.as_ref().map(|_| "explicit").unwrap_or("legacy"),
+                                route_hits, targets.len(), sessions.len());
                         }
                         drop(sessions);
 
@@ -485,6 +622,7 @@ pub async fn start(
         query_rx,
         viewport_rx,
         counter,
+        aoi,
     })
 }
 
@@ -498,8 +636,11 @@ async fn handle_client(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let (mut reader, mut writer) = tokio::io::split(stream);
 
-    // Per-session outbound channel (lazy — only used after SubscribeRequest)
-    let mut event_rx: Option<tokio::sync::mpsc::Receiver<Vec<u8>>> = None;
+    // Per-session outbound channel (lazy — only used after SubscribeRequest).
+    // P5: payload is `Arc<[u8]>` — same bytes the broadcast thread encoded and
+    // shared across all recipient sessions. Each session's writer task
+    // dereferences the Arc and writes the slice to KCP — no copy.
+    let mut event_rx: Option<tokio::sync::mpsc::Receiver<Arc<[u8]>>> = None;
     let mut subscribed = false;
     // Track the subscribed player_name so we can send a Remove on disconnect
     let mut player_name: Option<String> = None;
@@ -514,7 +655,7 @@ async fn handle_client(
                             TAG_SUBSCRIBE_REQUEST => {
                                 if let Ok(sub) = SubscribeRequest::decode(payload.as_slice()) {
                                     info!("🔌 KCP client subscribed as '{}' (session_id={})", sub.player_name, session_id);
-                                    let (event_tx, rx) = tokio::sync::mpsc::channel::<Vec<u8>>(10000);
+                                    let (event_tx, rx) = tokio::sync::mpsc::channel::<Arc<[u8]>>(10000);
                                     event_rx = Some(rx);
                                     subscribed = true;
                                     player_name = Some(sub.player_name.clone());
@@ -630,7 +771,11 @@ async fn handle_client(
                     None => std::future::pending().await,
                 }
             } => {
-                // frame is already [tag + len + payload] pre-encoded
+                // P5: `frame` is `Arc<[u8]>` shared with every other session
+                // that got this same event. Writing the underlying slice
+                // copies into the KCP socket buffer but the game-side
+                // allocation is refcounted — dropped when the last session
+                // flushes.
                 if writer.write_all(&frame).await.is_err() {
                     break;
                 }
@@ -724,6 +869,126 @@ mod tests {
         ];
         let out = dedupe_batch(batch);
         assert_eq!(out.len(), 3);
+    }
+
+    // ===== P5 BroadcastPolicy dispatch tests =====
+
+    use std::collections::BTreeMap;
+
+    fn mk_sessions(entries: &[(&str, &str, Option<Viewport>)])
+        -> BTreeMap<String, (String, Option<Viewport>)>
+    {
+        entries.iter()
+            .map(|(id, name, vp)| (id.to_string(), (name.to_string(), *vp)))
+            .collect()
+    }
+
+    #[test]
+    fn policy_all_reaches_every_session() {
+        let sessions = mk_sessions(&[
+            ("s1", "alice", Some(Viewport::new(0.0, 0.0, 100.0, 100.0))),
+            ("s2", "bob",   Some(Viewport::new(1000.0, 1000.0, 100.0, 100.0))),
+            ("s3", "carol", None),
+        ]);
+        let targets = select_targets_for_policy(
+            Some(&BroadcastPolicy::All),
+            "td/all/res", None, &sessions, &|_| None,
+        );
+        assert_eq!(targets.len(), 3);
+    }
+
+    #[test]
+    fn policy_player_only_hits_one_session() {
+        let sessions = mk_sessions(&[
+            ("s1", "alice", None),
+            ("s2", "bob",   None),
+        ]);
+        let targets = select_targets_for_policy(
+            Some(&BroadcastPolicy::PlayerOnly("bob".into())),
+            "td/bob/res", None, &sessions, &|_| None,
+        );
+        assert_eq!(targets, vec!["s2".to_string()]);
+    }
+
+    #[test]
+    fn policy_aoi_point_filters_by_viewport() {
+        let sessions = mk_sessions(&[
+            ("s1", "alice", Some(Viewport::new(0.0, 0.0, 100.0, 100.0))),
+            ("s2", "bob",   Some(Viewport::new(1000.0, 1000.0, 100.0, 100.0))),
+            ("s3", "no_vp", None),
+        ]);
+        // Event at (10, 10) — alice sees it, bob doesn't, no_vp passes through
+        // (policy treats missing viewport as "not yet filtering" so heartbeat
+        // / initial state still reaches them).
+        let targets = select_targets_for_policy(
+            Some(&BroadcastPolicy::AoiPoint(10.0, 10.0)),
+            "td/all/res", None, &sessions, &|_| None,
+        );
+        let mut sorted = targets.clone();
+        sorted.sort();
+        assert_eq!(sorted, vec!["s1".to_string(), "s3".to_string()]);
+    }
+
+    #[test]
+    fn policy_aoi_entity_uses_grid_lookup() {
+        let sessions = mk_sessions(&[
+            ("s1", "alice", Some(Viewport::new(500.0, 500.0, 100.0, 100.0))),
+            ("s2", "bob",   Some(Viewport::new(0.0, 0.0, 100.0, 100.0))),
+        ]);
+        // Entity 42 lives at (500, 500) — only alice's viewport contains it.
+        let lookup = |eid: u64| if eid == 42 { Some((500.0, 500.0)) } else { None };
+        let targets = select_targets_for_policy(
+            Some(&BroadcastPolicy::AoiEntity(42)),
+            "td/all/res", None, &sessions, &lookup,
+        );
+        assert_eq!(targets, vec!["s1".to_string()]);
+    }
+
+    #[test]
+    fn policy_aoi_entity_unknown_falls_back_to_broadcast() {
+        let sessions = mk_sessions(&[
+            ("s1", "alice", Some(Viewport::new(500.0, 500.0, 100.0, 100.0))),
+            ("s2", "bob",   Some(Viewport::new(0.0, 0.0, 100.0, 100.0))),
+        ]);
+        // Entity 999 unknown → broadcast to every session (safety fallback).
+        let targets = select_targets_for_policy(
+            Some(&BroadcastPolicy::AoiEntity(999)),
+            "td/all/res", None, &sessions, &|_| None,
+        );
+        assert_eq!(targets.len(), 2);
+    }
+
+    #[test]
+    fn policy_none_preserves_legacy_topic_routing() {
+        let sessions = mk_sessions(&[
+            ("s1", "alice", Some(Viewport::new(0.0, 0.0, 100.0, 100.0))),
+            ("s2", "bob",   Some(Viewport::new(1000.0, 1000.0, 100.0, 100.0))),
+        ]);
+        // Legacy /all/ topic + entity_pos → viewport filter applied.
+        // Event at (0, 0) — alice contains, bob doesn't.
+        let targets = select_targets_for_policy(
+            None, "td/all/res", Some((0.0, 0.0)), &sessions, &|_| None,
+        );
+        assert_eq!(targets, vec!["s1".to_string()]);
+
+        // Per-player topic "td/bob/res" → only bob's session.
+        let targets = select_targets_for_policy(
+            None, "td/bob/res", None, &sessions, &|_| None,
+        );
+        assert_eq!(targets, vec!["s2".to_string()]);
+    }
+
+    #[test]
+    fn policy_none_no_pos_reaches_all_matching_topic() {
+        let sessions = mk_sessions(&[
+            ("s1", "alice", Some(Viewport::new(0.0, 0.0, 100.0, 100.0))),
+            ("s2", "bob",   Some(Viewport::new(1000.0, 1000.0, 100.0, 100.0))),
+        ]);
+        // /all/ topic + no entity_pos → every session passes.
+        let targets = select_targets_for_policy(
+            None, "td/all/res", None, &sessions, &|_| None,
+        );
+        assert_eq!(targets.len(), 2);
     }
 
     #[test]

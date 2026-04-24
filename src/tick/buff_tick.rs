@@ -117,10 +117,12 @@ fn make_hp_update(msg_type: &str, id: u32, hp: f32, max_hp: f32) -> OutboundMsg 
     {
         use crate::state::resource_management::proto_build;
         use crate::transport::TypedOutbound;
-        OutboundMsg::new_typed(
+        // P5: DoT HP ticks use AoiEntity so only players seeing the creep pay bandwidth.
+        OutboundMsg::new_typed_aoi_entity(
             "td/all/res", msg_type, "H",
             TypedOutbound::CreepHp(proto_build::creep_hp(id, hp)),
             json!({ "id": id, "hp": hp, "max_hp": max_hp }),
+            id as u64,
         )
     }
     #[cfg(not(feature = "kcp"))]
@@ -137,10 +139,11 @@ fn make_creep_slow(id: u32, move_speed: f32) -> OutboundMsg {
     {
         use crate::state::resource_management::proto_build;
         use crate::transport::TypedOutbound;
-        OutboundMsg::new_typed(
+        OutboundMsg::new_typed_aoi_entity(
             "td/all/res", "creep", "S",
             TypedOutbound::CreepSlow(proto_build::creep_slow(id, move_speed)),
             json!({ "id": id, "move_speed": move_speed }),
+            id as u64,
         )
     }
     #[cfg(not(feature = "kcp"))]

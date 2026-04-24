@@ -43,6 +43,28 @@ pub enum TypedOutbound {
     GameExplosion(super::kcp_transport::game_proto::GameExplosion),
 }
 
+/// P5 broadcast policy — declares who should receive this event. The
+/// transport's broadcast thread uses this to select target sessions BEFORE
+/// cloning the encoded frame via `Arc<[u8]>`. When `policy` is `None`, legacy
+/// topic-based routing applies (back-compat for un-migrated emit sites).
+#[cfg(any(feature = "grpc", feature = "kcp"))]
+#[derive(Clone, Debug)]
+pub enum BroadcastPolicy {
+    /// Reaches every connected player. Use for game-wide state
+    /// (round/lives/end/tower_templates/map_data).
+    All,
+    /// Filtered to players whose viewport contains (x, y).
+    /// The big bucket: creep events, projectile events, entity.F, tower events.
+    AoiPoint(f32, f32),
+    /// Same as AoiPoint but the coordinates come from looking up `entity_id`'s
+    /// current Pos via the AoiGrid registry. Use when caller has id but not pos
+    /// cheaply at hand (e.g. hero.stats hot tick).
+    AoiEntity(u64),
+    /// Single target — player-specific events like hero.inventory,
+    /// creep visibility diffs (current `td/{player}/res` topics).
+    PlayerOnly(String),
+}
+
 /// Outbound message from game logic to transport layer.
 /// Replaces `MqttMsg` in game logic code.
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -60,6 +82,12 @@ pub struct OutboundMsg {
     #[cfg(feature = "kcp")]
     #[serde(skip)]
     pub typed: Option<TypedOutbound>,
+    /// P5 explicit broadcast policy. `None` = legacy topic-based routing.
+    /// When Some, the broadcast thread ignores `topic`-based heuristics and
+    /// targets sessions according to the policy variant.
+    #[cfg(any(feature = "grpc", feature = "kcp"))]
+    #[serde(skip)]
+    pub policy: Option<BroadcastPolicy>,
 }
 
 impl OutboundMsg {
@@ -82,6 +110,8 @@ impl OutboundMsg {
             entity_pos: None,
             #[cfg(feature = "kcp")]
             typed: None,
+            #[cfg(any(feature = "grpc", feature = "kcp"))]
+            policy: None,
         }
     }
 
@@ -104,6 +134,8 @@ impl OutboundMsg {
             entity_pos: None,
             #[cfg(feature = "kcp")]
             typed: None,
+            #[cfg(any(feature = "grpc", feature = "kcp"))]
+            policy: None,
         }
     }
 
@@ -127,6 +159,11 @@ impl OutboundMsg {
             entity_pos: Some((x, y)),
             #[cfg(feature = "kcp")]
             typed: None,
+            // P5: entity_pos sites default to AoiPoint so legacy callers opt-in
+            // to AOI filtering without per-site migration. They can still
+            // override via `.with_policy(...)` for All / PlayerOnly / AoiEntity.
+            #[cfg(any(feature = "grpc", feature = "kcp"))]
+            policy: Some(BroadcastPolicy::AoiPoint(x, y)),
         }
     }
 
@@ -148,6 +185,7 @@ impl OutboundMsg {
             time: SystemTime::now(),
             entity_pos: None,
             typed: Some(typed),
+            policy: None,
         }
     }
 
@@ -168,7 +206,71 @@ impl OutboundMsg {
             time: SystemTime::now(),
             entity_pos: Some((x, y)),
             typed: Some(typed),
+            // P5: default to AoiPoint so the broadcast thread filters by
+            // viewport without per-site migration. Callers who need All /
+            // AoiEntity / PlayerOnly override via `.with_policy(...)`.
+            policy: Some(BroadcastPolicy::AoiPoint(x, y)),
         }
+    }
+
+    // ===== P5 policy helpers =====
+
+    /// Attach a `BroadcastPolicy` to this message (builder style).
+    #[cfg(any(feature = "grpc", feature = "kcp"))]
+    pub fn with_policy(mut self, policy: BroadcastPolicy) -> Self {
+        self.policy = Some(policy);
+        self
+    }
+
+    /// Shortcut: build a `new_typed` msg with `BroadcastPolicy::All`.
+    /// Use for game-wide events (round/lives/end/tower_templates/map_data).
+    #[cfg(feature = "kcp")]
+    pub fn new_typed_all(
+        topic: &str,
+        t: &str,
+        a: &str,
+        typed: TypedOutbound,
+        json_fallback: serde_json::Value,
+    ) -> OutboundMsg {
+        OutboundMsg {
+            topic: topic.to_owned(),
+            msg: json!({ "t": t, "a": a, "d": json_fallback }).to_string(),
+            time: SystemTime::now(),
+            entity_pos: None,
+            typed: Some(typed),
+            policy: Some(BroadcastPolicy::All),
+        }
+    }
+
+    /// Shortcut: build a `new_typed` msg with `BroadcastPolicy::AoiEntity(id)`.
+    /// Use when the emit site holds an `entity_id` but not its current position
+    /// cheaply at hand (e.g. hero.hot tick, entity death, HP updates without pos).
+    #[cfg(feature = "kcp")]
+    pub fn new_typed_aoi_entity(
+        topic: &str,
+        t: &str,
+        a: &str,
+        typed: TypedOutbound,
+        json_fallback: serde_json::Value,
+        entity_id: u64,
+    ) -> OutboundMsg {
+        OutboundMsg {
+            topic: topic.to_owned(),
+            msg: json!({ "t": t, "a": a, "d": json_fallback }).to_string(),
+            time: SystemTime::now(),
+            entity_pos: None,
+            typed: Some(typed),
+            policy: Some(BroadcastPolicy::AoiEntity(entity_id)),
+        }
+    }
+
+    /// Shortcut: JSON-only (non-kcp) `All` policy. For non-kcp builds we still
+    /// want to tag game-wide events so the grpc broadcast thread sees them.
+    #[cfg(any(feature = "grpc", feature = "kcp"))]
+    pub fn new_s_all(topic: &str, t: &str, a: &str, v: serde_json::Value) -> OutboundMsg {
+        let mut m = OutboundMsg::new_s(topic, t, a, v);
+        m.policy = Some(BroadcastPolicy::All);
+        m
     }
 }
 
@@ -181,6 +283,8 @@ impl Default for OutboundMsg {
             entity_pos: None,
             #[cfg(feature = "kcp")]
             typed: None,
+            #[cfg(any(feature = "grpc", feature = "kcp"))]
+            policy: None,
         }
     }
 }
@@ -253,4 +357,10 @@ pub struct TransportHandle {
     /// `.snapshot()` or `.reset()` concurrently.
     #[cfg(feature = "kcp")]
     pub counter: Arc<KcpBytesCounter>,
+    /// P5: shared AOI broadphase grid. Game loop calls `.lock().rebuild(..)`
+    /// per tick from the same pre-gather that heartbeat uses; broadcast thread
+    /// calls `.lock().lookup_pos(id)` to resolve `BroadcastPolicy::AoiEntity`.
+    /// Mutex contention is minimal — both hold the lock for microseconds.
+    #[cfg(feature = "kcp")]
+    pub aoi: Arc<std::sync::Mutex<crate::aoi::AoiGrid>>,
 }

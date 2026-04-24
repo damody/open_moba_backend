@@ -111,16 +111,21 @@ impl<'a> System<'a> for Sys {
                     "total": total,
                     "is_running": false,
                 });
-                let _ = tx.try_send(OutboundMsg::new_s(
-                    "td/all/res", "game", "round", payload,
-                ));
+                // P5: game/round + game/end are game-wide — reach every player.
+                #[cfg(any(feature = "grpc", feature = "kcp"))]
+                let round_msg = OutboundMsg::new_s_all("td/all/res", "game", "round", payload);
+                #[cfg(not(any(feature = "grpc", feature = "kcp")))]
+                let round_msg = OutboundMsg::new_s("td/all/res", "game", "round", payload);
+                let _ = tx.try_send(round_msg);
                 log::info!("✅ TD 第 {} 波結束，等待 StartRound（已完成 {}/{}）", finished, finished, total);
                 // 所有波都打完 → 勝利
                 if finished >= total {
-                    let _ = tx.try_send(OutboundMsg::new_s(
-                        "td/all/res", "game", "end",
-                        json!({ "result": "victory", "reason": "all_rounds_cleared" }),
-                    ));
+                    let end_payload = json!({ "result": "victory", "reason": "all_rounds_cleared" });
+                    #[cfg(any(feature = "grpc", feature = "kcp"))]
+                    let end_msg = OutboundMsg::new_s_all("td/all/res", "game", "end", end_payload);
+                    #[cfg(not(any(feature = "grpc", feature = "kcp")))]
+                    let end_msg = OutboundMsg::new_s("td/all/res", "game", "end", end_payload);
+                    let _ = tx.try_send(end_msg);
                     log::info!("🏆 TD 勝利：全部 {} 波已清空", total);
                 }
             } else {

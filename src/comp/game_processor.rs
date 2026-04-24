@@ -103,10 +103,14 @@ fn make_entity_death(msg_type: &str, id: u32) -> OutboundMsg {
     {
         use crate::state::resource_management::proto_build;
         use crate::transport::TypedOutbound;
-        OutboundMsg::new_typed(
+        // P5: death event at entity's last-known pos. AoiGrid lookup falls
+        // back to broadcast if the entity is already removed (safe — client
+        // still needs to tear down the visual).
+        OutboundMsg::new_typed_aoi_entity(
             "td/all/res", msg_type, "D",
             TypedOutbound::EntityDeath(proto_build::entity_death(id)),
             json!({ "id": id }),
+            id as u64,
         )
     }
     #[cfg(not(feature = "kcp"))]
@@ -144,10 +148,12 @@ fn make_creep_slow(id: u32, move_speed: f32) -> OutboundMsg {
     {
         use crate::state::resource_management::proto_build;
         use crate::transport::TypedOutbound;
-        OutboundMsg::new_typed(
+        // P5: slow is a per-entity event — resolve pos via AoiGrid lookup.
+        OutboundMsg::new_typed_aoi_entity(
             "td/all/res", "creep", "S",
             TypedOutbound::CreepSlow(proto_build::creep_slow(id, move_speed)),
             json!({ "id": id, "move_speed": move_speed }),
+            id as u64,
         )
     }
     #[cfg(not(feature = "kcp"))]
@@ -164,10 +170,12 @@ fn make_hp_update(msg_type: &str, id: u32, hp: f32, max_hp: f32) -> OutboundMsg 
     {
         use crate::state::resource_management::proto_build;
         use crate::transport::TypedOutbound;
-        OutboundMsg::new_typed(
+        // P5: HP updates without position → resolve pos via AoiGrid entity lookup.
+        OutboundMsg::new_typed_aoi_entity(
             "td/all/res", msg_type, "H",
             TypedOutbound::CreepHp(proto_build::creep_hp(id, hp)),
             json!({ "id": id, "hp": hp, "max_hp": max_hp }),
+            id as u64,
         )
     }
     #[cfg(not(feature = "kcp"))]
@@ -226,7 +234,8 @@ fn make_game_lives(lives: i32) -> OutboundMsg {
     {
         use crate::state::resource_management::proto_build;
         use crate::transport::TypedOutbound;
-        OutboundMsg::new_typed(
+        // P5: game-wide event — reach every player.
+        OutboundMsg::new_typed_all(
             "td/all/res", "game", "lives",
             TypedOutbound::GameLives(proto_build::game_lives(lives)),
             json!({ "lives": lives }),
@@ -245,7 +254,8 @@ fn make_game_end(winner: &str, extra: serde_json::Value) -> OutboundMsg {
     {
         use crate::state::resource_management::proto_build;
         use crate::transport::TypedOutbound;
-        OutboundMsg::new_typed(
+        // P5: game-end broadcasts to every player.
+        OutboundMsg::new_typed_all(
             "td/all/res", "game", "end",
             TypedOutbound::GameEnd(proto_build::game_end(winner)),
             extra,

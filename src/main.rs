@@ -8,6 +8,7 @@ use std::io::{Write, BufReader, BufRead};
 use failure::{err_msg, Error};
 use chrono::{NaiveDateTime, Local};
 mod ability_runtime;
+mod aoi;
 mod comp;
 mod scripting;
 mod tick;
@@ -110,6 +111,10 @@ async fn main() -> std::result::Result<(), Error> {
     thread::sleep(Duration::from_millis(500));
 
     // 初始化 ECS
+    // P5: pull the shared AOI grid Arc out before moving handle fields, so we
+    // can plug it back into State after construction.
+    #[cfg(feature = "kcp")]
+    let aoi_grid = handle.aoi.clone();
     let mut state = State::new_with_campaign(
         campaign_data,
         handle.tx.clone(),
@@ -119,6 +124,8 @@ async fn main() -> std::result::Result<(), Error> {
         #[cfg(any(feature = "grpc", feature = "kcp"))]
         handle.viewport_rx,
     );
+    #[cfg(feature = "kcp")]
+    state.attach_aoi_grid(aoi_grid);
     let mut clock = Clock::new(Duration::from_secs_f64(1.0 / TPS as f64));
 
     let (tx, rx) = mpsc::channel();

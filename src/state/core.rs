@@ -70,6 +70,12 @@ pub struct State {
     last_visibility_tick: u64,
     /// Loaded native script DLLs (H1 — process-lifetime, never reloaded).
     script_registry: ScriptRegistry,
+    /// P5: shared AOI broadphase grid. Rebuilt per tick from the same
+    /// pre-gathered (id, pos) pass the heartbeat already uses. Transport
+    /// broadcast thread reads it for `BroadcastPolicy::AoiEntity` lookups.
+    /// `None` for non-kcp builds (mqtt/grpc don't drive AOI broadphase).
+    #[cfg(feature = "kcp")]
+    aoi_grid: Option<std::sync::Arc<std::sync::Mutex<crate::aoi::AoiGrid>>>,
 }
 
 /// Per-player visible entity sets, split by type so that specs `Entity::id()`
@@ -129,6 +135,8 @@ impl State {
             local_tick: 0,
             last_visibility_tick: 0,
             script_registry: ScriptRegistry::new(),
+            #[cfg(feature = "kcp")]
+            aoi_grid: None,
         };
 
         state.initialize_standard_game();
@@ -246,6 +254,8 @@ impl State {
             local_tick: 0,
             last_visibility_tick: 0,
             script_registry: ScriptRegistry::new(),
+            #[cfg(feature = "kcp")]
+            aoi_grid: None,
         };
 
         // 先載 scripts，才能讓 initialize_campaign_game 內的 send_tower_templates 拿到 registry
@@ -448,27 +458,47 @@ impl State {
                         ("tower", build_tower_payload(e, t, p, prop, cr, f, is_base))
                     }
                 };
-                let _ = self.mqtx.send(OutboundMsg::new_s_at(
-                    &topic, type_tag, "create", payload, x, y,
-                ));
+                // P5: visibility-diff "entered" events are PER-PLAYER (we already
+                // computed per-player viewport ⊇ entity), override default
+                // AoiPoint to PlayerOnly — no need for the broadcast thread to
+                // re-check viewport (we already did).
+                #[cfg(any(feature = "grpc", feature = "kcp"))]
+                let msg = OutboundMsg::new_s_at(&topic, type_tag, "create", payload, x, y)
+                    .with_policy(crate::transport::BroadcastPolicy::PlayerOnly(player_name.clone()));
+                #[cfg(not(any(feature = "grpc", feature = "kcp")))]
+                let msg = OutboundMsg::new_s_at(&topic, type_tag, "create", payload, x, y);
+                let _ = self.mqtx.send(msg);
             }
 
             // Emit D for entities that left the viewport (old - new) per-kind.
             // Use `new_s` (no position) so the transport viewport filter doesn't
             // drop a D for an entity that happens to be outside the viewport now.
+            // P5: visibility-diff "exit" events are PER-PLAYER (topic already
+            // encodes the player name). Tag with `PlayerOnly` so the broadcast
+            // thread doesn't waste cycles iterating all sessions for a topic
+            // match; it just targets the one session directly.
+            let player_name_for_policy = player_name.clone();
             let emit_d = |topic: &str, kind: &str, id: u32| {
                 let fallback = serde_json::json!({ "id": id, "entity_id": id });
                 #[cfg(feature = "kcp")]
                 {
                     use crate::state::resource_management::proto_build;
-                    use crate::transport::TypedOutbound;
-                    let _ = self.mqtx.send(OutboundMsg::new_typed(
+                    use crate::transport::{TypedOutbound, BroadcastPolicy};
+                    let msg = OutboundMsg::new_typed(
                         topic, kind, "D",
                         TypedOutbound::EntityDeath(proto_build::entity_death(id)),
                         fallback,
-                    ));
+                    ).with_policy(BroadcastPolicy::PlayerOnly(player_name_for_policy.clone()));
+                    let _ = self.mqtx.send(msg);
                 }
-                #[cfg(not(feature = "kcp"))]
+                #[cfg(all(not(feature = "kcp"), feature = "grpc"))]
+                {
+                    use crate::transport::BroadcastPolicy;
+                    let msg = OutboundMsg::new_s(topic, kind, "D", fallback)
+                        .with_policy(BroadcastPolicy::PlayerOnly(player_name_for_policy.clone()));
+                    let _ = self.mqtx.send(msg);
+                }
+                #[cfg(not(any(feature = "kcp", feature = "grpc")))]
                 {
                     let _ = self.mqtx.send(OutboundMsg::new_s(topic, kind, "D", fallback));
                 }
@@ -643,6 +673,18 @@ impl State {
             all_entity_hp.push((e.id(), pos.0.x, pos.0.y, p.hp));
         }
 
+        // P5: rebuild the shared AOI broadphase grid from the same pre-gather.
+        // Transport thread reads this to resolve BroadcastPolicy::AoiEntity
+        // without touching specs storage. Cost: one HashMap alloc + ~O(N) insert.
+        #[cfg(feature = "kcp")]
+        if let Some(grid) = &self.aoi_grid {
+            if let Ok(mut g) = grid.lock() {
+                g.rebuild(all_entity_hp.iter().map(|&(id, x, y, _hp)| {
+                    crate::aoi::AoiEntry { entity_id: id as u64, pos: (x, y) }
+                }));
+            }
+        }
+
         // 共用 top-level meta JSON builder；`hp_snap` 在各分支填完再放進來。
         let build_meta = |hp_snap: Vec<serde_json::Value>| -> serde_json::Value {
             json!({
@@ -706,6 +748,11 @@ impl State {
                 &hp_snap_pairs,
                 &pos_snap,
             );
+            // P5: heartbeat is either per-player (when we loop over viewports
+            // below) or fallback-all. The caller knows which; but since the
+            // topic encodes player name, attach explicit policy when possible.
+            // Topic is "td/{player}/res" for per-player and "td/all/res" for
+            // fallback; parse to decide policy.
             let msg = OutboundMsg::new_typed(
                 topic,
                 "heartbeat",
@@ -713,6 +760,13 @@ impl State {
                 crate::transport::types::TypedOutbound::Heartbeat(ht),
                 payload,
             );
+            let msg = if topic == "td/all/res" {
+                msg.with_policy(crate::transport::BroadcastPolicy::All)
+            } else if let Some(name) = topic.strip_prefix("td/").and_then(|s| s.strip_suffix("/res")) {
+                msg.with_policy(crate::transport::BroadcastPolicy::PlayerOnly(name.to_string()))
+            } else {
+                msg
+            };
             self.mqtx.send(msg)
         };
 
@@ -793,6 +847,15 @@ impl State {
 
         // 實體 create/delete 事件改由 compute_and_send_visibility_diffs 依視野產生，
         // heartbeat 只保留 counter/liveness + HP 校正
+    }
+
+    /// P5: plug in the shared `AoiGrid` from the KCP transport. State will
+    /// rebuild the grid each heartbeat tick using the same (id, pos) pre-gather
+    /// that builds the heartbeat snapshot. Safe to call once after
+    /// `TransportHandle` is obtained.
+    #[cfg(feature = "kcp")]
+    pub fn attach_aoi_grid(&mut self, grid: std::sync::Arc<std::sync::Mutex<crate::aoi::AoiGrid>>) {
+        self.aoi_grid = Some(grid);
     }
 
     /// 獲取 ECS 世界引用

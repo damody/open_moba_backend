@@ -3,6 +3,7 @@
 /// Main library crate for the Open MOBA game backend
 
 pub mod ability_runtime;
+pub mod aoi;
 pub mod comp;
 pub mod scripting;
 pub mod vision;

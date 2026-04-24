@@ -106,10 +106,12 @@ fn make_hp_update(id: u32, hp: f32, max_hp: f32) -> OutboundMsg {
     {
         use crate::state::resource_management::proto_build;
         use crate::transport::TypedOutbound;
-        OutboundMsg::new_typed(
+        // P5: HP regen without position — AoiGrid resolves entity_id → pos.
+        OutboundMsg::new_typed_aoi_entity(
             "td/all/res", "entity", "H",
             TypedOutbound::CreepHp(proto_build::creep_hp(id, hp)),
             json!({ "id": id, "hp": hp, "max_hp": max_hp }),
+            id as u64,
         )
     }
     #[cfg(not(feature = "kcp"))]

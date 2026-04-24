@@ -16,6 +16,6 @@ pub use types::{OutboundMsg, InboundMsg, TransportHandle};
 #[cfg(feature = "kcp")]
 pub use types::TypedOutbound;
 #[cfg(any(feature = "grpc", feature = "kcp"))]
-pub use types::{QueryRequest, QueryResponse, Viewport, ViewportMsg};
+pub use types::{BroadcastPolicy, QueryRequest, QueryResponse, Viewport, ViewportMsg};
 #[cfg(feature = "kcp")]
 pub use metrics::{KcpBytesCounter, KcpCounterSnapshot};
