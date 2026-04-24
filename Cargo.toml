@@ -54,6 +54,7 @@ hashbrown = "0.15"
 ordered-float = "5.0"
 abi_stable = "0.11"
 omb-script-abi = { path = "../scripts/script-abi" }
+omoba-template-ids = { path = "../omoba-template-ids" }
 rand_pcg = "0.9"
 voracious_radix_sort = { version = "1.2.0", features = ["voracious_multithread"] }
 rust_decimal = "1.33"
