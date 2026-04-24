@@ -669,13 +669,32 @@ impl State {
         // `OutboundMsg::new_typed` — the wire carries only the prost variant
         // while the JSON form lives in `msg` for router/dedupe introspection.
         // Under non-kcp builds (mqtt/grpc) we keep the legacy JSON-only path.
+        // P4: pre-collect creep positions for pos_snapshot drift-correction
+        // sampling. Heroes / units / towers don't need extrapolation snap so
+        // we only include creeps here.
+        #[cfg(any(feature = "grpc", feature = "kcp"))]
+        let all_creep_pos: Vec<(u32, f32, f32)> = {
+            let mut v: Vec<(u32, f32, f32)> = Vec::new();
+            for (e, _, pos) in (&entities, &creeps, &positions).join() {
+                v.push((e.id(), pos.0.x, pos.0.y));
+            }
+            v
+        };
+
         #[cfg(feature = "kcp")]
-        let emit = |topic: &str, hp_snap_pairs: Vec<(u32, f32)>| {
+        let emit = |topic: &str, hp_snap_pairs: Vec<(u32, f32)>, pos_snap: Vec<(u32, f32, f32)>| {
             let hp_snap_json: Vec<serde_json::Value> = hp_snap_pairs
                 .iter()
                 .map(|&(id, hp)| json!({ "i": id, "h": hp }))
                 .collect();
-            let payload = build_meta(hp_snap_json);
+            let pos_snap_json: Vec<serde_json::Value> = pos_snap
+                .iter()
+                .map(|&(id, x, y)| json!({ "i": id, "x": x, "y": y }))
+                .collect();
+            let mut payload = build_meta(hp_snap_json);
+            if let Some(obj) = payload.as_object_mut() {
+                obj.insert("pos_snapshot".into(), serde_json::Value::Array(pos_snap_json));
+            }
             let ht = crate::state::resource_management::build_heartbeat_tick(
                 tick,
                 game_time,
@@ -685,6 +704,7 @@ impl State {
                 creep_count as u32,
                 render_delay_ms as u32,
                 &hp_snap_pairs,
+                &pos_snap,
             );
             let msg = OutboundMsg::new_typed(
                 topic,
@@ -697,7 +717,7 @@ impl State {
         };
 
         #[cfg(all(feature = "grpc", not(feature = "kcp")))]
-        let emit = |topic: &str, hp_snap_pairs: Vec<(u32, f32)>| {
+        let emit = |topic: &str, hp_snap_pairs: Vec<(u32, f32)>, _pos_snap: Vec<(u32, f32, f32)>| {
             let hp_snap_json: Vec<serde_json::Value> = hp_snap_pairs
                 .iter()
                 .map(|&(id, hp)| json!({ "i": id, "h": hp }))
@@ -708,10 +728,16 @@ impl State {
 
         #[cfg(any(feature = "grpc", feature = "kcp"))]
         {
+            // P4 drift-correction sample: pick every 10th visible creep (stride=10
+            // giving ~10% of visible set). Helper — caller chooses viewport.
+            let sample_creep_pos = |visible: &[(u32, f32, f32)]| -> Vec<(u32, f32, f32)> {
+                visible.iter().step_by(10).copied().collect()
+            };
             if self.client_viewports.is_empty() {
                 // 沒有註冊任何 viewport（mcp query-only / 測試），fallback 全域廣播
                 let full: Vec<(u32, f32)> = all_entity_hp.iter().map(|&(id, _x, _y, hp)| (id, hp)).collect();
-                if let Err(e) = emit("td/all/res", full) {
+                let pos_sample = sample_creep_pos(&all_creep_pos);
+                if let Err(e) = emit("td/all/res", full, pos_sample) {
                     log::error!("無法發送心跳訊息: {}", e);
                 } else {
                     log::trace!("💓 心跳已發送 (fallback broadcast) - tick: {}, entities: {}", tick, entity_count);
@@ -736,8 +762,16 @@ impl State {
                             hp_snap.push((id, hp));
                         }
                     }
+                    // Viewport-filter creeps then take 10% stride sample for pos_snapshot.
+                    let mut visible_creeps: Vec<(u32, f32, f32)> = Vec::new();
+                    for &(id, x, y) in &all_creep_pos {
+                        if vp.contains(x, y) {
+                            visible_creeps.push((id, x, y));
+                        }
+                    }
+                    let pos_sample = sample_creep_pos(&visible_creeps);
                     let topic = format!("td/{}/res", name);
-                    if let Err(e) = emit(&topic, hp_snap) {
+                    if let Err(e) = emit(&topic, hp_snap, pos_sample) {
                         log::error!("無法發送心跳訊息 player='{}': {}", name, e);
                     } else {
                         log::trace!("💓 心跳已發送 player='{}' tick: {}", name, tick);

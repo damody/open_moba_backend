@@ -42,6 +42,8 @@ pub mod tower_upgrade_rules;
 pub mod tower_upgrade_registry;
 pub mod building;
 pub use building::IsBuilding;
+pub mod creep_move_broadcast;
+pub use creep_move_broadcast::CreepMoveBroadcast;
 
 pub use self::{
     blocked_region::*,

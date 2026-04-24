@@ -15,25 +15,62 @@ use serde_json::json;
 /// MOBA 鏡頭下肉眼無感的 facing 變化量（~15°）。舊值 0.05 (~3°) 造成過多 F event。
 const FACING_BROADCAST_THRESHOLD_RAD: f32 = 0.26;
 
-/// Build a creep.M OutboundMsg. Under `kcp` uses the typed prost path; otherwise JSON.
+/// Server ticks per second — keep in sync with `omb/src/main.rs` TPS const.
+/// Used by creep.M to compute `arrival_tick` for client extrapolation.
+const TICK_DT: f32 = 1.0 / 30.0;
+
+/// P4 full builder: emits a creep.M with velocity + arrival_tick + start_pos +
+/// start_tick so the client can extrapolate between events (see plan P4.3).
+/// Non-kcp builds fall back to the same 4-field legacy JSON as before.
 #[inline]
-fn make_creep_move(id: u32, tx_x: f32, tx_y: f32, facing: f32, ent_x: f32, ent_y: f32) -> OutboundMsg {
+fn make_creep_move_full(
+    id: u32,
+    target_x: f32,
+    target_y: f32,
+    facing: f32,
+    velocity: f32,
+    start_x: f32,
+    start_y: f32,
+    start_tick: u64,
+) -> OutboundMsg {
     #[cfg(feature = "kcp")]
     {
         use crate::state::resource_management::proto_build;
         use crate::transport::TypedOutbound;
+        // arrival_tick is computed inside proto_build::creep_move_full; keep
+        // the JSON shadow small — omfx reads extrapolation fields only when
+        // `velocity` is present. Legacy omfx ignores unknown keys.
+        let dx = target_x - start_x;
+        let dy = target_y - start_y;
+        let dist = (dx * dx + dy * dy).sqrt();
+        let arrival_tick = if velocity > f32::EPSILON && dist > f32::EPSILON {
+            start_tick + ((dist / velocity / TICK_DT).ceil() as u64)
+        } else {
+            start_tick
+        };
         OutboundMsg::new_typed_at(
             "td/all/res", "creep", "M",
-            TypedOutbound::CreepMove(proto_build::creep_move(id, tx_x, tx_y, facing)),
-            json!({ "id": id, "x": tx_x, "y": tx_y, "facing": facing }),
-            ent_x, ent_y,
+            TypedOutbound::CreepMove(proto_build::creep_move_full(
+                id, target_x, target_y, facing, velocity,
+                start_x, start_y, start_tick, TICK_DT,
+            )),
+            json!({
+                "id": id,
+                "x": target_x, "y": target_y,
+                "facing": facing,
+                "velocity": velocity,
+                "start_pos": { "x": start_x, "y": start_y },
+                "start_tick": start_tick,
+                "arrival_tick": arrival_tick,
+            }),
+            start_x, start_y,
         )
     }
     #[cfg(not(feature = "kcp"))]
     {
-        let _ = (ent_x, ent_y);
+        let _ = (velocity, start_x, start_y, start_tick);
         OutboundMsg::new_s("td/all/res", "creep", "M",
-            json!({ "id": id, "x": tx_x, "y": tx_y, "facing": facing }))
+            json!({ "id": id, "x": target_x, "y": target_y, "facing": facing }))
     }
 }
 
@@ -85,6 +122,9 @@ pub struct CreepRead<'a> {
     entities: Entities<'a>,
     time: Read<'a, Time>,
     dt: Read<'a, DeltaTime>,
+    /// P4: server tick counter; used as `start_tick` in creep.M for client
+    /// extrapolation anchor.
+    tick: Read<'a, Tick>,
     paths: Read<'a, BTreeMap<String, Path>>,
     check_points : Read<'a, BTreeMap<String, CheckPoint>>,
     cpropertys : ReadStorage<'a, CProperty>,
@@ -100,6 +140,10 @@ pub struct CreepWrite<'a> {
     creeps : WriteStorage<'a, Creep>,
     pos : WriteStorage<'a, Pos>,
     facings: WriteStorage<'a, Facing>,
+    /// P4: per-creep last-broadcast snapshot for M-emit gating.
+    /// Inserted lazily on first emit (component may be absent for creeps
+    /// that existed before the P4 upgrade path).
+    mv_broadcasts: WriteStorage<'a, CreepMoveBroadcast>,
     outcomes: Write<'a, Vec<Outcome>>,
     taken_damages: Write<'a, Vec<TakenDamage>>,
     mqtx: Write<'a, Vec<Sender<OutboundMsg>>>,
@@ -119,9 +163,22 @@ impl<'a> System<'a> for Sys {
     fn run(_job: &mut Job<Self>, (tr, mut tw): Self::SystemData) {
         let time = tr.time.0;
         let dt = tr.dt.0;
+        let server_tick = tr.tick.0;
         let tx = tw.mqtx.get(0).unwrap().clone();
 
-        let mut outcomes = (
+        // P4 emit candidates collected from the par_join pass, keyed by entity.
+        // Carries current (target, velocity, start_pos, facing) — the gating +
+        // record update happens serially below so we can touch mv_broadcasts
+        // without fighting borrow rules inside the parallel closure.
+        struct MoveCandidate {
+            entity: specs::Entity,
+            target: vek::Vec2<f32>,
+            velocity: f32,
+            start_pos: vek::Vec2<f32>,
+            facing: f32,
+        }
+
+        let (mut outcomes, move_candidates) = (
             &tr.entities,
             &mut tw.creeps,
             &mut tw.pos,
@@ -137,6 +194,7 @@ impl<'a> System<'a> for Sys {
                 },
                 |_guard, (e, creep, pos, cp, facing)| {
                     let mut outcomes:Vec<Outcome> = Vec::new();
+                    let mut cands: Vec<MoveCandidate> = Vec::new();
                     if cp.hp <= 0. {
                         outcomes.push(Outcome::Death { pos: pos.0.clone(), ent: e.clone() });
                     } else {
@@ -154,31 +212,41 @@ impl<'a> System<'a> for Sys {
                                 if let Some(p) = path.check_points.get(creep.pidx) {
                                     let target_point = p.pos;
                                     let mut next_status = creep.status.clone();
+                                    // P4: compute effective move speed once per tick — shared
+                                    // between the movement step and the M emit candidate.
+                                    let stats = crate::ability_runtime::UnitStats::from_refs(
+                                        &*tr.buff_store,
+                                        tr.is_buildings.get(e).is_some(),
+                                    );
+                                    let effective_msd = stats.final_move_speed(cp.msd, e);
                                     match creep.status {
                                         CreepStatus::PreWalk => {
-                                            tx.try_send(make_creep_move(e.id(), target_point.x, target_point.y, facing.0, pos.0.x, pos.0.y));
+                                            // First emit on spawn / PreWalk → unconditional candidate.
+                                            cands.push(MoveCandidate {
+                                                entity: e, target: target_point,
+                                                velocity: effective_msd,
+                                                start_pos: pos.0, facing: facing.0,
+                                            });
                                             next_status = CreepStatus::Walk;
                                         }
                                         CreepStatus::Walk => {
                                             // Root / stun：本 tick 完全不前進（閉包提早返回 → 此 creep 本 tick 無 outcomes）
                                             if tr.buff_store.is_rooted(e) {
-                                                return outcomes;
+                                                return (outcomes, cands);
                                             }
-                                            // 用 UnitStats 聚合所有位移類 buff（含 Ice 塔的 slow，
-                                            // 對應 MOVESPEED_BONUS_CONSTANT / MOVESPEED_BONUS_PERCENTAGE 等）
-                                            let stats = crate::ability_runtime::UnitStats::from_refs(
-                                                &*tr.buff_store,
-                                                tr.is_buildings.get(e).is_some(),
-                                            );
-                                            let effective_msd = stats.final_move_speed(cp.msd, e);
                                             let step = effective_msd * dt;
                                             let diff = target_point.sub(&pos.0);
                                             let dist_sq = diff.magnitude_squared();
                                             if dist_sq < 0.01 {
-                                                // 已抵達 waypoint
+                                                // 已抵達 waypoint — pidx advances, new waypoint
+                                                // triggers an M candidate (target change).
                                                 creep.pidx += 1;
                                                 if let Some(t) = path.check_points.get(creep.pidx) {
-                                                    tx.try_send(make_creep_move(e.id(), t.pos.x, t.pos.y, facing.0, pos.0.x, pos.0.y));
+                                                    cands.push(MoveCandidate {
+                                                        entity: e, target: t.pos,
+                                                        velocity: effective_msd,
+                                                        start_pos: pos.0, facing: facing.0,
+                                                    });
                                                 }
                                             } else {
                                                 // 先轉向目標
@@ -235,8 +303,14 @@ impl<'a> System<'a> for Sys {
                                                         if !hits(target_point) {
                                                             pos.0 = target_point;
                                                             creep.pidx += 1;
+                                                            // Reached waypoint mid-step: advance and
+                                                            // emit M for the NEXT waypoint (target change).
                                                             if let Some(t) = path.check_points.get(creep.pidx) {
-                                                                tx.try_send(make_creep_move(e.id(), t.pos.x, t.pos.y, facing.0, pos.0.x, pos.0.y));
+                                                                cands.push(MoveCandidate {
+                                                                    entity: e, target: t.pos,
+                                                                    velocity: effective_msd,
+                                                                    start_pos: pos.0, facing: facing.0,
+                                                                });
                                                             }
                                                         } else {
                                                             blocked = true;
@@ -245,6 +319,16 @@ impl<'a> System<'a> for Sys {
                                                     if blocked {
                                                         // 凍結前端 lerp（action="stall"），避免視覺上穿過其他單位。
                                                         tx.try_send(make_creep_stall(e.id(), pos.0.x, pos.0.y, facing.0));
+                                                    } else {
+                                                        // Not a waypoint advance, not blocked — but
+                                                        // still consider emitting if velocity changed
+                                                        // (slow applied/removed). Gating pass below
+                                                        // compares to last broadcast and drops if same.
+                                                        cands.push(MoveCandidate {
+                                                            entity: e, target: target_point,
+                                                            velocity: effective_msd,
+                                                            start_pos: pos.0, facing: facing.0,
+                                                        });
                                                     }
                                                 }
                                                 // 角度太大：只轉向、本 tick 不位移
@@ -265,24 +349,57 @@ impl<'a> System<'a> for Sys {
                             }
                         }
                     }
-                    (outcomes)
+                    (outcomes, cands)
                 },
             )
             .fold(
-                || Vec::new(),
-                |(mut all_outcomes), (mut outcomes)| {
+                || (Vec::new(), Vec::<MoveCandidate>::new()),
+                |(mut all_outcomes, mut all_cands), (mut outcomes, mut cands)| {
                     all_outcomes.append(&mut outcomes);
-                    all_outcomes
+                    all_cands.append(&mut cands);
+                    (all_outcomes, all_cands)
                 },
             )
             .reduce(
-                || Vec::new(),
-                |(mut outcomes_a),
-                 (mut outcomes_b)| {
+                || (Vec::new(), Vec::<MoveCandidate>::new()),
+                |(mut outcomes_a, mut cands_a),
+                 (mut outcomes_b, mut cands_b)| {
                     outcomes_a.append(&mut outcomes_b);
-                    outcomes_a
+                    cands_a.append(&mut cands_b);
+                    (outcomes_a, cands_a)
                 },
             );
+
+        // P4 serial emit-gating pass: compare each candidate against the
+        // entity's last-broadcast snapshot (CreepMoveBroadcast component).
+        // Emit creep.M only if target diverged OR velocity changed > 5% /
+        // > 1.0 absolute OR the entity has no prior snapshot. Update the
+        // component after emit so next tick's compare uses the new baseline.
+        for cand in move_candidates.into_iter() {
+            let need_emit = match tw.mv_broadcasts.get(cand.entity) {
+                Some(bcast) => bcast.should_emit(cand.target, cand.velocity),
+                None => true, // first-ever candidate for this entity
+            };
+            if !need_emit { continue; }
+
+            // Fire the event with full extrapolation fields.
+            let _ = tx.try_send(make_creep_move_full(
+                cand.entity.id(),
+                cand.target.x, cand.target.y,
+                cand.facing,
+                cand.velocity,
+                cand.start_pos.x, cand.start_pos.y,
+                server_tick,
+            ));
+
+            // Update (or insert) the broadcast snapshot so subsequent ticks
+            // compare against fresh baseline. specs::WriteStorage::insert
+            // returns Err only on invalid entity — safe to ignore.
+            let mut snap = tw.mv_broadcasts.get(cand.entity).cloned().unwrap_or_default();
+            snap.record(cand.target, cand.velocity, server_tick);
+            let _ = tw.mv_broadcasts.insert(cand.entity, snap);
+        }
+
         tw.outcomes.append(&mut outcomes);
         // 傷害計算 - 改為生成 Damage 事件
         for td in tw.taken_damages.iter() {

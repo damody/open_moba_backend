@@ -1322,15 +1322,29 @@ pub(crate) fn build_heartbeat_tick(
     creep_count: u32,
     render_delay_ms: u32,
     hp_snapshot: &[(u32, f32)],
+    pos_snapshot: &[(u32, f32, f32)],
 ) -> crate::transport::kcp_transport::game_proto::HeartbeatTick {
-    use crate::transport::kcp_transport::game_proto::{Fixed16, HeartbeatEntry, HeartbeatTick};
-    use omoba_core::quant::fixed_quant;
+    use crate::transport::kcp_transport::game_proto::{
+        Fixed16, HeartbeatEntry, HeartbeatPosEntry, HeartbeatTick, Position16,
+    };
+    use omoba_core::quant::{fixed_quant, pos_quant};
 
     let entries: Vec<HeartbeatEntry> = hp_snapshot
         .iter()
         .map(|&(id, hp)| HeartbeatEntry {
             id: id as u64,
             hp: Some(Fixed16 { v_q: fixed_quant(hp) }),
+        })
+        .collect();
+
+    let pos_entries: Vec<HeartbeatPosEntry> = pos_snapshot
+        .iter()
+        .map(|&(id, x, y)| HeartbeatPosEntry {
+            id: id as u64,
+            pos: Some(Position16 {
+                x_q: pos_quant(x),
+                y_q: pos_quant(y),
+            }),
         })
         .collect();
 
@@ -1343,6 +1357,7 @@ pub(crate) fn build_heartbeat_tick(
         creep_count,
         render_delay_ms,
         hp_snapshot: entries,
+        pos_snapshot: pos_entries,
     }
 }
 
@@ -1414,11 +1429,53 @@ pub(crate) mod proto_build {
         }
     }
 
+    /// Legacy helper: kept for call sites that don't yet carry velocity info
+    /// (e.g. the `handle_creep_stop` "freeze at pos" case). Emits zeros for
+    /// the P4 fields, which the client treats as "lerp-only, no extrapolation".
     pub fn creep_move(id: u32, x: f32, y: f32, facing: f32) -> CreepMove {
         CreepMove {
             id: id as u64,
             target: Some(pos16(x, y)),
             facing_q: facing_quant(facing),
+            velocity: Some(fx16(0.0)),
+            arrival_tick: 0,
+            start_pos: Some(pos16(x, y)),
+            start_tick: 0,
+        }
+    }
+
+    /// P4 full builder: includes velocity + arrival_tick + start_pos + start_tick
+    /// for client-side extrapolation. `tick_dt` is the server tick duration
+    /// (1.0 / TPS). `arrival_tick` is computed relative to `start_tick`; if
+    /// `velocity` is zero or the distance is zero we return `start_tick`
+    /// (client will lock at target immediately).
+    pub fn creep_move_full(
+        id: u32,
+        target_x: f32,
+        target_y: f32,
+        facing: f32,
+        velocity: f32,
+        start_x: f32,
+        start_y: f32,
+        start_tick: u64,
+        tick_dt: f32,
+    ) -> CreepMove {
+        let dx = target_x - start_x;
+        let dy = target_y - start_y;
+        let dist = (dx * dx + dy * dy).sqrt();
+        let arrival_tick = if velocity > f32::EPSILON && dist > f32::EPSILON && tick_dt > f32::EPSILON {
+            start_tick + ((dist / velocity / tick_dt).ceil() as u64)
+        } else {
+            start_tick
+        };
+        CreepMove {
+            id: id as u64,
+            target: Some(pos16(target_x, target_y)),
+            facing_q: facing_quant(facing),
+            velocity: Some(fx16(velocity)),
+            arrival_tick,
+            start_pos: Some(pos16(start_x, start_y)),
+            start_tick,
         }
     }
 
