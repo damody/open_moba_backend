@@ -739,8 +739,74 @@ impl ResourceManager {
         Ok(())
     }
 
-    fn use_skill(&self, _world: &mut World, _pd: &InboundMsg) -> Result<(), Error> {
-        // 實現技能使用邏輯
+    fn use_skill(&self, world: &mut World, pd: &InboundMsg) -> Result<(), Error> {
+        use crate::scripting::event::{ScriptEvent, ScriptEventQueue, SkillTarget};
+
+        // slot Q/W/E/R → index 0..3
+        let slot = pd.d.get("slot").and_then(|v| v.as_str()).unwrap_or("");
+        let idx = match Self::slot_to_index(slot) {
+            Some(i) => i,
+            None => {
+                log::warn!("[cast_ability] invalid slot '{}'", slot);
+                return Ok(());
+            }
+        };
+
+        let caster = match self.find_hero_entity(world, &pd.name) {
+            Some(e) => e,
+            None => {
+                log::warn!("[cast_ability] no hero for '{}'", pd.name);
+                return Ok(());
+            }
+        };
+
+        let ability_id = {
+            let heroes = world.read_storage::<Hero>();
+            heroes
+                .get(caster)
+                .and_then(|h| h.abilities.get(idx).cloned())
+                .unwrap_or_default()
+        };
+        if ability_id.is_empty() {
+            log::warn!(
+                "[cast_ability] hero '{}' slot {} has no ability bound",
+                pd.name, slot
+            );
+            return Ok(());
+        }
+
+        // 解析 target_pos [x,y] 或 target_entity (u64)
+        let target = if let Some(arr) = pd.d.get("target_pos").and_then(|v| v.as_array()) {
+            if arr.len() == 2 {
+                let x = arr[0].as_f64().unwrap_or(0.0) as f32;
+                let y = arr[1].as_f64().unwrap_or(0.0) as f32;
+                SkillTarget::Point(x, y)
+            } else {
+                SkillTarget::None
+            }
+        } else if let Some(id) = pd.d.get("target_entity").and_then(|v| v.as_u64()) {
+            use specs::Join;
+            let entities = world.entities();
+            entities
+                .join()
+                .find(|e| e.id() == id as u32)
+                .map(SkillTarget::Entity)
+                .unwrap_or(SkillTarget::None)
+        } else {
+            SkillTarget::None
+        };
+
+        log::info!(
+            "[cast_ability] {} casts '{}' (slot {}) target={:?}",
+            pd.name, ability_id, slot, target
+        );
+        world
+            .write_resource::<ScriptEventQueue>()
+            .push(ScriptEvent::SkillCast {
+                caster,
+                skill_id: ability_id,
+                target,
+            });
         Ok(())
     }
 
