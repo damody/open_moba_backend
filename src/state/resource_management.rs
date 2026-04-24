@@ -1201,24 +1201,15 @@ pub(crate) fn build_hero_stats_payload(
     buff_store: &crate::ability_runtime::BuffStore,
 ) -> serde_json::Value {
     use serde_json::json;
-    // 聚合 buff modifiers 到 base 屬性上。慣例：`_bonus` → sum_add，`_multiplier` → product_mult。
-    let atk_dmg_eff = attack_damage_base
-        + buff_store.sum_add(hero_entity, "damage_bonus")
-        + buff_store.sum_add(hero_entity, "preattack_bonus_damage")
-        + buff_store.sum_add(hero_entity, "baseattack_bonus_damage");
-    let atk_rng_eff = attack_range_base
-        + buff_store.sum_add(hero_entity, "range_bonus")
-        + buff_store.sum_add(hero_entity, "attack_range_bonus");
-    let asd_mult = buff_store.product_mult(hero_entity, "attack_speed_multiplier");
-    let atk_int_eff = if asd_mult > 0.0 { attack_interval_base / asd_mult } else { attack_interval_base };
-    let msd_mult = buff_store.product_mult(hero_entity, "move_speed_multiplier");
-    let msd_eff = move_speed_base
-        * msd_mult
-        + buff_store.sum_add(hero_entity, "movespeed_bonus_constant");
-    let armor_eff = armor_base
-        + buff_store.sum_add(hero_entity, "physical_armor_bonus");
-    let magic_resist_eff = magic_resist_base
-        + buff_store.sum_add(hero_entity, "magical_resistance_bonus");
+    // Hero 非 building，全走 UnitStats 聚合以與 tick / damage pipeline 共用同一份邏輯。
+    let stats = crate::ability_runtime::UnitStats::from_refs(buff_store, false);
+    let atk_dmg_eff = stats.final_atk(attack_damage_base, hero_entity);
+    let atk_rng_eff = stats.final_attack_range(attack_range_base, hero_entity);
+    let asd_mult = stats.final_attack_speed_mult(hero_entity);
+    let atk_int_eff = attack_interval_base / asd_mult;
+    let msd_eff = stats.final_move_speed(move_speed_base, hero_entity);
+    let armor_eff = stats.final_armor(armor_base, hero_entity);
+    let magic_resist_eff = stats.final_magic_resist(magic_resist_base, hero_entity);
 
     let buffs: Vec<serde_json::Value> = buff_store
         .iter_for(hero_entity)

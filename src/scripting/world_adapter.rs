@@ -18,7 +18,7 @@ use serde_json::json;
 use specs::{Builder, Entity, Join, World, WorldExt};
 use specs::world::Generation;
 
-use crate::ability_runtime::BuffStore;
+use crate::ability_runtime::{BuffStore, UnitStats};
 use crate::comp::*;
 use crate::scripting::event::{ScriptEvent, ScriptEventQueue};
 use crate::transport::OutboundMsg;
@@ -598,20 +598,8 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
         let base = self.world.read_storage::<CProperty>().get(ent).map(|p| p.msd).unwrap_or(0.0);
         let store = self.world.read_resource::<BuffStore>();
-        let bonus = store.sum_add(ent, "move_speed_bonus");
-        let mult = store.product_mult(ent, "move_speed_multiplier");
-        // 絕對值覆蓋 > clamp min/max > 否則 base * (1+bonus) * mult
-        let abs_set: f32 = store.sum_add(ent, "move_speed_absolute");
-        let mut result = if abs_set > 0.0 {
-            abs_set
-        } else {
-            base * (1.0 + bonus) * mult
-        };
-        let min = store.sum_add(ent, "move_speed_min");
-        let max = store.sum_add(ent, "move_speed_max");
-        if min > 0.0 && result < min { result = min; }
-        if max > 0.0 && result > max { result = max; }
-        result.max(0.0)
+        let is_b = self.world.read_storage::<IsBuilding>().get(ent).is_some();
+        UnitStats::from_refs(&*store, is_b).final_move_speed(base, ent)
     }
 
     fn get_final_atk(&self, e: EntityHandle) -> f32 {
@@ -619,11 +607,8 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         let base = self.world.read_storage::<TAttack>()
             .get(ent).map(|t| t.atk_physic.v).unwrap_or(0.0);
         let store = self.world.read_resource::<BuffStore>();
-        let bonus = store.sum_add(ent, "bonus_damage")
-            + store.sum_add(ent, "base_damage_bonus")
-            + store.sum_add(ent, "damage_bonus");
-        let mult = store.product_mult(ent, "damage_out_multiplier");
-        ((base + bonus) * mult).max(0.0)
+        let is_b = self.world.read_storage::<IsBuilding>().get(ent).is_some();
+        UnitStats::from_refs(&*store, is_b).final_atk(base, ent)
     }
 
     fn get_tower_upgrade(&self, e: EntityHandle, path: u8) -> u8 {
@@ -652,9 +637,8 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         let base = self.world.read_storage::<TAttack>()
             .get(ent).map(|t| t.range.v).unwrap_or(0.0);
         let store = self.world.read_resource::<BuffStore>();
-        let bonus = store.sum_add(ent, "attack_range_bonus")
-            + store.sum_add(ent, "range_bonus");
-        (base + bonus).max(0.0)
+        let is_b = self.world.read_storage::<IsBuilding>().get(ent).is_some();
+        UnitStats::from_refs(&*store, is_b).final_attack_range(base, ent)
     }
 
     fn get_buff_remaining(&self, e: EntityHandle, buff_id: RStr<'_>) -> f32 {
