@@ -69,6 +69,7 @@ prost = { version = "0.13", optional = true }
 async-stream = { version = "0.3", optional = true }
 tokio-stream = { version = "0.1", optional = true }
 tokio_kcp = { version = "0.9", optional = true }
+lz4_flex = { version = "0.11", optional = true }
 maud = { version = "0.26", optional = true }
 syn = { version = "2", features = ["full", "visit", "parsing"], optional = true }
 clap = { version = "4", features = ["derive"], optional = true }
@@ -84,5 +85,5 @@ prost-build = { version = "0.13", optional = true }
 default = ["kcp"]
 mqtt = ["rumqttc"]
 grpc = ["tonic", "prost", "async-stream", "tokio-stream/sync", "tonic-build", "tokio/sync", "tokio/time"]
-kcp = ["tokio_kcp", "prost", "prost-build", "tokio/sync", "tokio/time", "tokio/net", "tokio/io-util"]
+kcp = ["tokio_kcp", "prost", "prost-build", "tokio/sync", "tokio/time", "tokio/net", "tokio/io-util", "dep:lz4_flex"]
 gen-docs = ["maud", "syn", "clap", "anyhow", "quote", "proc-macro2"]

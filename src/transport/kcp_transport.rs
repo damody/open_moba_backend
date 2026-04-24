@@ -20,7 +20,8 @@ pub mod game_proto {
 use game_proto::*;
 use prost::Message;
 
-// Framing tag constants (same protocol as omoba-core)
+// Framing tag constants (same protocol as omoba-core).
+// KEEP IN SYNC with omoba-core::kcp::framing — frame format MUST match byte-for-byte.
 const TAG_PLAYER_COMMAND: u8 = 0x01;
 const TAG_GAME_EVENT: u8 = 0x02;
 const TAG_COMMAND_ACK: u8 = 0x03;
@@ -29,25 +30,55 @@ const TAG_GAME_STATE_REQUEST: u8 = 0x05;
 const TAG_GAME_STATE_RESPONSE: u8 = 0x06;
 const TAG_VIEWPORT_UPDATE: u8 = 0x07;
 
+/// High bit of the tag — set when the framed payload is LZ4-compressed.
+/// Base tags 0x01~0x07 never use this bit so it is always free as a flag.
+const COMPRESSION_FLAG: u8 = 0x80;
+
+/// Minimum payload size before we bother trying LZ4 compression.
+const LZ4_THRESHOLD: usize = 128;
+
 /// Write a framed message: [1 byte tag][4 bytes len (big-endian)][N bytes payload]
+/// When payload ≥ LZ4_THRESHOLD and LZ4 shrinks it, the payload is replaced with
+/// a size-prepended LZ4 block and COMPRESSION_FLAG is OR'd into the tag.
+/// KEEP IN SYNC with omoba-core::kcp::framing::write_framed.
 async fn write_framed<W: AsyncWriteExt + Unpin>(
     writer: &mut W,
     tag: u8,
     payload: &[u8],
 ) -> std::io::Result<()> {
-    let len = payload.len() as u32;
-    writer.write_u8(tag).await?;
+    debug_assert!(tag & COMPRESSION_FLAG == 0, "base tag must not use high bit; got 0x{:02x}", tag);
+    let (out_tag, out_payload): (u8, &[u8]);
+    let compressed_holder;
+    if payload.len() >= LZ4_THRESHOLD {
+        let c = lz4_flex::block::compress_prepend_size(payload);
+        if c.len() < payload.len() {
+            out_tag = tag | COMPRESSION_FLAG;
+            compressed_holder = c;
+            out_payload = &compressed_holder;
+        } else {
+            out_tag = tag;
+            out_payload = payload;
+        }
+    } else {
+        out_tag = tag;
+        out_payload = payload;
+    }
+    let len = out_payload.len() as u32;
+    writer.write_u8(out_tag).await?;
     writer.write_u32(len).await?;
-    writer.write_all(payload).await?;
+    writer.write_all(out_payload).await?;
     writer.flush().await?;
     Ok(())
 }
 
 /// Read a framed message, returns (tag, payload bytes).
+/// If COMPRESSION_FLAG is set on the wire tag, the payload is decompressed and
+/// the returned tag has the flag stripped (callers see only 0x01~0x07).
+/// KEEP IN SYNC with omoba-core::kcp::framing::read_framed.
 async fn read_framed<R: AsyncReadExt + Unpin>(
     reader: &mut R,
 ) -> std::io::Result<Option<(u8, Vec<u8>)>> {
-    let tag = match reader.read_u8().await {
+    let tag_raw = match reader.read_u8().await {
         Ok(t) => t,
         Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
         Err(e) => return Err(e),
@@ -55,7 +86,14 @@ async fn read_framed<R: AsyncReadExt + Unpin>(
     let len = reader.read_u32().await? as usize;
     let mut buf = vec![0u8; len];
     reader.read_exact(&mut buf).await?;
-    Ok(Some((tag, buf)))
+    if tag_raw & COMPRESSION_FLAG != 0 {
+        let base_tag = tag_raw & 0x7F;
+        let decompressed = lz4_flex::block::decompress_size_prepended(&buf)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        Ok(Some((base_tag, decompressed)))
+    } else {
+        Ok(Some((tag_raw, buf)))
+    }
 }
 
 /// Per-client session: holds a sender to push outbound events
@@ -151,16 +189,31 @@ pub async fn start(
 
                         let payload = event.encode_to_vec();
 
-                        // Build framed bytes: tag + len + payload
-                        let mut frame = Vec::with_capacity(1 + 4 + payload.len());
-                        frame.push(TAG_GAME_EVENT);
-                        frame.extend_from_slice(&(payload.len() as u32).to_be_bytes());
-                        frame.extend_from_slice(&payload);
+                        // Compress payload when ≥ threshold AND the compressed
+                        // bytes are strictly smaller; otherwise fall back to raw.
+                        // KEEP IN SYNC with write_framed above.
+                        let (frame_tag, frame_payload): (u8, std::borrow::Cow<'_, [u8]>) =
+                            if payload.len() >= LZ4_THRESHOLD {
+                                let c = lz4_flex::block::compress_prepend_size(&payload);
+                                if c.len() < payload.len() {
+                                    (TAG_GAME_EVENT | COMPRESSION_FLAG, std::borrow::Cow::Owned(c))
+                                } else {
+                                    (TAG_GAME_EVENT, std::borrow::Cow::Borrowed(&payload))
+                                }
+                            } else {
+                                (TAG_GAME_EVENT, std::borrow::Cow::Borrowed(&payload))
+                            };
 
-                        // Record observed wire bytes (includes tag + length prefix).
-                        // Bucketed by (msg_type, action) so downstream analysis can
-                        // slice by game event category without the hot path paying
-                        // a `format!()` allocation per message.
+                        // Build framed bytes: tag + len + payload
+                        let mut frame = Vec::with_capacity(1 + 4 + frame_payload.len());
+                        frame.push(frame_tag);
+                        frame.extend_from_slice(&(frame_payload.len() as u32).to_be_bytes());
+                        frame.extend_from_slice(&frame_payload);
+
+                        // Record observed wire bytes (post-compression, includes
+                        // tag + length prefix).  Bucketed by (msg_type, action) so
+                        // downstream analysis can slice by game event category
+                        // without the hot path paying a `format!()` per message.
                         counter_broadcast.record(
                             &event.msg_type,
                             &event.action,
