@@ -335,19 +335,22 @@ impl GameProcessor {
         let target_entity = target.ok_or_else(|| failure::err_msg("Missing target entity"))?;
 
         // 此 path 只用於非腳本塔（MOBA legacy）；TD 塔走腳本 `spawn_projectile_ex` 直接 spawn
-        // 最終 damage = base * (1 + sum(damage_bonus buffs))，取自 source 身上 BuffStore 聚合
+        // 最終 damage 走 UnitStats::final_atk（聚合所有 stat_keys 官方 key）
         // 同時讀取 source 身上任何 buff 的 attack_stun_chance / attack_stun_duration，擲骰
         // 決定此發 projectile 命中後是否暈眩目標（matchlock_gun 的 87% 機率）
-        let (msd, p2, atk_phys, stun_duration_roll) = {
+        // 另查 `multi_shot_visual` buff 決定是否額外 spawn 視覺子彈（無傷害）
+        let (msd, p2, atk_phys, stun_duration_roll, visual_count) = {
             let positions = ecs.read_storage::<Pos>();
             let tproperty = ecs.read_storage::<TAttack>();
             let buff_store = ecs.read_resource::<crate::ability_runtime::BuffStore>();
+            let is_buildings = ecs.read_storage::<IsBuilding>();
 
             let _p1 = positions.get(source_entity).ok_or_else(|| failure::err_msg("Source position not found"))?;
             let p2 = positions.get(target_entity).ok_or_else(|| failure::err_msg("Target position not found"))?;
             let tp = tproperty.get(source_entity).ok_or_else(|| failure::err_msg("Source attack properties not found"))?;
-            let dmg_bonus = buff_store.sum_add(source_entity, "damage_bonus");
-            let mut final_atk = tp.atk_physic.v * (1.0 + dmg_bonus);
+            let is_b = is_buildings.get(source_entity).is_some();
+            let stats = crate::ability_runtime::UnitStats::from_refs(&*buff_store, is_b);
+            let mut final_atk = stats.final_atk(tp.atk_physic.v, source_entity);
 
             // Accuracy 擲骰：base 命中率 1.0 + sum(accuracy_bonus) buffs；clamp [0,1]。
             // miss → damage=0（projectile 仍飛行，前端可由 0 傷害判定顯示 miss）。
@@ -372,7 +375,13 @@ impl GameProcessor {
             } else {
                 0.0
             };
-            (tp.bullet_speed, p2.0, final_atk, stun_roll)
+
+            // 多發視覺 buff：sum_add 聚合（大絕套 3 → 3 發，也支援多個 buff 相加）
+            // N > 1 時主彈正常判傷害，額外 N-1 發 visual-only（無傷害、target=None 到 tpos 自毀）
+            let vc = buff_store.sum_add(source_entity, "multi_shot_visual");
+            let visual_count = if vc >= 2.0 { vc.round().max(1.0) as u32 } else { 1 };
+
+            (tp.bullet_speed, p2.0, final_atk, stun_roll, visual_count)
         };
 
         // 命中由 projectile_tick 的距離判定決定（target 接近時 step >= dist 即命中）。
@@ -390,41 +399,65 @@ impl GameProcessor {
         let (splash_radius, slow_factor, slow_duration): (f32, f32, f32) = (0.0, 0.0, 0.0);
 
         let ntarget = target_entity.id();
-        let e = ecs.create_entity()
-            .with(Pos(pos))
-            .with(Projectile {
-                time_left: safety_time_left,
-                owner: source_entity.clone(),
-                tpos: p2,
-                target: target,
-                radius: splash_radius,
-                msd: msd,
-                damage_phys: atk_phys,
-                damage_magi: 0.0,
-                damage_real: 0.0,
-                slow_factor,
-                slow_duration,
-                hit_radius: 0.0,
-                stun_duration: stun_duration_roll,
-            })
-            .build();
-
-        // 前端 flight_time_ms 用於 pursuit 動畫；damage 由後端 "H" 事件授權（不再 optimistic）。
         let flight_time_ms: u64 = (flight_time_s * 1000.0).max(1.0) as u64;
         let kind_key = "";
-        let pjs = json!({
-            "id": e.id(),
-            "source_id": source_entity.id(),
-            "target_id": ntarget,
-            "start_pos": { "x": pos.x, "y": pos.y },
-            "end_pos":   { "x": p2.x, "y": p2.y },
-            "move_speed": move_speed,
-            "flight_time_ms": flight_time_ms,
-            "damage": atk_phys,
-            "kind": kind_key,
-        });
 
-        mqtx.try_send(OutboundMsg::new_s_at("td/all/res", "projectile", "C", pjs, pos.x, pos.y));
+        // 主彈 + 視覺彈（大絕變身 buff 讓 visual_count=3）：
+        // i == 0 為真實子彈（damage = atk_phys、target 追蹤、吃 stun roll）
+        // i >= 1 為視覺子彈（damage = 0、target = None、到 tpos 自毀不 hit、起點左右側偏）
+        let dir = if (p2 - pos).magnitude_squared() > 0.0001 {
+            (p2 - pos).normalized()
+        } else {
+            vek::Vec2::new(1.0_f32, 0.0)
+        };
+        let perp = vek::Vec2::new(-dir.y, dir.x);
+        let lateral_step = 24.0_f32; // 槍口偏移 (pixel)
+
+        for i in 0..visual_count {
+            let is_real = i == 0;
+            let dmg_phys_this = if is_real { atk_phys } else { 0.0 };
+            let stun_this = if is_real { stun_duration_roll } else { 0.0 };
+            let target_this = if is_real { target } else { None };
+            let lateral = if visual_count > 1 {
+                let half = (visual_count as f32 - 1.0) * 0.5;
+                (i as f32 - half) * lateral_step
+            } else {
+                0.0
+            };
+            let start_pos = pos + perp * lateral;
+
+            let e = ecs.create_entity()
+                .with(Pos(start_pos))
+                .with(Projectile {
+                    time_left: safety_time_left,
+                    owner: source_entity.clone(),
+                    tpos: p2,
+                    target: target_this,
+                    radius: splash_radius,
+                    msd: msd,
+                    damage_phys: dmg_phys_this,
+                    damage_magi: 0.0,
+                    damage_real: 0.0,
+                    slow_factor,
+                    slow_duration,
+                    hit_radius: 0.0,
+                    stun_duration: stun_this,
+                })
+                .build();
+
+            let pjs = json!({
+                "id": e.id(),
+                "source_id": source_entity.id(),
+                "target_id": ntarget,
+                "start_pos": { "x": start_pos.x, "y": start_pos.y },
+                "end_pos":   { "x": p2.x, "y": p2.y },
+                "move_speed": move_speed,
+                "flight_time_ms": flight_time_ms,
+                "damage": dmg_phys_this,
+                "kind": kind_key,
+            });
+            mqtx.try_send(OutboundMsg::new_s_at("td/all/res", "projectile", "C", pjs, start_pos.x, start_pos.y));
+        }
         Ok(())
     }
     
