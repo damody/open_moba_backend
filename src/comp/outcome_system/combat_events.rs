@@ -5,7 +5,7 @@ use crate::ability_runtime::UnitStats;
 use crate::comp::*;
 use crate::transport::OutboundMsg;
 use crossbeam_channel::Sender;
-use omb_script_abi::stat_keys as sk;
+use omb_script_abi::stat_keys::StatKey;
 use omb_script_abi::types::DamageKind;
 use serde_json::json;
 
@@ -94,11 +94,11 @@ impl CombatEventHandler {
         // ---- 扣 HP，套 MIN_HEALTH 下限 ----
         let min_health = {
             let buffs = world.read_resource::<crate::ability_runtime::BuffStore>();
-            buffs.sum_add(target, sk::MIN_HEALTH)
+            buffs.sum_add(target, StatKey::MinHealth)
         };
         let has_reincarnation = {
             let buffs = world.read_resource::<crate::ability_runtime::BuffStore>();
-            buffs.has(target, sk::REINCARNATION)
+            buffs.has(target, StatKey::Reincarnation.as_str())
         };
 
         let mut died = false;
@@ -138,7 +138,7 @@ impl CombatEventHandler {
                 // 移除 reincarnation（一次性）
                 {
                     let mut buffs = world.write_resource::<crate::ability_runtime::BuffStore>();
-                    buffs.remove(target, sk::REINCARNATION);
+                    buffs.remove(target, StatKey::Reincarnation.as_str());
                 }
                 let target_name = Self::get_entity_name(world, target);
                 log::info!("✨ {} 重生！", target_name);
@@ -170,12 +170,12 @@ impl CombatEventHandler {
         // 先查 buff 套 modifier
         let effective_amount = {
             let buffs = world.read_resource::<crate::ability_runtime::BuffStore>();
-            let disabled = buffs.has(target, sk::DISABLE_HEALING)
-                || buffs.sum_add(target, sk::DISABLE_HEALING) > 0.5;
+            let disabled = buffs.has(target, StatKey::DisableHealing.as_str())
+                || buffs.sum_add(target, StatKey::DisableHealing) > 0.5;
             if disabled {
                 0.0
             } else {
-                let mult = 1.0 + buffs.sum_add(target, sk::HEAL_RECEIVED_MULTIPLIER);
+                let mult = 1.0 + buffs.sum_add(target, StatKey::HealReceivedMultiplier);
                 amount * mult
             }
         };

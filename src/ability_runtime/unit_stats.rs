@@ -12,7 +12,7 @@
 //! armor / magic_resist 等）由 spawn 腳本 `on_spawn` 打 duration=∞ 的 base_stats
 //! buff 提供基底。
 
-use omb_script_abi::stat_keys as sk;
+use omb_script_abi::stat_keys::StatKey;
 use omb_script_abi::types::DamageKind;
 use specs::Entity;
 
@@ -45,27 +45,27 @@ impl<'a> UnitStats<'a> {
         if self.is_building {
             return 0.0;
         }
-        let abs = self.buffs.sum_add(e, sk::MOVESPEED_ABSOLUTE);
+        let abs = self.buffs.sum_add(e, StatKey::MoveSpeedAbsolute);
         let effective = if abs > 0.0 {
             abs
         } else {
-            let override_base = self.buffs.sum_add(e, sk::MOVESPEED_BASE_OVERRIDE);
+            let override_base = self.buffs.sum_add(e, StatKey::MoveSpeedBaseOverride);
             let base_eff = if override_base > 0.0 { override_base } else { base };
-            let bonus_c = self.buffs.sum_add(e, sk::MOVESPEED_BONUS_CONSTANT)
-                + self.buffs.sum_add(e, sk::MOVESPEED_BONUS_UNIQUE)
-                + self.buffs.sum_add(e, sk::MOVESPEED_BONUS_UNIQUE_2);
-            let pct = self.buffs.sum_add(e, sk::MOVESPEED_BONUS_PERCENTAGE)
-                + self.buffs.sum_add(e, sk::MOVESPEED_BONUS_PERCENTAGE_UNIQUE)
-                + self.buffs.sum_add(e, sk::MOVESPEED_BONUS_PERCENTAGE_UNIQUE_2);
+            let bonus_c = self.buffs.sum_add(e, StatKey::MoveSpeedBonusConstant)
+                + self.buffs.sum_add(e, StatKey::MoveSpeedBonusUnique)
+                + self.buffs.sum_add(e, StatKey::MoveSpeedBonusUnique2);
+            let pct = self.buffs.sum_add(e, StatKey::MoveSpeedBonusPercentage)
+                + self.buffs.sum_add(e, StatKey::MoveSpeedBonusPercentageUnique)
+                + self.buffs.sum_add(e, StatKey::MoveSpeedBonusPercentageUnique2);
             (base_eff + bonus_c) * (1.0 + pct)
         };
         self.apply_move_clamp(effective, e)
     }
 
     fn apply_move_clamp(&self, v: f32, e: Entity) -> f32 {
-        let min_abs = self.buffs.sum_add(e, sk::MOVESPEED_ABSOLUTE_MIN);
-        let max_abs = self.buffs.sum_add(e, sk::MOVESPEED_MAX);
-        let limit = self.buffs.sum_add(e, sk::MOVESPEED_LIMIT);
+        let min_abs = self.buffs.sum_add(e, StatKey::MoveSpeedAbsoluteMin);
+        let max_abs = self.buffs.sum_add(e, StatKey::MoveSpeedMax);
+        let limit = self.buffs.sum_add(e, StatKey::MoveSpeedLimit);
         let mut r = v;
         if min_abs > 0.0 && r < min_abs {
             r = min_abs;
@@ -83,17 +83,17 @@ impl<'a> UnitStats<'a> {
         if self.is_building {
             return 1.0;
         }
-        1.0 + self.buffs.sum_add(e, sk::TURN_RATE_PERCENTAGE)
+        1.0 + self.buffs.sum_add(e, StatKey::TurnRatePercentage)
     }
 
     // ================= 攻擊 =================
 
     pub fn final_atk(&self, base: f32, e: Entity) -> f32 {
-        let bonus = self.buffs.sum_add(e, sk::PREATTACK_BONUS_DAMAGE)
-            + self.buffs.sum_add(e, sk::BASEATTACK_BONUS_DAMAGE);
-        let pct_total = self.buffs.sum_add(e, sk::TOTALDAMAGEOUTGOING_PERCENTAGE);
-        let pct_base = self.buffs.sum_add(e, sk::BASEDAMAGEOUTGOING_PERCENTAGE)
-            + self.buffs.sum_add(e, sk::BASEDAMAGEOUTGOING_PERCENTAGE_UNIQUE);
+        let bonus = self.buffs.sum_add(e, StatKey::PreattackBonusDamage)
+            + self.buffs.sum_add(e, StatKey::BaseAttackBonusDamage);
+        let pct_total = self.buffs.sum_add(e, StatKey::TotalDamageOutgoingPercentage);
+        let pct_base = self.buffs.sum_add(e, StatKey::BaseDamageOutgoingPercentage)
+            + self.buffs.sum_add(e, StatKey::BaseDamageOutgoingPercentageUnique);
         let mult = 1.0 + pct_total + pct_base;
         ((base + bonus) * mult).max(0.0)
     }
@@ -103,23 +103,23 @@ impl<'a> UnitStats<'a> {
     /// 簡化：以 bonus/100 當 multiplier 加成；fixed_attack_rate 若設則覆蓋。
     /// 另疊 `ATTACK_SPEED_MULTIPLIER`（專案自訂 product_mult，tower upgrade 用）。
     pub fn final_attack_speed_mult(&self, e: Entity) -> f32 {
-        let fixed = self.buffs.sum_add(e, sk::FIXED_ATTACK_RATE);
+        let fixed = self.buffs.sum_add(e, StatKey::FixedAttackRate);
         if fixed > 0.0 {
             return fixed;
         }
-        let as_bonus = self.buffs.sum_add(e, sk::ATTACKSPEED_BONUS_CONSTANT);
+        let as_bonus = self.buffs.sum_add(e, StatKey::AttackSpeedBonusConstant);
         let constant_mult = (1.0 + as_bonus / 100.0).max(0.1);
-        let extra_mult = self.buffs.product_mult(e, sk::ATTACK_SPEED_MULTIPLIER);
+        let extra_mult = self.buffs.product_mult(e, StatKey::AttackSpeedMultiplier);
         (constant_mult * extra_mult).max(0.1)
     }
 
     /// 射程 = base + ATTACK_RANGE_BONUS + ATTACK_RANGE_BONUS_UNIQUE，
     /// 再由 MAX_ATTACK_RANGE 上限（若設）。
     pub fn final_attack_range(&self, base: f32, e: Entity) -> f32 {
-        let bonus = self.buffs.sum_add(e, sk::ATTACK_RANGE_BONUS)
-            + self.buffs.sum_add(e, sk::ATTACK_RANGE_BONUS_UNIQUE);
+        let bonus = self.buffs.sum_add(e, StatKey::AttackRangeBonus)
+            + self.buffs.sum_add(e, StatKey::AttackRangeBonusUnique);
         let r = (base + bonus).max(0.0);
-        let max = self.buffs.sum_add(e, sk::MAX_ATTACK_RANGE);
+        let max = self.buffs.sum_add(e, StatKey::MaxAttackRange);
         if max > 0.0 && r > max {
             max
         } else {
@@ -129,27 +129,27 @@ impl<'a> UnitStats<'a> {
 
     pub fn final_cast_range(&self, base: f32, e: Entity) -> f32 {
         (base
-            + self.buffs.sum_add(e, sk::CAST_RANGE_BONUS)
-            + self.buffs.sum_add(e, sk::CAST_RANGE_BONUS_STACKING))
+            + self.buffs.sum_add(e, StatKey::CastRangeBonus)
+            + self.buffs.sum_add(e, StatKey::CastRangeBonusStacking))
             .max(0.0)
     }
 
     // ================= 防禦 =================
 
     pub fn final_armor(&self, base: f32, e: Entity) -> f32 {
-        base + self.buffs.sum_add(e, sk::PHYSICAL_ARMOR_BONUS)
-            + self.buffs.sum_add(e, sk::PHYSICAL_ARMOR_BONUS_UNIQUE)
-            + self.buffs.sum_add(e, sk::PHYSICAL_ARMOR_BONUS_UNIQUE_ACTIVE)
+        base + self.buffs.sum_add(e, StatKey::PhysicalArmorBonus)
+            + self.buffs.sum_add(e, StatKey::PhysicalArmorBonusUnique)
+            + self.buffs.sum_add(e, StatKey::PhysicalArmorBonusUniqueActive)
     }
 
     /// 魔抗：0..1 = 百分比。direct_modification 若存在 → 覆蓋 base + bonus。
     pub fn final_magic_resist(&self, base: f32, e: Entity) -> f32 {
-        let direct = self.buffs.sum_add(e, sk::MAGICAL_RESISTANCE_DIRECT_MODIFICATION);
+        let direct = self.buffs.sum_add(e, StatKey::MagicalResistanceDirectModification);
         if direct > 0.0 {
             return direct.clamp(0.0, 1.0);
         }
-        let bonus = self.buffs.sum_add(e, sk::MAGICAL_RESISTANCE_BONUS);
-        let decrepify = self.buffs.sum_add(e, sk::MAGICAL_RESISTANCE_DECREPIFY_UNIQUE);
+        let bonus = self.buffs.sum_add(e, StatKey::MagicalResistanceBonus);
+        let decrepify = self.buffs.sum_add(e, StatKey::MagicalResistanceDecrepifyUnique);
         // Dota 疊加公式：1 - (1-r1)(1-r2)...
         let combined = 1.0 - (1.0 - base) * (1.0 - bonus / 100.0) * (1.0 - decrepify / 100.0);
         combined.clamp(-1.0, 1.0)
@@ -158,19 +158,19 @@ impl<'a> UnitStats<'a> {
     // ================= 命中率 =================
 
     pub fn evasion_chance(&self, e: Entity) -> f32 {
-        (self.buffs.sum_add(e, sk::EVASION_CONSTANT)
-            - self.buffs.sum_add(e, sk::NEGATIVE_EVASION_CONSTANT))
+        (self.buffs.sum_add(e, StatKey::EvasionConstant)
+            - self.buffs.sum_add(e, StatKey::NegativeEvasionConstant))
         .clamp(0.0, 1.0)
     }
 
     pub fn miss_chance(&self, e: Entity) -> f32 {
-        self.buffs.sum_add(e, sk::MISS_PERCENTAGE).clamp(0.0, 1.0)
+        self.buffs.sum_add(e, StatKey::MissPercentage).clamp(0.0, 1.0)
     }
 
     /// 回 (chance, multiplier)；chance 為 0..1；multiplier 預設 1.0（無暴擊）
     pub fn crit(&self, e: Entity) -> (f32, f32) {
-        let chance = self.buffs.sum_add(e, sk::PREATTACK_CRITICALSTRIKE).clamp(0.0, 1.0);
-        let mult_raw = self.buffs.sum_add(e, sk::CRIT_MULTIPLIER);
+        let chance = self.buffs.sum_add(e, StatKey::PreattackCriticalStrike).clamp(0.0, 1.0);
+        let mult_raw = self.buffs.sum_add(e, StatKey::CritMultiplier);
         let mult = if mult_raw > 0.0 { mult_raw } else { 1.0 };
         (chance, mult)
     }
@@ -179,53 +179,53 @@ impl<'a> UnitStats<'a> {
 
     /// Cooldown percentage multiplier: final_cd = base_cd × (1 + pct + stacking)
     pub fn cooldown_mult(&self, e: Entity) -> f32 {
-        let pct = self.buffs.sum_add(e, sk::COOLDOWN_PERCENTAGE);
-        let stacking = self.buffs.sum_add(e, sk::COOLDOWN_PERCENTAGE_STACKING);
+        let pct = self.buffs.sum_add(e, StatKey::CooldownPercentage);
+        let stacking = self.buffs.sum_add(e, StatKey::CooldownPercentageStacking);
         (1.0 + pct + stacking).max(0.1)
     }
 
     pub fn cast_time_mult(&self, e: Entity) -> f32 {
-        (1.0 + self.buffs.sum_add(e, sk::CASTTIME_PERCENTAGE)).max(0.1)
+        (1.0 + self.buffs.sum_add(e, StatKey::CastTimePercentage)).max(0.1)
     }
 
     pub fn mana_cost_mult(&self, e: Entity) -> f32 {
-        (1.0 + self.buffs.sum_add(e, sk::MANACOST_PERCENTAGE)).max(0.0)
+        (1.0 + self.buffs.sum_add(e, StatKey::ManaCostPercentage)).max(0.0)
     }
 
     // ================= 回復 =================
 
     pub fn hp_regen(&self, base: f32, e: Entity) -> f32 {
-        if self.buffs.has(e, sk::DISABLE_HEALING)
-            || self.buffs.sum_add(e, sk::DISABLE_HEALING) > 0.5
+        if self.buffs.has(e, StatKey::DisableHealing.as_str())
+            || self.buffs.sum_add(e, StatKey::DisableHealing) > 0.5
         {
             return 0.0;
         }
-        let bonus = self.buffs.sum_add(e, sk::HEALTH_REGEN_CONSTANT);
-        let pct = self.buffs.sum_add(e, sk::HEALTH_REGEN_PERCENTAGE);
-        let amp = 1.0 + self.buffs.sum_add(e, sk::HP_REGEN_AMPLIFY_PERCENTAGE);
+        let bonus = self.buffs.sum_add(e, StatKey::HealthRegenConstant);
+        let pct = self.buffs.sum_add(e, StatKey::HealthRegenPercentage);
+        let amp = 1.0 + self.buffs.sum_add(e, StatKey::HpRegenAmplifyPercentage);
         ((base + bonus) * (1.0 + pct) * amp).max(0.0)
     }
 
     pub fn mana_regen(&self, base: f32, e: Entity) -> f32 {
-        let base_override = self.buffs.sum_add(e, sk::BASE_MANA_REGEN);
+        let base_override = self.buffs.sum_add(e, StatKey::BaseManaRegen);
         let base_eff = if base_override > 0.0 { base_override } else { base };
-        let bonus = self.buffs.sum_add(e, sk::MANA_REGEN_CONSTANT)
-            + self.buffs.sum_add(e, sk::MANA_REGEN_CONSTANT_UNIQUE);
-        let pct = self.buffs.sum_add(e, sk::MANA_REGEN_PERCENTAGE);
-        let total_pct = self.buffs.sum_add(e, sk::MANA_REGEN_TOTAL_PERCENTAGE);
+        let bonus = self.buffs.sum_add(e, StatKey::ManaRegenConstant)
+            + self.buffs.sum_add(e, StatKey::ManaRegenConstantUnique);
+        let pct = self.buffs.sum_add(e, StatKey::ManaRegenPercentage);
+        let total_pct = self.buffs.sum_add(e, StatKey::ManaRegenTotalPercentage);
         (((base_eff + bonus) * (1.0 + pct)) * (1.0 + total_pct)).max(0.0)
     }
 
     // ================= HP / Mana 上限 =================
 
     pub fn max_hp_bonus(&self, e: Entity) -> f32 {
-        self.buffs.sum_add(e, sk::HEALTH_BONUS)
-            + self.buffs.sum_add(e, sk::EXTRA_HEALTH_BONUS)
+        self.buffs.sum_add(e, StatKey::HealthBonus)
+            + self.buffs.sum_add(e, StatKey::ExtraHealthBonus)
     }
 
     pub fn max_mp_bonus(&self, e: Entity) -> f32 {
-        self.buffs.sum_add(e, sk::MANA_BONUS)
-            + self.buffs.sum_add(e, sk::EXTRA_MANA_BONUS)
+        self.buffs.sum_add(e, StatKey::ManaBonus)
+            + self.buffs.sum_add(e, StatKey::ExtraManaBonus)
     }
 
     // ================= Damage pipeline 入口 =================
@@ -243,17 +243,17 @@ impl<'a> UnitStats<'a> {
         // 1. 絕對免疫
         match kind {
             DamageKind::Physical
-                if self.buffs.sum_add(e, sk::ABSOLUTE_NO_DAMAGE_PHYSICAL) > 0.5 =>
+                if self.buffs.sum_add(e, StatKey::AbsoluteNoDamagePhysical) > 0.5 =>
             {
                 return 0.0
             }
             DamageKind::Magical
-                if self.buffs.sum_add(e, sk::ABSOLUTE_NO_DAMAGE_MAGICAL) > 0.5 =>
+                if self.buffs.sum_add(e, StatKey::AbsoluteNoDamageMagical) > 0.5 =>
             {
                 return 0.0
             }
             DamageKind::Pure
-                if self.buffs.sum_add(e, sk::ABSOLUTE_NO_DAMAGE_PURE) > 0.5 =>
+                if self.buffs.sum_add(e, StatKey::AbsoluteNoDamagePure) > 0.5 =>
             {
                 return 0.0
             }
@@ -261,7 +261,7 @@ impl<'a> UnitStats<'a> {
         }
 
         // 2. Block（無法避免、先套）
-        let unavoid_block = self.buffs.sum_add(e, sk::TOTAL_CONSTANT_BLOCK_UNAVOIDABLE_PRE_ARMOR);
+        let unavoid_block = self.buffs.sum_add(e, StatKey::TotalConstantBlockUnavoidablePreArmor);
         let after_unavoid = (raw - unavoid_block).max(0.0);
 
         // 3. Armor / Resist
@@ -282,26 +282,26 @@ impl<'a> UnitStats<'a> {
         let kind_block = self.buffs.sum_add(
             e,
             match kind {
-                DamageKind::Physical => sk::PHYSICAL_CONSTANT_BLOCK,
-                DamageKind::Magical => sk::MAGICAL_CONSTANT_BLOCK,
-                _ => sk::TOTAL_CONSTANT_BLOCK,
+                DamageKind::Physical => StatKey::PhysicalConstantBlock,
+                DamageKind::Magical => StatKey::MagicalConstantBlock,
+                _ => StatKey::TotalConstantBlock,
             },
         );
         let after_kind_block = (after_defense - kind_block).max(0.0);
 
         // 5. Incoming percentage
-        let pct_all = 1.0 + self.buffs.sum_add(e, sk::INCOMING_DAMAGE_PERCENTAGE);
+        let pct_all = 1.0 + self.buffs.sum_add(e, StatKey::IncomingDamagePercentage);
         let pct_kind = 1.0
             + match kind {
-                DamageKind::Physical => self.buffs.sum_add(e, sk::INCOMING_PHYSICAL_DAMAGE_PERCENTAGE),
+                DamageKind::Physical => self.buffs.sum_add(e, StatKey::IncomingPhysicalDamagePercentage),
                 _ => 0.0,
             };
         let after_pct = after_kind_block * pct_all * pct_kind;
 
         // 6. Incoming constant
         let k_const = match kind {
-            DamageKind::Physical => self.buffs.sum_add(e, sk::INCOMING_PHYSICAL_DAMAGE_CONSTANT),
-            DamageKind::Magical => self.buffs.sum_add(e, sk::INCOMING_SPELL_DAMAGE_CONSTANT),
+            DamageKind::Physical => self.buffs.sum_add(e, StatKey::IncomingPhysicalDamageConstant),
+            DamageKind::Magical => self.buffs.sum_add(e, StatKey::IncomingSpellDamageConstant),
             _ => 0.0,
         };
         (after_pct + k_const).max(0.0)

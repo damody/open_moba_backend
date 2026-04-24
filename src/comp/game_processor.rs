@@ -354,7 +354,7 @@ impl GameProcessor {
 
             // Accuracy 擲骰：base 命中率 1.0 + sum(accuracy_bonus) buffs；clamp [0,1]。
             // miss → damage=0（projectile 仍飛行，前端可由 0 傷害判定顯示 miss）。
-            let accuracy = (1.0 + buff_store.sum_add(source_entity, "accuracy_bonus")).clamp(0.0, 1.0);
+            let accuracy = (1.0 + buff_store.sum_add(source_entity, omb_script_abi::stat_keys::StatKey::AccuracyBonus)).clamp(0.0, 1.0);
             if accuracy < 1.0 && fastrand::f32() > accuracy {
                 final_atk = 0.0;
             }
@@ -378,7 +378,7 @@ impl GameProcessor {
 
             // 多發視覺 buff：sum_add 聚合（大絕套 3 → 3 發，也支援多個 buff 相加）
             // N > 1 時主彈正常判傷害，額外 N-1 發 visual-only（無傷害、target=None 到 tpos 自毀）
-            let vc = buff_store.sum_add(source_entity, "multi_shot_visual");
+            let vc = buff_store.sum_add_str(source_entity, "multi_shot_visual");
             let visual_count = if vc >= 2.0 { vc.round().max(1.0) as u32 } else { 1 };
 
             (tp.bullet_speed, p2.0, final_atk, stun_roll, visual_count)
@@ -534,7 +534,7 @@ impl GameProcessor {
                     .get(target).map(|c| c.msd).unwrap_or(0.0);
                 let sum = {
                     let store = ecs.read_resource::<crate::ability_runtime::BuffStore>();
-                    store.sum_add(target, "move_speed_bonus")
+                    store.sum_add_str(target, "move_speed_bonus")
                 };
                 let effective = msd * (1.0 + sum).clamp(0.01, 1.0);
                 if let Some(tx) = ecs.read_resource::<Vec<crossbeam_channel::Sender<OutboundMsg>>>().get(0) {
@@ -704,7 +704,7 @@ impl GameProcessor {
         // 例：Ice Embrittlement L3 對被減速 creep +25% 傷害
         let dmg_taken_bonus = {
             let bs = ecs.read_resource::<crate::ability_runtime::BuffStore>();
-            bs.sum_add(target, "damage_taken_bonus")
+            bs.sum_add_str(target, "damage_taken_bonus")
         };
         let dmg_multiplier = (1.0 + dmg_taken_bonus).max(0.0);
 

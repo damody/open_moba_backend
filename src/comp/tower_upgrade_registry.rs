@@ -2,7 +2,7 @@
 //! 在 state/core.rs 初始化時 insert。
 
 use std::collections::HashMap;
-use omb_script_abi::stat_keys as sk;
+use omb_script_abi::stat_keys::StatKey;
 use omoba_core::tower_meta::{TowerUpgradeDef, UpgradeEffect, StatOp};
 
 pub struct TowerUpgradeRegistry {
@@ -39,7 +39,7 @@ impl TowerUpgradeRegistry {
             name: "Long Range Darts".into(),
             description: "射程 350→400".into(),
             cost: 50,
-            effects: vec![UpgradeEffect::StatMod { key: sk::ATTACK_RANGE_BONUS.into(), value: 50.0, op: StatOp::Add }],
+            effects: vec![UpgradeEffect::StatMod { key: StatKey::AttackRangeBonus.as_str().into(), value: 50.0, op: StatOp::Add }],
         });
         self.insert(TowerUpgradeDef {
             tower_kind: kind.into(), path: 0, level: 2,
@@ -47,8 +47,8 @@ impl TowerUpgradeRegistry {
             description: "射程 →450, damage 10→15".into(),
             cost: 100,
             effects: vec![
-                UpgradeEffect::StatMod { key: sk::ATTACK_RANGE_BONUS.into(), value: 50.0, op: StatOp::Add },
-                UpgradeEffect::StatMod { key: sk::BASEDAMAGEOUTGOING_PERCENTAGE.into(), value: 0.5, op: StatOp::Add },
+                UpgradeEffect::StatMod { key: StatKey::AttackRangeBonus.as_str().into(), value: 50.0, op: StatOp::Add },
+                UpgradeEffect::StatMod { key: StatKey::BaseDamageOutgoingPercentage.as_str().into(), value: 0.5, op: StatOp::Add },
             ],
         });
         self.insert(TowerUpgradeDef {
@@ -58,7 +58,7 @@ impl TowerUpgradeRegistry {
             cost: 200,
             effects: vec![
                 UpgradeEffect::BehaviorFlag { flag: "sharp_pierce".into() },
-                UpgradeEffect::StatMod { key: sk::BASEDAMAGEOUTGOING_PERCENTAGE.into(), value: 0.5, op: StatOp::Add },
+                UpgradeEffect::StatMod { key: StatKey::BaseDamageOutgoingPercentage.as_str().into(), value: 0.5, op: StatOp::Add },
             ],
         });
         self.insert(TowerUpgradeDef {
@@ -74,14 +74,14 @@ impl TowerUpgradeRegistry {
             name: "Quick Shots".into(),
             description: "攻速 +20%".into(),
             cost: 50,
-            effects: vec![UpgradeEffect::StatMod { key: sk::ATTACK_SPEED_MULTIPLIER.into(), value: 0.83, op: StatOp::Mul }],
+            effects: vec![UpgradeEffect::StatMod { key: StatKey::AttackSpeedMultiplier.as_str().into(), value: 0.83, op: StatOp::Mul }],
         });
         self.insert(TowerUpgradeDef {
             tower_kind: kind.into(), path: 1, level: 2,
             name: "Very Quick Shots".into(),
             description: "攻速再 +30%".into(),
             cost: 100,
-            effects: vec![UpgradeEffect::StatMod { key: sk::ATTACK_SPEED_MULTIPLIER.into(), value: 0.70, op: StatOp::Mul }],
+            effects: vec![UpgradeEffect::StatMod { key: StatKey::AttackSpeedMultiplier.as_str().into(), value: 0.70, op: StatOp::Mul }],
         });
         self.insert(TowerUpgradeDef {
             tower_kind: kind.into(), path: 1, level: 3,
@@ -97,7 +97,7 @@ impl TowerUpgradeRegistry {
             cost: 500,
             effects: vec![
                 UpgradeEffect::BehaviorFlag { flag: "fan_club".into() },
-                UpgradeEffect::StatMod { key: sk::ATTACK_SPEED_MULTIPLIER.into(), value: 0.70, op: StatOp::Mul },
+                UpgradeEffect::StatMod { key: StatKey::AttackSpeedMultiplier.as_str().into(), value: 0.70, op: StatOp::Mul },
             ],
         });
         // Path 2 — Crit Master
@@ -107,8 +107,8 @@ impl TowerUpgradeRegistry {
             description: "爆率 25→40%, 爆傷 30→40".into(),
             cost: 50,
             effects: vec![
-                UpgradeEffect::StatMod { key: sk::PREATTACK_CRITICALSTRIKE.into(), value: 0.40, op: StatOp::Add },
-                UpgradeEffect::StatMod { key: sk::CRIT_BONUS.into(), value: 40.0, op: StatOp::Add },
+                UpgradeEffect::StatMod { key: StatKey::PreattackCriticalStrike.as_str().into(), value: 0.40, op: StatOp::Add },
+                UpgradeEffect::StatMod { key: StatKey::CritBonus.as_str().into(), value: 40.0, op: StatOp::Add },
             ],
         });
         self.insert(TowerUpgradeDef {
@@ -117,9 +117,9 @@ impl TowerUpgradeRegistry {
             description: "爆率 →50%, 爆傷 →60, 射程 +30".into(),
             cost: 100,
             effects: vec![
-                UpgradeEffect::StatMod { key: sk::PREATTACK_CRITICALSTRIKE.into(), value: 0.10, op: StatOp::Add },
-                UpgradeEffect::StatMod { key: sk::CRIT_BONUS.into(), value: 20.0, op: StatOp::Add },
-                UpgradeEffect::StatMod { key: sk::ATTACK_RANGE_BONUS.into(), value: 30.0, op: StatOp::Add },
+                UpgradeEffect::StatMod { key: StatKey::PreattackCriticalStrike.as_str().into(), value: 0.10, op: StatOp::Add },
+                UpgradeEffect::StatMod { key: StatKey::CritBonus.as_str().into(), value: 20.0, op: StatOp::Add },
+                UpgradeEffect::StatMod { key: StatKey::AttackRangeBonus.as_str().into(), value: 30.0, op: StatOp::Add },
             ],
         });
         self.insert(TowerUpgradeDef {
@@ -129,7 +129,7 @@ impl TowerUpgradeRegistry {
             cost: 200,
             effects: vec![
                 UpgradeEffect::BehaviorFlag { flag: "always_crit".into() },
-                UpgradeEffect::StatMod { key: sk::BASEDAMAGEOUTGOING_PERCENTAGE.into(), value: 0.3, op: StatOp::Add },
+                UpgradeEffect::StatMod { key: StatKey::BaseDamageOutgoingPercentage.as_str().into(), value: 0.3, op: StatOp::Add },
             ],
         });
         self.insert(TowerUpgradeDef {
@@ -150,7 +150,7 @@ impl TowerUpgradeRegistry {
             name: "Extra Range".into(),
             description: "射程 400→475".into(),
             cost: 162,
-            effects: vec![UpgradeEffect::StatMod { key: sk::ATTACK_RANGE_BONUS.into(), value: 75.0, op: StatOp::Add }],
+            effects: vec![UpgradeEffect::StatMod { key: StatKey::AttackRangeBonus.as_str().into(), value: 75.0, op: StatOp::Add }],
         });
         self.insert(TowerUpgradeDef {
             tower_kind: kind.into(), path: 0, level: 2,
@@ -158,8 +158,8 @@ impl TowerUpgradeRegistry {
             description: "splash 200→250, damage 30→40".into(),
             cost: 325,
             effects: vec![
-                UpgradeEffect::StatMod { key: sk::SPLASH_BONUS.into(), value: 50.0, op: StatOp::Add },
-                UpgradeEffect::StatMod { key: sk::BASEDAMAGEOUTGOING_PERCENTAGE.into(), value: 0.33, op: StatOp::Add },
+                UpgradeEffect::StatMod { key: StatKey::SplashBonus.as_str().into(), value: 50.0, op: StatOp::Add },
+                UpgradeEffect::StatMod { key: StatKey::BaseDamageOutgoingPercentage.as_str().into(), value: 0.33, op: StatOp::Add },
             ],
         });
         self.insert(TowerUpgradeDef {
@@ -168,8 +168,8 @@ impl TowerUpgradeRegistry {
             description: "splash →300, damage →60".into(),
             cost: 650,
             effects: vec![
-                UpgradeEffect::StatMod { key: sk::SPLASH_BONUS.into(), value: 50.0, op: StatOp::Add },
-                UpgradeEffect::StatMod { key: sk::BASEDAMAGEOUTGOING_PERCENTAGE.into(), value: 0.67, op: StatOp::Add },
+                UpgradeEffect::StatMod { key: StatKey::SplashBonus.as_str().into(), value: 50.0, op: StatOp::Add },
+                UpgradeEffect::StatMod { key: StatKey::BaseDamageOutgoingPercentage.as_str().into(), value: 0.67, op: StatOp::Add },
             ],
         });
         self.insert(TowerUpgradeDef {
@@ -179,8 +179,8 @@ impl TowerUpgradeRegistry {
             cost: 1625,
             effects: vec![
                 UpgradeEffect::BehaviorFlag { flag: "bomb_stun".into() },
-                UpgradeEffect::StatMod { key: sk::SPLASH_BONUS.into(), value: 100.0, op: StatOp::Add },
-                UpgradeEffect::StatMod { key: sk::BASEDAMAGEOUTGOING_PERCENTAGE.into(), value: 1.33, op: StatOp::Add },
+                UpgradeEffect::StatMod { key: StatKey::SplashBonus.as_str().into(), value: 100.0, op: StatOp::Add },
+                UpgradeEffect::StatMod { key: StatKey::BaseDamageOutgoingPercentage.as_str().into(), value: 1.33, op: StatOp::Add },
             ],
         });
         // Path 1 — Missile Launcher
@@ -189,7 +189,7 @@ impl TowerUpgradeRegistry {
             name: "Faster Reload".into(),
             description: "攻速 +20%".into(),
             cost: 162,
-            effects: vec![UpgradeEffect::StatMod { key: sk::ATTACK_SPEED_MULTIPLIER.into(), value: 0.83, op: StatOp::Mul }],
+            effects: vec![UpgradeEffect::StatMod { key: StatKey::AttackSpeedMultiplier.as_str().into(), value: 0.83, op: StatOp::Mul }],
         });
         self.insert(TowerUpgradeDef {
             tower_kind: kind.into(), path: 1, level: 2,
@@ -197,7 +197,7 @@ impl TowerUpgradeRegistry {
             description: "射程 +150, 彈速 900→1350".into(),
             cost: 325,
             effects: vec![
-                UpgradeEffect::StatMod { key: sk::ATTACK_RANGE_BONUS.into(), value: 150.0, op: StatOp::Add },
+                UpgradeEffect::StatMod { key: StatKey::AttackRangeBonus.as_str().into(), value: 150.0, op: StatOp::Add },
                 UpgradeEffect::BehaviorFlag { flag: "missile".into() },
             ],
         });
@@ -206,7 +206,7 @@ impl TowerUpgradeRegistry {
             name: "MOAB Mauler".into(),
             description: "damage +30, 彈速再 +50%".into(),
             cost: 650,
-            effects: vec![UpgradeEffect::StatMod { key: sk::BASEDAMAGEOUTGOING_PERCENTAGE.into(), value: 1.0, op: StatOp::Add }],
+            effects: vec![UpgradeEffect::StatMod { key: StatKey::BaseDamageOutgoingPercentage.as_str().into(), value: 1.0, op: StatOp::Add }],
         });
         self.insert(TowerUpgradeDef {
             tower_kind: kind.into(), path: 1, level: 4,
@@ -215,7 +215,7 @@ impl TowerUpgradeRegistry {
             cost: 1625,
             effects: vec![
                 UpgradeEffect::BehaviorFlag { flag: "moab_assassin".into() },
-                UpgradeEffect::StatMod { key: sk::ATTACK_SPEED_MULTIPLIER.into(), value: 0.70, op: StatOp::Mul },
+                UpgradeEffect::StatMod { key: StatKey::AttackSpeedMultiplier.as_str().into(), value: 0.70, op: StatOp::Mul },
             ],
         });
         // Path 2 — Cluster Bombs
@@ -247,7 +247,7 @@ impl TowerUpgradeRegistry {
             cost: 1625,
             effects: vec![
                 UpgradeEffect::BehaviorFlag { flag: "frag_homing".into() },
-                UpgradeEffect::StatMod { key: sk::BASEDAMAGEOUTGOING_PERCENTAGE.into(), value: 1.67, op: StatOp::Add },
+                UpgradeEffect::StatMod { key: StatKey::BaseDamageOutgoingPercentage.as_str().into(), value: 1.67, op: StatOp::Add },
             ],
         });
     }
@@ -261,7 +261,7 @@ impl TowerUpgradeRegistry {
             name: "Faster Shooting".into(),
             description: "攻速 +20%".into(),
             cost: 100,
-            effects: vec![UpgradeEffect::StatMod { key: sk::ATTACK_SPEED_MULTIPLIER.into(), value: 0.83, op: StatOp::Mul }],
+            effects: vec![UpgradeEffect::StatMod { key: StatKey::AttackSpeedMultiplier.as_str().into(), value: 0.83, op: StatOp::Mul }],
         });
         self.insert(TowerUpgradeDef {
             tower_kind: kind.into(), path: 0, level: 2,
@@ -269,8 +269,8 @@ impl TowerUpgradeRegistry {
             description: "射程 380→460, damage 8→11".into(),
             cost: 200,
             effects: vec![
-                UpgradeEffect::StatMod { key: sk::ATTACK_RANGE_BONUS.into(), value: 80.0, op: StatOp::Add },
-                UpgradeEffect::StatMod { key: sk::BASEDAMAGEOUTGOING_PERCENTAGE.into(), value: 0.375, op: StatOp::Add },
+                UpgradeEffect::StatMod { key: StatKey::AttackRangeBonus.as_str().into(), value: 80.0, op: StatOp::Add },
+                UpgradeEffect::StatMod { key: StatKey::BaseDamageOutgoingPercentage.as_str().into(), value: 0.375, op: StatOp::Add },
             ],
         });
         self.insert(TowerUpgradeDef {
@@ -279,8 +279,8 @@ impl TowerUpgradeRegistry {
             description: "射程 →530, damage →14".into(),
             cost: 400,
             effects: vec![
-                UpgradeEffect::StatMod { key: sk::ATTACK_RANGE_BONUS.into(), value: 70.0, op: StatOp::Add },
-                UpgradeEffect::StatMod { key: sk::BASEDAMAGEOUTGOING_PERCENTAGE.into(), value: 0.375, op: StatOp::Add },
+                UpgradeEffect::StatMod { key: StatKey::AttackRangeBonus.as_str().into(), value: 70.0, op: StatOp::Add },
+                UpgradeEffect::StatMod { key: StatKey::BaseDamageOutgoingPercentage.as_str().into(), value: 0.375, op: StatOp::Add },
             ],
         });
         self.insert(TowerUpgradeDef {
@@ -290,7 +290,7 @@ impl TowerUpgradeRegistry {
             cost: 1000,
             effects: vec![
                 UpgradeEffect::BehaviorFlag { flag: "blade_shooter".into() },
-                UpgradeEffect::StatMod { key: sk::BASEDAMAGEOUTGOING_PERCENTAGE.into(), value: 1.5, op: StatOp::Add },
+                UpgradeEffect::StatMod { key: StatKey::BaseDamageOutgoingPercentage.as_str().into(), value: 1.5, op: StatOp::Add },
             ],
         });
         // Path 1 — Ring of Fire
@@ -322,7 +322,7 @@ impl TowerUpgradeRegistry {
             cost: 1000,
             effects: vec![
                 UpgradeEffect::BehaviorFlag { flag: "inferno_ring".into() },
-                UpgradeEffect::StatMod { key: sk::BASEDAMAGEOUTGOING_PERCENTAGE.into(), value: 1.25, op: StatOp::Add },
+                UpgradeEffect::StatMod { key: StatKey::BaseDamageOutgoingPercentage.as_str().into(), value: 1.25, op: StatOp::Add },
             ],
         });
         // Path 2 — More Tacks
@@ -331,7 +331,7 @@ impl TowerUpgradeRegistry {
             name: "Faster Shooting II".into(),
             description: "攻速 +30%".into(),
             cost: 100,
-            effects: vec![UpgradeEffect::StatMod { key: sk::ATTACK_SPEED_MULTIPLIER.into(), value: 0.77, op: StatOp::Mul }],
+            effects: vec![UpgradeEffect::StatMod { key: StatKey::AttackSpeedMultiplier.as_str().into(), value: 0.77, op: StatOp::Mul }],
         });
         self.insert(TowerUpgradeDef {
             tower_kind: kind.into(), path: 2, level: 2,
@@ -347,7 +347,7 @@ impl TowerUpgradeRegistry {
             cost: 400,
             effects: vec![
                 UpgradeEffect::BehaviorFlag { flag: "needles_16".into() },
-                UpgradeEffect::StatMod { key: sk::ATTACK_RANGE_BONUS.into(), value: 50.0, op: StatOp::Add },
+                UpgradeEffect::StatMod { key: StatKey::AttackRangeBonus.as_str().into(), value: 50.0, op: StatOp::Add },
             ],
         });
         self.insert(TowerUpgradeDef {
@@ -357,7 +357,7 @@ impl TowerUpgradeRegistry {
             cost: 1000,
             effects: vec![
                 UpgradeEffect::BehaviorFlag { flag: "needles_32".into() },
-                UpgradeEffect::StatMod { key: sk::ATTACK_SPEED_MULTIPLIER.into(), value: 0.70, op: StatOp::Mul },
+                UpgradeEffect::StatMod { key: StatKey::AttackSpeedMultiplier.as_str().into(), value: 0.70, op: StatOp::Mul },
             ],
         });
     }
@@ -371,14 +371,14 @@ impl TowerUpgradeRegistry {
             name: "Permafrost".into(),
             description: "slow 50%→65%".into(),
             cost: 100,
-            effects: vec![UpgradeEffect::StatMod { key: sk::SLOW_FACTOR_OVERRIDE.into(), value: 0.35, op: StatOp::Add }],
+            effects: vec![UpgradeEffect::StatMod { key: StatKey::SlowFactorOverride.as_str().into(), value: 0.35, op: StatOp::Add }],
         });
         self.insert(TowerUpgradeDef {
             tower_kind: kind.into(), path: 0, level: 2,
             name: "Enhanced Freeze".into(),
             description: "slow 持續 2.0→3.0s".into(),
             cost: 200,
-            effects: vec![UpgradeEffect::StatMod { key: sk::SLOW_DURATION_BONUS.into(), value: 1.0, op: StatOp::Add }],
+            effects: vec![UpgradeEffect::StatMod { key: StatKey::SlowDurationBonus.as_str().into(), value: 1.0, op: StatOp::Add }],
         });
         self.insert(TowerUpgradeDef {
             tower_kind: kind.into(), path: 0, level: 3,
@@ -394,7 +394,7 @@ impl TowerUpgradeRegistry {
             cost: 1000,
             effects: vec![
                 UpgradeEffect::BehaviorFlag { flag: "absolute_zero".into() },
-                UpgradeEffect::StatMod { key: sk::SLOW_FACTOR_OVERRIDE.into(), value: -0.15, op: StatOp::Add },
+                UpgradeEffect::StatMod { key: StatKey::SlowFactorOverride.as_str().into(), value: -0.15, op: StatOp::Add },
             ],
         });
         // Path 1 — Arctic Wind
@@ -404,8 +404,8 @@ impl TowerUpgradeRegistry {
             description: "range 180→250, splash 90→120".into(),
             cost: 100,
             effects: vec![
-                UpgradeEffect::StatMod { key: sk::ATTACK_RANGE_BONUS.into(), value: 70.0, op: StatOp::Add },
-                UpgradeEffect::StatMod { key: sk::SPLASH_BONUS.into(), value: 30.0, op: StatOp::Add },
+                UpgradeEffect::StatMod { key: StatKey::AttackRangeBonus.as_str().into(), value: 70.0, op: StatOp::Add },
+                UpgradeEffect::StatMod { key: StatKey::SplashBonus.as_str().into(), value: 30.0, op: StatOp::Add },
             ],
         });
         self.insert(TowerUpgradeDef {
@@ -414,7 +414,7 @@ impl TowerUpgradeRegistry {
             description: "range →300, 塔周光環減速 20%".into(),
             cost: 200,
             effects: vec![
-                UpgradeEffect::StatMod { key: sk::ATTACK_RANGE_BONUS.into(), value: 50.0, op: StatOp::Add },
+                UpgradeEffect::StatMod { key: StatKey::AttackRangeBonus.as_str().into(), value: 50.0, op: StatOp::Add },
                 UpgradeEffect::BehaviorFlag { flag: "arctic_aura_20".into() },
             ],
         });
@@ -432,7 +432,7 @@ impl TowerUpgradeRegistry {
             cost: 1000,
             effects: vec![
                 UpgradeEffect::BehaviorFlag { flag: "cryo_cannon".into() },
-                UpgradeEffect::StatMod { key: sk::ATTACK_RANGE_BONUS.into(), value: 100.0, op: StatOp::Add },
+                UpgradeEffect::StatMod { key: StatKey::AttackRangeBonus.as_str().into(), value: 100.0, op: StatOp::Add },
             ],
         });
         // Path 2 — Embrittlement
@@ -464,7 +464,7 @@ impl TowerUpgradeRegistry {
             cost: 1000,
             effects: vec![
                 UpgradeEffect::BehaviorFlag { flag: "icicle_impale".into() },
-                UpgradeEffect::StatMod { key: sk::BASEDAMAGEOUTGOING_PERCENTAGE.into(), value: 7.33, op: StatOp::Add },
+                UpgradeEffect::StatMod { key: StatKey::BaseDamageOutgoingPercentage.as_str().into(), value: 7.33, op: StatOp::Add },
             ],
         });
     }

@@ -7,6 +7,7 @@
 //! 每筆 buff 可攜帶 `payload: serde_json::Value`，讓 host 系統（例如
 //! `creep_tick` 的移速計算）從 buff 身上讀出數值（如 slow factor）。
 
+use omb_script_abi::stat_keys::StatKey;
 use serde_json::Value;
 use specs::Entity;
 use std::collections::HashMap;
@@ -80,20 +81,28 @@ impl BuffStore {
         })
     }
 
-    /// 加法聚合：對 entity 身上所有 buff，若 `payload[stat_id]` 是數字則加總。
+    /// 加法聚合：對 entity 身上所有 buff，若 `payload[stat]` 是數字則加總。
     /// 慣例：`_bonus` 後綴的 stat 用這個（例 `range_bonus`、`damage_bonus`）。
-    pub fn sum_add(&self, entity: Entity, stat_id: &str) -> f32 {
+    pub fn sum_add(&self, entity: Entity, stat: StatKey) -> f32 {
+        self.sum_add_str(entity, stat.as_str())
+    }
+
+    /// 加法聚合（字串 key 版）：用於 host-only / 非 StatKey enum 的自訂 payload 欄位，
+    /// 例如 `dot_damage`、`multi_shot_visual`、`damage_taken_bonus` 等 project 內部 key。
+    /// StatKey enum 內的屬性請用 `sum_add(StatKey::...)`。
+    pub fn sum_add_str(&self, entity: Entity, key: &str) -> f32 {
         self.iter_for(entity)
-            .filter_map(|(_, e)| e.payload.get(stat_id).and_then(|v| v.as_f64()))
+            .filter_map(|(_, e)| e.payload.get(key).and_then(|v| v.as_f64()))
             .sum::<f64>() as f32
     }
 
-    /// 乘法聚合：對 entity 身上所有 buff，若 `payload[stat_id]` 是數字則連乘。
+    /// 乘法聚合：對 entity 身上所有 buff，若 `payload[stat]` 是數字則連乘。
     /// 空集合回 1.0。慣例：`_multiplier` 後綴的 stat 用這個
     /// （例 `attack_speed_multiplier`、`move_speed_multiplier`）。
-    pub fn product_mult(&self, entity: Entity, stat_id: &str) -> f32 {
+    pub fn product_mult(&self, entity: Entity, stat: StatKey) -> f32 {
+        let key = stat.as_str();
         self.iter_for(entity)
-            .filter_map(|(_, e)| e.payload.get(stat_id).and_then(|v| v.as_f64()))
+            .filter_map(|(_, e)| e.payload.get(key).and_then(|v| v.as_f64()))
             .fold(1.0f64, |acc, v| acc * v) as f32
     }
 

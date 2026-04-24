@@ -9,6 +9,7 @@
 use abi_stable::std_types::{RNone, ROption, RSome, RStr, RVec};
 use crossbeam_channel::Sender;
 use omb_script_abi::{
+    stat_keys::StatKey,
     types::{DamageKind, EntityHandle, PathSpec, ProjectileSpec, Vec2f},
     world::GameWorld,
 };
@@ -584,14 +585,14 @@ impl<'a> GameWorld for WorldAdapter<'a> {
 
     // ---------------- Dota 2 modifier 風格聚合 ----------------
 
-    fn sum_stat(&self, e: EntityHandle, stat_key: RStr<'_>) -> f32 {
+    fn sum_stat(&self, e: EntityHandle, stat_key: StatKey) -> f32 {
         let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
-        self.world.read_resource::<BuffStore>().sum_add(ent, stat_key.as_str())
+        self.world.read_resource::<BuffStore>().sum_add(ent, stat_key)
     }
 
-    fn product_stat(&self, e: EntityHandle, stat_key: RStr<'_>) -> f32 {
+    fn product_stat(&self, e: EntityHandle, stat_key: StatKey) -> f32 {
         let Some(ent) = Self::handle_to_entity(e) else { return 1.0 };
-        self.world.read_resource::<BuffStore>().product_mult(ent, stat_key.as_str())
+        self.world.read_resource::<BuffStore>().product_mult(ent, stat_key)
     }
 
     fn get_final_move_speed(&self, e: EntityHandle) -> f32 {
@@ -767,10 +768,10 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         crate::ability_runtime::UnitStats::from_refs(&*buffs, is_bldg).hp_regen(0.0, ent)
     }
 
-    fn get_stat_bonus(&self, e: EntityHandle, key: RStr<'_>) -> f32 {
+    fn get_stat_bonus(&self, e: EntityHandle, key: StatKey) -> f32 {
         let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
         self.world.read_resource::<crate::ability_runtime::BuffStore>()
-            .sum_add(ent, key.as_str())
+            .sum_add(ent, key)
     }
 
     fn deal_damage_splash(

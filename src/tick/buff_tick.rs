@@ -64,7 +64,7 @@ impl<'a> System<'a> for Sys {
         let dot_targets: Vec<(specs::Entity, f32)> = (&data.entities)
             .join()
             .filter_map(|e| {
-                let d = data.buffs.sum_add(e, "dot_damage");
+                let d = data.buffs.sum_add_str(e, "dot_damage");
                 if d > 0.0 { Some((e, d)) } else { None }
             })
             .collect();
