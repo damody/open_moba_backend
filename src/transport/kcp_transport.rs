@@ -152,40 +152,42 @@ fn dedupe_batch(batch: Vec<OutboundMsg>) -> Vec<OutboundMsg> {
     let mut dedupe_idx: hashbrown::HashMap<DedupeKey, usize> = hashbrown::HashMap::new();
     for msg in batch {
         let (t, a, id) = peek_kind_and_id(&msg.msg);
-        if id != 0 && is_dedupable(&t, &a) {
-            let key = DedupeKey { msg_type: t, action: a, entity_id: id };
-            match dedupe_idx.get(&key) {
-                Some(&idx) => {
-                    // Replace in place so post-dedupe order stays deterministic
-                    // (first-occurrence slot, latest-value payload).
-                    out[idx] = msg;
-                }
-                None => {
-                    dedupe_idx.insert(key, out.len());
-                    out.push(msg);
+        match (id, is_dedupable(&t, &a)) {
+            (Some(entity_id), true) => {
+                let key = DedupeKey { msg_type: t, action: a, entity_id };
+                match dedupe_idx.get(&key) {
+                    Some(&idx) => {
+                        // Replace in place so post-dedupe order stays
+                        // deterministic (first-occurrence slot, latest payload).
+                        out[idx] = msg;
+                    }
+                    None => {
+                        dedupe_idx.insert(key, out.len());
+                        out.push(msg);
+                    }
                 }
             }
-        } else {
-            out.push(msg);
+            // Not dedupable, or id field missing/malformed → pass-through.
+            // Note: id=0 is a *legal* specs::Entity index, so we only skip
+            // dedupe when the id field itself is absent (parse returned None),
+            // not on the value 0.
+            _ => out.push(msg),
         }
     }
     out
 }
 
-/// Extract (msg_type, action, entity_id) from an OutboundMsg.msg JSON payload.
-/// Returns empty strings and id=0 if parse fails — caller treats those as
-/// non-dedupable (pass-through).
-fn peek_kind_and_id(payload: &str) -> (String, String, u64) {
+/// Extract (msg_type, action, Option<entity_id>) from an OutboundMsg JSON
+/// payload. `entity_id = None` means either parse failure or `d.id` absent;
+/// caller treats that as non-dedupable. A present `d.id = 0` is a legal
+/// `specs::Entity` index and is returned as `Some(0)`.
+fn peek_kind_and_id(payload: &str) -> (String, String, Option<u64>) {
     let Ok(parsed) = serde_json::from_str::<serde_json::Value>(payload) else {
-        return (String::new(), String::new(), 0);
+        return (String::new(), String::new(), None);
     };
     let t = parsed.get("t").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let a = parsed.get("a").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let id = parsed
-        .get("d")
-        .and_then(|d| d.get("id"))
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
+    let id = parsed.get("d").and_then(|d| d.get("id")).and_then(|v| v.as_u64());
     (t, a, id)
 }
 
