@@ -100,14 +100,17 @@ impl<'a> UnitStats<'a> {
 
     /// 攻速倍數（乘到 base attack interval 上）。
     /// Dota: effective_attacks_per_sec = base × (1 + as_bonus / 100)
-    /// 簡化：以 bonus/100 當 multiplier 加成；fixed_attack_rate 若設則覆蓋
+    /// 簡化：以 bonus/100 當 multiplier 加成；fixed_attack_rate 若設則覆蓋。
+    /// 另疊 `ATTACK_SPEED_MULTIPLIER`（專案自訂 product_mult，tower upgrade 用）。
     pub fn final_attack_speed_mult(&self, e: Entity) -> f32 {
         let fixed = self.buffs.sum_add(e, sk::FIXED_ATTACK_RATE);
         if fixed > 0.0 {
             return fixed;
         }
         let as_bonus = self.buffs.sum_add(e, sk::ATTACKSPEED_BONUS_CONSTANT);
-        (1.0 + as_bonus / 100.0).max(0.1)
+        let constant_mult = (1.0 + as_bonus / 100.0).max(0.1);
+        let extra_mult = self.buffs.product_mult(e, sk::ATTACK_SPEED_MULTIPLIER);
+        (constant_mult * extra_mult).max(0.1)
     }
 
     /// 射程 = base + ATTACK_RANGE_BONUS + ATTACK_RANGE_BONUS_UNIQUE，

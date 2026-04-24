@@ -143,6 +143,19 @@ pub const LIFESTEAL: &str = "lifesteal";
 pub const HEAL_RECEIVED_MULTIPLIER: &str = "heal_received_multiplier";
 pub const UNIT_STATS_NEEDS_REFRESH: &str = "unit_stats_needs_refresh";
 
+// ---- 專案自訂（非 Dota 原生，但 towers / heroes 普遍使用）----
+// 這些 key 在 tower 升級、hero ability 都會進 BuffStore payload；
+// 統一收在這邊是為了避免 script 與 registry 用 magic string 造成拼寫分歧。
+pub const ACCURACY_BONUS: &str = "accuracy_bonus";
+pub const SPLASH_BONUS: &str = "splash_bonus";
+pub const CRIT_BONUS: &str = "crit_bonus";
+pub const SLOW_FACTOR_OVERRIDE: &str = "slow_factor_override";
+pub const SLOW_DURATION_BONUS: &str = "slow_duration_bonus";
+/// 攻速 multiplier（乘法聚合：product_mult，空為 1）。
+/// 語意：攻擊間隔直接乘此值；0.83 = 攻擊間隔 ×0.83（攻速 +20%）。
+/// 與 `ATTACKSPEED_BONUS_CONSTANT`（Dota 加法 bonus points）互為不同語意。
+pub const ATTACK_SPEED_MULTIPLIER: &str = "attack_speed_multiplier";
+
 // ============================================================
 // SECTION 2 — 僅非建築物（IsBuilding 的實體跳過）
 // ============================================================
@@ -203,62 +216,12 @@ pub const OVERRIDE_ANIMATION_WEIGHT: &str = "override_animation_weight";
 pub const OVERRIDE_ANIMATION_RATE: &str = "override_animation_rate";
 
 // ============================================================
-// 舊常數 alias（backward compat for existing code written against v1）
+// 控制效果額外 key（非 bonus 聚合，是 runtime flag / 觸發）
 // ============================================================
-
-/// alias: BONUS_DAMAGE = PREATTACK_BONUS_DAMAGE
-pub const BONUS_DAMAGE: &str = PREATTACK_BONUS_DAMAGE;
-pub const BONUS_DAMAGE_PROC: &str = PREATTACK_BONUS_DAMAGE_PROC;
-pub const BONUS_DAMAGE_POST_CRIT: &str = PREATTACK_BONUS_DAMAGE_POST_CRIT;
-pub const BASE_DAMAGE_BONUS: &str = BASEATTACK_BONUS_DAMAGE;
-pub const DAMAGE_OUT_MULTIPLIER: &str = DAMAGEOUTGOING_PERCENTAGE;
-pub const DAMAGE_IN_MULTIPLIER: &str = INCOMING_DAMAGE_PERCENTAGE;
-pub const MAGIC_DAMAGE_OUT_MULTIPLIER: &str = MAGICDAMAGEOUTGOING_PERCENTAGE;
-pub const SPELL_AMP_BONUS: &str = SPELL_AMPLIFY_PERCENTAGE;
-pub const MOVE_SPEED_BONUS: &str = MOVESPEED_BONUS_CONSTANT;
-pub const MOVE_SPEED_MULTIPLIER: &str = MOVESPEED_BONUS_PERCENTAGE;
-pub const MOVE_SPEED_ABSOLUTE: &str = MOVESPEED_ABSOLUTE;
-pub const MOVE_SPEED_MIN: &str = MOVESPEED_ABSOLUTE_MIN;
-pub const MOVE_SPEED_MAX: &str = MOVESPEED_MAX;
-pub const MOVE_SPEED_LIMIT: &str = MOVESPEED_LIMIT;
-pub const ATTACK_SPEED_BONUS: &str = ATTACKSPEED_BONUS_CONSTANT;
-pub const ATTACK_SPEED_MULTIPLIER: &str = ATTACKSPEED_BONUS_CONSTANT;
-pub const BASE_ATTACK_TIME_OVERRIDE: &str = ATTACKSPEED_BASE_OVERRIDE;
-pub const COOLDOWN_REDUCTION_MULTIPLIER: &str = COOLDOWN_PERCENTAGE;
-pub const COOLDOWN_REDUCTION_STACKING: &str = COOLDOWN_PERCENTAGE_STACKING;
-pub const CAST_TIME_MULTIPLIER: &str = CASTTIME_PERCENTAGE;
-pub const MANA_COST_MULTIPLIER: &str = MANACOST_PERCENTAGE;
-pub const HP_REGEN_BONUS: &str = HEALTH_REGEN_CONSTANT;
-pub const HP_REGEN_MULTIPLIER: &str = HEALTH_REGEN_PERCENTAGE;
-pub const MANA_REGEN_BONUS: &str = MANA_REGEN_CONSTANT;
-pub const MANA_REGEN_MULTIPLIER: &str = MANA_REGEN_PERCENTAGE;
-pub const STRENGTH_BONUS: &str = STATS_STRENGTH_BONUS;
-pub const AGILITY_BONUS: &str = STATS_AGILITY_BONUS;
-pub const INTELLECT_BONUS: &str = STATS_INTELLECT_BONUS;
-pub const ARMOR_PHYSICAL_BONUS: &str = PHYSICAL_ARMOR_BONUS;
-pub const ARMOR_MAGICAL_BONUS: &str = MAGICAL_RESISTANCE_BONUS;
-pub const MAGIC_RESIST_BONUS: &str = MAGICAL_RESISTANCE_BONUS;
-pub const EVASION_CHANCE: &str = EVASION_CONSTANT;
-pub const MISS_CHANCE: &str = MISS_PERCENTAGE;
-pub const CRIT_CHANCE: &str = PREATTACK_CRITICALSTRIKE;
-pub const CRIT_TARGET_MULTIPLIER: &str = PREATTACK_TARGET_CRITICALSTRIKE;
-pub const BLOCK_PHYSICAL: &str = PHYSICAL_CONSTANT_BLOCK;
-pub const BLOCK_MAGICAL: &str = MAGICAL_CONSTANT_BLOCK;
-pub const BLOCK_TOTAL: &str = TOTAL_CONSTANT_BLOCK;
-pub const TURN_RATE_MULTIPLIER: &str = TURN_RATE_PERCENTAGE;
 pub const DISABLE_TURNING: &str = "disable_turning";
 pub const IGNORE_CAST_ANGLE: &str = "ignore_cast_angle";
 pub const STUN_CHANCE: &str = "stun_chance";
 pub const STUN_DURATION: &str = "stun_duration";
-pub const HEAL_DISABLED: &str = DISABLE_HEALING;
-pub const RESPAWN_TIME_BONUS: &str = RESPAWNTIME;
-pub const RESPAWN_TIME_MULTIPLIER: &str = RESPAWNTIME_PERCENTAGE;
-pub const VISION_DAY_BONUS: &str = BONUS_DAY_VISION;
-pub const VISION_NIGHT_BONUS: &str = BONUS_NIGHT_VISION;
-pub const VISION_MULTIPLIER: &str = BONUS_VISION_PERCENTAGE;
-pub const DAMAGE_PREVENTION_PHYSICAL: &str = ABSOLUTE_NO_DAMAGE_PHYSICAL;
-pub const DAMAGE_PREVENTION_MAGICAL: &str = ABSOLUTE_NO_DAMAGE_MAGICAL;
-pub const DAMAGE_PREVENTION_PURE: &str = ABSOLUTE_NO_DAMAGE_PURE;
 
 // 控制 buff id 常數
 pub const BUFF_ID_STUN: &str = "stun";
