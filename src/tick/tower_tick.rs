@@ -14,6 +14,9 @@ use std::{
 };
 use specs::Entity;
 
+/// MOBA 鏡頭下肉眼無感的 facing 變化量（~15°）。舊值 0.05 (~3°) 造成過多 F event。
+const FACING_BROADCAST_THRESHOLD_RAD: f32 = 0.26;
+
 #[derive(SystemData)]
 pub struct TowerRead<'a> {
     entities: Entities<'a>,
@@ -147,9 +150,9 @@ impl<'a> System<'a> for Sys {
                                     let old_facing = facing.0;
                                     facing.0 = rotate_toward(facing.0, desired, turn * dt);
 
-                                    // 廣播 facing 變化（僅當變化 > 3° 才送）
+                                    // 廣播 facing 變化（僅當變化 > 15° 才送）
                                     if let Some(ref t) = tx {
-                                        if (facing.0 - old_facing).abs() > 0.05 {
+                                        if (facing.0 - old_facing).abs() > FACING_BROADCAST_THRESHOLD_RAD {
                                             let _ = t.try_send(OutboundMsg::new_s("td/all/res", "entity", "F",
                                                 serde_json::json!({"id": e.id(), "facing": facing.0})));
                                         }
