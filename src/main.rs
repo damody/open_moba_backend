@@ -99,37 +99,6 @@ async fn main() -> std::result::Result<(), Error> {
         server_port.clone(),
     ).await?;
 
-    // === TEMP: P2 final checkpoint dumper — revert before landing P3 ===
-    #[cfg(feature = "kcp")]
-    {
-        let counter = handle.counter.clone();
-        std::thread::spawn(move || {
-            let mut last_bytes: u64 = 0;
-            let mut last_msgs: u64 = 0;
-            loop {
-                std::thread::sleep(std::time::Duration::from_secs(5));
-                let snap = counter.snapshot();
-                let dbytes = snap.total_bytes - last_bytes;
-                let dmsgs = snap.total_msgs - last_msgs;
-                last_bytes = snap.total_bytes;
-                last_msgs = snap.total_msgs;
-                log::info!(
-                    "[kcp-p2cp 5s] bytes={} ({}B/s)  msgs={} ({}m/s)  total={}B",
-                    dbytes, dbytes / 5, dmsgs, dmsgs / 5, snap.total_bytes
-                );
-                let mut per: Vec<_> = snap.per_event.iter().collect();
-                per.sort_by_key(|(_, v)| std::cmp::Reverse(v.0));
-                for ((t, a), (b, m)) in per.into_iter().take(10) {
-                    log::info!(
-                        "[kcp-p2cp 5s]   {:>14}.{:<10}  bytes={:>10}  msgs={:>8}",
-                        t, a, b, m
-                    );
-                }
-            }
-        });
-    }
-    // === END TEMP ===
-
     // Prevent enabling multiple transport features simultaneously
     #[cfg(all(feature = "mqtt", feature = "grpc"))]
     compile_error!("Cannot enable both 'mqtt' and 'grpc' features simultaneously");
