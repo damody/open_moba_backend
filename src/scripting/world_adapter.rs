@@ -25,12 +25,14 @@ use crate::scripting::event::{ScriptEvent, ScriptEventQueue};
 use crate::transport::OutboundMsg;
 
 // P2 typed payload helpers (local copies to avoid cross-module pub leakage).
+// P7: `damage` carries pre-declared single-target damage for latency hiding.
 #[inline]
 fn make_projectile_create_script(
     id: u32, target_id: u32,
     start_x: f32, start_y: f32, end_x: f32, end_y: f32,
     move_speed: f32, flight_time_ms: u64,
     directional: bool, splash_radius: f32, hit_radius: f32, kind: &str,
+    damage: f32,
 ) -> OutboundMsg {
     #[cfg(feature = "kcp")]
     {
@@ -41,6 +43,7 @@ fn make_projectile_create_script(
             TypedOutbound::ProjectileCreate(proto_build::projectile_create(
                 id, target_id, start_x, start_y, end_x, end_y,
                 flight_time_ms, directional, splash_radius, hit_radius, kind,
+                damage,
             )),
             json!({
                 "id": id, "target_id": target_id,
@@ -49,6 +52,7 @@ fn make_projectile_create_script(
                 "move_speed": move_speed, "flight_time_ms": flight_time_ms,
                 "kind": kind, "directional": directional,
                 "hit_radius": hit_radius, "splash_radius": splash_radius,
+                "damage": damage,
             }),
             start_x, start_y,
         )
@@ -64,6 +68,7 @@ fn make_projectile_create_script(
                 "move_speed": move_speed, "flight_time_ms": flight_time_ms,
                 "kind": kind, "directional": directional,
                 "hit_radius": hit_radius, "splash_radius": splash_radius,
+                "damage": damage,
             }),
             start_x, start_y,
         )
@@ -471,11 +476,23 @@ impl<'a> GameWorld for WorldAdapter<'a> {
 
         let flight_time_ms: u64 = (flight_time_s * 1000.0).max(1.0) as u64;
         let kind_str = spec.kind_tag.as_str();
+        // P7: pre-declared damage for single-target (non-AOE) projectiles.
+        // AOE (splash_radius > 0) stays at 0 — server still emits creep.H per
+        // splash target on impact. Non-directional single-target carries the
+        // deterministic base physical damage; client applies HP locally at
+        // impact, server skips creep.H (see `Outcome::Damage { predeclared }`
+        // handling in game_processor::handle_damage).
+        let predeclared_dmg = if spec.splash_radius > 0.0 || is_directional || target_id_out == 0 {
+            0.0
+        } else {
+            spec.damage
+        };
         let _ = self.mqtx.try_send(make_projectile_create_script(
             e.id(), target_id_out,
             from_vek.x, from_vek.y, end_pos_vek.x, end_pos_vek.y,
             spec.speed, flight_time_ms,
             is_directional, spec.splash_radius, spec.hit_radius, kind_str,
+            predeclared_dmg,
         ));
 
         Self::entity_to_handle(e)

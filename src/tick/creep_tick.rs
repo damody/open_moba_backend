@@ -434,6 +434,7 @@ impl<'a> System<'a> for Sys {
                         real: 0.0,
                         source: td.source, // 使用正確的攻擊者
                         target: td.ent,
+                        predeclared: false, // melee / on-touch damage — never pre-declared
                     });
                 } else if td.phys > 0.0 || td.magi > 0.0 {
                     // 只有在有原始傷害但被完全防禦時才顯示

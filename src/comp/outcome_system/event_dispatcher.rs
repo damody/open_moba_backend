@@ -23,7 +23,9 @@ impl EventDispatcher {
     ) -> Vec<Outcome> {
         match outcome {
             // 戰鬥相關事件
-            Outcome::Damage { pos, phys, magi, real, source, target } => {
+            // P7: `predeclared` 旗標目前只有 `GameProcessor::handle_damage`
+            // 路徑會消費。此 event_dispatcher 副路徑保留完整解構避免編譯錯。
+            Outcome::Damage { pos, phys, magi, real, source, target, predeclared: _ } => {
                 CombatEventHandler::handle_damage(world, mqtx, pos, phys, magi, real, source, target)
             }
             Outcome::Heal { pos, target, amount } => {

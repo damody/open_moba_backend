@@ -1396,6 +1396,9 @@ pub(crate) mod proto_build {
         splash_radius: f32,
         hit_radius: f32,
         kind: &str,
+        // P7: pre-declared single-target damage (splash_radius == 0 only);
+        // 0 => server will emit creep.H normally on impact.
+        damage: f32,
     ) -> ProjectileCreate {
         ProjectileCreate {
             id: id as u64,
@@ -1407,6 +1410,7 @@ pub(crate) mod proto_build {
             splash_radius: Some(fx16(splash_radius)),
             hit_radius: Some(fx16(hit_radius)),
             kind: kind.to_string(),
+            damage: Some(fx16(damage)),
         }
     }
 

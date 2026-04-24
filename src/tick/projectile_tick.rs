@@ -183,6 +183,13 @@ impl<'a> System<'a> for Sys {
 /// 若 projectile 帶有 slow_factor/slow_duration（Ice 塔）則同時 push `AddBuff`：
 /// 以 `slow_{owner_id}` 為 buff_id 保證多攻擊者可加總聚合，
 /// payload 寫 `move_speed_bonus = -(1 - factor)`（負值 = 減速）。
+///
+/// P7 latency hiding: 非 AOE（`proj.radius < 1.0`）的單體追蹤彈在發射時
+/// 已把 final damage 寫到 ProjectileCreate.damage 欄位，client 會在 impact
+/// tick 自行 local 扣血。此 helper 把 `Outcome::Damage.predeclared` 設 true,
+/// `handle_damage` 端在聚合後若仍為 true 則跳過 creep.H 廣播省 bytes。
+/// AOE（radius > 1.0）仍照常發 creep.H，因為 client 無法預測哪些 creep 會被
+/// 濺射到。
 fn create_projectile_damage(
     proj: &Projectile,
     target: specs::Entity,
@@ -192,6 +199,8 @@ fn create_projectile_damage(
     log::debug!("彈道命中目標 {}，物理傷害: {:.1}，魔法傷害: {:.1}，真實傷害: {:.1}",
         target.id(), proj.damage_phys, proj.damage_magi, proj.damage_real);
 
+    // P7: single-target (non-AOE) → predeclared; AOE → authoritative H.
+    let predeclared = proj.radius < 1.0 && proj.damage_phys > 0.0;
     outcomes.push(Outcome::Damage {
         pos: pos,
         phys: proj.damage_phys,
@@ -199,6 +208,7 @@ fn create_projectile_damage(
         real: proj.damage_real,
         source: proj.owner,
         target: target,
+        predeclared,
     });
 
     // Ice 塔：附加減速 debuff 到目標

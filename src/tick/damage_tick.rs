@@ -89,6 +89,7 @@ impl<'a> System<'a> for Sys {
                     real: result.actual_damage.pure,
                     source: damage_inst.source.source_entity,
                     target: damage_inst.target,
+                    predeclared: false, // ability-driven damage path — authoritative
                 });
                 
                 log::info!("Generated damage event: {:.1} total damage to target", result.total_damage);

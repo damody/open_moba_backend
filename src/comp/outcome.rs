@@ -25,6 +25,14 @@ pub enum Outcome {
         real: f32,           // 真實傷害數值（無視防禦）
         source: Entity,      // 傷害來源實體
         target: Entity,      // 傷害目標實體
+        /// P7: true 表示此 damage 由非 AOE projectile 命中產生，且彈丸在
+        /// 發射時已將最終 damage 透過 ProjectileCreate.damage 傳給 client，
+        /// client 已排程於 impact 時刻 local 扣血。server 在 `handle_damage`
+        /// 中看到此旗標 + aggregation 全部為 predeclared 時，會跳過 creep.H
+        /// 廣播省 bytes；若同 tick 還有非 predeclared 來源（melee/ability），
+        /// 聚合後 flag 變 false，照常發 creep.H 保持權威。
+        #[serde(default)]
+        predeclared: bool,
     },
     /// 投射物軌跡事件
     ProjectileLine2 {

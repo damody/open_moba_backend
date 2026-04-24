@@ -16,12 +16,16 @@ use crate::Projectile;
 // ============================================================================
 
 /// projectile.C
+/// P7: `damage` is pre-declared when splash_radius == 0 && target_id != 0.
+/// Client applies HP locally at impact time (latency hiding); server may skip
+/// the creep.H emit on impact since the client already knows the damage.
 #[inline]
 fn make_projectile_create(
     id: u32, target_id: u32,
     start_x: f32, start_y: f32, end_x: f32, end_y: f32,
     move_speed: f32, flight_time_ms: u64,
     directional: bool, splash_radius: f32, hit_radius: f32, kind: &str,
+    damage: f32,
 ) -> OutboundMsg {
     #[cfg(feature = "kcp")]
     {
@@ -32,6 +36,7 @@ fn make_projectile_create(
             TypedOutbound::ProjectileCreate(proto_build::projectile_create(
                 id, target_id, start_x, start_y, end_x, end_y,
                 flight_time_ms, directional, splash_radius, hit_radius, kind,
+                damage,
             )),
             json!({
                 "id": id, "target_id": target_id,
@@ -40,6 +45,7 @@ fn make_projectile_create(
                 "move_speed": move_speed, "flight_time_ms": flight_time_ms,
                 "kind": kind, "directional": directional,
                 "hit_radius": hit_radius, "splash_radius": splash_radius,
+                "damage": damage,
             }),
             start_x, start_y,
         )
@@ -55,6 +61,7 @@ fn make_projectile_create(
                 "move_speed": move_speed, "flight_time_ms": flight_time_ms,
                 "kind": kind, "directional": directional,
                 "hit_radius": hit_radius, "splash_radius": splash_radius,
+                "damage": damage,
             }),
             start_x, start_y,
         )
@@ -308,17 +315,22 @@ impl GameProcessor {
                 let mut aggregated: Vec<Outcome> = Vec::with_capacity(raw_outcomes.len());
                 for out in raw_outcomes {
                     if let Outcome::Damage {
-                        phys: p, magi: m, real: r, target: t, ..
+                        phys: p, magi: m, real: r, target: t, predeclared: pd, ..
                     } = &out
                     {
                         if let Some(&idx) = first_dmg_idx.get(t) {
                             if let Outcome::Damage {
-                                phys: ap, magi: am, real: ar, ..
+                                phys: ap, magi: am, real: ar, predeclared: apd, ..
                             } = &mut aggregated[idx]
                             {
                                 *ap += *p;
                                 *am += *m;
                                 *ar += *r;
+                                // P7: AND-combine — skip H only if ALL
+                                // contributors were pre-declared. Mixed
+                                // (predeclared + authoritative) falls back to
+                                // emitting H so server stays authoritative.
+                                *apd = *apd && *pd;
                                 merged_damage_count += 1;
                                 continue;
                             }
@@ -362,8 +374,8 @@ impl GameProcessor {
                     Outcome::CreepWalk { target } => {
                         Self::handle_creep_walk(ecs, target)?;
                     }
-                    Outcome::Damage { pos, phys, magi, real, source, target } => {
-                        Self::handle_damage(ecs, &mut next_outcomes, pos, phys, magi, real, source, target)?;
+                    Outcome::Damage { pos, phys, magi, real, source, target, predeclared } => {
+                        Self::handle_damage(ecs, &mut next_outcomes, pos, phys, magi, real, source, target, predeclared)?;
                     }
                     Outcome::Heal { pos, target, amount } => {
                         Self::handle_heal(ecs, target, amount)?;
@@ -705,16 +717,24 @@ impl GameProcessor {
                 })
                 .build();
 
+            // P7: non-AOE single-target → pre-declare damage for client-side
+            // optimistic HP update. Visual-only shots (i != 0) carry 0.
+            let predeclared_dmg = if splash_radius > 0.0 || !is_real || ntarget == 0 {
+                0.0
+            } else {
+                dmg_phys_this
+            };
             let _ = mqtx.try_send(make_projectile_create(
                 e.id(), ntarget,
                 start_pos.x, start_pos.y, p2.x, p2.y,
                 move_speed, flight_time_ms,
                 false, splash_radius, 0.0, kind_key,
+                predeclared_dmg,
             ));
         }
         Ok(())
     }
-    
+
     fn handle_creep_spawn(ecs: &mut World, mqtx: &crossbeam_channel::Sender<OutboundMsg>, cd: CreepData) -> Result<(), Error> {
         let display_name = cd.creep.label.clone().unwrap_or_else(|| cd.creep.name.clone());
         let creep_name = cd.creep.name.clone();
@@ -862,11 +882,14 @@ impl GameProcessor {
 
         // 前端渲染用：沒 target_id 時用 end_pos 做 end 位置
         let flight_time_ms: u64 = (flight_time_s * 1000.0).max(1.0) as u64;
+        // P7: directional has no target_id → skip optimistic prediction (client
+        // can't know which creep will be hit until server resolves contact).
         let _ = mqtx.try_send(make_projectile_create(
             e.id(), 0,
             pos.x, pos.y, end_pos.x, end_pos.y,
             msd, flight_time_ms,
             true, 0.0, 80.0, kind_key,
+            0.0,
         ));
         Ok(())
     }
@@ -909,7 +932,11 @@ impl GameProcessor {
         magi: f32,
         real: f32,
         source: Entity,
-        target: Entity
+        target: Entity,
+        // P7: true 當本 damage 全部來自已 pre-declared 的非 AOE projectile
+        // (client 已在 ProjectileCreate.damage 收到並排程 local 扣血)，
+        // 此時跳過 creep.H 廣播省 bytes。若死亡仍照常發 entity.D。
+        predeclared: bool,
     ) -> Result<(), Error> {
         let mut hp_after = 0.0f32;
         let mut max_hp = 0.0f32;
@@ -959,6 +986,11 @@ impl GameProcessor {
         }
 
         // Broadcast HP update to frontend
+        //
+        // P7: 當 `predeclared` = true 時，所有 contributors 都是已在
+        // ProjectileCreate.damage 先發過的 non-AOE 單體彈；client 已於 impact
+        // tick 自行扣血。跳過 creep.H 省 bytes。偏差由每 500ms 的 heartbeat
+        // hp_snapshot 校正。Miss（total <= 0）與死亡仍需照常廣播。
         let target_pos = ecs.read_storage::<Pos>().get(target).map(|p| p.0);
         if let Some(tp) = target_pos {
             // Determine entity type for the broadcast
@@ -983,11 +1015,12 @@ impl GameProcessor {
                         json!({ "id": target.id() }),
                         tp.x, tp.y,
                     ));
-                } else {
+                } else if !predeclared {
                     // HP-only update. Action "H" keeps this separate from real move events;
                     // the position in `new_s_at` is only used for viewport filtering (not the payload).
                     let _ = tx.send(make_hp_update_at(entity_type, target.id(), hp_after, max_hp, tp.x, tp.y));
                 }
+                // predeclared && total > 0 → skip H. Client already applied HP.
             }
         }
 

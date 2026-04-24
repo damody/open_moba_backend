@@ -224,6 +224,17 @@ impl CreationEventHandler {
             "flight_time_ms": flight_time_ms,
         });
 
+        // P7: non-AOE (splash=0) single-target → pre-declared physical damage.
+        let predeclared_dmg = phys_damage + magi_damage + real_damage;
+        // Mirror damage into JSON so non-kcp path also supplies it to omfx shim.
+        let mut projectile_data_with_dmg = projectile_data.clone();
+        if let Some(obj) = projectile_data_with_dmg.as_object_mut() {
+            obj.insert("damage".into(), json!(predeclared_dmg));
+            obj.insert("splash_radius".into(), json!(0.0));
+            obj.insert("hit_radius".into(), json!(0.0));
+            obj.insert("directional".into(), json!(false));
+            obj.insert("kind".into(), json!(""));
+        }
         #[cfg(feature = "kcp")]
         let msg = {
             use crate::state::resource_management::proto_build;
@@ -234,12 +245,13 @@ impl CreationEventHandler {
                     projectile_entity.id(), target.id(),
                     source_pos.x, source_pos.y, target_pos.x, target_pos.y,
                     flight_time_ms, false, 0.0, 0.0, "",
+                    predeclared_dmg,
                 )),
-                projectile_data, source_pos.x, source_pos.y,
+                projectile_data_with_dmg, source_pos.x, source_pos.y,
             )
         };
         #[cfg(not(feature = "kcp"))]
-        let msg = OutboundMsg::new_s("td/all/res", "projectile", "C", projectile_data);
+        let msg = OutboundMsg::new_s("td/all/res", "projectile", "C", projectile_data_with_dmg);
 
         if let Err(e) = mqtx.try_send(msg) {
             error!("發送彈道創建消息失敗: {}", e);
