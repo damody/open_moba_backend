@@ -73,12 +73,8 @@ impl<'a> System<'a> for Sys {
             if let Some(cp) = data.cpropertys.get_mut(entity) {
                 cp.hp = (cp.hp - dot * dt).max(0.0);
                 if let Some(t) = tx.as_ref() {
-                    let _ = t.try_send(OutboundMsg::new_s(
-                        "td/all/res",
-                        if data.creeps.get(entity).is_some() { "creep" } else { "entity" },
-                        "H",
-                        json!({ "id": entity.id(), "hp": cp.hp, "max_hp": cp.mhp }),
-                    ));
+                    let msg_type = if data.creeps.get(entity).is_some() { "creep" } else { "entity" };
+                    let _ = t.try_send(make_hp_update(msg_type, entity.id(), cp.hp, cp.mhp));
                 }
             }
         }
@@ -105,15 +101,51 @@ impl<'a> System<'a> for Sys {
                             data.is_buildings.get(entity).is_some(),
                         );
                         let effective = stats.final_move_speed(cp.msd, entity);
-                        let _ = t.try_send(OutboundMsg::new_s(
-                            "td/all/res",
-                            "creep",
-                            "S",
-                            json!({ "id": entity.id(), "move_speed": effective }),
-                        ));
+                        let _ = t.try_send(make_creep_slow(entity.id(), effective));
                     }
                 }
             }
         }
+    }
+}
+
+/// Build an HP-update OutboundMsg (creep/entity/hero/unit.H) — prost CreepHp under kcp.
+/// `msg_type` is preserved on the wire via `GameEvent.msg_type` for shim routing.
+#[inline]
+fn make_hp_update(msg_type: &str, id: u32, hp: f32, max_hp: f32) -> OutboundMsg {
+    #[cfg(feature = "kcp")]
+    {
+        use crate::state::resource_management::proto_build;
+        use crate::transport::TypedOutbound;
+        OutboundMsg::new_typed(
+            "td/all/res", msg_type, "H",
+            TypedOutbound::CreepHp(proto_build::creep_hp(id, hp)),
+            json!({ "id": id, "hp": hp, "max_hp": max_hp }),
+        )
+    }
+    #[cfg(not(feature = "kcp"))]
+    {
+        OutboundMsg::new_s("td/all/res", msg_type, "H",
+            json!({ "id": id, "hp": hp, "max_hp": max_hp }))
+    }
+}
+
+/// Build a creep.S OutboundMsg (prost CreepSlow under kcp).
+#[inline]
+fn make_creep_slow(id: u32, move_speed: f32) -> OutboundMsg {
+    #[cfg(feature = "kcp")]
+    {
+        use crate::state::resource_management::proto_build;
+        use crate::transport::TypedOutbound;
+        OutboundMsg::new_typed(
+            "td/all/res", "creep", "S",
+            TypedOutbound::CreepSlow(proto_build::creep_slow(id, move_speed)),
+            json!({ "id": id, "move_speed": move_speed }),
+        )
+    }
+    #[cfg(not(feature = "kcp"))]
+    {
+        OutboundMsg::new_s("td/all/res", "creep", "S",
+            json!({ "id": id, "move_speed": move_speed }))
     }
 }

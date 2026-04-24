@@ -93,13 +93,28 @@ impl<'a> System<'a> for Sys {
         // 廣播 HP 更新給前端（少量時才每 tick 送；太頻繁可改 throttling）
         if let Some(ref t) = tx {
             for (e, new_hp, mhp) in hp_updates {
-                let _ = t.try_send(OutboundMsg::new_s(
-                    "td/all/res",
-                    "entity",
-                    "H",
-                    json!({ "id": e.id(), "hp": new_hp, "max_hp": mhp }),
-                ));
+                let _ = t.try_send(make_hp_update(e.id(), new_hp, mhp));
             }
         }
+    }
+}
+
+/// Build an entity.H OutboundMsg (prost CreepHp under kcp).
+#[inline]
+fn make_hp_update(id: u32, hp: f32, max_hp: f32) -> OutboundMsg {
+    #[cfg(feature = "kcp")]
+    {
+        use crate::state::resource_management::proto_build;
+        use crate::transport::TypedOutbound;
+        OutboundMsg::new_typed(
+            "td/all/res", "entity", "H",
+            TypedOutbound::CreepHp(proto_build::creep_hp(id, hp)),
+            json!({ "id": id, "hp": hp, "max_hp": max_hp }),
+        )
+    }
+    #[cfg(not(feature = "kcp"))]
+    {
+        OutboundMsg::new_s("td/all/res", "entity", "H",
+            json!({ "id": id, "hp": hp, "max_hp": max_hp }))
     }
 }

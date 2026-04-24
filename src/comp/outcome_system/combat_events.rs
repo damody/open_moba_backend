@@ -254,7 +254,19 @@ impl CombatEventHandler {
         };
         
         if !entity_type.is_empty() && entity_type != "unknown" {
-            let _ = mqtx.send(OutboundMsg::new_s("td/all/res", entity_type, "D", json!({"id": entity.id()})));
+            #[cfg(feature = "kcp")]
+            let msg = {
+                use crate::state::resource_management::proto_build;
+                use crate::transport::TypedOutbound;
+                OutboundMsg::new_typed(
+                    "td/all/res", entity_type, "D",
+                    TypedOutbound::EntityDeath(proto_build::entity_death(entity.id())),
+                    json!({ "id": entity.id() }),
+                )
+            };
+            #[cfg(not(feature = "kcp"))]
+            let msg = OutboundMsg::new_s("td/all/res", entity_type, "D", json!({"id": entity.id()}));
+            let _ = mqtx.send(msg);
         }
         
         next_outcomes

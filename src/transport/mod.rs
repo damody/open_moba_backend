@@ -13,6 +13,8 @@ pub mod kcp_transport;
 pub mod metrics;
 
 pub use types::{OutboundMsg, InboundMsg, TransportHandle};
+#[cfg(feature = "kcp")]
+pub use types::TypedOutbound;
 #[cfg(any(feature = "grpc", feature = "kcp"))]
 pub use types::{QueryRequest, QueryResponse, Viewport, ViewportMsg};
 #[cfg(feature = "kcp")]

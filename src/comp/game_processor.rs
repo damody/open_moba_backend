@@ -10,6 +10,253 @@ use crate::transport::OutboundMsg;
 use crate::Outcome;
 use crate::Projectile;
 
+// ============================================================================
+// P2 typed-payload helpers — gated behind `kcp`. For non-kcp builds the helpers
+// fall back to legacy JSON-only OutboundMsg construction.
+// ============================================================================
+
+/// projectile.C
+#[inline]
+fn make_projectile_create(
+    id: u32, target_id: u32,
+    start_x: f32, start_y: f32, end_x: f32, end_y: f32,
+    move_speed: f32, flight_time_ms: u64,
+    directional: bool, splash_radius: f32, hit_radius: f32, kind: &str,
+) -> OutboundMsg {
+    #[cfg(feature = "kcp")]
+    {
+        use crate::state::resource_management::proto_build;
+        use crate::transport::TypedOutbound;
+        OutboundMsg::new_typed_at(
+            "td/all/res", "projectile", "C",
+            TypedOutbound::ProjectileCreate(proto_build::projectile_create(
+                id, target_id, start_x, start_y, end_x, end_y,
+                flight_time_ms, directional, splash_radius, hit_radius, kind,
+            )),
+            json!({
+                "id": id, "target_id": target_id,
+                "start_pos": { "x": start_x, "y": start_y },
+                "end_pos":   { "x": end_x,   "y": end_y },
+                "move_speed": move_speed, "flight_time_ms": flight_time_ms,
+                "kind": kind, "directional": directional,
+                "hit_radius": hit_radius, "splash_radius": splash_radius,
+            }),
+            start_x, start_y,
+        )
+    }
+    #[cfg(not(feature = "kcp"))]
+    {
+        OutboundMsg::new_s_at(
+            "td/all/res", "projectile", "C",
+            json!({
+                "id": id, "target_id": target_id,
+                "start_pos": { "x": start_x, "y": start_y },
+                "end_pos":   { "x": end_x,   "y": end_y },
+                "move_speed": move_speed, "flight_time_ms": flight_time_ms,
+                "kind": kind, "directional": directional,
+                "hit_radius": hit_radius, "splash_radius": splash_radius,
+            }),
+            start_x, start_y,
+        )
+    }
+}
+
+/// creep.C
+#[inline]
+fn make_creep_create(
+    id: u32, x: f32, y: f32, hp: f32, max_hp: f32, move_speed: f32, name: &str,
+) -> OutboundMsg {
+    #[cfg(feature = "kcp")]
+    {
+        use crate::state::resource_management::proto_build;
+        use crate::transport::TypedOutbound;
+        OutboundMsg::new_typed_at(
+            "td/all/res", "creep", "C",
+            TypedOutbound::CreepCreate(proto_build::creep_create(id, x, y, hp, max_hp, move_speed, name)),
+            json!({
+                "entity_id": id, "id": id,
+                "name": name,
+                "position": { "x": x, "y": y },
+                "hp": hp, "max_hp": max_hp, "move_speed": move_speed,
+            }),
+            x, y,
+        )
+    }
+    #[cfg(not(feature = "kcp"))]
+    {
+        OutboundMsg::new_s_at(
+            "td/all/res", "creep", "C",
+            json!({
+                "entity_id": id, "id": id, "name": name,
+                "position": { "x": x, "y": y },
+                "hp": hp, "max_hp": max_hp, "move_speed": move_speed,
+            }),
+            x, y,
+        )
+    }
+}
+
+/// entity death (msg_type preserves "creep"/"tower"/"projectile"/"hero")
+#[inline]
+fn make_entity_death(msg_type: &str, id: u32) -> OutboundMsg {
+    #[cfg(feature = "kcp")]
+    {
+        use crate::state::resource_management::proto_build;
+        use crate::transport::TypedOutbound;
+        OutboundMsg::new_typed(
+            "td/all/res", msg_type, "D",
+            TypedOutbound::EntityDeath(proto_build::entity_death(id)),
+            json!({ "id": id }),
+        )
+    }
+    #[cfg(not(feature = "kcp"))]
+    {
+        OutboundMsg::new_s("td/all/res", msg_type, "D", json!({ "id": id }))
+    }
+}
+
+/// creep.M
+#[inline]
+fn make_creep_move_ev(id: u32, tx_x: f32, tx_y: f32, facing: f32, ent_x: f32, ent_y: f32) -> OutboundMsg {
+    #[cfg(feature = "kcp")]
+    {
+        use crate::state::resource_management::proto_build;
+        use crate::transport::TypedOutbound;
+        OutboundMsg::new_typed_at(
+            "td/all/res", "creep", "M",
+            TypedOutbound::CreepMove(proto_build::creep_move(id, tx_x, tx_y, facing)),
+            json!({ "id": id, "x": tx_x, "y": tx_y }),
+            ent_x, ent_y,
+        )
+    }
+    #[cfg(not(feature = "kcp"))]
+    {
+        let _ = (ent_x, ent_y);
+        OutboundMsg::new_s("td/all/res", "creep", "M",
+            json!({ "id": id, "x": tx_x, "y": tx_y }))
+    }
+}
+
+/// creep.S
+#[inline]
+fn make_creep_slow(id: u32, move_speed: f32) -> OutboundMsg {
+    #[cfg(feature = "kcp")]
+    {
+        use crate::state::resource_management::proto_build;
+        use crate::transport::TypedOutbound;
+        OutboundMsg::new_typed(
+            "td/all/res", "creep", "S",
+            TypedOutbound::CreepSlow(proto_build::creep_slow(id, move_speed)),
+            json!({ "id": id, "move_speed": move_speed }),
+        )
+    }
+    #[cfg(not(feature = "kcp"))]
+    {
+        OutboundMsg::new_s("td/all/res", "creep", "S",
+            json!({ "id": id, "move_speed": move_speed }))
+    }
+}
+
+/// creep/entity/hero/unit.H
+#[inline]
+fn make_hp_update(msg_type: &str, id: u32, hp: f32, max_hp: f32) -> OutboundMsg {
+    #[cfg(feature = "kcp")]
+    {
+        use crate::state::resource_management::proto_build;
+        use crate::transport::TypedOutbound;
+        OutboundMsg::new_typed(
+            "td/all/res", msg_type, "H",
+            TypedOutbound::CreepHp(proto_build::creep_hp(id, hp)),
+            json!({ "id": id, "hp": hp, "max_hp": max_hp }),
+        )
+    }
+    #[cfg(not(feature = "kcp"))]
+    {
+        OutboundMsg::new_s("td/all/res", msg_type, "H",
+            json!({ "id": id, "hp": hp, "max_hp": max_hp }))
+    }
+}
+
+/// HP update with position (for viewport filter).
+#[inline]
+fn make_hp_update_at(msg_type: &str, id: u32, hp: f32, max_hp: f32, x: f32, y: f32) -> OutboundMsg {
+    #[cfg(feature = "kcp")]
+    {
+        use crate::state::resource_management::proto_build;
+        use crate::transport::TypedOutbound;
+        OutboundMsg::new_typed_at(
+            "td/all/res", msg_type, "H",
+            TypedOutbound::CreepHp(proto_build::creep_hp(id, hp)),
+            json!({ "id": id, "hp": hp, "max_hp": max_hp }),
+            x, y,
+        )
+    }
+    #[cfg(not(feature = "kcp"))]
+    {
+        OutboundMsg::new_s_at("td/all/res", msg_type, "H",
+            json!({ "id": id, "hp": hp, "max_hp": max_hp }), x, y)
+    }
+}
+
+/// game.explosion
+#[inline]
+fn make_game_explosion(x: f32, y: f32, radius: f32, duration: f32) -> OutboundMsg {
+    #[cfg(feature = "kcp")]
+    {
+        use crate::state::resource_management::proto_build;
+        use crate::transport::TypedOutbound;
+        OutboundMsg::new_typed_at(
+            "td/all/res", "game", "explosion",
+            TypedOutbound::GameExplosion(proto_build::game_explosion(x, y, radius, duration)),
+            json!({ "x": x, "y": y, "radius": radius, "duration": duration }),
+            x, y,
+        )
+    }
+    #[cfg(not(feature = "kcp"))]
+    {
+        OutboundMsg::new_s_at("td/all/res", "game", "explosion",
+            json!({ "x": x, "y": y, "radius": radius, "duration": duration }), x, y)
+    }
+}
+
+/// game.lives
+#[inline]
+fn make_game_lives(lives: i32) -> OutboundMsg {
+    #[cfg(feature = "kcp")]
+    {
+        use crate::state::resource_management::proto_build;
+        use crate::transport::TypedOutbound;
+        OutboundMsg::new_typed(
+            "td/all/res", "game", "lives",
+            TypedOutbound::GameLives(proto_build::game_lives(lives)),
+            json!({ "lives": lives }),
+        )
+    }
+    #[cfg(not(feature = "kcp"))]
+    {
+        OutboundMsg::new_s("td/all/res", "game", "lives", json!({ "lives": lives }))
+    }
+}
+
+/// game.end
+#[inline]
+fn make_game_end(winner: &str, extra: serde_json::Value) -> OutboundMsg {
+    #[cfg(feature = "kcp")]
+    {
+        use crate::state::resource_management::proto_build;
+        use crate::transport::TypedOutbound;
+        OutboundMsg::new_typed(
+            "td/all/res", "game", "end",
+            TypedOutbound::GameEnd(proto_build::game_end(winner)),
+            extra,
+        )
+    }
+    #[cfg(not(feature = "kcp"))]
+    {
+        OutboundMsg::new_s("td/all/res", "game", "end", extra)
+    }
+}
+
 fn outcome_kind(o: &Outcome) -> &'static str {
     match o {
         Outcome::Damage { .. } => "Damage",
@@ -125,16 +372,7 @@ impl GameProcessor {
                         Self::handle_add_buff(ecs, target, buff_id, duration, payload)?;
                     }
                     Outcome::Explosion { pos, radius, duration } => {
-                        let _ = mqtx.try_send(OutboundMsg::new_s_at(
-                            "td/all/res", "game", "explosion",
-                            json!({
-                                "x": pos.x,
-                                "y": pos.y,
-                                "radius": radius,
-                                "duration": duration,
-                            }),
-                            pos.x, pos.y,
-                        ));
+                        let _ = mqtx.try_send(make_game_explosion(pos.x, pos.y, radius, duration));
                     }
                     _ => {}
                 }
@@ -202,18 +440,14 @@ impl GameProcessor {
         };
 
         if !entity_type.is_empty() {
-            mqtx.send(OutboundMsg::new_s("td/all/res", entity_type, "D", json!({"id": entity.id()})));
+            let _ = mqtx.send(make_entity_death(entity_type, entity.id()));
         }
 
         if is_enemy_base {
             // 敵方基地被擊毀 → 玩家勝利
             log::info!("🏆 敵方基地 entity {:?} destroyed — emitting game.end", entity);
-            mqtx.send(OutboundMsg::new_s(
-                "td/all/res",
-                "game",
-                "end",
-                json!({"winner": "player", "base_entity_id": entity.id()}),
-            ));
+            let _ = mqtx.send(make_game_end("player",
+                json!({"winner": "player", "base_entity_id": entity.id()})));
         }
         Ok(())
     }
@@ -446,16 +680,12 @@ impl GameProcessor {
                 })
                 .build();
 
-            let pjs = json!({
-                "id": e.id(),
-                "target_id": ntarget,
-                "start_pos": { "x": start_pos.x, "y": start_pos.y },
-                "end_pos":   { "x": p2.x, "y": p2.y },
-                "move_speed": move_speed,
-                "flight_time_ms": flight_time_ms,
-                "kind": kind_key,
-            });
-            mqtx.try_send(OutboundMsg::new_s_at("td/all/res", "projectile", "C", pjs, start_pos.x, start_pos.y));
+            let _ = mqtx.try_send(make_projectile_create(
+                e.id(), ntarget,
+                start_pos.x, start_pos.y, p2.x, p2.y,
+                move_speed, flight_time_ms,
+                false, splash_radius, 0.0, kind_key,
+            ));
         }
         Ok(())
     }
@@ -496,17 +726,7 @@ impl GameProcessor {
             .build();
         ecs.write_resource::<crate::scripting::ScriptEventQueue>()
             .push(crate::scripting::ScriptEvent::Spawn { e });
-        // Payload shape matches client expectations (top-level position/hp/max_hp)
-        let payload = json!({
-            "entity_id": e.id(),
-            "id": e.id(),
-            "name": display_name,
-            "position": { "x": pos.x, "y": pos.y },
-            "hp": hp,
-            "max_hp": mhp,
-            "move_speed": msd,
-        });
-        mqtx.try_send(OutboundMsg::new_s_at("td/all/res", "creep", "C", payload, pos.x, pos.y));
+        let _ = mqtx.try_send(make_creep_create(e.id(), pos.x, pos.y, hp, mhp, msd, &display_name));
         Ok(())
     }
 
@@ -537,10 +757,7 @@ impl GameProcessor {
                 };
                 let effective = msd * (1.0 + sum).clamp(0.01, 1.0);
                 if let Some(tx) = ecs.read_resource::<Vec<crossbeam_channel::Sender<OutboundMsg>>>().get(0) {
-                    let _ = tx.try_send(OutboundMsg::new_s("td/all/res", "creep", "S", json!({
-                        "id": target.id(),
-                        "move_speed": effective,
-                    })));
+                    let _ = tx.try_send(make_creep_slow(target.id(), effective));
                 }
             }
         }
@@ -562,28 +779,14 @@ impl GameProcessor {
         log::info!("💔 小兵漏網！玩家生命 {} (entity={:?})", remaining, entity);
 
         // 廣播 entity delete 讓前端移除 creep 圖
-        let _ = mqtx.try_send(OutboundMsg::new_s(
-            "td/all/res",
-            "creep",
-            "D",
-            json!({ "id": entity.id() }),
-        ));
+        let _ = mqtx.try_send(make_entity_death("creep", entity.id()));
 
         // 廣播專用的 game/lives 事件（前端 HUD 立即更新），不需要 hero.stats
-        let _ = mqtx.try_send(OutboundMsg::new_s(
-            "td/all/res",
-            "game",
-            "lives",
-            json!({ "lives": remaining }),
-        ));
+        let _ = mqtx.try_send(make_game_lives(remaining));
 
         if remaining <= 0 {
-            let _ = mqtx.try_send(OutboundMsg::new_s(
-                "td/all/res",
-                "game",
-                "end",
-                json!({ "result": "defeat", "reason": "lives_depleted" }),
-            ));
+            let _ = mqtx.try_send(make_game_end("defeat",
+                json!({ "result": "defeat", "reason": "lives_depleted" })));
             log::warn!("☠️ TD 模式：玩家生命歸零，遊戲結束");
         }
         Ok(())
@@ -634,18 +837,12 @@ impl GameProcessor {
 
         // 前端渲染用：沒 target_id 時用 end_pos 做 end 位置
         let flight_time_ms: u64 = (flight_time_s * 1000.0).max(1.0) as u64;
-        let pjs = json!({
-            "id": e.id(),
-            "target_id": 0, // 0 = 無 target（directional）
-            "start_pos": { "x": pos.x, "y": pos.y },
-            "end_pos":   { "x": end_pos.x, "y": end_pos.y },
-            "move_speed": msd,
-            "flight_time_ms": flight_time_ms,
-            "kind": kind_key,
-            "directional": true,
-            "hit_radius": 80.0_f32, // legacy directional path 用預設
-        });
-        mqtx.try_send(OutboundMsg::new_s_at("td/all/res", "projectile", "C", pjs, pos.x, pos.y));
+        let _ = mqtx.try_send(make_projectile_create(
+            e.id(), 0,
+            pos.x, pos.y, end_pos.x, end_pos.y,
+            msd, flight_time_ms,
+            true, 0.0, 80.0, kind_key,
+        ));
         Ok(())
     }
 
@@ -664,15 +861,11 @@ impl GameProcessor {
         let c = creeps.get_mut(target).ok_or_else(|| failure::err_msg("Creep not found"))?;
         c.block_tower = Some(source);
         c.status = CreepStatus::Stop;
-        
+
         let positions = ecs.read_storage::<Pos>();
         let pos = positions.get(target).ok_or_else(|| failure::err_msg("Creep position not found"))?;
-        
-        mqtx.try_send(OutboundMsg::new_s_at("td/all/res", "creep", "M", json!({
-            "id": target.id(),
-            "x": pos.0.x,
-            "y": pos.0.y,
-        }), pos.0.x, pos.0.y));
+
+        let _ = mqtx.try_send(make_creep_move_ev(target.id(), pos.0.x, pos.0.y, 0.0, pos.0.x, pos.0.y));
         Ok(())
     }
     
@@ -768,11 +961,7 @@ impl GameProcessor {
                 } else {
                     // HP-only update. Action "H" keeps this separate from real move events;
                     // the position in `new_s_at` is only used for viewport filtering (not the payload).
-                    let _ = tx.send(OutboundMsg::new_s_at("td/all/res", entity_type, "H", json!({
-                        "id": target.id(),
-                        "hp": hp_after,
-                        "max_hp": max_hp,
-                    }), tp.x, tp.y));
+                    let _ = tx.send(make_hp_update_at(entity_type, target.id(), hp_after, max_hp, tp.x, tp.y));
                 }
             }
         }

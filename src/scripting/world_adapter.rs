@@ -24,6 +24,72 @@ use crate::comp::*;
 use crate::scripting::event::{ScriptEvent, ScriptEventQueue};
 use crate::transport::OutboundMsg;
 
+// P2 typed payload helpers (local copies to avoid cross-module pub leakage).
+#[inline]
+fn make_projectile_create_script(
+    id: u32, target_id: u32,
+    start_x: f32, start_y: f32, end_x: f32, end_y: f32,
+    move_speed: f32, flight_time_ms: u64,
+    directional: bool, splash_radius: f32, hit_radius: f32, kind: &str,
+) -> OutboundMsg {
+    #[cfg(feature = "kcp")]
+    {
+        use crate::state::resource_management::proto_build;
+        use crate::transport::TypedOutbound;
+        OutboundMsg::new_typed_at(
+            "td/all/res", "projectile", "C",
+            TypedOutbound::ProjectileCreate(proto_build::projectile_create(
+                id, target_id, start_x, start_y, end_x, end_y,
+                flight_time_ms, directional, splash_radius, hit_radius, kind,
+            )),
+            json!({
+                "id": id, "target_id": target_id,
+                "start_pos": { "x": start_x, "y": start_y },
+                "end_pos":   { "x": end_x,   "y": end_y },
+                "move_speed": move_speed, "flight_time_ms": flight_time_ms,
+                "kind": kind, "directional": directional,
+                "hit_radius": hit_radius, "splash_radius": splash_radius,
+            }),
+            start_x, start_y,
+        )
+    }
+    #[cfg(not(feature = "kcp"))]
+    {
+        OutboundMsg::new_s_at(
+            "td/all/res", "projectile", "C",
+            json!({
+                "id": id, "target_id": target_id,
+                "start_pos": { "x": start_x, "y": start_y },
+                "end_pos":   { "x": end_x,   "y": end_y },
+                "move_speed": move_speed, "flight_time_ms": flight_time_ms,
+                "kind": kind, "directional": directional,
+                "hit_radius": hit_radius, "splash_radius": splash_radius,
+            }),
+            start_x, start_y,
+        )
+    }
+}
+
+#[inline]
+fn make_game_explosion_script(x: f32, y: f32, radius: f32, duration: f32) -> OutboundMsg {
+    #[cfg(feature = "kcp")]
+    {
+        use crate::state::resource_management::proto_build;
+        use crate::transport::TypedOutbound;
+        OutboundMsg::new_typed_at(
+            "td/all/res", "game", "explosion",
+            TypedOutbound::GameExplosion(proto_build::game_explosion(x, y, radius, duration)),
+            json!({ "x": x, "y": y, "radius": radius, "duration": duration }),
+            x, y,
+        )
+    }
+    #[cfg(not(feature = "kcp"))]
+    {
+        OutboundMsg::new_s_at("td/all/res", "game", "explosion",
+            json!({ "x": x, "y": y, "radius": radius, "duration": duration }), x, y)
+    }
+}
+
 /// Host-side adapter. Created fresh for each `run_script_dispatch` call.
 ///
 /// `log_str_scratch` is needed because `log_info(&self, ...)` is `&self`
@@ -405,36 +471,18 @@ impl<'a> GameWorld for WorldAdapter<'a> {
 
         let flight_time_ms: u64 = (flight_time_s * 1000.0).max(1.0) as u64;
         let kind_str = spec.kind_tag.as_str();
-        let pjs = json!({
-            "id": e.id(),
-            "target_id": target_id_out,
-            "start_pos": { "x": from_vek.x, "y": from_vek.y },
-            "end_pos":   { "x": end_pos_vek.x, "y": end_pos_vek.y },
-            "move_speed": spec.speed,
-            "flight_time_ms": flight_time_ms,
-            "kind": kind_str,
-            "directional": is_directional,
-            "hit_radius": spec.hit_radius,
-            "splash_radius": spec.splash_radius,
-        });
-        let _ = self.mqtx.try_send(OutboundMsg::new_s_at(
-            "td/all/res", "projectile", "C", pjs, from_vek.x, from_vek.y,
+        let _ = self.mqtx.try_send(make_projectile_create_script(
+            e.id(), target_id_out,
+            from_vek.x, from_vek.y, end_pos_vek.x, end_pos_vek.y,
+            spec.speed, flight_time_ms,
+            is_directional, spec.splash_radius, spec.hit_radius, kind_str,
         ));
 
         Self::entity_to_handle(e)
     }
 
     fn emit_explosion(&mut self, pos: Vec2f, radius: f32, duration: f32) {
-        let _ = self.mqtx.try_send(OutboundMsg::new_s_at(
-            "td/all/res", "game", "explosion",
-            json!({
-                "x": pos.x,
-                "y": pos.y,
-                "radius": radius,
-                "duration": duration,
-            }),
-            pos.x, pos.y,
-        ));
+        let _ = self.mqtx.try_send(make_game_explosion_script(pos.x, pos.y, radius, duration));
     }
 
     fn despawn(&mut self, e: EntityHandle) {

@@ -456,33 +456,38 @@ impl State {
             // Emit D for entities that left the viewport (old - new) per-kind.
             // Use `new_s` (no position) so the transport viewport filter doesn't
             // drop a D for an entity that happens to be outside the viewport now.
+            let emit_d = |topic: &str, kind: &str, id: u32| {
+                let fallback = serde_json::json!({ "id": id, "entity_id": id });
+                #[cfg(feature = "kcp")]
+                {
+                    use crate::state::resource_management::proto_build;
+                    use crate::transport::TypedOutbound;
+                    let _ = self.mqtx.send(OutboundMsg::new_typed(
+                        topic, kind, "D",
+                        TypedOutbound::EntityDeath(proto_build::entity_death(id)),
+                        fallback,
+                    ));
+                }
+                #[cfg(not(feature = "kcp"))]
+                {
+                    let _ = self.mqtx.send(OutboundMsg::new_s(topic, kind, "D", fallback));
+                }
+            };
             for &id in old.heroes.difference(&new_set.heroes) {
                 exited_count += 1;
-                let _ = self.mqtx.send(OutboundMsg::new_s(
-                    &topic, "hero", "D",
-                    serde_json::json!({ "id": id, "entity_id": id }),
-                ));
+                emit_d(&topic, "hero", id);
             }
             for &id in old.units.difference(&new_set.units) {
                 exited_count += 1;
-                let _ = self.mqtx.send(OutboundMsg::new_s(
-                    &topic, "unit", "D",
-                    serde_json::json!({ "id": id, "entity_id": id }),
-                ));
+                emit_d(&topic, "unit", id);
             }
             for &id in old.creeps.difference(&new_set.creeps) {
                 exited_count += 1;
-                let _ = self.mqtx.send(OutboundMsg::new_s(
-                    &topic, "creep", "D",
-                    serde_json::json!({ "id": id, "entity_id": id }),
-                ));
+                emit_d(&topic, "creep", id);
             }
             for &id in old.towers.difference(&new_set.towers) {
                 exited_count += 1;
-                let _ = self.mqtx.send(OutboundMsg::new_s(
-                    &topic, "tower", "D",
-                    serde_json::json!({ "id": id, "entity_id": id }),
-                ));
+                emit_d(&topic, "tower", id);
             }
 
             if entered_count > 0 || exited_count > 0 {

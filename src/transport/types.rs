@@ -21,8 +21,24 @@ use super::metrics::KcpBytesCounter;
 #[derive(Clone, Debug)]
 pub enum TypedOutbound {
     Heartbeat(super::kcp_transport::game_proto::HeartbeatTick),
-    // Add more variants as the migration proceeds. Each variant owns a
-    // pre-built prost message from `kcp_transport::game_proto`.
+    // P2 full migration: typed variants for the high-volume events.
+    ProjectileCreate(super::kcp_transport::game_proto::ProjectileCreate),
+    ProjectileDestroy(super::kcp_transport::game_proto::ProjectileDestroy),
+    CreepCreate(super::kcp_transport::game_proto::CreepCreate),
+    CreepMove(super::kcp_transport::game_proto::CreepMove),
+    CreepHp(super::kcp_transport::game_proto::CreepHp),
+    CreepSlow(super::kcp_transport::game_proto::CreepSlow),
+    CreepStall(super::kcp_transport::game_proto::CreepStall),
+    EntityFacing(super::kcp_transport::game_proto::EntityFacing),
+    EntityDeath(super::kcp_transport::game_proto::EntityDeath),
+    TowerCreate(super::kcp_transport::game_proto::TowerCreate),
+    TowerUpgrade(super::kcp_transport::game_proto::TowerUpgrade),
+    BuffAdd(super::kcp_transport::game_proto::BuffAdd),
+    BuffRemove(super::kcp_transport::game_proto::BuffRemove),
+    GameRound(super::kcp_transport::game_proto::GameRound),
+    GameLives(super::kcp_transport::game_proto::GameLives),
+    GameEnd(super::kcp_transport::game_proto::GameEnd),
+    GameExplosion(super::kcp_transport::game_proto::GameExplosion),
 }
 
 /// Outbound message from game logic to transport layer.
@@ -129,6 +145,26 @@ impl OutboundMsg {
             msg: json!({ "t": t, "a": a, "d": json_fallback }).to_string(),
             time: SystemTime::now(),
             entity_pos: None,
+            typed: Some(typed),
+        }
+    }
+
+    /// Same as `new_typed` but carries an entity position for viewport filtering.
+    #[cfg(feature = "kcp")]
+    pub fn new_typed_at(
+        topic: &str,
+        t: &str,
+        a: &str,
+        typed: TypedOutbound,
+        json_fallback: serde_json::Value,
+        x: f32,
+        y: f32,
+    ) -> OutboundMsg {
+        OutboundMsg {
+            topic: topic.to_owned(),
+            msg: json!({ "t": t, "a": a, "d": json_fallback }).to_string(),
+            time: SystemTime::now(),
+            entity_pos: Some((x, y)),
             typed: Some(typed),
         }
     }

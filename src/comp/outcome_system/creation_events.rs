@@ -54,8 +54,23 @@ impl CreationEventHandler {
             "collision_radius": radius,
         });
 
+        #[cfg(feature = "kcp")]
+        let msg = {
+            use crate::state::resource_management::proto_build;
+            use crate::transport::TypedOutbound;
+            OutboundMsg::new_typed_at(
+                "td/all/res", "creep", "C",
+                TypedOutbound::CreepCreate(proto_build::creep_create(
+                    entity.id(), pos.x, pos.y, hp, mhp, msd, &display_name,
+                )),
+                payload, pos.x, pos.y,
+            )
+        };
+        #[cfg(not(feature = "kcp"))]
+        let msg = OutboundMsg::new_s_at("td/all/res", "creep", "C", payload, pos.x, pos.y);
+
         // 發送 MQTT 消息通知前端
-        if let Err(e) = mqtx.try_send(OutboundMsg::new_s_at("td/all/res", "creep", "C", payload, pos.x, pos.y)) {
+        if let Err(e) = mqtx.try_send(msg) {
             error!("發送小兵創建消息失敗: {}", e);
         }
 
@@ -208,8 +223,25 @@ impl CreationEventHandler {
             "move_speed": move_speed,
             "flight_time_ms": flight_time_ms,
         });
-        
-        if let Err(e) = mqtx.try_send(OutboundMsg::new_s("td/all/res", "projectile", "C", projectile_data)) {
+
+        #[cfg(feature = "kcp")]
+        let msg = {
+            use crate::state::resource_management::proto_build;
+            use crate::transport::TypedOutbound;
+            OutboundMsg::new_typed_at(
+                "td/all/res", "projectile", "C",
+                TypedOutbound::ProjectileCreate(proto_build::projectile_create(
+                    projectile_entity.id(), target.id(),
+                    source_pos.x, source_pos.y, target_pos.x, target_pos.y,
+                    flight_time_ms, false, 0.0, 0.0, "",
+                )),
+                projectile_data, source_pos.x, source_pos.y,
+            )
+        };
+        #[cfg(not(feature = "kcp"))]
+        let msg = OutboundMsg::new_s("td/all/res", "projectile", "C", projectile_data);
+
+        if let Err(e) = mqtx.try_send(msg) {
             error!("發送彈道創建消息失敗: {}", e);
         }
         

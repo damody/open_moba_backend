@@ -278,6 +278,57 @@ pub async fn start(
                             TypedOutbound::Heartbeat(hb) => {
                                 game_event::TypedPayload::Heartbeat(hb.clone())
                             }
+                            TypedOutbound::ProjectileCreate(m) => {
+                                game_event::TypedPayload::ProjectileCreate(m.clone())
+                            }
+                            TypedOutbound::ProjectileDestroy(m) => {
+                                game_event::TypedPayload::ProjectileDestroy(m.clone())
+                            }
+                            TypedOutbound::CreepCreate(m) => {
+                                game_event::TypedPayload::CreepCreate(m.clone())
+                            }
+                            TypedOutbound::CreepMove(m) => {
+                                game_event::TypedPayload::CreepMove(m.clone())
+                            }
+                            TypedOutbound::CreepHp(m) => {
+                                game_event::TypedPayload::CreepHp(m.clone())
+                            }
+                            TypedOutbound::CreepSlow(m) => {
+                                game_event::TypedPayload::CreepSlow(m.clone())
+                            }
+                            TypedOutbound::CreepStall(m) => {
+                                game_event::TypedPayload::CreepStall(m.clone())
+                            }
+                            TypedOutbound::EntityFacing(m) => {
+                                game_event::TypedPayload::EntityFacing(m.clone())
+                            }
+                            TypedOutbound::EntityDeath(m) => {
+                                game_event::TypedPayload::EntityDeath(m.clone())
+                            }
+                            TypedOutbound::TowerCreate(m) => {
+                                game_event::TypedPayload::TowerCreate(m.clone())
+                            }
+                            TypedOutbound::TowerUpgrade(m) => {
+                                game_event::TypedPayload::TowerUpgrade(m.clone())
+                            }
+                            TypedOutbound::BuffAdd(m) => {
+                                game_event::TypedPayload::BuffAdd(m.clone())
+                            }
+                            TypedOutbound::BuffRemove(m) => {
+                                game_event::TypedPayload::BuffRemove(m.clone())
+                            }
+                            TypedOutbound::GameRound(m) => {
+                                game_event::TypedPayload::GameRound(m.clone())
+                            }
+                            TypedOutbound::GameLives(m) => {
+                                game_event::TypedPayload::GameLives(m.clone())
+                            }
+                            TypedOutbound::GameEnd(m) => {
+                                game_event::TypedPayload::GameEnd(m.clone())
+                            }
+                            TypedOutbound::GameExplosion(m) => {
+                                game_event::TypedPayload::GameExplosion(m.clone())
+                            }
                         });
                         let data_json = if typed_payload.is_some() { Vec::new() } else { data_bytes };
 

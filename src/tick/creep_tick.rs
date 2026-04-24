@@ -15,6 +15,71 @@ use serde_json::json;
 /// MOBA 鏡頭下肉眼無感的 facing 變化量（~15°）。舊值 0.05 (~3°) 造成過多 F event。
 const FACING_BROADCAST_THRESHOLD_RAD: f32 = 0.26;
 
+/// Build a creep.M OutboundMsg. Under `kcp` uses the typed prost path; otherwise JSON.
+#[inline]
+fn make_creep_move(id: u32, tx_x: f32, tx_y: f32, facing: f32, ent_x: f32, ent_y: f32) -> OutboundMsg {
+    #[cfg(feature = "kcp")]
+    {
+        use crate::state::resource_management::proto_build;
+        use crate::transport::TypedOutbound;
+        OutboundMsg::new_typed_at(
+            "td/all/res", "creep", "M",
+            TypedOutbound::CreepMove(proto_build::creep_move(id, tx_x, tx_y, facing)),
+            json!({ "id": id, "x": tx_x, "y": tx_y, "facing": facing }),
+            ent_x, ent_y,
+        )
+    }
+    #[cfg(not(feature = "kcp"))]
+    {
+        let _ = (ent_x, ent_y);
+        OutboundMsg::new_s("td/all/res", "creep", "M",
+            json!({ "id": id, "x": tx_x, "y": tx_y, "facing": facing }))
+    }
+}
+
+/// Build a creep.stall OutboundMsg (prost CreepStall under kcp).
+#[inline]
+fn make_creep_stall(id: u32, x: f32, y: f32, facing: f32) -> OutboundMsg {
+    #[cfg(feature = "kcp")]
+    {
+        use crate::state::resource_management::proto_build;
+        use crate::transport::TypedOutbound;
+        OutboundMsg::new_typed_at(
+            "td/all/res", "creep", "stall",
+            TypedOutbound::CreepStall(proto_build::creep_stall(id, x, y, facing)),
+            json!({ "id": id, "x": x, "y": y, "facing": facing }),
+            x, y,
+        )
+    }
+    #[cfg(not(feature = "kcp"))]
+    {
+        OutboundMsg::new_s("td/all/res", "creep", "stall",
+            json!({ "id": id, "x": x, "y": y, "facing": facing }))
+    }
+}
+
+/// Build an entity.F OutboundMsg (prost EntityFacing under kcp).
+#[inline]
+fn make_entity_facing(id: u32, facing: f32, ent_x: f32, ent_y: f32) -> OutboundMsg {
+    #[cfg(feature = "kcp")]
+    {
+        use crate::state::resource_management::proto_build;
+        use crate::transport::TypedOutbound;
+        OutboundMsg::new_typed_at(
+            "td/all/res", "entity", "F",
+            TypedOutbound::EntityFacing(proto_build::entity_facing(id, facing)),
+            json!({ "id": id, "facing": facing }),
+            ent_x, ent_y,
+        )
+    }
+    #[cfg(not(feature = "kcp"))]
+    {
+        let _ = (ent_x, ent_y);
+        OutboundMsg::new_s("td/all/res", "entity", "F",
+            json!({ "id": id, "facing": facing }))
+    }
+}
+
 #[derive(SystemData)]
 pub struct CreepRead<'a> {
     entities: Entities<'a>,
@@ -91,12 +156,7 @@ impl<'a> System<'a> for Sys {
                                     let mut next_status = creep.status.clone();
                                     match creep.status {
                                         CreepStatus::PreWalk => {
-                                            tx.try_send(OutboundMsg::new_s("td/all/res", "creep", "M", json!({
-                                                "id": e.id(),
-                                                "x": target_point.x,
-                                                "y": target_point.y,
-                                                "facing": facing.0,
-                                            })));
+                                            tx.try_send(make_creep_move(e.id(), target_point.x, target_point.y, facing.0, pos.0.x, pos.0.y));
                                             next_status = CreepStatus::Walk;
                                         }
                                         CreepStatus::Walk => {
@@ -118,12 +178,7 @@ impl<'a> System<'a> for Sys {
                                                 // 已抵達 waypoint
                                                 creep.pidx += 1;
                                                 if let Some(t) = path.check_points.get(creep.pidx) {
-                                                    tx.try_send(OutboundMsg::new_s("td/all/res", "creep", "M", json!({
-                                                        "id": e.id(),
-                                                        "x": t.pos.x,
-                                                        "y": t.pos.y,
-                                                        "facing": facing.0,
-                                                    })));
+                                                    tx.try_send(make_creep_move(e.id(), t.pos.x, t.pos.y, facing.0, pos.0.x, pos.0.y));
                                                 }
                                             } else {
                                                 // 先轉向目標
@@ -135,8 +190,7 @@ impl<'a> System<'a> for Sys {
                                                 facing.0 = rotate_toward(facing.0, desired, turn_rate * dt);
                                                 // 面向變化 > 15° 就廣播 F 事件
                                                 if (facing.0 - old_facing).abs() > FACING_BROADCAST_THRESHOLD_RAD {
-                                                    tx.try_send(OutboundMsg::new_s("td/all/res", "entity", "F",
-                                                        json!({"id": e.id(), "facing": facing.0})));
+                                                    tx.try_send(make_entity_facing(e.id(), facing.0, pos.0.x, pos.0.y));
                                                 }
 
                                                 // 角度對齊（<30°）才移動
@@ -182,12 +236,7 @@ impl<'a> System<'a> for Sys {
                                                             pos.0 = target_point;
                                                             creep.pidx += 1;
                                                             if let Some(t) = path.check_points.get(creep.pidx) {
-                                                                tx.try_send(OutboundMsg::new_s("td/all/res", "creep", "M", json!({
-                                                                    "id": e.id(),
-                                                                    "x": t.pos.x,
-                                                                    "y": t.pos.y,
-                                                                    "facing": facing.0,
-                                                                })));
+                                                                tx.try_send(make_creep_move(e.id(), t.pos.x, t.pos.y, facing.0, pos.0.x, pos.0.y));
                                                             }
                                                         } else {
                                                             blocked = true;
@@ -195,12 +244,7 @@ impl<'a> System<'a> for Sys {
                                                     }
                                                     if blocked {
                                                         // 凍結前端 lerp（action="stall"），避免視覺上穿過其他單位。
-                                                        tx.try_send(OutboundMsg::new_s("td/all/res", "creep", "stall", json!({
-                                                            "id": e.id(),
-                                                            "x": pos.0.x,
-                                                            "y": pos.0.y,
-                                                            "facing": facing.0,
-                                                        })));
+                                                        tx.try_send(make_creep_stall(e.id(), pos.0.x, pos.0.y, facing.0));
                                                     }
                                                 }
                                                 // 角度太大：只轉向、本 tick 不位移

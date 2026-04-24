@@ -310,7 +310,7 @@ impl ResourceManager {
             let hp = properties.get(tower_entity).map(|p| p.hp).unwrap_or(tpl.hp);
             let mhp = properties.get(tower_entity).map(|p| p.mhp).unwrap_or(tpl.hp);
             let radius = radii.get(tower_entity).map(|r| r.0).unwrap_or(tpl.footprint);
-            let payload = serde_json::json!({
+            let json_fallback = serde_json::json!({
                 "id": tower_entity.id(),
                 "entity_id": tower_entity.id(),
                 "name": tpl.label,
@@ -322,9 +322,19 @@ impl ResourceManager {
                 "range": tpl.range,
                 "is_base": false,
             });
-            let _ = self.mqtx.send(OutboundMsg::new_s_at(
-                "td/all/res", "tower", "create", payload, pos.x, pos.y,
-            ));
+            #[cfg(feature = "kcp")]
+            let msg = OutboundMsg::new_typed_at(
+                "td/all/res", "tower", "create",
+                crate::transport::TypedOutbound::TowerCreate(proto_build::tower_create(
+                    tower_entity.id(), pos.x, pos.y, hp, mhp, &tpl.unit_id, &tpl.label,
+                )),
+                json_fallback, pos.x, pos.y,
+            );
+            #[cfg(not(feature = "kcp"))]
+            let msg = OutboundMsg::new_s_at(
+                "td/all/res", "tower", "create", json_fallback, pos.x, pos.y,
+            );
+            let _ = self.mqtx.send(msg);
         }
 
         // 扣完金幣主動廣播 hero.stats（避免前端 HUD 滯後）
@@ -367,9 +377,15 @@ impl ResourceManager {
             "total": total,
             "is_running": true,
         });
-        self.mqtx.send(OutboundMsg::new_s(
-            "td/all/res", "game", "round", payload,
-        ))?;
+        #[cfg(feature = "kcp")]
+        let msg = OutboundMsg::new_typed(
+            "td/all/res", "game", "round",
+            crate::transport::TypedOutbound::GameRound(proto_build::game_round(round as u32, total as u32, true)),
+            payload,
+        );
+        #[cfg(not(feature = "kcp"))]
+        let msg = OutboundMsg::new_s("td/all/res", "game", "round", payload);
+        self.mqtx.send(msg)?;
         Ok(())
     }
 
@@ -574,9 +590,17 @@ impl ResourceManager {
             "tower_id": tower_id_u32,
             "levels": [new_levels[0], new_levels[1], new_levels[2]],
         });
-        let _ = self.mqtx.send(OutboundMsg::new_s_at(
+        #[cfg(feature = "kcp")]
+        let msg = OutboundMsg::new_typed_at(
+            "td/all/res", "tower", "upgrade",
+            crate::transport::TypedOutbound::TowerUpgrade(proto_build::tower_upgrade(tower_id_u32, new_levels)),
+            payload, tower_pos.x, tower_pos.y,
+        );
+        #[cfg(not(feature = "kcp"))]
+        let msg = OutboundMsg::new_s_at(
             "td/all/res", "tower", "upgrade", payload, tower_pos.x, tower_pos.y,
-        ));
+        );
+        let _ = self.mqtx.send(msg);
 
         log::info!("⬆️ TD 升級塔 id={} path={} → L{} ({}) cost={}",
             tower_id_u32, path, next_level, def.name, def.cost);
@@ -677,10 +701,16 @@ impl ResourceManager {
 
         // 刪塔 + 廣播 delete
         world.entities().delete(target_entity).ok();
-        let _ = self.mqtx.send(OutboundMsg::new_s(
+        #[cfg(feature = "kcp")]
+        let msg = OutboundMsg::new_typed(
             "td/all/res", "tower", "D",
+            crate::transport::TypedOutbound::EntityDeath(proto_build::entity_death(tower_id_u32)),
             json!({ "id": tower_id_u32 }),
-        ));
+        );
+        #[cfg(not(feature = "kcp"))]
+        let msg = OutboundMsg::new_s("td/all/res", "tower", "D",
+            json!({ "id": tower_id_u32 }));
+        let _ = self.mqtx.send(msg);
 
         // 推新 hero.stats（gold 即時更新）
         if let Some(hero_entity) = hero_entity {
@@ -1251,6 +1281,189 @@ pub(crate) fn build_heartbeat_tick(
         creep_count,
         render_delay_ms,
         hp_snapshot: entries,
+    }
+}
+
+// ========================================================================
+// P2 full-migration helpers: prost builders for high-volume game events.
+// All gated behind the `kcp` feature so non-kcp builds stay cdep-free.
+// ========================================================================
+
+#[cfg(feature = "kcp")]
+pub(crate) mod proto_build {
+    use crate::transport::kcp_transport::game_proto::*;
+    use omoba_core::quant::{facing_quant, fixed_quant, pos_quant};
+
+    pub fn pos16(x: f32, y: f32) -> Position16 {
+        Position16 { x_q: pos_quant(x), y_q: pos_quant(y) }
+    }
+
+    pub fn fx16(v: f32) -> Fixed16 {
+        Fixed16 { v_q: fixed_quant(v) }
+    }
+
+    pub fn projectile_create(
+        id: u32,
+        target_id: u32,
+        start_x: f32,
+        start_y: f32,
+        end_x: f32,
+        end_y: f32,
+        flight_time_ms: u64,
+        directional: bool,
+        splash_radius: f32,
+        hit_radius: f32,
+        kind: &str,
+    ) -> ProjectileCreate {
+        ProjectileCreate {
+            id: id as u64,
+            target_id: target_id as u64,
+            start_pos: Some(pos16(start_x, start_y)),
+            end_pos: Some(pos16(end_x, end_y)),
+            flight_time_ms: flight_time_ms.min(u32::MAX as u64) as u32,
+            directional,
+            splash_radius: Some(fx16(splash_radius)),
+            hit_radius: Some(fx16(hit_radius)),
+            kind: kind.to_string(),
+        }
+    }
+
+    pub fn projectile_destroy(id: u32) -> ProjectileDestroy {
+        ProjectileDestroy { id: id as u64 }
+    }
+
+    pub fn creep_create(
+        id: u32,
+        x: f32,
+        y: f32,
+        hp: f32,
+        max_hp: f32,
+        move_speed: f32,
+        name: &str,
+    ) -> CreepCreate {
+        CreepCreate {
+            id: id as u64,
+            pos: Some(pos16(x, y)),
+            hp: Some(fx16(hp)),
+            max_hp: Some(fx16(max_hp)),
+            move_speed: Some(fx16(move_speed)),
+            name: name.to_string(),
+            template_key: String::new(),
+        }
+    }
+
+    pub fn creep_move(id: u32, x: f32, y: f32, facing: f32) -> CreepMove {
+        CreepMove {
+            id: id as u64,
+            target: Some(pos16(x, y)),
+            facing_q: facing_quant(facing),
+        }
+    }
+
+    pub fn creep_hp(id: u32, hp: f32) -> CreepHp {
+        CreepHp {
+            id: id as u64,
+            hp: Some(fx16(hp)),
+        }
+    }
+
+    pub fn creep_slow(id: u32, move_speed: f32) -> CreepSlow {
+        CreepSlow {
+            id: id as u64,
+            move_speed: Some(fx16(move_speed)),
+        }
+    }
+
+    pub fn creep_stall(id: u32, x: f32, y: f32, facing: f32) -> CreepStall {
+        CreepStall {
+            id: id as u64,
+            pos: Some(pos16(x, y)),
+            facing_q: facing_quant(facing),
+        }
+    }
+
+    pub fn entity_facing(id: u32, facing: f32) -> EntityFacing {
+        EntityFacing {
+            id: id as u64,
+            facing_q: facing_quant(facing),
+        }
+    }
+
+    pub fn entity_death(id: u32) -> EntityDeath {
+        EntityDeath { id: id as u64 }
+    }
+
+    pub fn tower_create(
+        id: u32,
+        x: f32,
+        y: f32,
+        hp: f32,
+        max_hp: f32,
+        kind: &str,
+        name: &str,
+    ) -> TowerCreate {
+        TowerCreate {
+            id: id as u64,
+            pos: Some(pos16(x, y)),
+            hp: Some(fx16(hp)),
+            max_hp: Some(fx16(max_hp)),
+            kind: kind.to_string(),
+            name: name.to_string(),
+        }
+    }
+
+    pub fn tower_upgrade(id: u32, levels: [u8; 3]) -> TowerUpgrade {
+        TowerUpgrade {
+            id: id as u64,
+            levels: vec![levels[0] as u32, levels[1] as u32, levels[2] as u32],
+        }
+    }
+
+    pub fn buff_add(
+        entity_id: u32,
+        buff_id: &str,
+        duration_sec: f32,
+        payload: &serde_json::Value,
+    ) -> BuffAdd {
+        let remaining_ms = if duration_sec.is_infinite() || duration_sec > 65.535 {
+            0xFFFF
+        } else {
+            (duration_sec * 1000.0).clamp(0.0, 65535.0) as u32
+        };
+        BuffAdd {
+            entity_id: entity_id as u64,
+            buff_id: buff_id.to_string(),
+            remaining_ms,
+            payload_json: payload.to_string(),
+        }
+    }
+
+    pub fn buff_remove(entity_id: u32, buff_id: &str) -> BuffRemove {
+        BuffRemove {
+            entity_id: entity_id as u64,
+            buff_id: buff_id.to_string(),
+        }
+    }
+
+    pub fn game_round(round: u32, total: u32, is_running: bool) -> GameRound {
+        GameRound { round, total, is_running }
+    }
+
+    pub fn game_lives(lives: i32) -> GameLives {
+        GameLives { lives }
+    }
+
+    pub fn game_end(winner: &str) -> GameEnd {
+        GameEnd { winner: winner.to_string() }
+    }
+
+    pub fn game_explosion(x: f32, y: f32, radius: f32, duration_sec: f32) -> GameExplosion {
+        let duration_ms = (duration_sec * 1000.0).clamp(0.0, u32::MAX as f32) as u32;
+        GameExplosion {
+            pos: Some(pos16(x, y)),
+            radius: Some(fx16(radius)),
+            duration_ms,
+        }
     }
 }
 
