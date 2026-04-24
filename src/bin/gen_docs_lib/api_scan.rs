@@ -213,7 +213,7 @@ mod tests {
     #[test]
     fn scans_real_script_abi() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("script-abi/src");
+            .join("../scripts/script-abi/src");
         let spec = scan(&dir).unwrap();
         assert!(spec.unit_hooks.len() >= 15, "got only {} unit hooks", spec.unit_hooks.len());
         assert!(spec.ability_hooks.iter().any(|m| m.name == "execute"));
