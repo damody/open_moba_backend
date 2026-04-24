@@ -64,6 +64,12 @@ impl<'a> System<'a> for Sys {
             &tr.entities,
             &tw.heroes,
         ).join().map(|(e, hero)| (e, hero.name.clone())).collect();
+
+        // 技能冷卻倒數 — sequential 迴圈一次刷所有 hero 的 ability_cooldowns，
+        // 在 par_join 攻擊迭代之前處理，避免 borrow 衝突。
+        for (_, hero) in (&tr.entities, &mut tw.heroes).join() {
+            hero.tick_cooldowns(dt);
+        }
         
         let tx = tw.mqtx.get(0).cloned();
         let mut outcomes = (

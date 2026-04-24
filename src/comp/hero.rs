@@ -26,6 +26,10 @@ pub struct Hero {
     pub abilities: Vec<String>,  // ability IDs
     pub ability_levels: HashMap<String, i32>,  // 技能等級
     pub skill_points: i32,       // 可用技能點
+    /// 技能剩餘冷卻秒數；key = ability_id。>0 表示仍在 CD 中，host 會拒絕 SkillCast。
+    /// 不寫進 serde 預設值時自動補空 map，相容舊 savegame。
+    #[serde(default)]
+    pub ability_cooldowns: HashMap<String, f32>,
     
     // 升級數據
     pub level_growth: LevelGrowth,
@@ -70,6 +74,7 @@ impl Hero {
             abilities: Vec::new(),
             ability_levels: HashMap::new(),
             skill_points: 0,
+            ability_cooldowns: HashMap::new(),
             level_growth: LevelGrowth::default(),
         }
     }
@@ -103,6 +108,7 @@ impl Hero {
             abilities: hero_data.abilities.clone(),
             ability_levels,
             skill_points: 8, // 初始技能點（playtest 方便把所有 ability 點起來）
+            ability_cooldowns: HashMap::new(),
             level_growth: LevelGrowth {
                 strength_per_level: hero_data.level_growth.strength_per_level,
                 agility_per_level: hero_data.level_growth.agility_per_level,
@@ -242,6 +248,42 @@ impl Hero {
     /// 檢查是否可以使用技能
     pub fn can_use_ability(&self, ability_id: &str) -> bool {
         self.get_ability_level(ability_id) > 0
+    }
+
+    /// 該技能是否仍在 CD 中（>0 秒）。
+    pub fn is_on_cooldown(&self, ability_id: &str) -> bool {
+        self.ability_cooldowns
+            .get(ability_id)
+            .copied()
+            .unwrap_or(0.0)
+            > 0.0
+    }
+
+    /// 取該技能剩餘冷卻秒；0 代表可施放。
+    pub fn get_cooldown(&self, ability_id: &str) -> f32 {
+        self.ability_cooldowns
+            .get(ability_id)
+            .copied()
+            .unwrap_or(0.0)
+            .max(0.0)
+    }
+
+    /// 啟動技能冷卻。duration <= 0 視為無 CD（直接清除）。
+    pub fn start_cooldown(&mut self, ability_id: &str, duration: f32) {
+        if duration > 0.0 {
+            self.ability_cooldowns
+                .insert(ability_id.to_string(), duration);
+        } else {
+            self.ability_cooldowns.remove(ability_id);
+        }
+    }
+
+    /// 每個 tick 扣 dt；遞減到 0 以下的 entry 自動清除。
+    pub fn tick_cooldowns(&mut self, dt: f32) {
+        self.ability_cooldowns.retain(|_, remaining| {
+            *remaining -= dt;
+            *remaining > 0.0
+        });
     }
 }
 
