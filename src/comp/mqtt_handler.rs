@@ -38,6 +38,8 @@ impl MqttHandler {
                         msg: game_data.to_string(),
                         time: SystemTime::now(),
                         entity_pos: None,
+                        #[cfg(feature = "kcp")]
+                        typed: None,
                     };
                     
                     log::info!("📤 [DEBUG] 準備發送畫面資料到主題: {} - 消息內容長度: {} - 發送隊列容量: {}", response_topic, mqtt_msg.msg.len(), mqtx.len());

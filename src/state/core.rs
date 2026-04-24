@@ -636,18 +636,61 @@ impl State {
             })
         };
 
+        #[cfg(not(any(feature = "grpc", feature = "kcp")))]
         let build_full_snapshot = || -> Vec<serde_json::Value> {
             all_entity_hp.iter()
                 .map(|&(id, _x, _y, hp)| json!({ "i": id, "h": hp }))
                 .collect()
         };
 
+        // Helper closure: emit a heartbeat on the given topic. Under `kcp`
+        // we construct a typed prost `HeartbeatTick` and route via
+        // `OutboundMsg::new_typed` — the wire carries only the prost variant
+        // while the JSON form lives in `msg` for router/dedupe introspection.
+        // Under non-kcp builds (mqtt/grpc) we keep the legacy JSON-only path.
+        #[cfg(feature = "kcp")]
+        let emit = |topic: &str, hp_snap_pairs: Vec<(u32, f32)>| {
+            let hp_snap_json: Vec<serde_json::Value> = hp_snap_pairs
+                .iter()
+                .map(|&(id, hp)| json!({ "i": id, "h": hp }))
+                .collect();
+            let payload = build_meta(hp_snap_json);
+            let ht = crate::state::resource_management::build_heartbeat_tick(
+                tick,
+                game_time,
+                entity_count as u32,
+                hero_count as u32,
+                unit_count as u32,
+                creep_count as u32,
+                render_delay_ms as u32,
+                &hp_snap_pairs,
+            );
+            let msg = OutboundMsg::new_typed(
+                topic,
+                "heartbeat",
+                "tick",
+                crate::transport::types::TypedOutbound::Heartbeat(ht),
+                payload,
+            );
+            self.mqtx.send(msg)
+        };
+
+        #[cfg(all(feature = "grpc", not(feature = "kcp")))]
+        let emit = |topic: &str, hp_snap_pairs: Vec<(u32, f32)>| {
+            let hp_snap_json: Vec<serde_json::Value> = hp_snap_pairs
+                .iter()
+                .map(|&(id, hp)| json!({ "i": id, "h": hp }))
+                .collect();
+            let payload = build_meta(hp_snap_json);
+            self.mqtx.send(OutboundMsg::new_s(topic, "heartbeat", "tick", payload))
+        };
+
         #[cfg(any(feature = "grpc", feature = "kcp"))]
         {
             if self.client_viewports.is_empty() {
                 // 沒有註冊任何 viewport（mcp query-only / 測試），fallback 全域廣播
-                let payload = build_meta(build_full_snapshot());
-                if let Err(e) = self.mqtx.send(OutboundMsg::new_s("td/all/res", "heartbeat", "tick", payload)) {
+                let full: Vec<(u32, f32)> = all_entity_hp.iter().map(|&(id, _x, _y, hp)| (id, hp)).collect();
+                if let Err(e) = emit("td/all/res", full) {
                     log::error!("無法發送心跳訊息: {}", e);
                 } else {
                     log::trace!("💓 心跳已發送 (fallback broadcast) - tick: {}, entities: {}", tick, entity_count);
@@ -661,20 +704,19 @@ impl State {
                 // also skips them — both paths treat viewport as subscribe
                 // handshake completion.
                 for (name, vp) in self.client_viewports.iter() {
-                    let mut hp_snap: Vec<serde_json::Value> = Vec::new();
+                    let mut hp_snap: Vec<(u32, f32)> = Vec::new();
                     for &(id, x, y, hp) in &all_entity_hp {
                         if vp.contains(x, y) {
                             // Compact keys "i"/"h" are load-bearing for
                             // 30-player × 2Hz bandwidth (Task 1.5 design).
-                            // P2 prost migration replaces this with a typed
-                            // message; do NOT expand to "id"/"hp" for
-                            // "readability" in the meantime.
-                            hp_snap.push(json!({ "i": id, "h": hp }));
+                            // P2 prost migration carries this as a typed
+                            // HeartbeatTick under `kcp`; the JSON form stays
+                            // only for router introspection.
+                            hp_snap.push((id, hp));
                         }
                     }
-                    let payload = build_meta(hp_snap);
                     let topic = format!("td/{}/res", name);
-                    if let Err(e) = self.mqtx.send(OutboundMsg::new_s(&topic, "heartbeat", "tick", payload)) {
+                    if let Err(e) = emit(&topic, hp_snap) {
                         log::error!("無法發送心跳訊息 player='{}': {}", name, e);
                     } else {
                         log::trace!("💓 心跳已發送 player='{}' tick: {}", name, tick);

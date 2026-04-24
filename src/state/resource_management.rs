@@ -1214,6 +1214,46 @@ pub struct ResourceStats {
 /// 會把 `BuffStore` 身上的 `_bonus` / `_multiplier` 聚合回到 base 值上，讓前端
 /// 看到的攻擊力/射程/移速/攻速/護甲/魔抗 都是「實際生效值」。同時附上 buffs
 /// 陣列（id + 剩餘秒 + payload）供 UI 顯示。
+/// P2 binary-protocol helper: build a prost `HeartbeatTick` for the KCP path.
+///
+/// Input `hp_snapshot` is a pre-filtered slice of `(entity_id, hp)` pairs
+/// (viewport filtering happens at the caller — the full-scan vs per-player
+/// logic already lives in `core::send_heartbeat`). HP values are quantized
+/// via `fixed_quant` (scale 0.1) to match the shared wire scale.
+#[cfg(feature = "kcp")]
+pub(crate) fn build_heartbeat_tick(
+    tick: u64,
+    game_time: f64,
+    entity_count: u32,
+    hero_count: u32,
+    unit_count: u32,
+    creep_count: u32,
+    render_delay_ms: u32,
+    hp_snapshot: &[(u32, f32)],
+) -> crate::transport::kcp_transport::game_proto::HeartbeatTick {
+    use crate::transport::kcp_transport::game_proto::{Fixed16, HeartbeatEntry, HeartbeatTick};
+    use omoba_core::quant::fixed_quant;
+
+    let entries: Vec<HeartbeatEntry> = hp_snapshot
+        .iter()
+        .map(|&(id, hp)| HeartbeatEntry {
+            id: id as u64,
+            hp: Some(Fixed16 { v_q: fixed_quant(hp) }),
+        })
+        .collect();
+
+    HeartbeatTick {
+        tick,
+        game_time,
+        entity_count,
+        hero_count,
+        unit_count,
+        creep_count,
+        render_delay_ms,
+        hp_snapshot: entries,
+    }
+}
+
 pub(crate) fn build_hero_stats_payload(
     hero_entity: specs::Entity,
     h: &crate::comp::Hero,

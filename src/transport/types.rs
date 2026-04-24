@@ -7,6 +7,24 @@ use std::sync::Arc;
 #[cfg(feature = "kcp")]
 use super::metrics::KcpBytesCounter;
 
+/// P2 binary-protocol migration: typed prost payload carried alongside the
+/// legacy JSON `msg` string. When `OutboundMsg.typed` is `Some(_)` the KCP
+/// broadcast thread builds `GameEvent.typed_payload` directly and leaves
+/// `data_json` empty — so the wire carries ONLY the prost variant.
+///
+/// The JSON `msg` field is retained for dedupe/router introspection in the
+/// broadcast thread. It does NOT go on the wire in the typed path.
+///
+/// Available only under `kcp` because the prost types live in
+/// `kcp_transport::game_proto`.
+#[cfg(feature = "kcp")]
+#[derive(Clone, Debug)]
+pub enum TypedOutbound {
+    Heartbeat(super::kcp_transport::game_proto::HeartbeatTick),
+    // Add more variants as the migration proceeds. Each variant owns a
+    // pre-built prost message from `kcp_transport::game_proto`.
+}
+
 /// Outbound message from game logic to transport layer.
 /// Replaces `MqttMsg` in game logic code.
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -18,6 +36,12 @@ pub struct OutboundMsg {
     /// None = global event (heartbeat, death, etc.) that bypasses filtering.
     #[serde(skip)]
     pub entity_pos: Option<(f32, f32)>,
+    /// P2 binary migration: when Some, the transport emits GameEvent with
+    /// `typed_payload` set and `data_json` left empty. `msg` still carries a
+    /// JSON copy for dedupe / router introspection (kept in-memory only).
+    #[cfg(feature = "kcp")]
+    #[serde(skip)]
+    pub typed: Option<TypedOutbound>,
 }
 
 impl OutboundMsg {
@@ -38,6 +62,8 @@ impl OutboundMsg {
             msg: json!(res).to_string(),
             time: SystemTime::now(),
             entity_pos: None,
+            #[cfg(feature = "kcp")]
+            typed: None,
         }
     }
 
@@ -58,6 +84,8 @@ impl OutboundMsg {
             msg: json!(res).to_string(),
             time: SystemTime::now(),
             entity_pos: None,
+            #[cfg(feature = "kcp")]
+            typed: None,
         }
     }
 
@@ -79,6 +107,29 @@ impl OutboundMsg {
             msg: json!(res).to_string(),
             time: SystemTime::now(),
             entity_pos: Some((x, y)),
+            #[cfg(feature = "kcp")]
+            typed: None,
+        }
+    }
+
+    /// P2 binary migration constructor. `typed` is a pre-built prost message;
+    /// `json_fallback` is the legacy `d` field used to build the `msg` string
+    /// for dedupe / router introspection (the JSON form does NOT go on the
+    /// wire when `typed` is Some — only the prost variant is emitted).
+    #[cfg(feature = "kcp")]
+    pub fn new_typed(
+        topic: &str,
+        t: &str,
+        a: &str,
+        typed: TypedOutbound,
+        json_fallback: serde_json::Value,
+    ) -> OutboundMsg {
+        OutboundMsg {
+            topic: topic.to_owned(),
+            msg: json!({ "t": t, "a": a, "d": json_fallback }).to_string(),
+            time: SystemTime::now(),
+            entity_pos: None,
+            typed: Some(typed),
         }
     }
 }
@@ -90,6 +141,8 @@ impl Default for OutboundMsg {
             msg: "".to_owned(),
             time: SystemTime::now(),
             entity_pos: None,
+            #[cfg(feature = "kcp")]
+            typed: None,
         }
     }
 }

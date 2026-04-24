@@ -9,7 +9,7 @@ use tokio::sync::Mutex;
 
 use tokio_kcp::{KcpConfig, KcpListener, KcpNoDelayConfig, KcpStream};
 
-use super::types::{InboundMsg, OutboundMsg, TransportHandle, QueryRequest, QueryResponse, Viewport, ViewportMsg};
+use super::types::{InboundMsg, OutboundMsg, TransportHandle, QueryRequest, QueryResponse, TypedOutbound, Viewport, ViewportMsg};
 use super::metrics::KcpBytesCounter;
 
 // Include the generated proto code
@@ -271,13 +271,23 @@ pub async fn start(
                             .map(|d| d.as_millis() as u64)
                             .unwrap_or(0);
 
+                        // P2 binary-protocol path: when `msg.typed` is Some, build
+                        // the prost oneof variant and drop the JSON `data_json` so
+                        // only the typed payload traverses the wire.
+                        let typed_payload = msg.typed.as_ref().map(|t| match t {
+                            TypedOutbound::Heartbeat(hb) => {
+                                game_event::TypedPayload::Heartbeat(hb.clone())
+                            }
+                        });
+                        let data_json = if typed_payload.is_some() { Vec::new() } else { data_bytes };
+
                         let event = GameEvent {
                             topic: msg.topic.clone(),
                             msg_type,
                             action,
-                            data_json: data_bytes,
+                            data_json,
                             timestamp_ms,
-                            typed_payload: None,  // P2 migration: legacy JSON path
+                            typed_payload,
                         };
 
                         let payload = event.encode_to_vec();
