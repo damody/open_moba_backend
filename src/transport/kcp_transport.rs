@@ -9,7 +9,8 @@ use tokio::sync::Mutex;
 
 use tokio_kcp::{KcpConfig, KcpListener, KcpNoDelayConfig, KcpStream};
 
-use super::types::{BroadcastPolicy, InboundMsg, OutboundMsg, TransportHandle, QueryRequest, QueryResponse, TypedOutbound, Viewport, ViewportMsg};
+use super::types::{BroadcastPolicy, InboundMsg, OutboundMsg, TransportHandle, QueryRequest, QueryResponse, TypedOutbound, Viewport, ViewportMsg, Urgency, urgency};
+use std::sync::atomic::{AtomicU64, Ordering};
 use super::metrics::KcpBytesCounter;
 use crate::aoi::AoiGrid;
 
@@ -106,6 +107,15 @@ struct ClientSession {
     player_name: String,
     event_tx: tokio::sync::mpsc::Sender<Arc<[u8]>>,
     viewport: Option<Viewport>,
+    /// P6: per-session monotonic sequence counter. Incremented + stamped on
+    /// every GameEvent the broadcast thread dispatches to this session. The
+    /// client compares against its last-known sequence and requests a
+    /// snapshot via TAG_GAME_STATE_REQUEST (query_type="seq-gap") when a gap
+    /// is observed.
+    ///
+    /// Wrapped in Arc so the broadcast thread can stamp + encode the frame
+    /// per-session without holding the sessions mutex during encode.
+    seq: Arc<AtomicU64>,
 }
 
 /// Pure-function policy dispatch used by both the broadcast thread and unit
@@ -289,11 +299,33 @@ pub async fn start(
             .build()
             .unwrap();
         rt.block_on(async move {
-            // ===== 100ms Batch Send =====
-            // 把 out_rx 的訊息彙整成 100ms window 的批次，一起寫入 KCP，降低 per-message overhead。
-            // Client 端協定不變：仍是一個 framed GameEvent 一幀，這邊只是把多幀一次寫入。
+            // ===== P6: Two-tier batch window =====
+            // Urgent events (death/spawn/projectile/explosion/buff/tower upgrade/
+            // creep.stall/game.*) flush ASAP for sub-10ms UX latency.
+            // Normal events (creep.M/H/S, entity.F, hero.hot, heartbeat) enter
+            // a 10~33ms window so they benefit from dedupe.
+            //
+            // Algorithm:
+            //   1. Block on first message.
+            //   2. If first is Urgent → drain what's already ready (try_recv
+            //      loop), flush immediately.
+            //   3. Otherwise: batch for MIN_BATCH, then keep batching up to
+            //      MAX_BATCH — BUT if any Urgent message arrives after
+            //      MIN_BATCH, flush immediately.
+            //
+            // Rationale for MIN_BATCH = 10ms: gives dedupe a real chance to
+            // collapse creep.M/.H bursts emitted within the same tick (server
+            // runs at ~30fps so one tick's worth of events fires in <1ms, but
+            // consecutive ticks' Normals can still land in the same window).
             use std::time::{Duration, Instant};
-            const BATCH_WINDOW: Duration = Duration::from_millis(33);
+            const MIN_BATCH: Duration = Duration::from_millis(10);
+            const MAX_BATCH: Duration = Duration::from_millis(33);
+
+            let msg_urgency = |m: &OutboundMsg| -> Urgency {
+                let (t, a, _) = peek_kind_and_id(&m.msg);
+                urgency(&t, &a)
+            };
+
             'outer: loop {
                 // 等第一筆訊息（阻塞）
                 let first = match out_rx.recv() {
@@ -303,18 +335,42 @@ pub async fn start(
                         break 'outer;
                     }
                 };
+                let first_is_urgent = msg_urgency(&first) == Urgency::Urgent;
                 let mut batch: Vec<crate::transport::OutboundMsg> = vec![first];
                 let window_start = Instant::now();
-                // 在 100ms 內盡量多收
-                loop {
-                    let elapsed = window_start.elapsed();
-                    if elapsed >= BATCH_WINDOW {
-                        break;
+
+                if first_is_urgent {
+                    // Urgent head: drain whatever's already queued without
+                    // blocking, flush immediately. Keeps the latency budget
+                    // <1ms for this event while still batching anything that
+                    // happened to arrive alongside it.
+                    while let Ok(m) = out_rx.try_recv() {
+                        batch.push(m);
                     }
-                    match out_rx.recv_timeout(BATCH_WINDOW - elapsed) {
-                        Ok(m) => batch.push(m),
-                        Err(crossbeam_channel::RecvTimeoutError::Timeout) => break,
-                        Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break 'outer,
+                } else {
+                    // Normal head: batch for MIN_BATCH unconditionally, then
+                    // between MIN_BATCH..=MAX_BATCH flush early on any Urgent.
+                    loop {
+                        let now = Instant::now();
+                        let elapsed = now.duration_since(window_start);
+                        if elapsed >= MAX_BATCH {
+                            break;
+                        }
+                        let timeout = MAX_BATCH - elapsed;
+                        match out_rx.recv_timeout(timeout) {
+                            Ok(m) => {
+                                let is_urg = msg_urgency(&m) == Urgency::Urgent;
+                                batch.push(m);
+                                // If Urgent arrived after MIN_BATCH, don't
+                                // wait any longer — the batch has already
+                                // earned its dedupe savings.
+                                if is_urg && window_start.elapsed() >= MIN_BATCH {
+                                    break;
+                                }
+                            }
+                            Err(crossbeam_channel::RecvTimeoutError::Timeout) => break,
+                            Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break 'outer,
+                        }
                     }
                 }
 
@@ -346,6 +402,9 @@ pub async fn start(
                         // P2 binary-protocol path: when `msg.typed` is Some, build
                         // the prost oneof variant and drop the JSON `data_json` so
                         // only the typed payload traverses the wire.
+                        // NOTE: built once per OutboundMsg, then cloned per session
+                        // since each session stamps its own `sequence` on the
+                        // final GameEvent (P6).
                         let typed_payload = msg.typed.as_ref().map(|t| match t {
                             TypedOutbound::Heartbeat(hb) => {
                                 game_event::TypedPayload::Heartbeat(hb.clone())
@@ -410,53 +469,18 @@ pub async fn start(
                         });
                         let data_json = if typed_payload.is_some() { Vec::new() } else { data_bytes };
 
-                        let event = GameEvent {
+                        // Build a template event WITHOUT sequence — each
+                        // session will clone and stamp its own per-session
+                        // sequence before encoding (P6).
+                        let event_template = GameEvent {
                             topic: msg.topic.clone(),
-                            msg_type,
-                            action,
+                            msg_type: msg_type.clone(),
+                            action: action.clone(),
                             data_json,
                             timestamp_ms,
+                            sequence: 0, // overwritten per-session
                             typed_payload,
                         };
-
-                        let payload = event.encode_to_vec();
-
-                        // Compress payload when ≥ threshold AND the compressed
-                        // bytes are strictly smaller; otherwise fall back to raw.
-                        // KEEP IN SYNC with write_framed above.
-                        let (frame_tag, frame_payload): (u8, std::borrow::Cow<'_, [u8]>) =
-                            if payload.len() >= LZ4_THRESHOLD {
-                                let c = lz4_flex::block::compress_prepend_size(&payload);
-                                if c.len() < payload.len() {
-                                    (TAG_GAME_EVENT | COMPRESSION_FLAG, std::borrow::Cow::Owned(c))
-                                } else {
-                                    (TAG_GAME_EVENT, std::borrow::Cow::Borrowed(&payload))
-                                }
-                            } else {
-                                (TAG_GAME_EVENT, std::borrow::Cow::Borrowed(&payload))
-                            };
-
-                        // Build framed bytes: tag + len + payload
-                        let mut frame = Vec::with_capacity(1 + 4 + frame_payload.len());
-                        frame.push(frame_tag);
-                        frame.extend_from_slice(&(frame_payload.len() as u32).to_be_bytes());
-                        frame.extend_from_slice(&frame_payload);
-
-                        // Record observed wire bytes (post-compression, includes
-                        // tag + length prefix).  Bucketed by (msg_type, action) so
-                        // downstream analysis can slice by game event category
-                        // without the hot path paying a `format!()` per message.
-                        counter_broadcast.record(
-                            &event.msg_type,
-                            &event.action,
-                            frame.len(),
-                        );
-
-                        // P5 fan-out: encode/compress ONCE, then hand each
-                        // target session a cheap `Arc::clone`. Zero-copy across
-                        // sessions; the mpsc<Arc<[u8]>> channel forwards the
-                        // same byte slice into the KCP writer.
-                        let frame_arc: Arc<[u8]> = Arc::from(frame.into_boxed_slice());
 
                         let sessions = sessions_broadcast.lock().await;
                         let mut to_remove = Vec::new();
@@ -533,12 +557,55 @@ pub async fn start(
 
                         let is_per_player_topic = !msg.topic.contains("/all/") && msg.topic.starts_with("td/") && msg.topic.ends_with("/res");
                         let mut route_hits = 0u32;
+                        // P6: encode+compress+frame per session because each
+                        // session stamps its own `sequence`. The payload bytes
+                        // differ ONLY in the sequence field (typically 1~2
+                        // varint bytes) so CPU cost is dominated by LZ4 which
+                        // we re-run per target. For the expected ≤32 players
+                        // this is comfortably within the 33ms max window.
+                        //
+                        // A future optimisation could hoist the compressed
+                        // bytes minus-the-sequence and splice — but that
+                        // complicates prost framing and the measured cost is
+                        // already acceptable.
                         for target in &targets {
                             if let Some(session) = sessions.get(target) {
-                                // `Arc::clone` is a refcount bump; the actual
-                                // bytes are NOT copied. The mpsc channel
-                                // forwards the Arc<[u8]> into the writer task.
-                                if session.event_tx.try_send(frame_arc.clone()).is_err() {
+                                // Stamp the per-session sequence (monotonic,
+                                // no gaps — client uses these to detect loss
+                                // even though AOI may drop events pre-stamp).
+                                let seq_val = session.seq.fetch_add(1, Ordering::Relaxed);
+                                let mut ev = event_template.clone();
+                                ev.sequence = seq_val;
+                                let payload = ev.encode_to_vec();
+
+                                // Compress payload when ≥ threshold AND the
+                                // compressed bytes are strictly smaller;
+                                // otherwise fall back to raw.
+                                // KEEP IN SYNC with write_framed above.
+                                let (frame_tag, frame_payload): (u8, std::borrow::Cow<'_, [u8]>) =
+                                    if payload.len() >= LZ4_THRESHOLD {
+                                        let c = lz4_flex::block::compress_prepend_size(&payload);
+                                        if c.len() < payload.len() {
+                                            (TAG_GAME_EVENT | COMPRESSION_FLAG, std::borrow::Cow::Owned(c))
+                                        } else {
+                                            (TAG_GAME_EVENT, std::borrow::Cow::Borrowed(&payload))
+                                        }
+                                    } else {
+                                        (TAG_GAME_EVENT, std::borrow::Cow::Borrowed(&payload))
+                                    };
+
+                                let mut frame = Vec::with_capacity(1 + 4 + frame_payload.len());
+                                frame.push(frame_tag);
+                                frame.extend_from_slice(&(frame_payload.len() as u32).to_be_bytes());
+                                frame.extend_from_slice(&frame_payload);
+
+                                // Record observed wire bytes per session so the
+                                // counter reflects real wire volume (N sessions
+                                // × 1 encoded frame each).
+                                counter_broadcast.record(&msg_type, &action, frame.len());
+
+                                let frame_arc: Arc<[u8]> = Arc::from(frame.into_boxed_slice());
+                                if session.event_tx.try_send(frame_arc).is_err() {
                                     to_remove.push(target.clone());
                                 } else {
                                     route_hits += 1;
@@ -666,6 +733,11 @@ async fn handle_client(
                                             player_name: sub.player_name,
                                             event_tx,
                                             viewport: None,
+                                            // P6: per-session monotonic seq
+                                            // starts at 0 on subscribe; the
+                                            // first GameEvent delivered to
+                                            // this session carries sequence=0.
+                                            seq: Arc::new(AtomicU64::new(0)),
                                         },
                                     );
                                 }
@@ -699,6 +771,34 @@ async fn handle_client(
                             }
                             TAG_GAME_STATE_REQUEST => {
                                 if let Ok(req) = GameStateRequest::decode(payload.as_slice()) {
+                                    // P6: handle "seq-gap" client-initiated
+                                    // resync. player_name carries the
+                                    // last-known seq as a decimal string (to
+                                    // avoid a proto schema bump). For now we
+                                    // just LOG + ACK — a full state snapshot
+                                    // response is deferred to a follow-up.
+                                    // Clients that see a gap will retry the
+                                    // request periodically until the server
+                                    // catches up organically.
+                                    if req.query_type == "seq-gap" {
+                                        warn!(
+                                            "⚠️ seq-gap resync request from session={} last_seq={:?}",
+                                            session_id, req.player_name
+                                        );
+                                        // Stub: ACK so client knows server
+                                        // received the request. A future patch
+                                        // should build a full view snapshot
+                                        // (hero/creep/tower in AOI) and ship
+                                        // it back as a batched replay.
+                                        let resp = GameStateResponse {
+                                            success: true,
+                                            error: String::new(),
+                                            data_json: b"{\"stub\":true,\"note\":\"seq-gap snapshot not yet implemented - server logged request\"}".to_vec(),
+                                        };
+                                        let resp_payload = resp.encode_to_vec();
+                                        let _ = write_framed(&mut writer, TAG_GAME_STATE_RESPONSE, &resp_payload).await;
+                                        continue;
+                                    }
                                     let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
                                     let query = QueryRequest {
                                         query_type: req.query_type,
@@ -989,6 +1089,130 @@ mod tests {
             None, "td/all/res", None, &sessions, &|_| None,
         );
         assert_eq!(targets.len(), 2);
+    }
+
+    // ===== P6 two-tier batch window tests =====
+    //
+    // Rather than spin up the entire runtime, we extract the algorithm into a
+    // small helper that takes a crossbeam Receiver and returns the collected
+    // batch. That lets us feed synthetic (timed) inputs and assert flush
+    // timing. KEEP IN SYNC with the real broadcast loop above.
+    use crossbeam_channel::{bounded, RecvTimeoutError};
+    use std::time::{Duration, Instant};
+
+    fn collect_batch(
+        rx: &crossbeam_channel::Receiver<OutboundMsg>,
+        min_batch: Duration,
+        max_batch: Duration,
+    ) -> Option<Vec<OutboundMsg>> {
+        let first = rx.recv().ok()?;
+        let first_urg = {
+            let (t, a, _) = peek_kind_and_id(&first.msg);
+            urgency(&t, &a)
+        };
+        let mut batch = vec![first];
+        let start = Instant::now();
+        if first_urg == Urgency::Urgent {
+            while let Ok(m) = rx.try_recv() {
+                batch.push(m);
+            }
+            return Some(batch);
+        }
+        loop {
+            let now = Instant::now();
+            let elapsed = now.duration_since(start);
+            if elapsed >= max_batch {
+                break;
+            }
+            let timeout = max_batch - elapsed;
+            match rx.recv_timeout(timeout) {
+                Ok(m) => {
+                    let (t, a, _) = peek_kind_and_id(&m.msg);
+                    let is_urg = urgency(&t, &a) == Urgency::Urgent;
+                    batch.push(m);
+                    if is_urg && start.elapsed() >= min_batch {
+                        break;
+                    }
+                }
+                Err(RecvTimeoutError::Timeout) => break,
+                Err(RecvTimeoutError::Disconnected) => break,
+            }
+        }
+        Some(batch)
+    }
+
+    #[test]
+    fn urgent_first_flushes_immediately() {
+        // First msg is Urgent → algorithm drains ready messages and returns.
+        // Must complete well under MIN_BATCH even though MIN_BATCH is 10ms.
+        let (tx, rx) = bounded::<OutboundMsg>(32);
+        tx.send(make("creep", "D", json!({ "id": 42 }))).unwrap();
+        tx.send(make("creep", "H", json!({ "id": 42, "hp": 10.0 }))).unwrap();
+        let t0 = Instant::now();
+        let batch = collect_batch(&rx, Duration::from_millis(10), Duration::from_millis(33)).unwrap();
+        let elapsed = t0.elapsed();
+        assert!(elapsed < Duration::from_millis(5), "urgent flush took {:?}", elapsed);
+        // Both messages made it in (the Normal got piggy-backed via try_recv).
+        assert_eq!(batch.len(), 2);
+    }
+
+    #[test]
+    fn normal_first_waits_at_least_min_batch() {
+        // When the head is Normal and no Urgent arrives, we hold up to
+        // MAX_BATCH. With an empty channel after the first msg we hit the
+        // timeout at exactly MAX_BATCH (modulo OS scheduler slop).
+        let (tx, rx) = bounded::<OutboundMsg>(32);
+        tx.send(make("creep", "H", json!({ "id": 42, "hp": 10.0 }))).unwrap();
+        let t0 = Instant::now();
+        let batch = collect_batch(&rx, Duration::from_millis(10), Duration::from_millis(33)).unwrap();
+        let elapsed = t0.elapsed();
+        // Expect ≥ MAX_BATCH (within a generous tolerance — Windows scheduler
+        // quantum is ~15ms so the lower bound is what we really care about).
+        assert!(elapsed >= Duration::from_millis(25), "normal flush fired too early: {:?}", elapsed);
+        assert_eq!(batch.len(), 1);
+    }
+
+    #[test]
+    fn urgent_after_min_batch_short_circuits() {
+        // Normal head, then after MIN_BATCH an Urgent arrives → should flush
+        // before MAX_BATCH. Drive a separate thread to deliver the urgent
+        // message ~15ms in.
+        let (tx, rx) = bounded::<OutboundMsg>(32);
+        tx.send(make("creep", "H", json!({ "id": 42, "hp": 10.0 }))).unwrap();
+        let tx2 = tx.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(15));
+            tx2.send(make("creep", "D", json!({ "id": 42 }))).unwrap();
+        });
+        let t0 = Instant::now();
+        let batch = collect_batch(&rx, Duration::from_millis(10), Duration::from_millis(33)).unwrap();
+        let elapsed = t0.elapsed();
+        // Must flush after the Urgent arrives (~15ms) but before MAX_BATCH (33ms).
+        assert!(elapsed < Duration::from_millis(30), "didn't short-circuit on Urgent: {:?}", elapsed);
+        assert!(elapsed >= Duration::from_millis(14), "flushed before MIN_BATCH: {:?}", elapsed);
+        assert_eq!(batch.len(), 2);
+    }
+
+    #[test]
+    fn urgent_before_min_batch_still_holds() {
+        // If an Urgent arrives BEFORE MIN_BATCH, we keep batching until at
+        // least MIN_BATCH — the Urgent is only a short-circuit signal once
+        // we've already amortised the batch cost.
+        let (tx, rx) = bounded::<OutboundMsg>(32);
+        tx.send(make("creep", "H", json!({ "id": 42, "hp": 10.0 }))).unwrap();
+        let tx2 = tx.clone();
+        std::thread::spawn(move || {
+            // Urgent arrives at ~3ms — well inside MIN_BATCH.
+            std::thread::sleep(Duration::from_millis(3));
+            tx2.send(make("creep", "D", json!({ "id": 42 }))).unwrap();
+        });
+        let t0 = Instant::now();
+        let batch = collect_batch(&rx, Duration::from_millis(10), Duration::from_millis(33)).unwrap();
+        let elapsed = t0.elapsed();
+        // Should keep batching past MIN_BATCH even though Urgent was seen
+        // (then hit MAX_BATCH since nothing else arrives).
+        assert!(elapsed >= Duration::from_millis(25), "flushed on early Urgent: {:?}", elapsed);
+        assert_eq!(batch.len(), 2);
     }
 
     #[test]

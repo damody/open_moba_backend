@@ -289,6 +289,52 @@ impl Default for OutboundMsg {
     }
 }
 
+/// P6 two-tier batch window: classifies outbound events by latency budget.
+///
+/// `Urgent` events flush immediately (sub-10ms UX budget). `Normal` events
+/// benefit from batching + dedupe within a 10~33ms window.
+#[cfg(any(feature = "grpc", feature = "kcp"))]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Urgency {
+    /// Flush ASAP. Death/skill cast/explosion/spawn/projectile/buff/game state.
+    Urgent,
+    /// Batch up to 33ms. HP/facing/move ticks, heartbeats, everything else.
+    Normal,
+}
+
+/// P6: classify `(msg_type, action)` into an `Urgency` class. Mirrors the shape
+/// of `is_dedupable` — centralised in one place so both policies evolve
+/// together.
+///
+/// Rationale per class:
+/// - `*.D` / `.death` — death feedback: hero needs to see immediately.
+/// - `*.C` / `.create` — spawn: positional/visual pops need to be immediate.
+/// - `projectile.*` — all projectile events (create, destroy) are visual and
+///   brief; delaying them breaks hit/miss perception.
+/// - `game.explosion/.end/.round` — game-state transitions, non-batchable.
+/// - `creep.stall` — one-shot collision feedback.
+/// - `tower.create/.upgrade` — rare but UX-critical.
+/// - `buff.*` — add/remove: players must see buffs appear/disappear crisply.
+///
+/// Everything else (creep.M/.H/.S, entity.F, hero.hot, heartbeat.tick) falls
+/// through to `Normal` and enjoys the dedupe window.
+#[cfg(any(feature = "grpc", feature = "kcp"))]
+pub fn urgency(msg_type: &str, action: &str) -> Urgency {
+    // Action-level: any destroy / creation is urgent regardless of kind.
+    match action {
+        "D" | "death" | "C" | "create" => return Urgency::Urgent,
+        _ => {}
+    }
+    match (msg_type, action) {
+        ("game", "explosion" | "end" | "round") => Urgency::Urgent,
+        ("projectile", _) => Urgency::Urgent,
+        ("tower", "upgrade") => Urgency::Urgent,
+        ("creep", "stall") => Urgency::Urgent,
+        ("buff", _) => Urgency::Urgent,
+        _ => Urgency::Normal,
+    }
+}
+
 /// Inbound message from transport layer to game logic.
 /// Replaces `PlayerData` in game logic code.
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -363,4 +409,79 @@ pub struct TransportHandle {
     /// Mutex contention is minimal — both hold the lock for microseconds.
     #[cfg(feature = "kcp")]
     pub aoi: Arc<std::sync::Mutex<crate::aoi::AoiGrid>>,
+}
+
+#[cfg(test)]
+#[cfg(any(feature = "grpc", feature = "kcp"))]
+mod urgency_tests {
+    use super::{urgency, Urgency};
+
+    #[test]
+    fn death_is_urgent_any_kind() {
+        assert_eq!(urgency("creep", "D"), Urgency::Urgent);
+        assert_eq!(urgency("hero", "D"), Urgency::Urgent);
+        assert_eq!(urgency("tower", "D"), Urgency::Urgent);
+        assert_eq!(urgency("entity", "death"), Urgency::Urgent);
+    }
+
+    #[test]
+    fn create_is_urgent_any_kind() {
+        assert_eq!(urgency("creep", "C"), Urgency::Urgent);
+        assert_eq!(urgency("tower", "create"), Urgency::Urgent);
+    }
+
+    #[test]
+    fn projectile_all_urgent() {
+        // Every projectile event — create, destroy, and any future variant
+        // — is urgent regardless of action (visual sub-10ms budget).
+        assert_eq!(urgency("projectile", "C"), Urgency::Urgent);
+        assert_eq!(urgency("projectile", "D"), Urgency::Urgent);
+        assert_eq!(urgency("projectile", "hit"), Urgency::Urgent);
+    }
+
+    #[test]
+    fn game_state_transitions_urgent() {
+        assert_eq!(urgency("game", "explosion"), Urgency::Urgent);
+        assert_eq!(urgency("game", "end"), Urgency::Urgent);
+        assert_eq!(urgency("game", "round"), Urgency::Urgent);
+    }
+
+    #[test]
+    fn buff_events_urgent() {
+        assert_eq!(urgency("buff", "add"), Urgency::Urgent);
+        assert_eq!(urgency("buff", "remove"), Urgency::Urgent);
+        assert_eq!(urgency("buff", "buff_add"), Urgency::Urgent);
+    }
+
+    #[test]
+    fn tower_upgrade_urgent() {
+        assert_eq!(urgency("tower", "upgrade"), Urgency::Urgent);
+    }
+
+    #[test]
+    fn creep_stall_urgent() {
+        assert_eq!(urgency("creep", "stall"), Urgency::Urgent);
+    }
+
+    #[test]
+    fn hot_path_normal() {
+        // The bandwidth-heavy streams MUST be Normal so they benefit from
+        // the 10~33ms dedupe window. If any of these regresses to Urgent we
+        // lose the dedupe savings P1 paid for.
+        assert_eq!(urgency("creep", "M"), Urgency::Normal);
+        assert_eq!(urgency("creep", "H"), Urgency::Normal);
+        assert_eq!(urgency("creep", "S"), Urgency::Normal);
+        assert_eq!(urgency("entity", "F"), Urgency::Normal);
+        assert_eq!(urgency("hero", "hot"), Urgency::Normal);
+        assert_eq!(urgency("heartbeat", "tick"), Urgency::Normal);
+    }
+
+    #[test]
+    fn unknown_defaults_to_normal() {
+        // Forward-compat: a new (msg_type, action) we haven't categorised
+        // falls through to Normal. Safer than Urgent (which would defeat
+        // batching for events we didn't mean to flush immediately).
+        assert_eq!(urgency("weird", "thing"), Urgency::Normal);
+        assert_eq!(urgency("", ""), Urgency::Normal);
+    }
 }

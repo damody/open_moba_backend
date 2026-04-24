@@ -99,6 +99,9 @@ impl GameService for GameServiceImpl {
                                 action,
                                 data_json: data_bytes,
                                 timestamp_ms,
+                                // P6: gRPC path doesn't implement per-session
+                                // sequencing (no session abstraction); leave 0.
+                                sequence: 0,
                                 typed_payload: None,
                             });
                         }
