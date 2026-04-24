@@ -1,0 +1,68 @@
+{
+  "_comment": "Single source of truth for all template ids. Append-only — changing order shifts ids. Id 0 reserved as UNSPECIFIED; sequential u16 assigned from 1 in declaration order.",
+  "_design_doc": "docs/plans/2026-04-25-template-id-codegen-design.md",
+
+  "towers": [
+    { "id": "tower_dart", "display_name": "Dart Monkey" },
+    { "id": "tower_tack", "display_name": "Tack Shooter" },
+    { "id": "tower_bomb", "display_name": "Bomb Shooter" },
+    { "id": "tower_ice",  "display_name": "Ice Tower" }
+  ],
+
+  "heroes": [
+    { "id": "saika_magoichi", "display_name": "雜賀孫市", "title": "千里狙擊手" },
+    { "id": "date_masamune",  "display_name": "伊達政宗", "title": "獨眼龍" }
+  ],
+
+  "abilities": [
+    { "id": "sniper_mode",           "display_name": "狙擊模式" },
+    { "id": "saika_reinforcements",  "display_name": "雜賀援軍" },
+    { "id": "rain_iron_cannon",      "display_name": "雨鐵砲" },
+    { "id": "three_stage_technique", "display_name": "三段擊" },
+    { "id": "flame_blade",           "display_name": "炎刃" },
+    { "id": "fire_dash",             "display_name": "火焰衝擊" },
+    { "id": "flame_assault",         "display_name": "炎襲" },
+    { "id": "matchlock_gun",         "display_name": "火繩銃" }
+  ],
+
+  "buffs": [
+    { "id": "stun",        "display_name": "暈眩" },
+    { "id": "slow",        "display_name": "減速" },
+    { "id": "burn",        "display_name": "燃燒" },
+    { "id": "sniper_mode", "display_name": "狙擊姿態" },
+    { "id": "three_stage", "display_name": "三段擊" }
+  ],
+
+  "summons": [
+    { "id": "saika_gunner", "display_name": "雜賀鐵炮兵" }
+  ],
+
+  "creeps": [
+    { "id": "training_mage",  "display_name": "訓練法師" },
+    { "id": "fire_mage",      "display_name": "火焰法師" },
+    { "id": "great_mage",     "display_name": "大法師" },
+    { "id": "practice_dummy", "display_name": "練習假人" },
+    { "id": "moving_target",  "display_name": "移動靶" },
+    { "id": "training_creep", "display_name": "訓練小兵" },
+    { "id": "armored_dummy",  "display_name": "裝甲假人" },
+    { "id": "forest_ghost",   "display_name": "森林幽靈" },
+    { "id": "wolf",           "display_name": "野狼" },
+    { "id": "melee_minion",   "display_name": "近戰兵" },
+    { "id": "ranged_minion",  "display_name": "遠程兵" },
+    { "id": "siege_minion",   "display_name": "攻城兵" },
+    { "id": "saika_gunner",   "display_name": "雜賀鐵炮兵" },
+    { "id": "sharpshooter",   "display_name": "神射手" }
+  ],
+
+  "projectile_kinds": [
+    { "id": "dart" },
+    { "id": "spike_opult" },
+    { "id": "tack" },
+    { "id": "tack_blade" },
+    { "id": "bomb" },
+    { "id": "bomb_frag" },
+    { "id": "saika_shot" },
+    { "id": "ice" },
+    { "id": "icicle" }
+  ]
+}
