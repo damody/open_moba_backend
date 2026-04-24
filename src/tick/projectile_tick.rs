@@ -1,3 +1,4 @@
+use omb_script_abi::stat_keys::StatKey;
 use specs::{
     shred, Entities, Join, LazyUpdate, Read, ReadExpect, ReadStorage, SystemData,
     Write, WriteStorage, ParJoin, World,
@@ -202,11 +203,16 @@ fn create_projectile_damage(
     // Ice 塔：附加減速 debuff 到目標
     if proj.slow_factor > 0.0 && proj.slow_factor < 1.0 && proj.slow_duration > 0.0 {
         let bonus = -(1.0 - proj.slow_factor);  // factor=0.5 → bonus=-0.5
+        let mut payload = serde_json::Map::new();
+        payload.insert(
+            StatKey::MoveSpeedBonus.as_str().to_string(),
+            serde_json::json!(bonus),
+        );
         outcomes.push(Outcome::AddBuff {
             target,
             buff_id: format!("slow_{}", proj.owner.id()),
             duration: proj.slow_duration,
-            payload: serde_json::json!({ "move_speed_bonus": bonus }),
+            payload: serde_json::Value::Object(payload),
         });
     }
 

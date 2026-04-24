@@ -84,13 +84,7 @@ impl BuffStore {
     /// 加法聚合：對 entity 身上所有 buff，若 `payload[stat]` 是數字則加總。
     /// 慣例：`_bonus` 後綴的 stat 用這個（例 `range_bonus`、`damage_bonus`）。
     pub fn sum_add(&self, entity: Entity, stat: StatKey) -> f32 {
-        self.sum_add_str(entity, stat.as_str())
-    }
-
-    /// 加法聚合（字串 key 版）：用於 host-only / 非 StatKey enum 的自訂 payload 欄位，
-    /// 例如 `dot_damage`、`multi_shot_visual`、`damage_taken_bonus` 等 project 內部 key。
-    /// StatKey enum 內的屬性請用 `sum_add(StatKey::...)`。
-    pub fn sum_add_str(&self, entity: Entity, key: &str) -> f32 {
+        let key = stat.as_str();
         self.iter_for(entity)
             .filter_map(|(_, e)| e.payload.get(key).and_then(|v| v.as_f64()))
             .sum::<f64>() as f32

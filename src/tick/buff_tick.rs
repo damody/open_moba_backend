@@ -9,6 +9,7 @@
 //! 以 1 秒累計槽 (`dot_accum: f32`) 控制頻率，累積到 1s 時觸發一次整批 dot。
 
 use crossbeam_channel::Sender;
+use omb_script_abi::stat_keys::StatKey;
 use serde_json::json;
 use specs::{shred, Entities, Join, Read, ReadStorage, SystemData, Write, World};
 
@@ -19,19 +20,19 @@ use crate::transport::OutboundMsg;
 
 /// 位移類 payload key — 任一存在於過期 buff 的 payload 就要重算 creep 移速並廣播 `creep/S`。
 /// 對應 Dota MOVESPEED_BONUS_* / MOVESPEED_ABSOLUTE / MIN / MAX / LIMIT。
-const MOVESPEED_PAYLOAD_KEYS: &[&str] = &[
-    "move_speed_bonus",           // 舊 alias
-    "movespeed_bonus_constant",
-    "movespeed_base_override",
-    "movespeed_bonus_percentage",
-    "movespeed_bonus_percentage_unique",
-    "movespeed_bonus_percentage_unique_2",
-    "movespeed_bonus_unique",
-    "movespeed_bonus_unique_2",
-    "movespeed_absolute",
-    "movespeed_absolute_min",
-    "movespeed_limit",
-    "movespeed_max",
+const MOVESPEED_PAYLOAD_KEYS: &[StatKey] = &[
+    StatKey::MoveSpeedBonus,
+    StatKey::MoveSpeedBonusConstant,
+    StatKey::MoveSpeedBaseOverride,
+    StatKey::MoveSpeedBonusPercentage,
+    StatKey::MoveSpeedBonusPercentageUnique,
+    StatKey::MoveSpeedBonusPercentageUnique2,
+    StatKey::MoveSpeedBonusUnique,
+    StatKey::MoveSpeedBonusUnique2,
+    StatKey::MoveSpeedAbsolute,
+    StatKey::MoveSpeedAbsoluteMin,
+    StatKey::MoveSpeedLimit,
+    StatKey::MoveSpeedMax,
 ];
 
 #[derive(SystemData)]
@@ -64,7 +65,7 @@ impl<'a> System<'a> for Sys {
         let dot_targets: Vec<(specs::Entity, f32)> = (&data.entities)
             .join()
             .filter_map(|e| {
-                let d = data.buffs.sum_add_str(e, "dot_damage");
+                let d = data.buffs.sum_add(e, StatKey::DotDamage);
                 if d > 0.0 { Some((e, d)) } else { None }
             })
             .collect();
@@ -94,7 +95,7 @@ impl<'a> System<'a> for Sys {
             // 用 UnitStats 套完整 Dota 公式（而非舊的 clamp 0.01-1.0）。
             let touches_movespeed = MOVESPEED_PAYLOAD_KEYS
                 .iter()
-                .any(|k| payload.get(*k).is_some());
+                .any(|k| payload.get(k.as_str()).is_some());
             if touches_movespeed {
                 let is_creep = data.creeps.get(entity).is_some();
                 if is_creep {
