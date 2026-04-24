@@ -531,9 +531,11 @@ impl GameProcessor {
             }
         };
 
-        // P3: kill bounty 廣播 HeroHot（gold/xp 改了）；升級時另加發 HeroStatic。
-        // 非 kcp build: 仍是一次性 hero.stats JSON。
-        {
+        // P3 fix: kill bounty 只在「真的升級」時才 push HeroStatic；
+        // hot 欄位（gold/xp）的每次增量由 core.rs::push_hero_stats_if_needed 的
+        // 0.3s tick 統一廣播，省掉「每殺一隻怪就噴一個 hero.hot（TD_STRESS 下 122 Hz）」
+        // 的無謂頻率。非 kcp build 同理：legacy hero.stats 也只在 leveled_up 時發。
+        if leveled_up {
             let heroes = ecs.read_storage::<Hero>();
             let golds = ecs.read_storage::<Gold>();
             let props = ecs.read_storage::<CProperty>();
@@ -551,10 +553,10 @@ impl GameProcessor {
                     let (atk_dmg_b, atk_int_b, atk_rng_b) = atks.get(hero_e)
                         .map(|a| (a.atk_physic.v, a.asd.v, a.range.v))
                         .unwrap_or((0.0, 0.0, 0.0));
-                    if leveled_up {
-                        let static_msg = crate::state::resource_management::build_hero_static_msg(hero_e, h, p);
-                        let _ = mqtx.send(static_msg);
-                    }
+                    let static_msg = crate::state::resource_management::build_hero_static_msg(hero_e, h, p);
+                    let _ = mqtx.send(static_msg);
+                    // 升級時還是 push 一次 hot，讓前端立刻看到 level/skill_points
+                    // 變化對應的 xp_next / hp(mhp 可能上調) — 不等 0.3s tick。
                     let hot_msg = crate::state::resource_management::build_hero_hot_msg(
                         hero_e, h, g, hp, mhp, armor_b, mres_b, msd_b,
                         atk_dmg_b, atk_int_b, atk_rng_b, &buff_store, p,
