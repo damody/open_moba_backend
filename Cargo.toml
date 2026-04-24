@@ -25,7 +25,6 @@ warnings = "allow"
 [workspace]
 members = [
     ".",
-    "script-abi",
 ]
 
 [dependencies]
@@ -54,7 +53,7 @@ omoba-core = { path = "../omoba-core", default-features = false }
 hashbrown = "0.15"
 ordered-float = "5.0"
 abi_stable = "0.11"
-omb-script-abi = { path = "script-abi" }
+omb-script-abi = { path = "../scripts/script-abi" }
 rand_pcg = "0.9"
 voracious_radix_sort = { version = "1.2.0", features = ["voracious_multithread"] }
 rust_decimal = "1.33"
