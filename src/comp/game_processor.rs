@@ -24,9 +24,12 @@ fn make_projectile_create(
     id: u32, target_id: u32,
     start_x: f32, start_y: f32, end_x: f32, end_y: f32,
     move_speed: f32, flight_time_ms: u64,
-    directional: bool, splash_radius: f32, hit_radius: f32, kind: &str,
+    directional: bool, splash_radius: f32, hit_radius: f32, kind_id: u16,
     damage: f32,
 ) -> OutboundMsg {
+    let kind_str = omoba_template_ids::projectile_id_str(
+        omoba_template_ids::ProjectileKindId(kind_id),
+    );
     #[cfg(feature = "kcp")]
     {
         use crate::state::resource_management::proto_build;
@@ -35,7 +38,7 @@ fn make_projectile_create(
             "td/all/res", "projectile", "C",
             TypedOutbound::ProjectileCreate(proto_build::projectile_create(
                 id, target_id, start_x, start_y, end_x, end_y,
-                flight_time_ms, directional, splash_radius, hit_radius, kind,
+                flight_time_ms, directional, splash_radius, hit_radius, kind_id,
                 damage,
             )),
             json!({
@@ -43,7 +46,7 @@ fn make_projectile_create(
                 "start_pos": { "x": start_x, "y": start_y },
                 "end_pos":   { "x": end_x,   "y": end_y },
                 "move_speed": move_speed, "flight_time_ms": flight_time_ms,
-                "kind": kind, "directional": directional,
+                "kind": kind_str, "directional": directional,
                 "hit_radius": hit_radius, "splash_radius": splash_radius,
                 "damage": damage,
             }),
@@ -59,7 +62,7 @@ fn make_projectile_create(
                 "start_pos": { "x": start_x, "y": start_y },
                 "end_pos":   { "x": end_x,   "y": end_y },
                 "move_speed": move_speed, "flight_time_ms": flight_time_ms,
-                "kind": kind, "directional": directional,
+                "kind": kind_str, "directional": directional,
                 "hit_radius": hit_radius, "splash_radius": splash_radius,
                 "damage": damage,
             }),
@@ -676,7 +679,7 @@ impl GameProcessor {
 
         let ntarget = target_entity.id();
         let flight_time_ms: u64 = (flight_time_s * 1000.0).max(1.0) as u64;
-        let kind_key = "";
+        let kind_id: u16 = 0;  // UNSPECIFIED — legacy handler, no template assignment
 
         // 主彈 + 視覺彈（大絕變身 buff 讓 visual_count=3）：
         // i == 0 為真實子彈（damage = atk_phys、target 追蹤、吃 stun roll）
@@ -732,7 +735,7 @@ impl GameProcessor {
                 e.id(), ntarget,
                 start_pos.x, start_pos.y, p2.x, p2.y,
                 move_speed, flight_time_ms,
-                false, splash_radius, 0.0, kind_key,
+                false, splash_radius, 0.0, kind_id,
                 predeclared_dmg,
             ));
         }
@@ -775,7 +778,9 @@ impl GameProcessor {
             .build();
         ecs.write_resource::<crate::scripting::ScriptEventQueue>()
             .push(crate::scripting::ScriptEvent::Spawn { e });
-        let _ = mqtx.try_send(make_creep_create(e.id(), pos.x, pos.y, hp, mhp, msd, &display_name));
+        // Pass internal template id (`creep_name`) not the display label — client
+        // looks up display via omoba-template-ids reverse table.
+        let _ = mqtx.try_send(make_creep_create(e.id(), pos.x, pos.y, hp, mhp, msd, &creep_name));
         Ok(())
     }
 
@@ -854,11 +859,11 @@ impl GameProcessor {
         let source_entity = source.ok_or_else(|| failure::err_msg("ProjectileDirectional 缺少 source"))?;
 
         // 此 path 為 legacy（tower_tick 不再 push ProjectileDirectional；Tack 走腳本
-        // spawn_projectile_ex）。保留 handle 作為備用；kind_key 留空字串
-        let (msd, atk_phys, kind_key): (f32, f32, &str) = {
+        // spawn_projectile_ex）。保留 handle 作為備用；kind_id 留 0 (UNSPECIFIED)
+        let (msd, atk_phys, kind_id): (f32, f32, u16) = {
             let tatks = ecs.read_storage::<TAttack>();
             let tp = tatks.get(source_entity).ok_or_else(|| failure::err_msg("Source attack properties not found"))?;
-            (tp.bullet_speed, tp.atk_physic.v, "")
+            (tp.bullet_speed, tp.atk_physic.v, 0)
         };
 
         let initial_dist = (end_pos - pos).magnitude();
@@ -892,7 +897,7 @@ impl GameProcessor {
             e.id(), 0,
             pos.x, pos.y, end_pos.x, end_pos.y,
             msd, flight_time_ms,
-            true, 0.0, 80.0, kind_key,
+            true, 0.0, 80.0, kind_id,
             0.0,
         ));
         Ok(())

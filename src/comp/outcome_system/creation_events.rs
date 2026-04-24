@@ -61,7 +61,7 @@ impl CreationEventHandler {
             OutboundMsg::new_typed_at(
                 "td/all/res", "creep", "C",
                 TypedOutbound::CreepCreate(proto_build::creep_create(
-                    entity.id(), pos.x, pos.y, hp, mhp, msd, &display_name,
+                    entity.id(), pos.x, pos.y, hp, mhp, msd, &creep_name,
                 )),
                 payload, pos.x, pos.y,
             )
@@ -244,7 +244,7 @@ impl CreationEventHandler {
                 TypedOutbound::ProjectileCreate(proto_build::projectile_create(
                     projectile_entity.id(), target.id(),
                     source_pos.x, source_pos.y, target_pos.x, target_pos.y,
-                    flight_time_ms, false, 0.0, 0.0, "",
+                    flight_time_ms, false, 0.0, 0.0, 0u16,
                     predeclared_dmg,
                 )),
                 projectile_data_with_dmg, source_pos.x, source_pos.y,

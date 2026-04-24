@@ -31,9 +31,14 @@ fn make_projectile_create_script(
     id: u32, target_id: u32,
     start_x: f32, start_y: f32, end_x: f32, end_y: f32,
     move_speed: f32, flight_time_ms: u64,
-    directional: bool, splash_radius: f32, hit_radius: f32, kind: &str,
+    directional: bool, splash_radius: f32, hit_radius: f32, kind_id: u16,
     damage: f32,
 ) -> OutboundMsg {
+    // Backward-compat JSON payload: still emit `kind` as a string so legacy
+    // non-kcp transports and omfx's debug inspector see the familiar tag.
+    let kind_str = omoba_template_ids::projectile_id_str(
+        omoba_template_ids::ProjectileKindId(kind_id),
+    );
     #[cfg(feature = "kcp")]
     {
         use crate::state::resource_management::proto_build;
@@ -42,7 +47,7 @@ fn make_projectile_create_script(
             "td/all/res", "projectile", "C",
             TypedOutbound::ProjectileCreate(proto_build::projectile_create(
                 id, target_id, start_x, start_y, end_x, end_y,
-                flight_time_ms, directional, splash_radius, hit_radius, kind,
+                flight_time_ms, directional, splash_radius, hit_radius, kind_id,
                 damage,
             )),
             json!({
@@ -50,7 +55,7 @@ fn make_projectile_create_script(
                 "start_pos": { "x": start_x, "y": start_y },
                 "end_pos":   { "x": end_x,   "y": end_y },
                 "move_speed": move_speed, "flight_time_ms": flight_time_ms,
-                "kind": kind, "directional": directional,
+                "kind": kind_str, "directional": directional,
                 "hit_radius": hit_radius, "splash_radius": splash_radius,
                 "damage": damage,
             }),
@@ -66,7 +71,7 @@ fn make_projectile_create_script(
                 "start_pos": { "x": start_x, "y": start_y },
                 "end_pos":   { "x": end_x,   "y": end_y },
                 "move_speed": move_speed, "flight_time_ms": flight_time_ms,
-                "kind": kind, "directional": directional,
+                "kind": kind_str, "directional": directional,
                 "hit_radius": hit_radius, "splash_radius": splash_radius,
                 "damage": damage,
             }),
@@ -475,7 +480,6 @@ impl<'a> GameWorld for WorldAdapter<'a> {
             .build();
 
         let flight_time_ms: u64 = (flight_time_s * 1000.0).max(1.0) as u64;
-        let kind_str = spec.kind_tag.as_str();
         // P7: pre-declared damage for single-target (non-AOE) projectiles.
         // AOE (splash_radius > 0) stays at 0 — server still emits creep.H per
         // splash target on impact. Non-directional single-target carries the
@@ -491,7 +495,7 @@ impl<'a> GameWorld for WorldAdapter<'a> {
             e.id(), target_id_out,
             from_vek.x, from_vek.y, end_pos_vek.x, end_pos_vek.y,
             spec.speed, flight_time_ms,
-            is_directional, spec.splash_radius, spec.hit_radius, kind_str,
+            is_directional, spec.splash_radius, spec.hit_radius, spec.kind_id,
             predeclared_dmg,
         ));
 
