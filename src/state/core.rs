@@ -63,6 +63,18 @@ pub struct State {
     /// 每個玩家最後一次已知可見的實體集合（分四類避免 entity id 重用衝突）
     #[cfg(any(feature = "grpc", feature = "kcp"))]
     client_visibility: HashMap<String, VisSet>,
+    /// Per-player diff cache: `entity_id → last_sent_quantized_hp`. Heartbeat
+    /// only re-emits HP entries where the quantized value differs from the
+    /// cached one. Pruned each tick to the entities currently in AOI so the
+    /// map can't grow unboundedly. Cleared on `ViewportMsg::Remove`.
+    #[cfg(any(feature = "grpc", feature = "kcp"))]
+    hb_last_hp_sent: HashMap<String, HashMap<u32, i32>>,
+    /// Per-player force-send timestamp: `game_time` of the last heartbeat we
+    /// emitted regardless of diff state. Used to drive the keepalive
+    /// (`HEARTBEAT_FORCE_SEND_INTERVAL`) so clients still receive `tick`/
+    /// `game_time` for clock sync even in idle periods with no HP change.
+    #[cfg(any(feature = "grpc", feature = "kcp"))]
+    hb_last_full_send: HashMap<String, f64>,
     /// State-local tick counter, incremented every call to `tick()`.
     /// Used to throttle visibility diff (don't rely on ECS `Tick`, which isn't maintained).
     local_tick: u64,
@@ -91,6 +103,13 @@ struct VisSet {
 
 #[cfg(any(feature = "grpc", feature = "kcp"))]
 const VISIBILITY_DIFF_INTERVAL_TICKS: u64 = 6;
+
+/// Force-send a (possibly empty) heartbeat at least this often per player so
+/// clients still receive a `tick`/`game_time` heartbeat for clock sync and
+/// liveness even when no HP value has changed in the player's AOI. Empty
+/// heartbeats compress to ~50 bytes after prost+LZ4 — cheap keepalive.
+#[cfg(any(feature = "grpc", feature = "kcp"))]
+const HEARTBEAT_FORCE_SEND_INTERVAL: f64 = 5.0;
 
 impl State {
     /// 創建新的遊戲狀態（標準模式）
@@ -132,6 +151,10 @@ impl State {
             client_viewports: HashMap::new(),
             #[cfg(any(feature = "grpc", feature = "kcp"))]
             client_visibility: HashMap::new(),
+            #[cfg(any(feature = "grpc", feature = "kcp"))]
+            hb_last_hp_sent: HashMap::new(),
+            #[cfg(any(feature = "grpc", feature = "kcp"))]
+            hb_last_full_send: HashMap::new(),
             local_tick: 0,
             last_visibility_tick: 0,
             script_registry: ScriptRegistry::new(),
@@ -251,6 +274,10 @@ impl State {
             client_viewports: HashMap::new(),
             #[cfg(any(feature = "grpc", feature = "kcp"))]
             client_visibility: HashMap::new(),
+            #[cfg(any(feature = "grpc", feature = "kcp"))]
+            hb_last_hp_sent: HashMap::new(),
+            #[cfg(any(feature = "grpc", feature = "kcp"))]
+            hb_last_full_send: HashMap::new(),
             local_tick: 0,
             last_visibility_tick: 0,
             script_registry: ScriptRegistry::new(),
@@ -353,6 +380,12 @@ impl State {
                     log::info!("📥 [State] ViewportMsg::Remove player='{}'", player_name);
                     self.client_viewports.remove(&player_name);
                     self.client_visibility.remove(&player_name);
+                    // Drop the player's heartbeat diff cache so a future
+                    // reconnect starts from a clean slate (full snapshot on
+                    // the first tick after rejoin — `prev` is None for every
+                    // entity → all included).
+                    self.hb_last_hp_sent.remove(&player_name);
+                    self.hb_last_full_send.remove(&player_name);
                 }
             }
         }
@@ -634,7 +667,17 @@ impl State {
     /// `max_hp` — 客戶端從 creep.create / hero static 路徑已經有快取值）。
     /// 若目前沒有任何 client viewport（例如純 mqtt build 或 mcp query-only），
     /// 會退回成舊的 td/all/res 全域廣播，仍帶 full snapshot 以維持 liveness。
-    fn send_heartbeat(&self) {
+    ///
+    /// Diff optimization (2026-04-24): under `grpc`/`kcp`, only re-emits HP
+    /// entries whose quantized value changed since the last heartbeat to that
+    /// specific player (`hb_last_hp_sent` cache, keyed by `entity_id`). If the
+    /// diff is empty AND we're inside the `HEARTBEAT_FORCE_SEND_INTERVAL`
+    /// window since the last forced send → skip the emit entirely (no payload,
+    /// no wire). Otherwise force-send a possibly-empty heartbeat to keep
+    /// `tick`/`game_time`/`render_delay_ms` flowing for client clock sync &
+    /// liveness. Under `mqtt` (no viewport infrastructure) the path is
+    /// unchanged — full snapshot every tick.
+    fn send_heartbeat(&mut self) {
         use specs::Join;
         use serde_json::json;
 
@@ -723,6 +766,12 @@ impl State {
             v
         };
 
+        // Borrow `mqtx` independently so the `emit` closure doesn't lock up
+        // `self` — the per-player branch needs `&mut self.hb_last_hp_sent`
+        // and `&mut self.hb_last_full_send` after constructing the closure.
+        #[cfg(any(feature = "grpc", feature = "kcp"))]
+        let mqtx = &self.mqtx;
+
         #[cfg(feature = "kcp")]
         let emit = |topic: &str, hp_snap_pairs: Vec<(u32, f32)>, pos_snap: Vec<(u32, f32, f32)>| {
             let hp_snap_json: Vec<serde_json::Value> = hp_snap_pairs
@@ -767,7 +816,7 @@ impl State {
             } else {
                 msg
             };
-            self.mqtx.send(msg)
+            mqtx.send(msg)
         };
 
         #[cfg(all(feature = "grpc", not(feature = "kcp")))]
@@ -777,7 +826,7 @@ impl State {
                 .map(|&(id, hp)| json!({ "i": id, "h": hp }))
                 .collect();
             let payload = build_meta(hp_snap_json);
-            self.mqtx.send(OutboundMsg::new_s(topic, "heartbeat", "tick", payload))
+            mqtx.send(OutboundMsg::new_s(topic, "heartbeat", "tick", payload))
         };
 
         #[cfg(any(feature = "grpc", feature = "kcp"))]
@@ -788,7 +837,9 @@ impl State {
                 visible.iter().step_by(10).copied().collect()
             };
             if self.client_viewports.is_empty() {
-                // 沒有註冊任何 viewport（mcp query-only / 測試），fallback 全域廣播
+                // 沒有註冊任何 viewport（mcp query-only / 測試），fallback 全域廣播。
+                // No diff cache here — `td/all/res` fan-out has no per-player
+                // identity to track, so we keep the legacy full snapshot path.
                 let full: Vec<(u32, f32)> = all_entity_hp.iter().map(|&(id, _x, _y, hp)| (id, hp)).collect();
                 let pos_sample = sample_creep_pos(&all_creep_pos);
                 if let Err(e) = emit("td/all/res", full, pos_sample) {
@@ -804,31 +855,83 @@ impl State {
                 // connected player never registers, `compute_and_send_visibility_diffs`
                 // also skips them — both paths treat viewport as subscribe
                 // handshake completion.
-                for (name, vp) in self.client_viewports.iter() {
-                    let mut hp_snap: Vec<(u32, f32)> = Vec::new();
+                //
+                // Snapshot viewports into an owned Vec so we can mutably borrow
+                // `self.hb_last_hp_sent` / `self.hb_last_full_send` inside the
+                // per-player loop without aliasing `self.client_viewports`.
+                let viewports: Vec<(String, crate::transport::Viewport)> = self
+                    .client_viewports
+                    .iter()
+                    .map(|(name, vp)| (name.clone(), *vp))
+                    .collect();
+
+                use omoba_core::quant::fixed_quant;
+
+                for (name, vp) in viewports.into_iter() {
+                    // Build per-player visible HP set + delta vs cached state.
+                    // Quantize once here (matches wire scale); cache stores the
+                    // quantized i32 so float drift doesn't trigger spurious
+                    // diff entries below the 0.1-unit fixed scale.
+                    let cache = self.hb_last_hp_sent.entry(name.clone()).or_default();
+
+                    let mut diff_pairs: Vec<(u32, f32)> = Vec::new();
+                    let mut still_in_aoi: HashSet<u32> = HashSet::new();
                     for &(id, x, y, hp) in &all_entity_hp {
-                        if vp.contains(x, y) {
-                            // Compact keys "i"/"h" are load-bearing for
-                            // 30-player × 2Hz bandwidth (Task 1.5 design).
-                            // P2 prost migration carries this as a typed
-                            // HeartbeatTick under `kcp`; the JSON form stays
-                            // only for router introspection.
-                            hp_snap.push((id, hp));
+                        if !vp.contains(x, y) { continue; }
+                        still_in_aoi.insert(id);
+                        let hp_q = fixed_quant(hp);
+                        match cache.get(&id) {
+                            Some(prev) if *prev == hp_q => { /* unchanged — skip */ }
+                            _ => {
+                                diff_pairs.push((id, hp));
+                                cache.insert(id, hp_q);
+                            }
                         }
                     }
+                    // Prune entities that left this player's AOI so the cache
+                    // doesn't grow unboundedly. Re-entry naturally re-emits
+                    // (cache miss → included in next diff).
+                    cache.retain(|id, _| still_in_aoi.contains(id));
+
+                    // Force-send window: even when diff is empty, emit a
+                    // (possibly minimal) heartbeat every HEARTBEAT_FORCE_SEND_INTERVAL
+                    // seconds so client clock sync / liveness keeps ticking.
+                    let last_full = self.hb_last_full_send.get(&name).copied().unwrap_or(f64::NEG_INFINITY);
+                    let force_send = (game_time - last_full) >= HEARTBEAT_FORCE_SEND_INTERVAL;
+
+                    if diff_pairs.is_empty() && !force_send {
+                        // Nothing changed in AOI and we're inside the keepalive
+                        // window — skip emit entirely. No payload, no wire,
+                        // no router work. This is the dominant case during
+                        // idle periods (no creeps damaged in the player's AOI).
+                        log::trace!("💤 心跳跳過 player='{}' (no diff, within force-send window)", name);
+                        continue;
+                    }
+
                     // Viewport-filter creeps then take 10% stride sample for pos_snapshot.
-                    let mut visible_creeps: Vec<(u32, f32, f32)> = Vec::new();
-                    for &(id, x, y) in &all_creep_pos {
-                        if vp.contains(x, y) {
-                            visible_creeps.push((id, x, y));
+                    // Kept as full sample (no per-entity diff) — already a 10%
+                    // sparse projection so total volume is small. Skipped on
+                    // pure idle force-send to keep the keepalive packet tiny.
+                    let pos_sample = if diff_pairs.is_empty() {
+                        Vec::new()
+                    } else {
+                        let mut visible_creeps: Vec<(u32, f32, f32)> = Vec::new();
+                        for &(id, x, y) in &all_creep_pos {
+                            if vp.contains(x, y) {
+                                visible_creeps.push((id, x, y));
+                            }
                         }
-                    }
-                    let pos_sample = sample_creep_pos(&visible_creeps);
+                        sample_creep_pos(&visible_creeps)
+                    };
+
                     let topic = format!("td/{}/res", name);
-                    if let Err(e) = emit(&topic, hp_snap, pos_sample) {
+                    if let Err(e) = emit(&topic, diff_pairs, pos_sample) {
                         log::error!("無法發送心跳訊息 player='{}': {}", name, e);
                     } else {
                         log::trace!("💓 心跳已發送 player='{}' tick: {}", name, tick);
+                    }
+                    if force_send {
+                        self.hb_last_full_send.insert(name, game_time);
                     }
                 }
             }
