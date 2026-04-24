@@ -10,6 +10,7 @@ use tokio::sync::Mutex;
 use tokio_kcp::{KcpConfig, KcpListener, KcpNoDelayConfig, KcpStream};
 
 use super::types::{InboundMsg, OutboundMsg, TransportHandle, QueryRequest, QueryResponse, Viewport, ViewportMsg};
+use super::metrics::KcpBytesCounter;
 
 // Include the generated proto code
 pub mod game_proto {
@@ -77,8 +78,13 @@ pub async fn start(
     let sessions: Arc<Mutex<HashMap<String, ClientSession>>> =
         Arc::new(Mutex::new(HashMap::new()));
 
+    // Per-event bytes/msg counter. Shared with the broadcast thread so tests
+    // and the game loop can snapshot/reset the observed wire volume.
+    let counter: Arc<KcpBytesCounter> = Arc::new(KcpBytesCounter::new());
+
     // Background thread: read from out_rx and broadcast to all sessions
     let sessions_broadcast = sessions.clone();
+    let counter_broadcast = counter.clone();
     thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -150,6 +156,14 @@ pub async fn start(
                         frame.push(TAG_GAME_EVENT);
                         frame.extend_from_slice(&(payload.len() as u32).to_be_bytes());
                         frame.extend_from_slice(&payload);
+
+                        // Record observed wire bytes (includes tag + length prefix).
+                        // Event kind = "<msg_type>.<action>" so downstream analysis can
+                        // bucket by game event category.
+                        counter_broadcast.record(
+                            &format!("{}.{}", event.msg_type, event.action),
+                            frame.len(),
+                        );
 
                         let sessions = sessions_broadcast.lock().await;
                         let mut to_remove = Vec::new();
@@ -252,6 +266,7 @@ pub async fn start(
         rx: in_rx,
         query_rx,
         viewport_rx,
+        counter,
     })
 }
 

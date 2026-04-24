@@ -2,6 +2,10 @@ use crossbeam_channel::{Sender, Receiver};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::time::SystemTime;
+#[cfg(feature = "kcp")]
+use std::sync::Arc;
+#[cfg(feature = "kcp")]
+use super::metrics::KcpBytesCounter;
 
 /// Outbound message from game logic to transport layer.
 /// Replaces `MqttMsg` in game logic code.
@@ -153,4 +157,9 @@ pub struct TransportHandle {
     pub query_rx: Receiver<QueryRequest>,
     #[cfg(any(feature = "grpc", feature = "kcp"))]
     pub viewport_rx: Receiver<ViewportMsg>,
+    /// Per-event byte/msg counters observed on the KCP wire.
+    /// Shared with the broadcast thread so the game loop / tests can call
+    /// `.snapshot()` or `.reset()` concurrently.
+    #[cfg(feature = "kcp")]
+    pub counter: Arc<KcpBytesCounter>,
 }
