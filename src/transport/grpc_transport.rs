@@ -99,6 +99,7 @@ impl GameService for GameServiceImpl {
                                 action,
                                 data_json: data_bytes,
                                 timestamp_ms,
+                                typed_payload: None,
                             });
                         }
                     }

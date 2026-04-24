@@ -277,6 +277,7 @@ pub async fn start(
                             action,
                             data_json: data_bytes,
                             timestamp_ms,
+                            typed_payload: None,  // P2 migration: legacy JSON path
                         };
 
                         let payload = event.encode_to_vec();
