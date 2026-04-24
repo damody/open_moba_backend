@@ -7,6 +7,7 @@
 //! 每筆 buff 可攜帶 `payload: serde_json::Value`，讓 host 系統（例如
 //! `creep_tick` 的移速計算）從 buff 身上讀出數值（如 slow factor）。
 
+use omb_script_abi::buff_ids::BuffId;
 use omb_script_abi::stat_keys::StatKey;
 use serde_json::Value;
 use specs::Entity;
@@ -103,15 +104,15 @@ impl BuffStore {
     /// 控制類 buff 判定 — 這些 buff_id 出現在單位身上代表其處於特定 CC 狀態。
     /// 約定：`stun` 同時禁攻擊與移動；`silence` 禁技能施放；`root` 只禁移動。
     pub fn is_stunned(&self, entity: Entity) -> bool {
-        self.has(entity, "stun")
+        self.has(entity, BuffId::Stun.as_str())
     }
 
     pub fn is_rooted(&self, entity: Entity) -> bool {
-        self.has(entity, "root") || self.has(entity, "stun")
+        self.has(entity, BuffId::Root.as_str()) || self.has(entity, BuffId::Stun.as_str())
     }
 
     pub fn is_silenced(&self, entity: Entity) -> bool {
-        self.has(entity, "silence") || self.has(entity, "stun")
+        self.has(entity, BuffId::Silence.as_str()) || self.has(entity, BuffId::Stun.as_str())
     }
 
     /// 倒數所有 buff 並回傳過期的 `(Entity, buff_id, payload)` 清單。

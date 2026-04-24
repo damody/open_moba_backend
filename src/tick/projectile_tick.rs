@@ -1,3 +1,4 @@
+use omb_script_abi::buff_ids::BuffId;
 use omb_script_abi::stat_keys::StatKey;
 use specs::{
     shred, Entities, Join, LazyUpdate, Read, ReadExpect, ReadStorage, SystemData,
@@ -220,7 +221,7 @@ fn create_projectile_damage(
     if proj.stun_duration > 0.0 {
         outcomes.push(Outcome::AddBuff {
             target,
-            buff_id: "stun".to_string(),
+            buff_id: BuffId::Stun.as_str().to_string(),
             duration: proj.stun_duration,
             payload: serde_json::Value::Null,
         });
