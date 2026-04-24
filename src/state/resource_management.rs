@@ -572,9 +572,6 @@ impl ResourceManager {
             .unwrap_or(vek::Vec2::zero());
         let payload = json!({
             "tower_id": tower_id_u32,
-            "path": path,
-            "level": next_level,
-            "name": def.name,
             "levels": [new_levels[0], new_levels[1], new_levels[2]],
         });
         let _ = self.mqtx.send(OutboundMsg::new_s_at(

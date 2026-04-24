@@ -407,13 +407,11 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         let kind_str = spec.kind_tag.as_str();
         let pjs = json!({
             "id": e.id(),
-            "source_id": owner_ent.id(),
             "target_id": target_id_out,
             "start_pos": { "x": from_vek.x, "y": from_vek.y },
             "end_pos":   { "x": end_pos_vek.x, "y": end_pos_vek.y },
             "move_speed": spec.speed,
             "flight_time_ms": flight_time_ms,
-            "damage": spec.damage,
             "kind": kind_str,
             "directional": is_directional,
             "hit_radius": spec.hit_radius,

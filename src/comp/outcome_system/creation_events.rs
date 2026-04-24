@@ -196,7 +196,6 @@ impl CreationEventHandler {
 
         let projectile_data = json!({
             "id": projectile_entity.id(),
-            "source_id": source.id(),
             "target_id": target.id(),
             "start_pos": {
                 "x": source_pos.x,

@@ -448,13 +448,11 @@ impl GameProcessor {
 
             let pjs = json!({
                 "id": e.id(),
-                "source_id": source_entity.id(),
                 "target_id": ntarget,
                 "start_pos": { "x": start_pos.x, "y": start_pos.y },
                 "end_pos":   { "x": p2.x, "y": p2.y },
                 "move_speed": move_speed,
                 "flight_time_ms": flight_time_ms,
-                "damage": dmg_phys_this,
                 "kind": kind_key,
             });
             mqtx.try_send(OutboundMsg::new_s_at("td/all/res", "projectile", "C", pjs, start_pos.x, start_pos.y));
@@ -638,13 +636,11 @@ impl GameProcessor {
         let flight_time_ms: u64 = (flight_time_s * 1000.0).max(1.0) as u64;
         let pjs = json!({
             "id": e.id(),
-            "source_id": source_entity.id(),
             "target_id": 0, // 0 = 無 target（directional）
             "start_pos": { "x": pos.x, "y": pos.y },
             "end_pos":   { "x": end_pos.x, "y": end_pos.y },
             "move_speed": msd,
             "flight_time_ms": flight_time_ms,
-            "damage": atk_phys,
             "kind": kind_key,
             "directional": true,
             "hit_radius": 80.0_f32, // legacy directional path 用預設
