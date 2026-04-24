@@ -1400,6 +1400,10 @@ pub(crate) mod proto_build {
         // 0 => server will emit creep.H normally on impact.
         damage: f32,
     ) -> ProjectileCreate {
+        // P8 bytes opt D: hash the kind string server-side once (FNV-1a 32-bit,
+        // ~1ns). Saves ~15 B per projectile.C under stress (2500/s × 15 B =
+        // 37 KB/s). Reverse lookup happens on the client shim side.
+        let kind_id = omoba_core::template_ids::encode_projectile_kind(kind);
         ProjectileCreate {
             id: id as u64,
             target_id: target_id as u64,
@@ -1409,7 +1413,7 @@ pub(crate) mod proto_build {
             directional,
             splash_radius: Some(fx16(splash_radius)),
             hit_radius: Some(fx16(hit_radius)),
-            kind: kind.to_string(),
+            kind_id,
             damage: Some(fx16(damage)),
         }
     }
@@ -1427,14 +1431,17 @@ pub(crate) mod proto_build {
         move_speed: f32,
         name: &str,
     ) -> CreepCreate {
+        // P8 bytes opt C: FNV-1a hash the display name once server-side.
+        // Every creep spawn saves ~35 B (typical Chinese label is 3 chars =
+        // 9 UTF-8 bytes + proto overhead; replaced by a 1–5 B varint).
+        let name_id = omoba_core::template_ids::encode_creep_name(name);
         CreepCreate {
             id: id as u64,
             pos: Some(pos16(x, y)),
             hp: Some(fx16(hp)),
             max_hp: Some(fx16(max_hp)),
             move_speed: Some(fx16(move_speed)),
-            name: name.to_string(),
-            template_key: String::new(),
+            name_id,
         }
     }
 
