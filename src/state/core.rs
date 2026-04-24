@@ -115,7 +115,7 @@ impl State {
             resource_manager: ResourceManager::new(mqtx),
             system_dispatcher: SystemDispatcher::new(thread_pool),
             last_heartbeat_time: 0.0,
-            heartbeat_interval: 2.0,
+            heartbeat_interval: 0.5,
             last_hero_stats_time: 0.0,
             hero_stats_interval: 0.3,
             #[cfg(any(feature = "grpc", feature = "kcp"))]
@@ -232,7 +232,7 @@ impl State {
             resource_manager: ResourceManager::new(mqtx),
             system_dispatcher: SystemDispatcher::new(thread_pool),
             last_heartbeat_time: 0.0,
-            heartbeat_interval: 2.0,
+            heartbeat_interval: 0.5,
             last_hero_stats_time: 0.0,
             hero_stats_interval: 0.3,
             #[cfg(any(feature = "grpc", feature = "kcp"))]
@@ -576,61 +576,114 @@ impl State {
         }
     }
 
-    /// 發送心跳訊息到 MQTT
+    /// 發送心跳訊息到 MQTT/KCP
+    ///
+    /// Task 1.5 (2026-04-24): 從 2s 全域廣播改為 0.5s per-player，按 viewport 過濾。
+    /// payload 內 `hp_snapshot` entry 改用 compact keys `{"i": id, "h": hp}`（拿掉
+    /// `max_hp` — 客戶端從 creep.create / hero static 路徑已經有快取值）。
+    /// 若目前沒有任何 client viewport（例如純 mqtt build 或 mcp query-only），
+    /// 會退回成舊的 td/all/res 全域廣播，仍帶 full snapshot 以維持 liveness。
     fn send_heartbeat(&self) {
         use specs::Join;
         use serde_json::json;
 
-        // 統計實體數量
+        // 統計實體數量（top-level meta 描述的是 WORLD 總量，不隨 viewport 變）
         let entities = self.ecs.entities();
         let heroes = self.ecs.read_storage::<Hero>();
         let units = self.ecs.read_storage::<Unit>();
         let creeps = self.ecs.read_storage::<Creep>();
-        let properties = self.ecs.read_storage::<CProperty>();
         let towers = self.ecs.read_storage::<Tower>();
+        let properties = self.ecs.read_storage::<CProperty>();
+        let positions = self.ecs.read_storage::<Pos>();
 
         let hero_count = (&entities, &heroes).join().count();
         let unit_count = (&entities, &units).join().count();
         let creep_count = (&entities, &creeps).join().count();
         let entity_count = hero_count + unit_count + creep_count;
 
-        // 取得當前 tick 數
         let tick = self.ecs.read_resource::<Tick>().0;
+        let game_time = self.time_manager.get_time();
+        let render_delay_ms = crate::config::server_config::CONFIG.RENDER_DELAY_MS;
 
-        // 所有帶 HP 的實體的 authoritative 快照，讓前端每 2 秒校正預測值。
-        let mut hp_snapshot: Vec<serde_json::Value> = Vec::new();
-        for (e, _, p) in (&entities, &heroes, &properties).join() {
-            hp_snapshot.push(json!({ "id": e.id(), "hp": p.hp, "max_hp": p.mhp }));
+        // 預先 collect 所有帶 HP 的實體到 (id, x, y, hp) — 每個玩家 iterate
+        // 這個小 Vec 做 viewport 過濾，免得對每個 player 重 join ECS storage。
+        // P5 會換成 spatial broadphase；P1 單玩家 linear scan 足夠。
+        let mut all_entity_hp: Vec<(u32, f32, f32, f32)> = Vec::new();
+        for (e, _, p, pos) in (&entities, &heroes, &properties, &positions).join() {
+            all_entity_hp.push((e.id(), pos.0.x, pos.0.y, p.hp));
         }
-        for (e, _, p) in (&entities, &units, &properties).join() {
-            hp_snapshot.push(json!({ "id": e.id(), "hp": p.hp, "max_hp": p.mhp }));
+        for (e, _, p, pos) in (&entities, &units, &properties, &positions).join() {
+            all_entity_hp.push((e.id(), pos.0.x, pos.0.y, p.hp));
         }
-        for (e, _, p) in (&entities, &creeps, &properties).join() {
-            hp_snapshot.push(json!({ "id": e.id(), "hp": p.hp, "max_hp": p.mhp }));
+        for (e, _, p, pos) in (&entities, &creeps, &properties, &positions).join() {
+            all_entity_hp.push((e.id(), pos.0.x, pos.0.y, p.hp));
         }
-        for (e, _, p) in (&entities, &towers, &properties).join() {
-            hp_snapshot.push(json!({ "id": e.id(), "hp": p.hp, "max_hp": p.mhp }));
+        for (e, _, p, pos) in (&entities, &towers, &properties, &positions).join() {
+            all_entity_hp.push((e.id(), pos.0.x, pos.0.y, p.hp));
         }
 
-        let heartbeat_data = json!({
-            "tick": tick,
-            "game_time": self.time_manager.get_time(),
-            "entity_count": entity_count,
-            "hero_count": hero_count,
-            "unit_count": unit_count,
-            "creep_count": creep_count,
-            "render_delay_ms": crate::config::server_config::CONFIG.RENDER_DELAY_MS,
-            "hp_snapshot": hp_snapshot,
-        });
+        // 共用 top-level meta JSON builder；`hp_snap` 在各分支填完再放進來。
+        let build_meta = |hp_snap: Vec<serde_json::Value>| -> serde_json::Value {
+            json!({
+                "tick": tick,
+                "game_time": game_time,
+                "entity_count": entity_count,
+                "hero_count": hero_count,
+                "unit_count": unit_count,
+                "creep_count": creep_count,
+                "render_delay_ms": render_delay_ms,
+                "hp_snapshot": hp_snap,
+            })
+        };
 
-        if let Err(e) = self.mqtx.send(OutboundMsg::new_s("td/all/res", "heartbeat", "tick", heartbeat_data)) {
-            log::error!("無法發送心跳訊息: {}", e);
-        } else {
-            log::trace!("💓 心跳已發送 - tick: {}, entities: {}", tick, entity_count);
+        let build_full_snapshot = || -> Vec<serde_json::Value> {
+            all_entity_hp.iter()
+                .map(|&(id, _x, _y, hp)| json!({ "i": id, "h": hp }))
+                .collect()
+        };
+
+        #[cfg(any(feature = "grpc", feature = "kcp"))]
+        {
+            if self.client_viewports.is_empty() {
+                // 沒有註冊任何 viewport（mcp query-only / 測試），fallback 全域廣播
+                let payload = build_meta(build_full_snapshot());
+                if let Err(e) = self.mqtx.send(OutboundMsg::new_s("td/all/res", "heartbeat", "tick", payload)) {
+                    log::error!("無法發送心跳訊息: {}", e);
+                } else {
+                    log::trace!("💓 心跳已發送 (fallback broadcast) - tick: {}, entities: {}", tick, entity_count);
+                }
+            } else {
+                for (name, vp) in self.client_viewports.iter() {
+                    let mut hp_snap: Vec<serde_json::Value> = Vec::new();
+                    for &(id, x, y, hp) in &all_entity_hp {
+                        if vp.contains(x, y) {
+                            hp_snap.push(json!({ "i": id, "h": hp }));
+                        }
+                    }
+                    let payload = build_meta(hp_snap);
+                    let topic = format!("td/{}/res", name);
+                    if let Err(e) = self.mqtx.send(OutboundMsg::new_s(&topic, "heartbeat", "tick", payload)) {
+                        log::error!("無法發送心跳訊息 player='{}': {}", name, e);
+                    } else {
+                        log::trace!("💓 心跳已發送 player='{}' tick: {}", name, tick);
+                    }
+                }
+            }
+        }
+
+        #[cfg(not(any(feature = "grpc", feature = "kcp")))]
+        {
+            // mqtt-only build：沒有 Viewport 基礎設施，一律全域廣播
+            let payload = build_meta(build_full_snapshot());
+            if let Err(e) = self.mqtx.send(OutboundMsg::new_s("td/all/res", "heartbeat", "tick", payload)) {
+                log::error!("無法發送心跳訊息: {}", e);
+            } else {
+                log::trace!("💓 心跳已發送 (mqtt broadcast) - tick: {}, entities: {}", tick, entity_count);
+            }
         }
 
         // 實體 create/delete 事件改由 compute_and_send_visibility_diffs 依視野產生，
-        // heartbeat 只保留 counter/liveness
+        // heartbeat 只保留 counter/liveness + HP 校正
     }
 
     /// 獲取 ECS 世界引用
