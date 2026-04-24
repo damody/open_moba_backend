@@ -102,7 +102,7 @@ impl Hero {
             experience_to_next: 100,
             abilities: hero_data.abilities.clone(),
             ability_levels,
-            skill_points: 1, // 初始技能點
+            skill_points: 8, // 初始技能點（playtest 方便把所有 ability 點起來）
             level_growth: LevelGrowth {
                 strength_per_level: hero_data.level_growth.strength_per_level,
                 agility_per_level: hero_data.level_growth.agility_per_level,
