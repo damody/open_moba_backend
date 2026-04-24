@@ -375,29 +375,27 @@ impl ResourceManager {
 
     /// 主動廣播指定英雄的 hero.stats（gold/lives/hp 等）。供扣錢、漏怪等即時事件使用。
     pub(crate) fn push_hero_stats(&self, world: &mut World, hero_entity: specs::Entity) {
-        use serde_json::json;
         let heroes = world.read_storage::<Hero>();
         let golds = world.read_storage::<Gold>();
         let props = world.read_storage::<CProperty>();
+        let atks = world.read_storage::<crate::comp::TAttack>();
         let positions = world.read_storage::<Pos>();
+        let buff_store = world.read_resource::<crate::ability_runtime::BuffStore>();
         let lives = world.read_resource::<PlayerLives>().0;
         let Some(h) = heroes.get(hero_entity) else { return };
         let g = golds.get(hero_entity).map(|g| g.0).unwrap_or(0);
-        let (hp, mhp) = props.get(hero_entity).map(|p| (p.hp, p.mhp)).unwrap_or((0.0, 0.0));
+        let prop = props.get(hero_entity);
+        let (hp, mhp) = prop.map(|p| (p.hp, p.mhp)).unwrap_or((0.0, 0.0));
+        let (armor_b, mres_b, msd_b) = prop.map(|p| (p.def_physic, p.def_magic, p.msd)).unwrap_or((0.0, 0.0, 0.0));
+        let atk = atks.get(hero_entity);
+        let (atk_dmg_b, atk_int_b, atk_rng_b, bullet_spd) = atk
+            .map(|a| (a.atk_physic.v, a.asd.v, a.range.v, a.bullet_speed))
+            .unwrap_or((0.0, 0.0, 0.0, 0.0));
         let pos = positions.get(hero_entity).map(|p| p.0).unwrap_or(vek::Vec2::zero());
-        let payload = json!({
-            "id": hero_entity.id(),
-            "level": h.level,
-            "xp": h.experience,
-            "xp_next": h.experience_to_next,
-            "skill_points": h.skill_points,
-            "ability_levels": h.ability_levels,
-            "abilities": h.abilities,
-            "gold": g,
-            "hp": hp,
-            "max_hp": mhp,
-            "lives": lives,
-        });
+        let payload = build_hero_stats_payload(
+            hero_entity, h, g, hp, mhp, armor_b, mres_b, msd_b,
+            atk_dmg_b, atk_int_b, atk_rng_b, bullet_spd, lives, &buff_store,
+        );
         let _ = self.mqtx.send(OutboundMsg::new_s_at(
             "td/all/res", "hero", "stats", payload, pos.x, pos.y,
         ));
@@ -782,30 +780,25 @@ impl ResourceManager {
         let golds = world.read_storage::<Gold>();
         let invs = world.read_storage::<Inventory>();
         let props = world.read_storage::<CProperty>();
+        let atks = world.read_storage::<crate::comp::TAttack>();
         let positions = world.read_storage::<Pos>();
+        let buff_store = world.read_resource::<crate::ability_runtime::BuffStore>();
 
         let hero = heroes.get(hero_entity);
         let gold = golds.get(hero_entity).map(|g| g.0).unwrap_or(0);
         let pos = positions.get(hero_entity).map(|p| p.0).unwrap_or(vek::Vec2::zero());
         let lives = world.read_resource::<PlayerLives>().0;
         if let Some(h) = hero {
-            let (hp, mhp) = props
-                .get(hero_entity)
-                .map(|p| (p.hp, p.mhp))
-                .unwrap_or((0.0, 0.0));
-            let payload = json!({
-                "id": hero_entity.id(),
-                "level": h.level,
-                "xp": h.experience,
-                "xp_next": h.experience_to_next,
-                "skill_points": h.skill_points,
-                "ability_levels": h.ability_levels,
-                "abilities": h.abilities,
-                "gold": gold,
-                "hp": hp,
-                "max_hp": mhp,
-                "lives": lives,
-            });
+            let prop = props.get(hero_entity);
+            let (hp, mhp) = prop.map(|p| (p.hp, p.mhp)).unwrap_or((0.0, 0.0));
+            let (armor_b, mres_b, msd_b) = prop.map(|p| (p.def_physic, p.def_magic, p.msd)).unwrap_or((0.0, 0.0, 0.0));
+            let (atk_dmg_b, atk_int_b, atk_rng_b, bullet_spd) = atks.get(hero_entity)
+                .map(|a| (a.atk_physic.v, a.asd.v, a.range.v, a.bullet_speed))
+                .unwrap_or((0.0, 0.0, 0.0, 0.0));
+            let payload = build_hero_stats_payload(
+                hero_entity, h, gold, hp, mhp, armor_b, mres_b, msd_b,
+                atk_dmg_b, atk_int_b, atk_rng_b, bullet_spd, lives, &buff_store,
+            );
             let _ = self.mqtx.send(OutboundMsg::new_s_at(
                 "td/all/res", "hero", "stats", payload, pos.x, pos.y,
             ));
@@ -1119,4 +1112,85 @@ pub struct ResourceStats {
     pub total_entities: usize,
     /// 活躍系統數量
     pub active_systems: usize,
+}
+
+/// 供多個 payload 廣播 site 共用的 hero.stats JSON builder。
+/// 會把 `BuffStore` 身上的 `_bonus` / `_multiplier` 聚合回到 base 值上，讓前端
+/// 看到的攻擊力/射程/移速/攻速/護甲/魔抗 都是「實際生效值」。同時附上 buffs
+/// 陣列（id + 剩餘秒 + payload）供 UI 顯示。
+pub(crate) fn build_hero_stats_payload(
+    hero_entity: specs::Entity,
+    h: &crate::comp::Hero,
+    gold: i32,
+    hp: f32,
+    mhp: f32,
+    armor_base: f32,
+    magic_resist_base: f32,
+    move_speed_base: f32,
+    attack_damage_base: f32,
+    attack_interval_base: f32,
+    attack_range_base: f32,
+    bullet_speed: f32,
+    lives: i32,
+    buff_store: &crate::ability_runtime::BuffStore,
+) -> serde_json::Value {
+    use serde_json::json;
+    // 聚合 buff modifiers 到 base 屬性上。慣例：`_bonus` → sum_add，`_multiplier` → product_mult。
+    let atk_dmg_eff = attack_damage_base
+        + buff_store.sum_add(hero_entity, "damage_bonus")
+        + buff_store.sum_add(hero_entity, "preattack_bonus_damage")
+        + buff_store.sum_add(hero_entity, "baseattack_bonus_damage");
+    let atk_rng_eff = attack_range_base
+        + buff_store.sum_add(hero_entity, "range_bonus")
+        + buff_store.sum_add(hero_entity, "attack_range_bonus");
+    let asd_mult = buff_store.product_mult(hero_entity, "attack_speed_multiplier");
+    let atk_int_eff = if asd_mult > 0.0 { attack_interval_base / asd_mult } else { attack_interval_base };
+    let msd_mult = buff_store.product_mult(hero_entity, "move_speed_multiplier");
+    let msd_eff = move_speed_base
+        * msd_mult
+        + buff_store.sum_add(hero_entity, "movespeed_bonus_constant");
+    let armor_eff = armor_base
+        + buff_store.sum_add(hero_entity, "physical_armor_bonus");
+    let magic_resist_eff = magic_resist_base
+        + buff_store.sum_add(hero_entity, "magical_resistance_bonus");
+
+    let buffs: Vec<serde_json::Value> = buff_store
+        .iter_for(hero_entity)
+        .map(|(id, entry)| {
+            let remaining = if entry.remaining.is_infinite() { -1.0 } else { entry.remaining };
+            json!({
+                "id": id,
+                "remaining": remaining,
+                "payload": entry.payload,
+            })
+        })
+        .collect();
+
+    json!({
+        "id": hero_entity.id(),
+        "name": h.name,
+        "title": h.title,
+        "level": h.level,
+        "xp": h.experience,
+        "xp_next": h.experience_to_next,
+        "skill_points": h.skill_points,
+        "ability_levels": h.ability_levels,
+        "abilities": h.abilities,
+        "strength": h.strength,
+        "agility": h.agility,
+        "intelligence": h.intelligence,
+        "primary_attribute": format!("{:?}", h.primary_attribute).to_lowercase(),
+        "gold": gold,
+        "hp": hp,
+        "max_hp": mhp,
+        "armor": armor_eff,
+        "magic_resist": magic_resist_eff,
+        "move_speed": msd_eff,
+        "attack_damage": atk_dmg_eff,
+        "attack_interval": atk_int_eff,
+        "attack_range": atk_rng_eff,
+        "bullet_speed": bullet_speed,
+        "lives": lives,
+        "buffs": buffs,
+    })
 }

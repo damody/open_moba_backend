@@ -47,6 +47,10 @@ pub struct State {
     last_heartbeat_time: f64,
     /// 心跳間隔（秒）
     heartbeat_interval: f64,
+    /// 上次 hero.stats 廣播的遊戲時間（UI 面板 buff 倒數用）
+    last_hero_stats_time: f64,
+    /// hero.stats 廣播間隔（秒）；每這麼久前端就更新一次含 buff 的 snapshot
+    hero_stats_interval: f64,
     /// 查詢請求接收通道（gRPC/KCP）
     #[cfg(any(feature = "grpc", feature = "kcp"))]
     query_rx: Receiver<QueryRequest>,
@@ -112,6 +116,8 @@ impl State {
             system_dispatcher: SystemDispatcher::new(thread_pool),
             last_heartbeat_time: 0.0,
             heartbeat_interval: 2.0,
+            last_hero_stats_time: 0.0,
+            hero_stats_interval: 0.3,
             #[cfg(any(feature = "grpc", feature = "kcp"))]
             query_rx,
             #[cfg(any(feature = "grpc", feature = "kcp"))]
@@ -227,6 +233,8 @@ impl State {
             system_dispatcher: SystemDispatcher::new(thread_pool),
             last_heartbeat_time: 0.0,
             heartbeat_interval: 2.0,
+            last_hero_stats_time: 0.0,
+            hero_stats_interval: 0.3,
             #[cfg(any(feature = "grpc", feature = "kcp"))]
             query_rx,
             #[cfg(any(feature = "grpc", feature = "kcp"))]
@@ -306,6 +314,9 @@ impl State {
 
         // 發送心跳（每 2 秒一次，只有 counter）
         self.send_heartbeat_if_needed();
+
+        // 每 0.3 秒推一次 hero.stats，讓前端面板 buff 倒數連續更新
+        self.push_hero_stats_if_needed();
 
         // 依視野對每個 session 送 C/D diff。必須在 ecs.maintain() 前，
         // 這樣本 tick 死亡的實體還在 storage 裡，diff 才能正確判斷「離開」。
@@ -520,6 +531,51 @@ impl State {
         }
     }
 
+    /// 每 hero_stats_interval 秒，對所有英雄廣播 hero.stats snapshot（含 buffs）。
+    /// 讓前端左下角屬性面板能顯示 buff 的剩餘時間與即時屬性變化。
+    fn push_hero_stats_if_needed(&mut self) {
+        let current_time = self.time_manager.get_time();
+        if current_time - self.last_hero_stats_time < self.hero_stats_interval {
+            return;
+        }
+        self.last_hero_stats_time = current_time;
+
+        use specs::Join;
+        let hero_entities: Vec<specs::Entity> = {
+            let entities = self.ecs.entities();
+            let heroes = self.ecs.read_storage::<Hero>();
+            (&entities, &heroes).join().map(|(e, _)| e).collect()
+        };
+        if hero_entities.is_empty() { return; }
+
+        let heroes = self.ecs.read_storage::<Hero>();
+        let golds = self.ecs.read_storage::<Gold>();
+        let props = self.ecs.read_storage::<CProperty>();
+        let atks = self.ecs.read_storage::<TAttack>();
+        let positions = self.ecs.read_storage::<Pos>();
+        let buff_store = self.ecs.read_resource::<crate::ability_runtime::BuffStore>();
+        let lives = self.ecs.read_resource::<PlayerLives>().0;
+
+        for e in hero_entities {
+            let Some(h) = heroes.get(e) else { continue };
+            let gold = golds.get(e).map(|g| g.0).unwrap_or(0);
+            let prop = props.get(e);
+            let (hp, mhp) = prop.map(|p| (p.hp, p.mhp)).unwrap_or((0.0, 0.0));
+            let (armor_b, mres_b, msd_b) = prop.map(|p| (p.def_physic, p.def_magic, p.msd)).unwrap_or((0.0, 0.0, 0.0));
+            let (atk_dmg_b, atk_int_b, atk_rng_b, bullet_spd) = atks.get(e)
+                .map(|a| (a.atk_physic.v, a.asd.v, a.range.v, a.bullet_speed))
+                .unwrap_or((0.0, 0.0, 0.0, 0.0));
+            let pos = positions.get(e).map(|p| p.0).unwrap_or(vek::Vec2::zero());
+            let payload = crate::state::resource_management::build_hero_stats_payload(
+                e, h, gold, hp, mhp, armor_b, mres_b, msd_b,
+                atk_dmg_b, atk_int_b, atk_rng_b, bullet_spd, lives, &buff_store,
+            );
+            let _ = self.mqtx.send(OutboundMsg::new_s_at(
+                "td/all/res", "hero", "stats", payload, pos.x, pos.y,
+            ));
+        }
+    }
+
     /// 發送心跳訊息到 MQTT
     fn send_heartbeat(&self) {
         use specs::Join;
@@ -670,6 +726,7 @@ impl State {
             let heroes = self.ecs.read_storage::<Hero>();
             let positions = self.ecs.read_storage::<Pos>();
             let properties = self.ecs.read_storage::<CProperty>();
+            let atks = self.ecs.read_storage::<TAttack>();
             let collision_radii = self.ecs.read_storage::<CollisionRadius>();
 
             let golds = self.ecs.read_storage::<Gold>();
@@ -682,21 +739,19 @@ impl State {
                 }
                 // 初始 hero.stats（提供前端 HUD 初始值）
                 let gold = golds.get(entity).map(|g| g.0).unwrap_or(0);
-                let (hp, mhp) = properties.get(entity).map(|p| (p.hp, p.mhp)).unwrap_or((0.0, 0.0));
+                let prop = properties.get(entity);
+                let (hp, mhp) = prop.map(|p| (p.hp, p.mhp)).unwrap_or((0.0, 0.0));
+                let (armor_b, mres_b, msd_b) = prop.map(|p| (p.def_physic, p.def_magic, p.msd)).unwrap_or((0.0, 0.0, 0.0));
+                let (atk_dmg_b, atk_int_b, atk_rng_b, bullet_spd) = atks.get(entity)
+                    .map(|a| (a.atk_physic.v, a.asd.v, a.range.v, a.bullet_speed))
+                    .unwrap_or((0.0, 0.0, 0.0, 0.0));
                 let lives = self.ecs.read_resource::<PlayerLives>().0;
-                let stats_payload = json!({
-                    "id": entity.id(),
-                    "level": hero.level,
-                    "xp": hero.experience,
-                    "xp_next": hero.experience_to_next,
-                    "skill_points": hero.skill_points,
-                    "ability_levels": hero.ability_levels,
-                    "abilities": hero.abilities,
-                    "gold": gold,
-                    "hp": hp,
-                    "max_hp": mhp,
-                    "lives": lives,
-                });
+                let buff_store = self.ecs.read_resource::<crate::ability_runtime::BuffStore>();
+                let stats_payload = crate::state::resource_management::build_hero_stats_payload(
+                    entity, hero, gold, hp, mhp, armor_b, mres_b, msd_b,
+                    atk_dmg_b, atk_int_b, atk_rng_b, bullet_spd, lives, &buff_store,
+                );
+                drop(buff_store);
                 let _ = self.mqtx.send(OutboundMsg::new_s_at(
                     "td/all/res", "hero", "stats", stats_payload, pos.0.x, pos.0.y,
                 ));

@@ -292,26 +292,24 @@ impl GameProcessor {
             let heroes = ecs.read_storage::<Hero>();
             let golds = ecs.read_storage::<Gold>();
             let props = ecs.read_storage::<CProperty>();
+            let atks = ecs.read_storage::<TAttack>();
             let positions = ecs.read_storage::<Pos>();
+            let buff_store = ecs.read_resource::<crate::ability_runtime::BuffStore>();
             let h = heroes.get(hero_e);
             let g = golds.get(hero_e).map(|g| g.0).unwrap_or(0);
-            let (hp, mhp) = props.get(hero_e).map(|p| (p.hp, p.mhp)).unwrap_or((0.0, 0.0));
+            let prop = props.get(hero_e);
+            let (hp, mhp) = prop.map(|p| (p.hp, p.mhp)).unwrap_or((0.0, 0.0));
+            let (armor_b, mres_b, msd_b) = prop.map(|p| (p.def_physic, p.def_magic, p.msd)).unwrap_or((0.0, 0.0, 0.0));
+            let (atk_dmg_b, atk_int_b, atk_rng_b, bullet_spd) = atks.get(hero_e)
+                .map(|a| (a.atk_physic.v, a.asd.v, a.range.v, a.bullet_speed))
+                .unwrap_or((0.0, 0.0, 0.0, 0.0));
             let p = positions.get(hero_e).map(|p| p.0).unwrap_or(vek::Vec2::zero());
             h.map(|h| {
                 (
-                    json!({
-                        "id": hero_e.id(),
-                        "level": h.level,
-                        "xp": h.experience,
-                        "xp_next": h.experience_to_next,
-                        "skill_points": h.skill_points,
-                        "ability_levels": h.ability_levels,
-                        "abilities": h.abilities,
-                        "gold": g,
-                        "hp": hp,
-                        "max_hp": mhp,
-                        "lives": lives,
-                    }),
+                    crate::state::resource_management::build_hero_stats_payload(
+                        hero_e, h, g, hp, mhp, armor_b, mres_b, msd_b,
+                        atk_dmg_b, atk_int_b, atk_rng_b, bullet_spd, lives, &buff_store,
+                    ),
                     p,
                 )
             })
