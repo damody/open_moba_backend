@@ -653,10 +653,22 @@ impl State {
                     log::trace!("💓 心跳已發送 (fallback broadcast) - tick: {}, entities: {}", tick, entity_count);
                 }
             } else {
+                // Contract: a connected player MUST register a Viewport via
+                // the transport's ViewportMsg::Set path to receive heartbeats.
+                // Sessions without a viewport get no heartbeat stream by
+                // design (P5 AOI broadphase preserves this invariant). If a
+                // connected player never registers, `compute_and_send_visibility_diffs`
+                // also skips them — both paths treat viewport as subscribe
+                // handshake completion.
                 for (name, vp) in self.client_viewports.iter() {
                     let mut hp_snap: Vec<serde_json::Value> = Vec::new();
                     for &(id, x, y, hp) in &all_entity_hp {
                         if vp.contains(x, y) {
+                            // Compact keys "i"/"h" are load-bearing for
+                            // 30-player × 2Hz bandwidth (Task 1.5 design).
+                            // P2 prost migration replaces this with a typed
+                            // message; do NOT expand to "id"/"hp" for
+                            // "readability" in the meantime.
                             hp_snap.push(json!({ "i": id, "h": hp }));
                         }
                     }
