@@ -8,16 +8,51 @@
 //! lookup + two `u64` adds), and the global totals use relaxed atomics.
 
 use std::collections::HashMap as StdHashMap;
+use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use hashbrown::HashMap;
+use hashbrown::{Equivalent, HashMap};
 use parking_lot::Mutex;
 
+/// Borrowed composite key used to probe `per_event` without allocating.
+///
+/// Hashes and compares the same way the owned `(String, String)` key does
+/// (hashbrown's tuple `Hash` impl hashes each field in order), so the hot
+/// path can look up a stored `(String, String)` entry via a `(&str, &str)`
+/// wrapped in `BorrowedKey`.
+#[derive(Copy, Clone)]
+struct BorrowedKey<'a> {
+    msg_type: &'a str,
+    action: &'a str,
+}
+
+impl Hash for BorrowedKey<'_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // Must match `<(String, String) as Hash>::hash`, which hashes each
+        // field in order. `String`'s Hash defers to `str`'s Hash, so hashing
+        // `&str` here is identical.
+        self.msg_type.hash(state);
+        self.action.hash(state);
+    }
+}
+
+impl Equivalent<(String, String)> for BorrowedKey<'_> {
+    fn equivalent(&self, key: &(String, String)) -> bool {
+        self.msg_type == key.0.as_str() && self.action == key.1.as_str()
+    }
+}
+
 /// Per-event and global bytes/msg totals observed on the KCP wire.
+///
+/// The per-event map is keyed on `(msg_type, action)` as owned strings, but
+/// the hot path looks up via `BorrowedKey<'_>` (a `(&str, &str)` wrapper)
+/// using hashbrown's `Equivalent` trait, so `record()` avoids any allocation
+/// once a key is registered.
+#[derive(Debug)]
 pub struct KcpBytesCounter {
-    /// key = event kind string (e.g. "hero.stats", "creep.M")
+    /// key = (msg_type, action) e.g. ("hero", "stats"), ("creep", "M")
     /// value = (bytes, msgs)
-    per_event: Mutex<HashMap<String, (u64, u64)>>,
+    per_event: Mutex<HashMap<(String, String), (u64, u64)>>,
     total_bytes: AtomicU64,
     total_msgs: AtomicU64,
 }
@@ -31,21 +66,24 @@ impl KcpBytesCounter {
         }
     }
 
-    /// Record one event of `bytes` bytes under `kind`.
+    /// Record one event of `bytes` bytes under `(msg_type, action)`.
     ///
-    /// First occurrence of `kind` allocates a `String` key (cold path); the
-    /// hot path (key already present) only bumps two counters in the map plus
-    /// two relaxed atomics.
-    pub fn record(&self, kind: &str, bytes: usize) {
+    /// Hot path (key already present): no allocation — probe the map with a
+    /// borrowed `BorrowedKey` wrapping `(&str, &str)` via hashbrown's
+    /// `Equivalent` trait.
+    ///
+    /// Cold path (first occurrence): allocates two `String`s for the key.
+    pub fn record(&self, msg_type: &str, action: &str, bytes: usize) {
         let bytes = bytes as u64;
         {
             let mut map = self.per_event.lock();
             // Hot path: already-registered keys skip the allocation.
-            if let Some(entry) = map.get_mut(kind) {
+            let borrowed = BorrowedKey { msg_type, action };
+            if let Some(entry) = map.get_mut(&borrowed) {
                 entry.0 += bytes;
                 entry.1 += 1;
             } else {
-                map.insert(kind.to_owned(), (bytes, 1));
+                map.insert((msg_type.to_owned(), action.to_owned()), (bytes, 1));
             }
         }
         self.total_bytes.fetch_add(bytes, Ordering::Relaxed);
@@ -56,7 +94,7 @@ impl KcpBytesCounter {
     /// snapshot even after `reset()` is called.
     pub fn snapshot(&self) -> KcpCounterSnapshot {
         let map = self.per_event.lock();
-        let per_event: StdHashMap<String, (u64, u64)> = map
+        let per_event: StdHashMap<(String, String), (u64, u64)> = map
             .iter()
             .map(|(k, v)| (k.clone(), *v))
             .collect();
@@ -87,48 +125,57 @@ impl Default for KcpBytesCounter {
 pub struct KcpCounterSnapshot {
     pub total_bytes: u64,
     pub total_msgs: u64,
-    pub per_event: StdHashMap<String, (u64, u64)>,
+    pub per_event: StdHashMap<(String, String), (u64, u64)>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Convenience for test assertions — look up by `(&str, &str)`.
+    fn get<'a>(
+        snap: &'a KcpCounterSnapshot,
+        msg_type: &str,
+        action: &str,
+    ) -> Option<&'a (u64, u64)> {
+        snap.per_event.get(&(msg_type.to_owned(), action.to_owned()))
+    }
+
     #[test]
     fn record_new_and_existing_keys_accumulate() {
         let c = KcpBytesCounter::new();
-        c.record("hero.stats", 100);
-        c.record("hero.stats", 50);
-        c.record("creep.M", 200);
+        c.record("hero", "stats", 100);
+        c.record("hero", "stats", 50);
+        c.record("creep", "M", 200);
 
         let snap = c.snapshot();
         assert_eq!(snap.total_bytes, 350);
         assert_eq!(snap.total_msgs, 3);
-        assert_eq!(snap.per_event.get("hero.stats"), Some(&(150u64, 2u64)));
-        assert_eq!(snap.per_event.get("creep.M"), Some(&(200u64, 1u64)));
+        assert_eq!(get(&snap, "hero", "stats"), Some(&(150u64, 2u64)));
+        assert_eq!(get(&snap, "creep", "M"), Some(&(200u64, 1u64)));
         assert_eq!(snap.per_event.len(), 2);
     }
 
     #[test]
     fn snapshot_is_a_deep_copy() {
         let c = KcpBytesCounter::new();
-        c.record("a.b", 10);
+        c.record("a", "b", 10);
         let snap = c.snapshot();
 
         // Mutating the live counter must not change the snapshot.
-        c.record("a.b", 999);
-        c.record("x.y", 1);
+        c.record("a", "b", 999);
+        c.record("x", "y", 1);
         assert_eq!(snap.total_bytes, 10);
         assert_eq!(snap.total_msgs, 1);
-        assert_eq!(snap.per_event.get("a.b"), Some(&(10u64, 1u64)));
-        assert!(snap.per_event.get("x.y").is_none());
+        assert_eq!(get(&snap, "a", "b"), Some(&(10u64, 1u64)));
+        assert!(get(&snap, "x", "y").is_none());
     }
 
     #[test]
     fn reset_clears_everything() {
         let c = KcpBytesCounter::new();
-        c.record("hero.stats", 100);
-        c.record("creep.M", 200);
+        c.record("hero", "stats", 100);
+        c.record("creep", "M", 200);
 
         // Keep a snapshot to prove reset doesn't touch previously-taken copies.
         let before = c.snapshot();
@@ -144,10 +191,28 @@ mod tests {
         assert_eq!(before.total_msgs, 2);
 
         // Can record again after reset.
-        c.record("hero.stats", 7);
+        c.record("hero", "stats", 7);
         let again = c.snapshot();
         assert_eq!(again.total_bytes, 7);
         assert_eq!(again.total_msgs, 1);
-        assert_eq!(again.per_event.get("hero.stats"), Some(&(7u64, 1u64)));
+        assert_eq!(get(&again, "hero", "stats"), Some(&(7u64, 1u64)));
+    }
+
+    /// Regression test for the hot-path optimization: after a key is inserted
+    /// once, subsequent `record()` calls must not allocate new `String`s for
+    /// the key. We can't directly observe allocations, but we can at least
+    /// assert the map doesn't grow beyond one entry when the same `(msg_type,
+    /// action)` is recorded many times.
+    #[test]
+    fn hot_path_does_not_duplicate_keys() {
+        let c = KcpBytesCounter::new();
+        for _ in 0..1000 {
+            c.record("hero", "stats", 10);
+        }
+        let snap = c.snapshot();
+        assert_eq!(snap.per_event.len(), 1);
+        assert_eq!(get(&snap, "hero", "stats"), Some(&(10_000u64, 1000u64)));
+        assert_eq!(snap.total_bytes, 10_000);
+        assert_eq!(snap.total_msgs, 1000);
     }
 }

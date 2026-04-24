@@ -158,10 +158,12 @@ pub async fn start(
                         frame.extend_from_slice(&payload);
 
                         // Record observed wire bytes (includes tag + length prefix).
-                        // Event kind = "<msg_type>.<action>" so downstream analysis can
-                        // bucket by game event category.
+                        // Bucketed by (msg_type, action) so downstream analysis can
+                        // slice by game event category without the hot path paying
+                        // a `format!()` allocation per message.
                         counter_broadcast.record(
-                            &format!("{}.{}", event.msg_type, event.action),
+                            &event.msg_type,
+                            &event.action,
                             frame.len(),
                         );
 
