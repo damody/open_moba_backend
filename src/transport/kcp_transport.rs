@@ -103,6 +103,92 @@ struct ClientSession {
     viewport: Option<Viewport>,
 }
 
+// ===== Batch-window dedupe =====
+// Within a single 33ms batch window, multiple messages for the same
+// (msg_type, action, entity_id) collapse to the latest-value-wins. This trims
+// redundant HP / movement / stats updates before wire encoding.
+//
+// NOTE: `peek_kind_and_id` parses JSON a second time (the encode loop below
+// also parses). This duplication is intentional for clarity — P2 cleanup
+// target: proto oneof / strongly-typed msgs will eliminate both parses.
+
+#[derive(Hash, Eq, PartialEq, Debug)]
+struct DedupeKey {
+    msg_type: String,
+    action: String,
+    entity_id: u64,
+}
+
+/// Returns true if (msg_type, action) is a latest-wins kind safe to dedupe.
+///
+/// Included: movement/facing/HP/slow/stats updates where only the latest value
+/// matters within a 33ms window.
+///
+/// Excluded (handled by default pass-through): creation/destroy events
+/// (`*.C` / `*.D` / `*.death`), buffs, game-state events, tower upgrades,
+/// heartbeats — each of these is independently meaningful and must arrive.
+///
+/// Note on emitted kinds:
+/// - `F` (facing) is always emitted with msg_type="entity" (for creep/hero/tower)
+/// - `H` (HP) is emitted with dynamic msg_type based on the hit unit
+///   ("hero" / "creep" / "unit" / "entity"); we cover all variants.
+fn is_dedupable(msg_type: &str, action: &str) -> bool {
+    matches!(
+        (msg_type, action),
+        ("creep", "M")
+            | ("creep", "H") | ("hero", "H") | ("unit", "H") | ("entity", "H")
+            | ("entity", "F")
+            | ("creep", "S")
+            | ("hero", "stats")
+    )
+}
+
+/// Collapse dedupable messages by (msg_type, action, entity_id), keeping latest.
+/// Non-dedupable messages pass through in original order. Dedupable messages
+/// keep their FIRST occurrence's slot, with its value overwritten by the LATEST
+/// payload. Unknown / malformed JSON → pass through.
+fn dedupe_batch(batch: Vec<OutboundMsg>) -> Vec<OutboundMsg> {
+    let mut out: Vec<OutboundMsg> = Vec::with_capacity(batch.len());
+    let mut dedupe_idx: hashbrown::HashMap<DedupeKey, usize> = hashbrown::HashMap::new();
+    for msg in batch {
+        let (t, a, id) = peek_kind_and_id(&msg.msg);
+        if id != 0 && is_dedupable(&t, &a) {
+            let key = DedupeKey { msg_type: t, action: a, entity_id: id };
+            match dedupe_idx.get(&key) {
+                Some(&idx) => {
+                    // Replace in place so post-dedupe order stays deterministic
+                    // (first-occurrence slot, latest-value payload).
+                    out[idx] = msg;
+                }
+                None => {
+                    dedupe_idx.insert(key, out.len());
+                    out.push(msg);
+                }
+            }
+        } else {
+            out.push(msg);
+        }
+    }
+    out
+}
+
+/// Extract (msg_type, action, entity_id) from an OutboundMsg.msg JSON payload.
+/// Returns empty strings and id=0 if parse fails — caller treats those as
+/// non-dedupable (pass-through).
+fn peek_kind_and_id(payload: &str) -> (String, String, u64) {
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(payload) else {
+        return (String::new(), String::new(), 0);
+    };
+    let t = parsed.get("t").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let a = parsed.get("a").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let id = parsed
+        .get("d")
+        .and_then(|d| d.get("id"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    (t, a, id)
+}
+
 /// Start the KCP transport layer.
 pub async fn start(
     server_addr: String,
@@ -157,6 +243,10 @@ pub async fn start(
                         Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break 'outer,
                     }
                 }
+
+                // Collapse redundant latest-wins updates (creep.M / *.H / entity.F / creep.S / hero.stats)
+                // before encoding. See `is_dedupable` for the full policy.
+                let batch = dedupe_batch(batch);
 
                 // 處理整個批次
                 for msg in batch {
@@ -487,4 +577,101 @@ async fn handle_client(
     }
     info!("KCP session cleaned up: {}", session_id);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn make(t: &str, a: &str, v: serde_json::Value) -> OutboundMsg {
+        OutboundMsg::new_s("td/all/res", t, a, v)
+    }
+
+    #[test]
+    fn dedupe_collapses_creep_h_same_entity() {
+        // 3 creep.H updates for entity 42 arriving in one window should
+        // collapse to a single message carrying the LATEST hp value.
+        let batch = vec![
+            make("creep", "H", json!({ "id": 42, "hp": 100.0, "max_hp": 200.0 })),
+            make("creep", "H", json!({ "id": 42, "hp": 80.0, "max_hp": 200.0 })),
+            make("creep", "H", json!({ "id": 42, "hp": 50.0, "max_hp": 200.0 })),
+        ];
+        let out = dedupe_batch(batch);
+        assert_eq!(out.len(), 1);
+        let parsed: serde_json::Value = serde_json::from_str(&out[0].msg).unwrap();
+        assert_eq!(parsed["d"]["hp"].as_f64(), Some(50.0));
+    }
+
+    #[test]
+    fn dedupe_preserves_different_entities() {
+        let batch = vec![
+            make("creep", "H", json!({ "id": 42, "hp": 100.0, "max_hp": 200.0 })),
+            make("creep", "H", json!({ "id": 43, "hp":  90.0, "max_hp": 200.0 })),
+        ];
+        let out = dedupe_batch(batch);
+        assert_eq!(out.len(), 2);
+    }
+
+    #[test]
+    fn dedupe_preserves_different_actions() {
+        // creep.H and creep.M share entity but are different actions → both keep.
+        let batch = vec![
+            make("creep", "H", json!({ "id": 42, "hp": 100.0, "max_hp": 200.0 })),
+            make("creep", "M", json!({ "id": 42, "x": 1.0, "y": 2.0 })),
+        ];
+        let out = dedupe_batch(batch);
+        assert_eq!(out.len(), 2);
+    }
+
+    #[test]
+    fn non_dedupable_passes_through() {
+        // Two creation events for the same entity must BOTH survive (creation
+        // is semantic and the second one may carry the real data while the
+        // first is only a placeholder — regardless, we must not collapse).
+        let batch = vec![
+            make("creep", "C", json!({ "id": 42, "kind": "orc" })),
+            make("creep", "C", json!({ "id": 42, "kind": "orc" })),
+        ];
+        let out = dedupe_batch(batch);
+        assert_eq!(out.len(), 2);
+    }
+
+    #[test]
+    fn unknown_kind_passes_through() {
+        // Malformed JSON → peek returns ("", "", 0), dedupe skips it (not panic).
+        // Unknown (msg_type, action) pair → not in is_dedupable → pass-through.
+        let mut raw_bad = OutboundMsg::new_s("td/all/res", "x", "y", json!({}));
+        raw_bad.msg = "not json at all }}}".to_string();
+
+        let batch = vec![
+            raw_bad,
+            make("game", "lives", json!({ "lives": 3 })), // unknown kind per policy
+            make("buff", "buff_add", json!({ "id": 42, "buff": "slow" })),
+        ];
+        let out = dedupe_batch(batch);
+        assert_eq!(out.len(), 3);
+    }
+
+    #[test]
+    fn dedupe_preserves_order_for_mixed_traffic() {
+        // Non-dedupable keeps its slot; dedupable keeps its FIRST-occurrence slot.
+        let batch = vec![
+            make("creep", "H", json!({ "id": 42, "hp": 100.0 })), // slot 0
+            make("game", "lives", json!({ "lives": 3 })),         // slot 1 (pass-through)
+            make("creep", "H", json!({ "id": 42, "hp": 50.0 })),  // dedupes into slot 0
+            make("creep", "M", json!({ "id": 42, "x": 1.0, "y": 2.0 })), // slot 2
+        ];
+        let out = dedupe_batch(batch);
+        assert_eq!(out.len(), 3);
+        let first: serde_json::Value = serde_json::from_str(&out[0].msg).unwrap();
+        assert_eq!(first["t"].as_str(), Some("creep"));
+        assert_eq!(first["a"].as_str(), Some("H"));
+        assert_eq!(first["d"]["hp"].as_f64(), Some(50.0)); // latest value
+        let second: serde_json::Value = serde_json::from_str(&out[1].msg).unwrap();
+        assert_eq!(second["t"].as_str(), Some("game"));
+        let third: serde_json::Value = serde_json::from_str(&out[2].msg).unwrap();
+        assert_eq!(third["t"].as_str(), Some("creep"));
+        assert_eq!(third["a"].as_str(), Some("M"));
+    }
 }
