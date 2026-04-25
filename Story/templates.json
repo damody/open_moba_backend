@@ -51,7 +51,8 @@
     { "id": "ranged_minion",  "display_name": "遠程兵" },
     { "id": "siege_minion",   "display_name": "攻城兵" },
     { "id": "saika_gunner",   "display_name": "雜賀鐵炮兵" },
-    { "id": "sharpshooter",   "display_name": "神射手" }
+    { "id": "sharpshooter",   "display_name": "神射手" },
+    { "id": "td_stress",      "display_name": "壓測怪" }
   ],
 
   "projectile_kinds": [
