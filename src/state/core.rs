@@ -517,9 +517,19 @@ impl State {
                 {
                     use crate::state::resource_management::proto_build;
                     use crate::transport::{TypedOutbound, BroadcastPolicy};
+                    // P9: stamp the proper EntityKind so the client shim
+                    // routes ("hero","D") / ("unit","D") / ("creep","D")
+                    // / ("tower","D") correctly.
+                    let entity_kind = match kind {
+                        "hero" => proto_build::EntityKind::Hero,
+                        "unit" => proto_build::EntityKind::Unit,
+                        "tower" => proto_build::EntityKind::Tower,
+                        "creep" => proto_build::EntityKind::Creep,
+                        _ => proto_build::EntityKind::Entity,
+                    };
                     let msg = OutboundMsg::new_typed(
                         topic, kind, "D",
-                        TypedOutbound::EntityDeath(proto_build::entity_death(id)),
+                        TypedOutbound::EntityDeath(proto_build::entity_death_with_kind(id, entity_kind)),
                         fallback,
                     ).with_policy(BroadcastPolicy::PlayerOnly(player_name_for_policy.clone()));
                     let _ = self.mqtx.send(msg);

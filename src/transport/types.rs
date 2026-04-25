@@ -37,10 +37,13 @@ pub enum TypedOutbound {
     BuffRemove(super::kcp_transport::game_proto::BuffRemove),
     HeroStatic(super::kcp_transport::game_proto::HeroStatic),
     HeroHot(super::kcp_transport::game_proto::HeroHot),
+    HeroCreate(super::kcp_transport::game_proto::HeroCreate),     // P9
+    UnitCreate(super::kcp_transport::game_proto::UnitCreate),     // P9
     GameRound(super::kcp_transport::game_proto::GameRound),
     GameLives(super::kcp_transport::game_proto::GameLives),
     GameEnd(super::kcp_transport::game_proto::GameEnd),
     GameExplosion(super::kcp_transport::game_proto::GameExplosion),
+    LegacyJson(super::kcp_transport::game_proto::LegacyJson),     // P9 catch-all
 }
 
 /// P5 broadcast policy — declares who should receive this event. The

@@ -258,9 +258,18 @@ impl CombatEventHandler {
             let msg = {
                 use crate::state::resource_management::proto_build;
                 use crate::transport::TypedOutbound;
+                // P9: stamp EntityKind for shim ("hero"/"creep"/"unit"/"tower"/"projectile", "D")
+                let entity_kind = match entity_type {
+                    "hero" => proto_build::EntityKind::Hero,
+                    "unit" => proto_build::EntityKind::Unit,
+                    "tower" => proto_build::EntityKind::Tower,
+                    "creep" => proto_build::EntityKind::Creep,
+                    "projectile" => proto_build::EntityKind::Projectile,
+                    _ => proto_build::EntityKind::Entity,
+                };
                 OutboundMsg::new_typed(
                     "td/all/res", entity_type, "D",
-                    TypedOutbound::EntityDeath(proto_build::entity_death(entity.id())),
+                    TypedOutbound::EntityDeath(proto_build::entity_death_with_kind(entity.id(), entity_kind)),
                     json!({ "id": entity.id() }),
                 )
             };

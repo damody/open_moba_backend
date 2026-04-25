@@ -113,12 +113,22 @@ fn make_entity_death(msg_type: &str, id: u32) -> OutboundMsg {
     {
         use crate::state::resource_management::proto_build;
         use crate::transport::TypedOutbound;
+        // P9: stamp EntityKind so client shim routes the correct
+        // ("creep"/"tower"/"hero"/"unit"/"projectile", "D") pair.
+        let entity_kind = match msg_type {
+            "hero" => proto_build::EntityKind::Hero,
+            "unit" => proto_build::EntityKind::Unit,
+            "tower" => proto_build::EntityKind::Tower,
+            "creep" => proto_build::EntityKind::Creep,
+            "projectile" => proto_build::EntityKind::Projectile,
+            _ => proto_build::EntityKind::Entity,
+        };
         // P5: death event at entity's last-known pos. AoiGrid lookup falls
         // back to broadcast if the entity is already removed (safe — client
         // still needs to tear down the visual).
         OutboundMsg::new_typed_aoi_entity(
             "td/all/res", msg_type, "D",
-            TypedOutbound::EntityDeath(proto_build::entity_death(id)),
+            TypedOutbound::EntityDeath(proto_build::entity_death_with_kind(id, entity_kind)),
             json!({ "id": id }),
             id as u64,
         )
@@ -180,10 +190,18 @@ fn make_hp_update(msg_type: &str, id: u32, hp: f32, max_hp: f32) -> OutboundMsg 
     {
         use crate::state::resource_management::proto_build;
         use crate::transport::TypedOutbound;
+        // P9: stamp EntityKind for shim routing.
+        let entity_kind = match msg_type {
+            "hero" => proto_build::EntityKind::Hero,
+            "unit" => proto_build::EntityKind::Unit,
+            "tower" => proto_build::EntityKind::Tower,
+            "creep" => proto_build::EntityKind::Creep,
+            _ => proto_build::EntityKind::Entity,
+        };
         // P5: HP updates without position → resolve pos via AoiGrid entity lookup.
         OutboundMsg::new_typed_aoi_entity(
             "td/all/res", msg_type, "H",
-            TypedOutbound::CreepHp(proto_build::creep_hp(id, hp)),
+            TypedOutbound::CreepHp(proto_build::creep_hp_with_kind(id, hp, entity_kind)),
             json!({ "id": id, "hp": hp, "max_hp": max_hp }),
             id as u64,
         )
@@ -202,9 +220,16 @@ fn make_hp_update_at(msg_type: &str, id: u32, hp: f32, max_hp: f32, x: f32, y: f
     {
         use crate::state::resource_management::proto_build;
         use crate::transport::TypedOutbound;
+        let entity_kind = match msg_type {
+            "hero" => proto_build::EntityKind::Hero,
+            "unit" => proto_build::EntityKind::Unit,
+            "tower" => proto_build::EntityKind::Tower,
+            "creep" => proto_build::EntityKind::Creep,
+            _ => proto_build::EntityKind::Entity,
+        };
         OutboundMsg::new_typed_at(
             "td/all/res", msg_type, "H",
-            TypedOutbound::CreepHp(proto_build::creep_hp(id, hp)),
+            TypedOutbound::CreepHp(proto_build::creep_hp_with_kind(id, hp, entity_kind)),
             json!({ "id": id, "hp": hp, "max_hp": max_hp }),
             x, y,
         )

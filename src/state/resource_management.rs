@@ -751,7 +751,10 @@ impl ResourceManager {
         // so only players in the tower's viewport pay the teardown bandwidth.
         let msg = OutboundMsg::new_typed_aoi_entity(
             "td/all/res", "tower", "D",
-            crate::transport::TypedOutbound::EntityDeath(proto_build::entity_death(tower_id_u32)),
+            crate::transport::TypedOutbound::EntityDeath(proto_build::entity_death_with_kind(
+                tower_id_u32,
+                proto_build::EntityKind::Tower,
+            )),
             json!({ "id": tower_id_u32 }),
             tower_id_u32 as u64,
         );
@@ -1376,6 +1379,9 @@ pub(crate) mod proto_build {
     use crate::transport::kcp_transport::game_proto::*;
     use omoba_core::quant::{facing_quant, fixed_quant, pos_quant};
 
+    // P9: re-export EntityKind so call sites can do `proto_build::EntityKind::Hero`.
+    pub use crate::transport::kcp_transport::game_proto::EntityKind;
+
     pub fn pos16(x: f32, y: f32) -> Position16 {
         Position16 { x_q: pos_quant(x), y_q: pos_quant(y) }
     }
@@ -1500,10 +1506,22 @@ pub(crate) mod proto_build {
         }
     }
 
+    /// Default `creep_hp` — kind defaults to `Creep` (the most common case).
+    /// Use `creep_hp_with_kind` when emitting for hero / unit / generic entity.
     pub fn creep_hp(id: u32, hp: f32) -> CreepHp {
         CreepHp {
             id: id as u64,
             hp: Some(fx16(hp)),
+            kind: EntityKind::Creep as i32,
+        }
+    }
+
+    /// P9: explicit-kind variant for HP updates (hero / unit / entity).
+    pub fn creep_hp_with_kind(id: u32, hp: f32, kind: EntityKind) -> CreepHp {
+        CreepHp {
+            id: id as u64,
+            hp: Some(fx16(hp)),
+            kind: kind as i32,
         }
     }
 
@@ -1529,8 +1547,72 @@ pub(crate) mod proto_build {
         }
     }
 
+    /// Default `entity_death` — kind defaults to `Creep` (most common emit site).
+    /// Use `entity_death_with_kind` when emitting for hero/unit/tower/projectile.
     pub fn entity_death(id: u32) -> EntityDeath {
-        EntityDeath { id: id as u64 }
+        EntityDeath {
+            id: id as u64,
+            kind: EntityKind::Creep as i32,
+        }
+    }
+
+    /// P9: explicit-kind variant for death events.
+    pub fn entity_death_with_kind(id: u32, kind: EntityKind) -> EntityDeath {
+        EntityDeath {
+            id: id as u64,
+            kind: kind as i32,
+        }
+    }
+
+    /// P9: minimal hero create — for visibility-diff spawn. Hero static + hot
+    /// payloads should be pushed alongside (or shortly after) so omfx can
+    /// hydrate the rest.
+    pub fn hero_create(
+        id: u32,
+        x: f32,
+        y: f32,
+        hp: f32,
+        max_hp: f32,
+        name: &str,
+        title: &str,
+    ) -> HeroCreate {
+        HeroCreate {
+            id: id as u64,
+            pos: Some(pos16(x, y)),
+            hp: Some(fx16(hp)),
+            max_hp: Some(fx16(max_hp)),
+            name: name.to_string(),
+            title: title.to_string(),
+        }
+    }
+
+    /// P9: generic unit create.
+    pub fn unit_create(
+        id: u32,
+        x: f32,
+        y: f32,
+        hp: f32,
+        max_hp: f32,
+        name: &str,
+    ) -> UnitCreate {
+        UnitCreate {
+            id: id as u64,
+            pos: Some(pos16(x, y)),
+            hp: Some(fx16(hp)),
+            max_hp: Some(fx16(max_hp)),
+            name: name.to_string(),
+        }
+    }
+
+    /// P9: build a `LegacyJson` wrapper for low-frequency irregular events
+    /// (init/ack/reject/inventory). Steady-state hot paths must NOT use this —
+    /// migrate to a typed variant instead.
+    pub fn legacy_json(t: &str, a: &str, v: &serde_json::Value) -> LegacyJson {
+        LegacyJson {
+            msg_type: t.to_string(),
+            action: a.to_string(),
+            data_json: serde_json::to_vec(v).unwrap_or_default(),
+        }
     }
 
     pub fn tower_create(

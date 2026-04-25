@@ -399,87 +399,46 @@ pub async fn start(
                             .map(|d| d.as_millis() as u64)
                             .unwrap_or(0);
 
-                        // P2 binary-protocol path: when `msg.typed` is Some, build
-                        // the prost oneof variant and drop the JSON `data_json` so
-                        // only the typed payload traverses the wire.
-                        // NOTE: built once per OutboundMsg, then cloned per session
-                        // since each session stamps its own `sequence` on the
-                        // final GameEvent (P6).
-                        let typed_payload = msg.typed.as_ref().map(|t| match t {
-                            TypedOutbound::Heartbeat(hb) => {
-                                game_event::TypedPayload::Heartbeat(hb.clone())
-                            }
-                            TypedOutbound::ProjectileCreate(m) => {
-                                game_event::TypedPayload::ProjectileCreate(m.clone())
-                            }
-                            TypedOutbound::ProjectileDestroy(m) => {
-                                game_event::TypedPayload::ProjectileDestroy(m.clone())
-                            }
-                            TypedOutbound::CreepCreate(m) => {
-                                game_event::TypedPayload::CreepCreate(m.clone())
-                            }
-                            TypedOutbound::CreepMove(m) => {
-                                game_event::TypedPayload::CreepMove(m.clone())
-                            }
-                            TypedOutbound::CreepHp(m) => {
-                                game_event::TypedPayload::CreepHp(m.clone())
-                            }
-                            TypedOutbound::CreepSlow(m) => {
-                                game_event::TypedPayload::CreepSlow(m.clone())
-                            }
-                            TypedOutbound::CreepStall(m) => {
-                                game_event::TypedPayload::CreepStall(m.clone())
-                            }
-                            TypedOutbound::EntityFacing(m) => {
-                                game_event::TypedPayload::EntityFacing(m.clone())
-                            }
-                            TypedOutbound::EntityDeath(m) => {
-                                game_event::TypedPayload::EntityDeath(m.clone())
-                            }
-                            TypedOutbound::TowerCreate(m) => {
-                                game_event::TypedPayload::TowerCreate(m.clone())
-                            }
-                            TypedOutbound::TowerUpgrade(m) => {
-                                game_event::TypedPayload::TowerUpgrade(m.clone())
-                            }
-                            TypedOutbound::BuffAdd(m) => {
-                                game_event::TypedPayload::BuffAdd(m.clone())
-                            }
-                            TypedOutbound::BuffRemove(m) => {
-                                game_event::TypedPayload::BuffRemove(m.clone())
-                            }
-                            TypedOutbound::HeroStatic(m) => {
-                                game_event::TypedPayload::HeroStatic(m.clone())
-                            }
-                            TypedOutbound::HeroHot(m) => {
-                                game_event::TypedPayload::HeroHot(m.clone())
-                            }
-                            TypedOutbound::GameRound(m) => {
-                                game_event::TypedPayload::GameRound(m.clone())
-                            }
-                            TypedOutbound::GameLives(m) => {
-                                game_event::TypedPayload::GameLives(m.clone())
-                            }
-                            TypedOutbound::GameEnd(m) => {
-                                game_event::TypedPayload::GameEnd(m.clone())
-                            }
-                            TypedOutbound::GameExplosion(m) => {
-                                game_event::TypedPayload::GameExplosion(m.clone())
-                            }
-                        });
-                        let data_json = if typed_payload.is_some() { Vec::new() } else { data_bytes };
+                        // P9 envelope-strip: every event must carry a typed
+                        // `payload` oneof. When `msg.typed` is None (legacy
+                        // emit site), wrap the JSON in a `LegacyJson` variant
+                        // so the wire still avoids envelope strings.
+                        let payload = match msg.typed.as_ref() {
+                            Some(TypedOutbound::Heartbeat(m))         => game_event::Payload::Heartbeat(m.clone()),
+                            Some(TypedOutbound::HeroStatic(m))        => game_event::Payload::HeroStatic(m.clone()),
+                            Some(TypedOutbound::HeroHot(m))           => game_event::Payload::HeroHot(m.clone()),
+                            Some(TypedOutbound::HeroCreate(m))        => game_event::Payload::HeroCreate(m.clone()),
+                            Some(TypedOutbound::CreepCreate(m))       => game_event::Payload::CreepCreate(m.clone()),
+                            Some(TypedOutbound::CreepMove(m))         => game_event::Payload::CreepMove(m.clone()),
+                            Some(TypedOutbound::CreepHp(m))           => game_event::Payload::CreepHp(m.clone()),
+                            Some(TypedOutbound::CreepSlow(m))         => game_event::Payload::CreepSlow(m.clone()),
+                            Some(TypedOutbound::CreepStall(m))        => game_event::Payload::CreepStall(m.clone()),
+                            Some(TypedOutbound::EntityFacing(m))      => game_event::Payload::EntityFacing(m.clone()),
+                            Some(TypedOutbound::EntityDeath(m))       => game_event::Payload::EntityDeath(m.clone()),
+                            Some(TypedOutbound::UnitCreate(m))        => game_event::Payload::UnitCreate(m.clone()),
+                            Some(TypedOutbound::ProjectileCreate(m))  => game_event::Payload::ProjectileCreate(m.clone()),
+                            Some(TypedOutbound::ProjectileDestroy(m)) => game_event::Payload::ProjectileDestroy(m.clone()),
+                            Some(TypedOutbound::TowerCreate(m))       => game_event::Payload::TowerCreate(m.clone()),
+                            Some(TypedOutbound::TowerUpgrade(m))      => game_event::Payload::TowerUpgrade(m.clone()),
+                            Some(TypedOutbound::BuffAdd(m))           => game_event::Payload::BuffAdd(m.clone()),
+                            Some(TypedOutbound::BuffRemove(m))        => game_event::Payload::BuffRemove(m.clone()),
+                            Some(TypedOutbound::GameRound(m))         => game_event::Payload::GameRound(m.clone()),
+                            Some(TypedOutbound::GameLives(m))         => game_event::Payload::GameLives(m.clone()),
+                            Some(TypedOutbound::GameEnd(m))           => game_event::Payload::GameEnd(m.clone()),
+                            Some(TypedOutbound::GameExplosion(m))     => game_event::Payload::GameExplosion(m.clone()),
+                            Some(TypedOutbound::LegacyJson(m))        => game_event::Payload::LegacyJson(m.clone()),
+                            None => game_event::Payload::LegacyJson(LegacyJson {
+                                msg_type: msg_type.clone(),
+                                action: action.clone(),
+                                data_json: data_bytes,
+                            }),
+                        };
+                        let _ = timestamp_ms; // P9: timestamp now client-local
 
-                        // Build a template event WITHOUT sequence — each
-                        // session will clone and stamp its own per-session
-                        // sequence before encoding (P6).
+                        // P6: per-session sequence stamped below; template is shared.
                         let event_template = GameEvent {
-                            topic: msg.topic.clone(),
-                            msg_type: msg_type.clone(),
-                            action: action.clone(),
-                            data_json,
-                            timestamp_ms,
-                            sequence: 0, // overwritten per-session
-                            typed_payload,
+                            sequence: 0,
+                            payload: Some(payload),
                         };
 
                         let sessions = sessions_broadcast.lock().await;

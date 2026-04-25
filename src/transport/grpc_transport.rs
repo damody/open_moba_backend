@@ -78,7 +78,11 @@ impl GameService for GameServiceImpl {
                         let is_broadcast = msg.topic.contains("/all/");
                         let is_for_player = msg.topic.contains(&format!("/{}/", player_name));
                         if is_broadcast || is_for_player || player_name.is_empty() {
-                            // Parse the msg JSON to extract t, a, d fields
+                            // P9: gRPC path doesn't carry typed prost variants
+                            // (broadcast::Sender<OutboundMsg> only sees JSON msgs
+                            // built via OutboundMsg::new_s* — `typed` field is
+                            // gated behind feature="kcp"). So we wrap the JSON
+                            // into the LegacyJson variant.
                             let (msg_type, action, data_bytes) = if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&msg.msg) {
                                 let t = parsed.get("t").and_then(|v| v.as_str()).unwrap_or("").to_string();
                                 let a = parsed.get("a").and_then(|v| v.as_str()).unwrap_or("").to_string();
@@ -88,21 +92,13 @@ impl GameService for GameServiceImpl {
                                 ("".to_string(), "".to_string(), msg.msg.as_bytes().to_vec())
                             };
 
-                            let timestamp_ms = msg.time
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .map(|d| d.as_millis() as u64)
-                                .unwrap_or(0);
-
                             yield Ok(GameEvent {
-                                topic: msg.topic,
-                                msg_type,
-                                action,
-                                data_json: data_bytes,
-                                timestamp_ms,
-                                // P6: gRPC path doesn't implement per-session
-                                // sequencing (no session abstraction); leave 0.
                                 sequence: 0,
-                                typed_payload: None,
+                                payload: Some(game_event::Payload::LegacyJson(LegacyJson {
+                                    msg_type,
+                                    action,
+                                    data_json: data_bytes,
+                                })),
                             });
                         }
                     }
