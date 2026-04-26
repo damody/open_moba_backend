@@ -48,41 +48,43 @@ impl TickProfile {
     }
 
     fn emit_log(&self) {
-        let window = Self::WINDOW as u128;
-        let run_avg_us = self.run_systems_ns / window / 1_000;
-        let dispatch_avg_us = self.script_dispatch_ns / window / 1_000;
-        let outcomes_avg_us = self.process_outcomes_ns / window / 1_000;
-        let total_avg_us = run_avg_us + dispatch_avg_us + outcomes_avg_us;
+        let window = Self::WINDOW as f64;
+        // ns → ms: ÷ 1_000_000. window 個 tick 取平均。
+        let run_avg_ms = self.run_systems_ns as f64 / window / 1_000_000.0;
+        let dispatch_avg_ms = self.script_dispatch_ns as f64 / window / 1_000_000.0;
+        let outcomes_avg_ms = self.process_outcomes_ns as f64 / window / 1_000_000.0;
+        let total_avg_ms = run_avg_ms + dispatch_avg_ms + outcomes_avg_ms;
 
-        let outcomes_pct = if total_avg_us > 0 {
-            (outcomes_avg_us * 100) / total_avg_us
+        let outcomes_pct = if total_avg_ms > 0.0 {
+            (outcomes_avg_ms * 100.0) / total_avg_ms
         } else {
-            0
+            0.0
         };
 
         log::info!(
-            "tick_profile window={} avg(μs) run_systems={} script_dispatch={} process_outcomes={} (out={}%)",
+            "tick_profile window={} avg(ms) run_systems={:.3} script_dispatch={:.3} process_outcomes={:.3} (out={:.0}%)",
             Self::WINDOW,
-            run_avg_us,
-            dispatch_avg_us,
-            outcomes_avg_us,
+            run_avg_ms,
+            dispatch_avg_ms,
+            outcomes_avg_ms,
             outcomes_pct,
         );
 
         let mut entries: Vec<_> = self.variant_stats.iter().collect();
         entries.sort_by(|a, b| b.1.ns.cmp(&a.1.ns));
         for (name, stat) in entries.iter().take(6) {
-            let avg_ns = if stat.count > 0 {
-                stat.ns / stat.count as u128
+            let total_ms = stat.ns as f64 / 1_000_000.0;
+            let avg_ms = if stat.count > 0 {
+                stat.ns as f64 / stat.count as f64 / 1_000_000.0
             } else {
-                0
+                0.0
             };
             log::info!(
-                "  outcome {:<22} count={:>6} total_us={:>6} avg_ns={:>5}",
+                "  outcome {:<22} count={:>6} total_ms={:>7.3} avg_ms={:>7.4}",
                 name,
                 stat.count,
-                stat.ns / 1_000,
-                avg_ns,
+                total_ms,
+                avg_ms,
             );
         }
     }
