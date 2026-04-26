@@ -873,6 +873,29 @@ impl ResourceManager {
             return Ok(());
         }
 
+        // Gate：必須學過 + 不在 CD（防止 client 繞過 UI 直接送命令）
+        {
+            let heroes = world.read_storage::<Hero>();
+            let h = match heroes.get(caster) {
+                Some(h) => h,
+                None => return Ok(()),
+            };
+            if !h.can_use_ability(&ability_id) {
+                log::warn!(
+                    "[cast_ability] hero '{}' slot {} ability '{}' not learned (level=0)",
+                    pd.name, slot, ability_id
+                );
+                return Ok(());
+            }
+            if h.is_on_cooldown(&ability_id) {
+                log::warn!(
+                    "[cast_ability] hero '{}' slot {} ability '{}' still on cooldown ({:.2}s remaining)",
+                    pd.name, slot, ability_id, h.get_cooldown(&ability_id)
+                );
+                return Ok(());
+            }
+        }
+
         // 解析 target_pos [x,y] 或 target_entity (u64)
         let target = if let Some(arr) = pd.d.get("target_pos").and_then(|v| v.as_array()) {
             if arr.len() == 2 {
