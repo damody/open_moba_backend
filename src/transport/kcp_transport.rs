@@ -73,13 +73,14 @@ async fn write_framed<W: AsyncWriteExt + Unpin>(
     Ok(())
 }
 
-/// Read a framed message, returns (tag, payload bytes).
+/// Read a framed message, returns (tag, decompressed_payload, wire_bytes).
 /// If COMPRESSION_FLAG is set on the wire tag, the payload is decompressed and
 /// the returned tag has the flag stripped (callers see only 0x01~0x07).
+/// `wire_bytes` = 1 (tag) + 4 (length) + N (raw on-wire bytes).
 /// KEEP IN SYNC with omoba-core::kcp::framing::read_framed.
 async fn read_framed<R: AsyncReadExt + Unpin>(
     reader: &mut R,
-) -> std::io::Result<Option<(u8, Vec<u8>)>> {
+) -> std::io::Result<Option<(u8, Vec<u8>, usize)>> {
     let tag_raw = match reader.read_u8().await {
         Ok(t) => t,
         Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
@@ -88,13 +89,14 @@ async fn read_framed<R: AsyncReadExt + Unpin>(
     let len = reader.read_u32().await? as usize;
     let mut buf = vec![0u8; len];
     reader.read_exact(&mut buf).await?;
+    let wire_bytes = 1 + 4 + len;
     if tag_raw & COMPRESSION_FLAG != 0 {
         let base_tag = tag_raw & 0x7F;
         let decompressed = lz4_flex::block::decompress_size_prepended(&buf)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        Ok(Some((base_tag, decompressed)))
+        Ok(Some((base_tag, decompressed, wire_bytes)))
     } else {
-        Ok(Some((tag_raw, buf)))
+        Ok(Some((tag_raw, buf, wire_bytes)))
     }
 }
 
@@ -676,7 +678,7 @@ async fn handle_client(
         tokio::select! {
             result = read_framed(&mut reader) => {
                 match result {
-                    Ok(Some((tag, payload))) => {
+                    Ok(Some((tag, payload, _wire_bytes))) => {
                         match tag {
                             TAG_SUBSCRIBE_REQUEST => {
                                 if let Ok(sub) = SubscribeRequest::decode(payload.as_slice()) {
