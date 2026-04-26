@@ -61,12 +61,24 @@ impl TickProfile {
             0.0
         };
 
+        // total_ms = 一個 tick 的實際執行時間（run + dispatch + outcomes）
+        // max_tps = 1秒 (1000ms) ÷ total_ms = 理論可達 tick/sec 上限
+        // （實際 server clock 限制在 main.rs 的 TPS = 30；max_tps 越高代表
+        // 還有多少餘裕。例如 max_tps=660 表示目前模擬負擔 << 30 TPS budget）
+        let max_tps = if total_avg_ms > 0.0 {
+            (1000.0 / total_avg_ms) as u32
+        } else {
+            u32::MAX
+        };
+
         log::info!(
-            "tick_profile window={} avg(ms) run_systems={:.3} script_dispatch={:.3} process_outcomes={:.3} (out={:.0}%)",
+            "tick_profile window={} avg(ms) run={:.3} dispatch={:.3} outcomes={:.3} total={:.3} (max_tps={}, out={:.0}%)",
             Self::WINDOW,
             run_avg_ms,
             dispatch_avg_ms,
             outcomes_avg_ms,
+            total_avg_ms,
+            max_tps,
             outcomes_pct,
         );
 
