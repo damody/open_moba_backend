@@ -295,6 +295,7 @@ impl StateInitializer {
         ecs.register::<IsBase>();
         ecs.register::<Bounty>();
         ecs.register::<Facing>();
+        ecs.register::<FacingBroadcast>();
         ecs.register::<TurnSpeed>();
         ecs.register::<CollisionRadius>();
         ecs.register::<RegionBlocker>();
@@ -438,6 +439,7 @@ impl StateInitializer {
                 .with(Inventory::new())
                 .with(ItemEffects::default())
                 .with(Facing(0.0))
+                .with(FacingBroadcast(None))
                 .with(TurnSpeed(hero_turn_rad))
                 .with(CollisionRadius(hero_radius))
                 .with(crate::scripting::ScriptUnitTag { unit_id: unit_id.clone() })
@@ -553,6 +555,7 @@ impl StateInitializer {
             .with(vision)
             .with(bounty)
             .with(Facing(0.0))
+            .with(FacingBroadcast(None))
             .with(TurnSpeed(turn_speed_deg.to_radians()))
             .with(CollisionRadius(collision_radius));
 

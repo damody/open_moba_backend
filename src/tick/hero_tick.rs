@@ -58,6 +58,7 @@ pub struct HeroWrite<'a> {
     heroes : WriteStorage<'a, Hero>,
     tatks : WriteStorage<'a, TAttack>,
     facings: WriteStorage<'a, Facing>,
+    facing_bcs: WriteStorage<'a, FacingBroadcast>,
     mqtx: Write<'a, Vec<crossbeam_channel::Sender<crate::transport::OutboundMsg>>>,
 }
 
@@ -104,6 +105,7 @@ impl<'a> System<'a> for Sys {
             &mut tw.tatks,
             &tr.pos,
             &mut tw.facings,
+            &mut tw.facing_bcs,
         )
             .par_join()
             .map_init(
@@ -111,7 +113,7 @@ impl<'a> System<'a> for Sys {
                     prof_span!(guard, "hero update rayon job");
                     guard
                 },
-                |_guard, (e, hero, pty, atk, pos, facing)| {
+                |_guard, (e, hero, pty, atk, pos, facing, facing_bc)| {
                     let mut outcomes: Vec<Outcome> = Vec::new();
 
                     // Stun 狀態：暈眩中不攻擊、不累積冷卻（asd_count 凍結）
@@ -210,12 +212,16 @@ impl<'a> System<'a> for Sys {
                                     let desired = diff.y.atan2(diff.x);
                                     let turn = tr.turn_speeds.get(e).map(|t| t.0)
                                         .unwrap_or(std::f32::consts::FRAC_PI_2);
-                                    let old_facing = facing.0;
                                     facing.0 = rotate_toward(facing.0, desired, turn * dt);
 
-                                    // 廣播 facing 變化
-                                    if let Some(ref t) = tx {
-                                        if (facing.0 - old_facing).abs() > FACING_BROADCAST_THRESHOLD_RAD {
+                                    // 廣播 facing 變化：和「上次廣播」差 > 15° 才送。
+                                    let needs_emit = match facing_bc.0 {
+                                        None => true,
+                                        Some(last) => (facing.0 - last).abs() > FACING_BROADCAST_THRESHOLD_RAD,
+                                    };
+                                    if needs_emit {
+                                        facing_bc.0 = Some(facing.0);
+                                        if let Some(ref t) = tx {
                                             let _ = t.try_send(make_entity_facing(e.id(), facing.0, pos.0.x, pos.0.y));
                                         }
                                     }

@@ -49,6 +49,7 @@ pub fn spawn_td_tower(world: &mut World, pos: Vec2<f32>, unit_id: &str) -> Optio
         .with(faction)
         .with(vision)
         .with(Facing(0.0))
+        .with(crate::comp::FacingBroadcast(None))
         .with(TurnSpeed(tpl.turn_speed_deg.to_radians()))
         .with(CollisionRadius(tpl.footprint))
         .with(crate::scripting::ScriptUnitTag { unit_id: unit_id.to_string() })

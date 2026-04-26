@@ -798,6 +798,7 @@ impl GameProcessor {
             .with(faction)
             .with(bounty)
             .with(Facing(0.0))
+            .with(FacingBroadcast(None))
             .with(TurnSpeed(turn_speed_rad))
             .with(crate::scripting::ScriptUnitTag { unit_id: unit_id.clone() })
             .build();

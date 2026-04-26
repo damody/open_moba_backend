@@ -404,6 +404,7 @@ impl<'a> GameWorld for WorldAdapter<'a> {
             .with(cprop)
             .with(tatk)
             .with(Facing(0.0))
+            .with(crate::comp::FacingBroadcast(None))
             .with(TurnSpeed(std::f32::consts::PI))
             .with(CollisionRadius(30.0))
             .with(summoned)

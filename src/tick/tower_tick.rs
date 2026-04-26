@@ -59,6 +59,7 @@ pub struct TowerWrite<'a> {
     propertys : WriteStorage<'a, TProperty>,
     tatks : WriteStorage<'a, TAttack>,
     facings: WriteStorage<'a, Facing>,
+    facing_bcs: WriteStorage<'a, FacingBroadcast>,
     mqtx: Write<'a, Vec<Sender<OutboundMsg>>>,
 }
 
@@ -85,6 +86,7 @@ impl<'a> System<'a> for Sys {
             &mut tw.tatks,
             &tr.pos,
             &mut tw.facings,
+            &mut tw.facing_bcs,
         )
             .par_join()
             .map_init(
@@ -92,7 +94,7 @@ impl<'a> System<'a> for Sys {
                     prof_span!(guard, "tower update rayon job");
                     guard
                 },
-                |_guard, (e, tower, pty, atk, pos, facing)| {
+                |_guard, (e, tower, pty, atk, pos, facing, facing_bc)| {
                     let mut outcomes:Vec<Outcome> = Vec::new();
                     // 腳本塔：開火/asd_count 由 on_tick 自管；但「找目標 + 轉向」仍由 host 做。
                     // 非腳本塔：host 管全部（累計 asd、找目標、轉向、開火）。
@@ -169,12 +171,18 @@ impl<'a> System<'a> for Sys {
                                     let desired = diff.y.atan2(diff.x);
                                     let turn = tr.turn_speeds.get(e).map(|t| t.0)
                                         .unwrap_or(std::f32::consts::FRAC_PI_2);
-                                    let old_facing = facing.0;
                                     facing.0 = rotate_toward(facing.0, desired, turn * dt);
 
-                                    // 廣播 facing 變化（僅當變化 > 15° 才送）
-                                    if let Some(ref t) = tx {
-                                        if (facing.0 - old_facing).abs() > FACING_BROADCAST_THRESHOLD_RAD {
+                                    // 廣播 facing 變化：和「上次廣播」差 > 15° 才送。
+                                    // 必須比較 last_broadcast 而不是 per-tick old_facing —
+                                    // 否則每 tick 旋轉量 (~3°) 永遠 < 15° 永遠不發。
+                                    let needs_emit = match facing_bc.0 {
+                                        None => true,  // 第一次必發（client 原預設 0 → 校正）
+                                        Some(last) => (facing.0 - last).abs() > FACING_BROADCAST_THRESHOLD_RAD,
+                                    };
+                                    if needs_emit {
+                                        facing_bc.0 = Some(facing.0);
+                                        if let Some(ref t) = tx {
                                             let _ = t.try_send(make_entity_facing(e.id(), facing.0, pos.0.x, pos.0.y));
                                         }
                                     }

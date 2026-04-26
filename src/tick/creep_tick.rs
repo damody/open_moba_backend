@@ -140,6 +140,7 @@ pub struct CreepWrite<'a> {
     creeps : WriteStorage<'a, Creep>,
     pos : WriteStorage<'a, Pos>,
     facings: WriteStorage<'a, Facing>,
+    facing_bcs: WriteStorage<'a, FacingBroadcast>,
     /// P4: per-creep last-broadcast snapshot for M-emit gating.
     /// Inserted lazily on first emit (component may be absent for creeps
     /// that existed before the P4 upgrade path).
@@ -184,15 +185,16 @@ impl<'a> System<'a> for Sys {
             &mut tw.pos,
             &tr.cpropertys,
             &mut tw.facings,
+            &mut tw.facing_bcs,
         )
             .par_join()
-            .filter(|(_e, _creep, _p, _cp, _f)| true )
+            .filter(|(_e, _creep, _p, _cp, _f, _fb)| true )
             .map_init(
                 || {
                     prof_span!(guard, "creep update rayon job");
                     guard
                 },
-                |_guard, (e, creep, pos, cp, facing)| {
+                |_guard, (e, creep, pos, cp, facing, facing_bc)| {
                     let mut outcomes:Vec<Outcome> = Vec::new();
                     let mut cands: Vec<MoveCandidate> = Vec::new();
                     if cp.hp <= 0. {
@@ -254,10 +256,14 @@ impl<'a> System<'a> for Sys {
                                                 let turn_rate = tr.turn_speeds.get(e)
                                                     .map(|t| t.0)
                                                     .unwrap_or(std::f32::consts::FRAC_PI_2);
-                                                let old_facing = facing.0;
                                                 facing.0 = rotate_toward(facing.0, desired, turn_rate * dt);
-                                                // 面向變化 > 15° 就廣播 F 事件
-                                                if (facing.0 - old_facing).abs() > FACING_BROADCAST_THRESHOLD_RAD {
+                                                // 廣播 facing 變化：和「上次廣播」差 > 15° 才送。
+                                                let needs_emit = match facing_bc.0 {
+                                                    None => true,
+                                                    Some(last) => (facing.0 - last).abs() > FACING_BROADCAST_THRESHOLD_RAD,
+                                                };
+                                                if needs_emit {
+                                                    facing_bc.0 = Some(facing.0);
                                                     tx.try_send(make_entity_facing(e.id(), facing.0, pos.0.x, pos.0.y));
                                                 }
 

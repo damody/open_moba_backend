@@ -10,6 +10,19 @@ impl Component for Facing {
     type Storage = VecStorage<Self>;
 }
 
+/// 上次廣播給 client 的 facing 值。`None` = 從未廣播（第一次必發）。
+///
+/// **為什麼需要這個 component**：原本 `creep/hero/tower_tick` 用「這 tick 之前的
+/// `old_facing`」做門檻比較：`(facing - old_facing).abs() > threshold`。但每 tick
+/// 旋轉量 ≤ `turn_speed × dt` ≈ `π/2 × 1/30` ≈ 3°，永遠小於 15° 門檻，**廣播從未
+/// 觸發**。修正：累計差距以「自上次廣播以來」計算，須要單獨儲存上次廣播值。
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
+pub struct FacingBroadcast(pub Option<f32>);
+
+impl Component for FacingBroadcast {
+    type Storage = VecStorage<Self>;
+}
+
 /// 每秒可轉向的最大弧度（radians/sec）
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub struct TurnSpeed(pub f32);
