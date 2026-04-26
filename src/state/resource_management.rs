@@ -1058,7 +1058,16 @@ impl ResourceManager {
                     }
                 };
                 let cur = hero.ability_levels.get(&ability_id).copied().unwrap_or(0);
-                let new_lvl = (cur + 1).min(5);
+                // Bug fix: 之前用 (cur+1).min(5)，cur=5 時 new_lvl 也是 5
+                // 但 skill_points 還是被扣 1（無實際效果）。改成已滿級就拒絕。
+                if cur >= 5 {
+                    log::info!(
+                        "upgrade_skill: slot {} ({}) 已達滿級 5",
+                        slot, ability_id
+                    );
+                    return Ok(());
+                }
+                let new_lvl = cur + 1;
                 hero.ability_levels.insert(ability_id.clone(), new_lvl);
                 hero.skill_points -= 1;
                 log::info!(
