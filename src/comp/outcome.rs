@@ -80,6 +80,11 @@ pub enum Outcome {
         target: Entity,      // 獲得經驗的實體
         amount: i32,         // 經驗值數量
     },
+    /// 獲得金錢事件（擊殺獎勵、任務獎勵等）
+    GainGold {
+        target: Entity,      // 獲得金錢的實體（通常為 hero）
+        amount: i32,         // 金錢數量
+    },
     /// 生成單位事件
     SpawnUnit {
         pos: Vec2<f32>,                        // 生成位置

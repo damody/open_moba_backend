@@ -314,6 +314,7 @@ fn outcome_kind(o: &Outcome) -> &'static str {
         Outcome::Heal { .. } => "Heal",
         Outcome::UpdateAttack { .. } => "UpdateAttack",
         Outcome::GainExperience { .. } => "GainExperience",
+        Outcome::GainGold { .. } => "GainGold",
         Outcome::SpawnUnit { .. } => "SpawnUnit",
         Outcome::CreepLeaked { .. } => "CreepLeaked",
         Outcome::AddBuff { .. } => "AddBuff",
@@ -413,6 +414,9 @@ impl GameProcessor {
                     }
                     Outcome::GainExperience { target, amount } => {
                         Self::handle_experience_gain(ecs, target, amount as u32)?;
+                    }
+                    Outcome::GainGold { target, amount } => {
+                        Self::handle_gold_gain(ecs, target, amount)?;
                     }
                     Outcome::CreepLeaked { ent } => {
                         remove_uids.push(ent);
@@ -1098,6 +1102,20 @@ impl GameProcessor {
                 log::info!("Hero '{}' gained {} experience and leveled up!", hero.name, amount);
             } else {
                 log::info!("Hero '{}' gained {} experience", hero.name, amount);
+            }
+        }
+        Ok(())
+    }
+
+    fn handle_gold_gain(ecs: &mut World, target: Entity, amount: i32) -> Result<(), Error> {
+        if amount == 0 { return Ok(()); }
+        let mut golds = ecs.write_storage::<Gold>();
+        match golds.get_mut(target) {
+            Some(g) => {
+                g.0 = g.0.saturating_add(amount);
+            }
+            None => {
+                let _ = golds.insert(target, Gold(amount.max(0)));
             }
         }
         Ok(())

@@ -159,8 +159,11 @@ fn distribute_death_rewards(
     // 金錢獎勵只給最近的英雄（在金錢範圍內）
     if let Some((closest_hero, distance_sq)) = eligible_heroes.first() {
         if *distance_sq <= GOLD_RANGE * GOLD_RANGE && reward.gold_reward > 0 {
-            // TODO: 實現金錢系統
-            log::info!("Hero would receive {} gold for killing '{}'", 
+            tw.outcomes.push(Outcome::GainGold {
+                target: *closest_hero,
+                amount: reward.gold_reward,
+            });
+            log::info!("Hero received {} gold for killing '{}'",
                       reward.gold_reward, reward.dead_unit.name);
         }
     }
