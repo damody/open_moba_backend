@@ -8,7 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::comp::circular_vision::{VisionResult, ShadowArea, ObstacleInfo};
 
 // Import refactored modules from the vision module
-use super::quadtree::{QuadTree, Bounds};
+use super::quadtree::{QuadTree, Bounds, TreeEntry};
 use super::shadow_calculation::ShadowCalculator as ShadowCalc;
 use super::vision_cache::{CacheManager, CacheStats};
 use super::geometry_utils::GeometryUtils;
@@ -21,8 +21,6 @@ pub struct ShadowCalculator {
     cache_manager: CacheManager,
     /// 障礙物位置索引
     obstacle_index: BTreeMap<String, ObstacleInfo>,
-    /// 初始化時記錄的世界邊界，用於 update/remove 後 rebuild
-    world_bounds: Option<Bounds>,
 }
 
 impl ShadowCalculator {
@@ -32,7 +30,6 @@ impl ShadowCalculator {
             quadtree: QuadTree::new(8, 10),
             cache_manager: CacheManager::new(1000),
             obstacle_index: BTreeMap::new(),
-            world_bounds: None,
         }
     }
 
@@ -46,7 +43,6 @@ impl ShadowCalculator {
             quadtree: QuadTree::new(max_tree_depth, max_obstacles_per_node),
             cache_manager: CacheManager::new(max_cache_size),
             obstacle_index: BTreeMap::new(),
-            world_bounds: None,
         }
     }
 
@@ -54,29 +50,18 @@ impl ShadowCalculator {
     pub fn initialize_quadtree(&mut self, world_bounds: Bounds, obstacles: Vec<ObstacleInfo>) {
         // 重建障礙物索引
         self.obstacle_index.clear();
-        for (i, obstacle) in obstacles.iter().enumerate() {
+        let mut entries = Vec::with_capacity(obstacles.len());
+        for (i, obstacle) in obstacles.into_iter().enumerate() {
             let id = format!("obstacle_{}", i);
-            self.obstacle_index.insert(id, obstacle.clone());
+            self.obstacle_index.insert(id.clone(), obstacle.clone());
+            entries.push(TreeEntry { id, obstacle });
         }
 
-        // 初始化四叉樹並記錄邊界
-        self.quadtree.initialize(world_bounds.clone(), obstacles);
-        self.world_bounds = Some(world_bounds);
+        // 初始化四叉樹（含 id），之後 update/remove 走增量 API
+        self.quadtree.initialize(world_bounds, entries);
 
         // 清理可能失效的緩存
         self.cache_manager.invalidate_all_cache();
-    }
-
-    /// 從目前的 obstacle_index 重建四叉樹。
-    /// 用於 update_obstacle / remove_obstacle 之後保持索引與樹同步。
-    /// 完整的 incremental 樹更新（找到 leaf、原地調整子節點）是未來的優化方向。
-    fn rebuild_tree_from_index(&mut self) {
-        let bounds = match self.world_bounds.clone() {
-            Some(b) => b,
-            None => return, // 尚未 initialize_quadtree 之前不需要重建
-        };
-        let obstacles: Vec<ObstacleInfo> = self.obstacle_index.values().cloned().collect();
-        self.quadtree.initialize(bounds, obstacles);
     }
 
     /// 高效率視野計算（使用空間分割優化）
@@ -94,17 +79,17 @@ impl ShadowCalculator {
             return cached.result.clone();
         }
 
-        // 使用四叉樹查詢相關障礙物
-        let relevant_obstacles = self.quadtree.query_obstacles_in_range(observer_pos, vision_range);
+        // 使用四叉樹查詢相關障礙物（含 id 用於 cache dependency 追蹤）
+        let relevant_entries = self.quadtree.query_entries_in_range(observer_pos, vision_range);
 
         // 使用陰影投射算法
         let mut shadows = Vec::new();
-        for obstacle in &relevant_obstacles {
+        for (_id, obstacle) in &relevant_entries {
             if let Some(shadow) = ShadowCalc::calculate_obstacle_shadow(
-                observer_pos, 
-                observer_height, 
-                vision_range, 
-                obstacle
+                observer_pos,
+                observer_height,
+                vision_range,
+                obstacle,
             ) {
                 shadows.push(shadow);
             }
@@ -124,12 +109,11 @@ impl ShadowCalculator {
             timestamp: self.current_time(),
         };
 
-        // 緩存結果
-        let dependencies = relevant_obstacles.iter()
-            .enumerate()
-            .map(|(i, _)| format!("obstacle_{}", i))
+        // 緩存結果，依賴清單用真實 obstacle id
+        let dependencies = relevant_entries.iter()
+            .map(|(id, _)| id.clone())
             .collect();
-            
+
         self.cache_manager.cache_vision_result(cache_key, result.clone(), dependencies);
 
         result
@@ -137,20 +121,20 @@ impl ShadowCalculator {
 
     /// 增量更新障礙物
     pub fn update_obstacle(&mut self, obstacle_id: String, obstacle: ObstacleInfo) {
-        self.obstacle_index.insert(obstacle_id.clone(), obstacle);
+        self.obstacle_index.insert(obstacle_id.clone(), obstacle.clone());
 
         // 使相關緩存失效
         self.cache_manager.invalidate_cache_for_obstacle(&obstacle_id);
 
-        // 重建 QuadTree 確保查詢結果正確；incremental 樹更新是未來優化（見 rebuild_tree_from_index 註解）
-        self.rebuild_tree_from_index();
+        // 增量更新四叉樹（移除舊 entry，插入新 entry）
+        self.quadtree.update_obstacle(&obstacle_id, obstacle);
     }
 
     /// 移除障礙物
     pub fn remove_obstacle(&mut self, obstacle_id: &str) {
         self.obstacle_index.remove(obstacle_id);
         self.cache_manager.invalidate_cache_for_obstacle(obstacle_id);
-        self.rebuild_tree_from_index();
+        self.quadtree.remove_obstacle(obstacle_id);
     }
 
     /// 獲取當前時間戳
