@@ -52,9 +52,7 @@ impl<'a> UnitStats<'a> {
             let override_base = self.buffs.sum_add(e, StatKey::MoveSpeedBaseOverride);
             let base_eff = if override_base > 0.0 { override_base } else { base };
             // Equipment flat（boots、靴類道具）：跟 base 一起被 percentage 縮放
-            let bonus_c = self.buffs.sum_add(e, StatKey::MoveSpeedBonusEquipment)
-                + self.buffs.sum_add(e, StatKey::MoveSpeedBonusUnique)
-                + self.buffs.sum_add(e, StatKey::MoveSpeedBonusUnique2);
+            let bonus_c = self.buffs.sum_add(e, StatKey::MoveSpeedBonusEquipment);
             // Percentage（含 ice tower 用的 MoveSpeedBonus，當 -50% 寫進去）
             let pct = self.buffs.sum_add(e, StatKey::MoveSpeedBonusPercentage)
                 + self.buffs.sum_add(e, StatKey::MoveSpeedBonusPercentageUnique)

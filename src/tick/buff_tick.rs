@@ -28,8 +28,6 @@ const MOVESPEED_PAYLOAD_KEYS: &[StatKey] = &[
     StatKey::MoveSpeedBonusPercentage,
     StatKey::MoveSpeedBonusPercentageUnique,
     StatKey::MoveSpeedBonusPercentageUnique2,
-    StatKey::MoveSpeedBonusUnique,
-    StatKey::MoveSpeedBonusUnique2,
     StatKey::MoveSpeedAbsolute,
     StatKey::MoveSpeedAbsoluteMin,
     StatKey::MoveSpeedLimit,
