@@ -56,7 +56,8 @@ impl<'a> UnitStats<'a> {
                 + self.buffs.sum_add(e, StatKey::MoveSpeedBonusUnique2);
             let pct = self.buffs.sum_add(e, StatKey::MoveSpeedBonusPercentage)
                 + self.buffs.sum_add(e, StatKey::MoveSpeedBonusPercentageUnique)
-                + self.buffs.sum_add(e, StatKey::MoveSpeedBonusPercentageUnique2);
+                + self.buffs.sum_add(e, StatKey::MoveSpeedBonusPercentageUnique2)
+                + self.buffs.sum_add(e, StatKey::MoveSpeedBonus);
             (base_eff + bonus_c) * (1.0 + pct)
         };
         self.apply_move_clamp(effective, e)
@@ -318,6 +319,36 @@ pub fn armor_to_mult(armor: f32) -> f32 {
         1.0 - (0.06 * armor) / (1.0 + k)
     } else {
         1.0 + (0.06 * abs) / (1.0 + k)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use specs::{Builder, World, WorldExt};
+
+    // Regression: ice tower 寫入 payload key `move_speed_bonus`（StatKey::MoveSpeedBonus），
+    // 必須被 `final_move_speed` 當 percentage slow 聚合，否則 creep_tick 算出的有效移速會
+    // 是 base 全速 → 前端視覺有減速但後端權威位置瞬移。
+    #[test]
+    fn move_speed_bonus_applies_as_percentage_slow() {
+        let mut world = World::new();
+        let e = world.create_entity().build();
+        let mut store = BuffStore::new();
+        store.add(
+            e,
+            "slow_test",
+            2.0,
+            json!({ StatKey::MoveSpeedBonus.as_str(): -0.5 }),
+        );
+        let stats = UnitStats::from_refs(&store, false);
+        let effective = stats.final_move_speed(100.0, e);
+        assert!(
+            (effective - 50.0).abs() < 1e-3,
+            "expected 50.0, got {}",
+            effective
+        );
     }
 }
 
