@@ -73,14 +73,14 @@ impl<'a> System<'a> for Sys {
         
         for damage_inst in tw.damage_instances.drain(..) {
             let result = calculate_damage(&damage_inst, &unit_stats);
-            
+
             // 生成傷害事件而不是直接修改組件
             if !result.is_dodged && result.total_damage > 0.0 {
                 // 獲取目標位置
                 let target_pos = tr.positions.get(damage_inst.target)
                     .map(|pos| pos.0)
                     .unwrap_or(vek::Vec2::new(0.0, 0.0));
-                
+
                 // 生成傷害事件
                 outcomes.push(Outcome::Damage {
                     pos: target_pos,
@@ -91,19 +91,33 @@ impl<'a> System<'a> for Sys {
                     target: damage_inst.target,
                     predeclared: false, // ability-driven damage path — authoritative
                 });
-                
+
                 log::info!("Generated damage event: {:.1} total damage to target", result.total_damage);
             } else if result.is_dodged {
                 log::info!("Attack dodged by target");
             }
-            
+
+            // 生命偷取 / 法術吸血：calculate_damage 已聚合到 result.healing，這裡 emit Heal 給來源
+            if !result.is_dodged && result.healing > 0.0 {
+                let source_entity = damage_inst.source.source_entity;
+                let source_pos = tr.positions.get(source_entity)
+                    .map(|pos| pos.0)
+                    .unwrap_or_else(|| {
+                        tr.positions.get(damage_inst.target)
+                            .map(|pos| pos.0)
+                            .unwrap_or(vek::Vec2::new(0.0, 0.0))
+                    });
+                outcomes.push(Outcome::Heal {
+                    pos: source_pos,
+                    target: source_entity,
+                    amount: result.healing,
+                });
+            }
+
             damage_results.push(result);
         }
-        
+
         tw.outcomes.append(&mut outcomes);
-        
-        // TODO: 處理治療（生命偷取、法術吸血）
-        // TODO: 發送傷害事件到UI
     }
 }
 
