@@ -21,6 +21,8 @@ pub struct ShadowCalculator {
     cache_manager: CacheManager,
     /// 障礙物位置索引
     obstacle_index: BTreeMap<String, ObstacleInfo>,
+    /// 初始化時記錄的世界邊界，用於 update/remove 後 rebuild
+    world_bounds: Option<Bounds>,
 }
 
 impl ShadowCalculator {
@@ -30,6 +32,7 @@ impl ShadowCalculator {
             quadtree: QuadTree::new(8, 10),
             cache_manager: CacheManager::new(1000),
             obstacle_index: BTreeMap::new(),
+            world_bounds: None,
         }
     }
 
@@ -43,6 +46,7 @@ impl ShadowCalculator {
             quadtree: QuadTree::new(max_tree_depth, max_obstacles_per_node),
             cache_manager: CacheManager::new(max_cache_size),
             obstacle_index: BTreeMap::new(),
+            world_bounds: None,
         }
     }
 
@@ -55,11 +59,24 @@ impl ShadowCalculator {
             self.obstacle_index.insert(id, obstacle.clone());
         }
 
-        // 初始化四叉樹
-        self.quadtree.initialize(world_bounds, obstacles);
+        // 初始化四叉樹並記錄邊界
+        self.quadtree.initialize(world_bounds.clone(), obstacles);
+        self.world_bounds = Some(world_bounds);
 
         // 清理可能失效的緩存
         self.cache_manager.invalidate_all_cache();
+    }
+
+    /// 從目前的 obstacle_index 重建四叉樹。
+    /// 用於 update_obstacle / remove_obstacle 之後保持索引與樹同步。
+    /// 完整的 incremental 樹更新（找到 leaf、原地調整子節點）是未來的優化方向。
+    fn rebuild_tree_from_index(&mut self) {
+        let bounds = match self.world_bounds.clone() {
+            Some(b) => b,
+            None => return, // 尚未 initialize_quadtree 之前不需要重建
+        };
+        let obstacles: Vec<ObstacleInfo> = self.obstacle_index.values().cloned().collect();
+        self.quadtree.initialize(bounds, obstacles);
     }
 
     /// 高效率視野計算（使用空間分割優化）
@@ -121,18 +138,19 @@ impl ShadowCalculator {
     /// 增量更新障礙物
     pub fn update_obstacle(&mut self, obstacle_id: String, obstacle: ObstacleInfo) {
         self.obstacle_index.insert(obstacle_id.clone(), obstacle);
-        
+
         // 使相關緩存失效
         self.cache_manager.invalidate_cache_for_obstacle(&obstacle_id);
-        
-        // TODO: 增量更新四叉樹而非重建
-        // 目前簡化為標記需要重建
+
+        // 重建 QuadTree 確保查詢結果正確；incremental 樹更新是未來優化（見 rebuild_tree_from_index 註解）
+        self.rebuild_tree_from_index();
     }
 
     /// 移除障礙物
     pub fn remove_obstacle(&mut self, obstacle_id: &str) {
         self.obstacle_index.remove(obstacle_id);
         self.cache_manager.invalidate_cache_for_obstacle(obstacle_id);
+        self.rebuild_tree_from_index();
     }
 
     /// 獲取當前時間戳
