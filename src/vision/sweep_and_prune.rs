@@ -247,6 +247,83 @@ where
         self.insert(entry);
     }
 
+    /// SAP 專屬的 incremental rebuild 路徑：保留 slot map / id_to_slot，只 diff 增減的部份；
+    /// xs/ys 則完整重建並 voracious_mt_sort 一次（high-churn 場景下比 N 次 axis_insert 便宜很多）。
+    ///
+    /// 相對 default `bulk_replace = initialize`：避免 HashMap 全 clear 後再插回 N 筆造成的 bucket
+    /// reallocation；slot index 對未變動的 entry 也保持穩定，便於上層做 cache（若需要）。
+    fn bulk_replace(&mut self, _bounds: Bounds, entries: Vec<Entry<Id, Item>>) {
+        use std::collections::HashSet;
+
+        // 收集新 id set，後面用來找 to_remove
+        let new_ids: HashSet<Id> = entries.iter().map(|e| e.id.clone()).collect();
+
+        // Step 1: 移除舊 set 但不在新 set 的 entry（slot 釋放、不動 xs/ys，後面會整批重建）
+        let to_remove: Vec<Id> = self.id_to_slot.keys()
+            .filter(|id| !new_ids.contains(*id))
+            .cloned()
+            .collect();
+        let mut removed_max_radius = false;
+        for id in &to_remove {
+            if let Some(slot) = self.id_to_slot.remove(id) {
+                if let Some(Some(s)) = self.slots.get(slot as usize) {
+                    if s.bounding_radius >= self.max_bounding_radius {
+                        removed_max_radius = true;
+                    }
+                }
+                self.slots[slot as usize] = None;
+                self.free_slots.push(slot);
+            }
+        }
+
+        // Step 2: 對新 entries — 已存在 id 就 in-place 更新 slot；否則 alloc 新 slot
+        for entry in entries {
+            let r = entry.bounding_radius;
+            if let Some(&slot) = self.id_to_slot.get(&entry.id) {
+                if let Some(slot_ref) = self.slots.get_mut(slot as usize) {
+                    if let Some(s) = slot_ref.as_mut() {
+                        s.item = entry.item;
+                        s.position = entry.position;
+                        s.bounding_radius = r;
+                    }
+                }
+            } else {
+                let id = entry.id.clone();
+                let slot = self.alloc_slot(Slot {
+                    id: entry.id,
+                    item: entry.item,
+                    position: entry.position,
+                    bounding_radius: r,
+                });
+                self.id_to_slot.insert(id, slot);
+            }
+            if r > self.max_bounding_radius {
+                self.max_bounding_radius = r;
+            }
+        }
+
+        if removed_max_radius {
+            self.recompute_max_radius();
+        }
+
+        // Step 3: 從目前 live slots 重建 xs/ys，再做 voracious_mt_sort 一次。
+        // 比起對每個 axis_insert/remove 各做 O(n)，trash-and-resort 在 high-churn 場景線性勝出。
+        self.xs.clear();
+        self.ys.clear();
+        self.xs.reserve(self.id_to_slot.len());
+        self.ys.reserve(self.id_to_slot.len());
+        for (idx, slot_opt) in self.slots.iter().enumerate() {
+            if let Some(s) = slot_opt {
+                self.xs.push(AxisRef { slot: idx as u32, coord: s.position.x });
+                self.ys.push(AxisRef { slot: idx as u32, coord: s.position.y });
+            }
+        }
+        if self.xs.len() >= 2 {
+            self.xs.voracious_mt_sort(4);
+            self.ys.voracious_mt_sort(4);
+        }
+    }
+
     fn query_in_range(&self, center: Vec2<f32>, radius: f32) -> Vec<Entry<Id, Item>> {
         let extended = radius + self.max_bounding_radius;
         let (lx, rx) = Self::axis_range(&self.xs, center.x - extended, center.x + extended);
@@ -393,6 +470,48 @@ mod tests {
         }
         for w in s.ys.windows(2) {
             assert!(w[0].coord <= w[1].coord, "ys voracious sort failed at {}", w[0].coord);
+        }
+    }
+
+    #[test]
+    fn bulk_replace_keeps_unchanged_slots() {
+        // bulk_replace 對 entity set 大致不變的情況，slot index 應該保持穩定（不會被當成新建）
+        let mut s: SweepAndPrune<String, ()> = SweepAndPrune::new();
+        s.initialize(world_bounds(), vec![
+            pt("a", 100.0, 100.0, 5.0),
+            pt("b", 500.0, 500.0, 5.0),
+            pt("c", 900.0, 900.0, 5.0),
+        ]);
+        let slot_a_before = *s.id_to_slot.get(&"a".to_string()).unwrap();
+        let slot_c_before = *s.id_to_slot.get(&"c".to_string()).unwrap();
+
+        // bulk_replace：a 動了、b 不見了、c 不變、新增 d
+        s.bulk_replace(world_bounds(), vec![
+            pt("a", 200.0, 200.0, 5.0),
+            pt("c", 900.0, 900.0, 5.0),
+            pt("d", 700.0, 100.0, 5.0),
+        ]);
+
+        // a / c 的 slot index 應該保持不變（in-place update）
+        assert_eq!(*s.id_to_slot.get(&"a".to_string()).unwrap(), slot_a_before,
+            "a's slot identity should be preserved across bulk_replace");
+        assert_eq!(*s.id_to_slot.get(&"c".to_string()).unwrap(), slot_c_before,
+            "c's slot identity should be preserved across bulk_replace");
+        assert!(!s.id_to_slot.contains_key(&"b".to_string()), "b should be removed");
+        assert!(s.id_to_slot.contains_key(&"d".to_string()), "d should be added");
+
+        // query 結果正確
+        assert_eq!(ids_of(&s.query_in_range(Vec2::new(200.0, 200.0), 30.0)), vec!["a"]);
+        assert!(ids_of(&s.query_in_range(Vec2::new(500.0, 500.0), 30.0)).is_empty());
+        assert_eq!(ids_of(&s.query_in_range(Vec2::new(900.0, 900.0), 30.0)), vec!["c"]);
+        assert_eq!(ids_of(&s.query_in_range(Vec2::new(700.0, 100.0), 30.0)), vec!["d"]);
+
+        // xs/ys invariant: sorted
+        for w in s.xs.windows(2) {
+            assert!(w[0].coord <= w[1].coord);
+        }
+        for w in s.ys.windows(2) {
+            assert!(w[0].coord <= w[1].coord);
         }
     }
 

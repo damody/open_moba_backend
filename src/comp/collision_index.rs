@@ -41,14 +41,16 @@ impl CollisionIndex {
         idx
     }
 
-    /// 用一組 (Entity, position) 整批重建索引。對應舊 PosData 的 clear+push+sort 流程。
+    /// 用一組 (Entity, position) 整批替換索引。對應舊 PosData 的 clear+push+sort 流程，
+    /// 但走 trait 的 `bulk_replace`：default 等同 initialize 全 reset；SAP override 成
+    /// 「保留 slot map、diff 增減的部份、再對 xs/ys 重新排序」的 incremental 路徑。
     pub fn rebuild_from<I>(&mut self, items: I)
     where I: IntoIterator<Item = (Entity, Vec2<f32>)>
     {
         let entries: Vec<Entry<Entity, ()>> = items.into_iter()
             .map(|(e, p)| Entry::point(e, (), p))
             .collect();
-        self.index.initialize(self.bounds.clone(), entries);
+        self.index.bulk_replace(self.bounds.clone(), entries);
         self.dirty = false;
     }
 

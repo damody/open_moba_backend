@@ -122,6 +122,14 @@ where
         out
     }
 
+    /// 用一組新 entries 整批替換索引內容。
+    /// Default 直接呼叫 `initialize`（全 reset 再 rebuild）。
+    /// SAP 等 impl 可 override 成「保留 slot map、diff 增減 + 對 xs/ys 重新排序」
+    /// 的 incremental 路徑，避免 high-churn 場景（每 tick 重建 hundreds creep）的浪費。
+    fn bulk_replace(&mut self, bounds: Bounds, entries: Vec<Entry<Id, Item>>) {
+        self.initialize(bounds, entries);
+    }
+
     /// 結構大小指標（節點數 / cell 數 / array 長度，視 impl 而定）。
     fn count_nodes(&self) -> usize;
 
