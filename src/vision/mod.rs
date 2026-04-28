@@ -12,6 +12,7 @@ pub mod spatial_index;
 pub mod quadtree;
 pub mod hash_grid;
 pub mod bvh;
+pub mod sweep_and_prune;
 pub mod shadow_calculation;
 pub mod vision_cache;
 pub mod geometry_utils;
@@ -21,9 +22,10 @@ pub mod spatial_index_consistency_tests;
 pub use self::{
     vision_output::*,
     shadow_calculator::ShadowCalculator,
-    spatial_index::{SpatialIndex, SpatialIndexParams, TreeEntry, Bounds, build_spatial_index},
+    spatial_index::{SpatialIndex, SpatialIndexParams, Entry, TreeEntry, Bounds, build_spatial_index, build_entity_index},
     quadtree::QuadTree,
     hash_grid::SpatialHashGrid,
     bvh::Bvh,
+    sweep_and_prune::SweepAndPrune,
     vision_ecs::*,
 };

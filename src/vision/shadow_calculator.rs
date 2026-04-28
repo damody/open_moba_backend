@@ -1,23 +1,40 @@
 /// 高效能陰影計算器
-/// 
+///
 /// 提供空間分割優化、陰影合併、增量計算等性能優化功能
 use vek::Vec2;
 use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::comp::circular_vision::{VisionResult, ShadowArea, ObstacleInfo};
+use crate::comp::circular_vision::{VisionResult, ShadowArea, ObstacleInfo, ObstacleType};
 
 // Import refactored modules from the vision module
-use super::spatial_index::{Bounds, SpatialIndex, SpatialIndexParams, TreeEntry, build_spatial_index};
+use super::spatial_index::{Bounds, Entry, SpatialIndex, SpatialIndexParams, build_spatial_index};
 use super::quadtree::QuadTree;
 use super::shadow_calculation::ShadowCalculator as ShadowCalc;
 use super::vision_cache::{CacheManager, CacheStats};
 use super::geometry_utils::GeometryUtils;
 
+/// 計算 ObstacleInfo 的外接半徑（用於 spatial index 的 bounding_radius 欄位）。
+fn obstacle_bounding_radius(o: &ObstacleInfo) -> f32 {
+    match &o.obstacle_type {
+        ObstacleType::Circular { radius } => *radius,
+        ObstacleType::Rectangle { width, height, .. } => {
+            (width * width + height * height).sqrt() * 0.5
+        }
+        ObstacleType::Terrain { .. } => 50.0,
+    }
+}
+
+fn obstacle_to_entry(id: String, obstacle: ObstacleInfo) -> Entry<String, ObstacleInfo> {
+    let r = obstacle_bounding_radius(&obstacle);
+    let p = obstacle.position;
+    Entry::new(id, obstacle, p, r)
+}
+
 /// 高效能陰影計算器
 pub struct ShadowCalculator {
-    /// Spatial index（QuadTree / SpatialHashGrid / BVH 任一）
-    index: Box<dyn SpatialIndex>,
+    /// Spatial index（QuadTree / SpatialHashGrid / BVH / SAP 任一）
+    index: Box<dyn SpatialIndex<String, ObstacleInfo>>,
     /// 緩存管理器
     cache_manager: CacheManager,
     /// 障礙物位置索引
@@ -29,7 +46,7 @@ impl ShadowCalculator {
     /// 生產環境應改呼 `with_index_kind` 從 `VISION_CONFIG` 注入。
     pub fn new() -> Self {
         Self {
-            index: Box::new(QuadTree::new(8, 10)),
+            index: Box::new(QuadTree::<String, ObstacleInfo>::new(8, 10)),
             cache_manager: CacheManager::new(1000),
             obstacle_index: BTreeMap::new(),
         }
@@ -42,7 +59,7 @@ impl ShadowCalculator {
         max_obstacles_per_node: usize,
     ) -> Self {
         Self {
-            index: Box::new(QuadTree::new(max_tree_depth, max_obstacles_per_node)),
+            index: Box::new(QuadTree::<String, ObstacleInfo>::new(max_tree_depth, max_obstacles_per_node)),
             cache_manager: CacheManager::new(max_cache_size),
             obstacle_index: BTreeMap::new(),
         }
@@ -69,13 +86,10 @@ impl ShadowCalculator {
         for (i, obstacle) in obstacles.into_iter().enumerate() {
             let id = format!("obstacle_{}", i);
             self.obstacle_index.insert(id.clone(), obstacle.clone());
-            entries.push(TreeEntry { id, obstacle });
+            entries.push(obstacle_to_entry(id, obstacle));
         }
 
-        // 初始化（含 id），之後 update/remove 走增量 API
         self.index.initialize(world_bounds, entries);
-
-        // 清理可能失效的緩存
         self.cache_manager.invalidate_all_cache();
     }
 
@@ -86,34 +100,29 @@ impl ShadowCalculator {
         observer_height: f32,
         vision_range: f32,
     ) -> VisionResult {
-        let cache_key = format!("{:.1}_{:.1}_{:.1}_{:.1}", 
+        let cache_key = format!("{:.1}_{:.1}_{:.1}_{:.1}",
             observer_pos.x, observer_pos.y, observer_height, vision_range);
 
-        // 檢查緩存
         if let Some(cached) = self.cache_manager.get_cached_vision(&cache_key) {
             return cached.result.clone();
         }
 
-        // 使用 spatial index 查詢相關障礙物（含 id 用於 cache dependency 追蹤）
-        let relevant_entries = self.index.query_entries_in_range(observer_pos, vision_range);
+        // 使用 spatial index 查詢相關 entries
+        let relevant_entries = self.index.query_in_range(observer_pos, vision_range);
 
-        // 使用陰影投射算法
         let mut shadows = Vec::new();
-        for (_id, obstacle) in &relevant_entries {
+        for entry in &relevant_entries {
             if let Some(shadow) = ShadowCalc::calculate_obstacle_shadow(
                 observer_pos,
                 observer_height,
                 vision_range,
-                obstacle,
+                &entry.item,
             ) {
                 shadows.push(shadow);
             }
         }
 
-        // 合併重疊的陰影
         shadows = ShadowCalc::merge_overlapping_shadows(shadows);
-
-        // 計算可見區域
         let visible_area = ShadowCalc::calculate_visible_area(observer_pos, vision_range, &shadows);
 
         let result = VisionResult {
@@ -124,9 +133,9 @@ impl ShadowCalculator {
             timestamp: self.current_time(),
         };
 
-        // 緩存結果，依賴清單用真實 obstacle id
+        // 緩存依賴清單用真實 obstacle id
         let dependencies = relevant_entries.iter()
-            .map(|(id, _)| id.clone())
+            .map(|e| e.id.clone())
             .collect();
 
         self.cache_manager.cache_vision_result(cache_key, result.clone(), dependencies);
@@ -137,22 +146,17 @@ impl ShadowCalculator {
     /// 增量更新障礙物
     pub fn update_obstacle(&mut self, obstacle_id: String, obstacle: ObstacleInfo) {
         self.obstacle_index.insert(obstacle_id.clone(), obstacle.clone());
-
-        // 使相關緩存失效
         self.cache_manager.invalidate_cache_for_obstacle(&obstacle_id);
-
-        // 增量更新 spatial index（移除舊 entry，插入新 entry）
-        self.index.update(&obstacle_id, obstacle);
+        self.index.update(obstacle_to_entry(obstacle_id, obstacle));
     }
 
     /// 移除障礙物
     pub fn remove_obstacle(&mut self, obstacle_id: &str) {
         self.obstacle_index.remove(obstacle_id);
         self.cache_manager.invalidate_cache_for_obstacle(obstacle_id);
-        self.index.remove(obstacle_id);
+        self.index.remove(&obstacle_id.to_string());
     }
 
-    /// 獲取當前時間戳
     fn current_time(&self) -> f64 {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -160,7 +164,6 @@ impl ShadowCalculator {
             .as_secs_f64()
     }
 
-    /// 獲取性能統計
     pub fn get_performance_stats(&self) -> PerformanceStats {
         let cache_stats = self.cache_manager.get_cache_stats();
         PerformanceStats {
@@ -171,12 +174,10 @@ impl ShadowCalculator {
         }
     }
 
-    /// 取得目前 spatial index 的名稱（用於 metric / log）
     pub fn index_name(&self) -> &'static str {
         self.index.name()
     }
 
-    /// 射線與線段相交檢測（暴露給外部使用）
     pub fn ray_line_intersection(
         ray_origin: Vec2<f32>,
         ray_direction: Vec2<f32>,
@@ -186,7 +187,6 @@ impl ShadowCalculator {
         ShadowCalc::ray_line_intersection(ray_origin, ray_direction, line_start, line_end)
     }
 
-    /// 射線與扇形相交檢測（改進版本）
     pub fn ray_sector_intersection_improved(
         origin: Vec2<f32>,
         direction: Vec2<f32>,
@@ -200,12 +200,10 @@ impl ShadowCalculator {
         )
     }
 
-    /// 檢查角度是否在扇形範圍內
     pub fn angle_in_sector(angle: f32, start_angle: f32, end_angle: f32) -> bool {
         GeometryUtils::angle_in_sector(angle, start_angle, end_angle)
     }
 
-    /// 檢查兩個扇形是否重疊或相鄰
     pub fn sectors_overlap_or_adjacent(start1: f32, end1: f32, start2: f32, end2: f32) -> bool {
         ShadowCalc::sectors_overlap_or_adjacent(start1, end1, start2, end2)
     }
