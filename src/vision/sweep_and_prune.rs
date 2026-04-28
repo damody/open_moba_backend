@@ -1,38 +1,67 @@
 //! Sweep and Prune (SAP) spatial index。對 (Id, Item) 為 generic。
 //!
-//! 演算法：維護按 X / Y 軸 entry.position 排序的兩個 Vec；query 時兩軸各自 binary_search
-//! 找 [center-radius, center+radius] 區段，掃出候選並對交集做 distance 過濾。
-//! 對「大量靜態或慢速移動實體 + 高頻範圍查詢」最佳。
+//! 設計（仿原 `PosData::SearchNN_XY` 但 generic 化 + slot map）：
+//! - 實際 entry 資料存 `slots: Vec<Option<Slot<Id, Item>>>`（slot map），
+//!   `free_slots: Vec<u32>` 收已釋放的 slot index 重用避免 Vec 一直長。
+//! - `id_to_slot: HashMap<Id, u32>` 給 remove/update 反查 slot。
+//! - `xs / ys: Vec<AxisRef>` 為 Copy 結構 `{ slot: u32, coord: f32 }`，
+//!   實作 `Radixable<f32>` → 可以走 `voracious_mt_sort(4)` 並行 radix 排序。
 //!
-//! 動態更新：insert/remove 都需要保持兩個 sorted Vec 的 invariants：
-//! - insert：binary_search 找位置 + Vec::insert（O(n) 複製，hundreds 量級可接受）
-//! - remove：先在 id_index 拿位置，再從兩個 Vec 各自 binary_search + remove
-//! - update = remove + insert
-//!
-//! 由於每個 entry 在 X 軸 / Y 軸 sorted Vec 中各只出現一次（不像 SHG/QuadTree 跨多 cell），
-//! 這個 impl 是 1-1 映射，沒有跨 cell 的去重需求。
+//! Query 流程：
+//! 1. 兩軸 binary_search 找 [center-r, center+r] 範圍；
+//! 2. X 範圍的 slots 收進 `BTreeSet<u32>`；
+//! 3. 對 Y 範圍 iterate，slot 在 X set 才視為候選；
+//! 4. 取 slots[slot] 的 position 算 distance，過濾 + clone Entry 回傳。
 
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::hash::Hash;
 use vek::Vec2;
+use voracious_radix_sort::{Radixable, RadixSort};
 
 use super::spatial_index::{Bounds, Entry, SpatialIndex};
 
-/// 軸索引 entry：只存 (Id, position 該軸座標)，用來 sort + binary search。
-#[derive(Debug, Clone)]
-struct AxisEntry<Id> {
-    id: Id,
+/// 軸索引 entry：只存 slot index + coord，全 Copy 才能餵給 voracious。
+#[derive(Copy, Clone, Debug)]
+struct AxisRef {
+    slot: u32,
     coord: f32,
 }
 
+// PartialOrd/PartialEq 只看 coord，與 PosXIndex 原模式一致。
+// 注意：兩個 coord 相同的 AxisRef 會被視為相等（即使 slot 不同），
+// binary_search 仍會工作但不保證找到特定 slot — 我們在 remove 時會線性掃同 coord 範圍。
+impl PartialEq for AxisRef {
+    fn eq(&self, other: &Self) -> bool { self.coord == other.coord }
+}
+impl PartialOrd for AxisRef {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.coord.partial_cmp(&other.coord)
+    }
+}
+impl Radixable<f32> for AxisRef {
+    type Key = f32;
+    #[inline]
+    fn key(&self) -> Self::Key { self.coord }
+}
+
+#[derive(Debug, Clone)]
+struct Slot<Id, Item> {
+    id: Id,
+    item: Item,
+    position: Vec2<f32>,
+    bounding_radius: f32,
+}
+
 pub struct SweepAndPrune<Id, Item> {
-    /// 按 position.x 升冪排序
-    xs: Vec<AxisEntry<Id>>,
-    /// 按 position.y 升冪排序
-    ys: Vec<AxisEntry<Id>>,
-    /// id → (item, position, bounding_radius)：source of truth
-    items: HashMap<Id, (Item, Vec2<f32>, f32)>,
+    slots: Vec<Option<Slot<Id, Item>>>,
+    free_slots: Vec<u32>,
+    id_to_slot: HashMap<Id, u32>,
+    xs: Vec<AxisRef>,
+    ys: Vec<AxisRef>,
+    /// 最大 bounding_radius 快取，用於 query 時擴張軸範圍避免漏 entry。
+    /// 對 collision 用例 (Entity, ()) 永遠是 0；vision 用例會非 0。
+    max_bounding_radius: f32,
 }
 
 impl<Id, Item> SweepAndPrune<Id, Item>
@@ -42,71 +71,81 @@ where
 {
     pub fn new() -> Self {
         Self {
+            slots: Vec::new(),
+            free_slots: Vec::new(),
+            id_to_slot: HashMap::new(),
             xs: Vec::new(),
             ys: Vec::new(),
-            items: HashMap::new(),
+            max_bounding_radius: 0.0,
         }
     }
 
-    fn insert_axis(arr: &mut Vec<AxisEntry<Id>>, entry: AxisEntry<Id>) {
-        // 找插入位置：先按 coord 排，相同 coord 用 id Ord 排
-        let idx = arr
+    /// 配一個 slot index 給新 entry：優先重用 free_slots，否則 push 新 slot
+    fn alloc_slot(&mut self, slot_data: Slot<Id, Item>) -> u32 {
+        if let Some(idx) = self.free_slots.pop() {
+            self.slots[idx as usize] = Some(slot_data);
+            idx
+        } else {
+            let idx = self.slots.len() as u32;
+            self.slots.push(Some(slot_data));
+            idx
+        }
+    }
+
+    /// 釋放 slot：標記成 None 並回收 index 到 free_slots
+    fn free_slot(&mut self, idx: u32) {
+        self.slots[idx as usize] = None;
+        self.free_slots.push(idx);
+    }
+
+    /// 在已排序的 axis array 上插入 AxisRef 到正確位置
+    fn axis_insert_sorted(arr: &mut Vec<AxisRef>, item: AxisRef) {
+        let pos = arr
             .binary_search_by(|probe| {
                 probe.coord
-                    .partial_cmp(&entry.coord)
+                    .partial_cmp(&item.coord)
                     .unwrap_or(Ordering::Equal)
-                    .then_with(|| probe.id.cmp(&entry.id))
+                    .then(Ordering::Greater) // 同 coord 時插到後面，避免 instability
             })
             .unwrap_or_else(|i| i);
-        arr.insert(idx, entry);
+        arr.insert(pos, item);
     }
 
-    fn remove_axis(arr: &mut Vec<AxisEntry<Id>>, id: &Id, coord: f32) -> bool {
-        // 用 binary_search 找到 coord 的範圍，線性掃 id 比對；同 coord 元素不太可能很多
-        let pos = arr.binary_search_by(|probe| {
-            probe.coord.partial_cmp(&coord).unwrap_or(Ordering::Equal)
-                .then_with(|| probe.id.cmp(id))
-        });
-        match pos {
-            Ok(i) => {
-                arr.remove(i);
-                true
-            }
-            Err(_) => {
-                // 浮點 / NaN 防身：fallback 線性找
-                if let Some(i) = arr.iter().position(|e| e.id == *id) {
-                    arr.remove(i);
-                    true
-                } else {
-                    false
-                }
-            }
-        }
-    }
-
-    /// 在 sorted axis array 上找出 coord 落在 [lo, hi] 區間內的所有 entry index 範圍。
-    fn axis_range(arr: &[AxisEntry<Id>], lo: f32, hi: f32) -> (usize, usize) {
+    /// 從已排序的 axis array 移除指定 slot 的 AxisRef（已知 coord）
+    fn axis_remove(arr: &mut Vec<AxisRef>, slot: u32, coord: f32) {
+        // binary_search 找到 coord 區段，線性掃 slot 比對
         let lower = arr
-            .binary_search_by(|probe| {
-                probe.coord.partial_cmp(&lo).unwrap_or(Ordering::Equal)
-            })
+            .binary_search_by(|probe| probe.coord.partial_cmp(&coord).unwrap_or(Ordering::Equal))
             .unwrap_or_else(|i| i);
-        let upper = arr
-            .binary_search_by(|probe| {
-                probe.coord.partial_cmp(&hi).unwrap_or(Ordering::Equal)
-                    .then(Ordering::Greater)
-            })
-            .unwrap_or_else(|i| i);
-        // lower 可能落在「等於 lo」的中間；保守往左找直到 < lo
+        // 從 lower 往兩側擴張找 slot 相符的元素（同 coord 通常 1 個，極端時可能多個）
         let mut l = lower;
-        while l > 0 && arr[l - 1].coord >= lo {
-            l -= 1;
+        while l > 0 && arr[l - 1].coord == coord { l -= 1; }
+        while l < arr.len() && arr[l].coord == coord {
+            if arr[l].slot == slot {
+                arr.remove(l);
+                return;
+            }
+            l += 1;
         }
-        let mut r = upper;
-        while r < arr.len() && arr[r].coord <= hi {
-            r += 1;
+        // fallback: 線性掃（理論上不會走到，但浮點 NaN 等怪情況保險）
+        if let Some(i) = arr.iter().position(|a| a.slot == slot) {
+            arr.remove(i);
         }
+    }
+
+    /// query 時的 axis range：找 coord 落在 [lo, hi] 區間內的 [l, r) index
+    fn axis_range(arr: &[AxisRef], lo: f32, hi: f32) -> (usize, usize) {
+        // 用 binary_search_by 找下界 (>= lo) / 上界 (> hi)，搭配 saturate
+        let l = arr.partition_point(|p| p.coord < lo);
+        let r = arr.partition_point(|p| p.coord <= hi);
         (l, r)
+    }
+
+    /// 重新計算 max_bounding_radius（O(n)）。在 remove 時若移除的是 max 才需呼叫。
+    fn recompute_max_radius(&mut self) {
+        self.max_bounding_radius = self.slots.iter()
+            .filter_map(|s| s.as_ref().map(|s| s.bounding_radius))
+            .fold(0.0_f32, f32::max);
     }
 }
 
@@ -116,80 +155,124 @@ where
     Item: Clone + Send + Sync + 'static,
 {
     fn initialize(&mut self, _bounds: Bounds, entries: Vec<Entry<Id, Item>>) {
+        self.slots.clear();
+        self.free_slots.clear();
+        self.id_to_slot.clear();
         self.xs.clear();
         self.ys.clear();
-        self.items.clear();
-        // batch initialize：先收齊再一次 sort，比 N 次 insert 快
-        for e in entries {
-            let id = e.id.clone();
-            self.xs.push(AxisEntry { id: id.clone(), coord: e.position.x });
-            self.ys.push(AxisEntry { id: id.clone(), coord: e.position.y });
-            self.items.insert(id, (e.item, e.position, e.bounding_radius));
+        self.max_bounding_radius = 0.0;
+
+        // batch fill
+        self.slots.reserve(entries.len());
+        self.xs.reserve(entries.len());
+        self.ys.reserve(entries.len());
+
+        for entry in entries {
+            let slot = self.slots.len() as u32;
+            self.id_to_slot.insert(entry.id.clone(), slot);
+            self.xs.push(AxisRef { slot, coord: entry.position.x });
+            self.ys.push(AxisRef { slot, coord: entry.position.y });
+            if entry.bounding_radius > self.max_bounding_radius {
+                self.max_bounding_radius = entry.bounding_radius;
+            }
+            self.slots.push(Some(Slot {
+                id: entry.id,
+                item: entry.item,
+                position: entry.position,
+                bounding_radius: entry.bounding_radius,
+            }));
         }
-        self.xs.sort_by(|a, b| {
-            a.coord.partial_cmp(&b.coord).unwrap_or(Ordering::Equal)
-                .then_with(|| a.id.cmp(&b.id))
-        });
-        self.ys.sort_by(|a, b| {
-            a.coord.partial_cmp(&b.coord).unwrap_or(Ordering::Equal)
-                .then_with(|| a.id.cmp(&b.id))
-        });
+
+        // 並行 radix sort — 對應原 PosData 的 voracious_mt_sort(4) 用法
+        if self.xs.len() >= 2 {
+            self.xs.voracious_mt_sort(4);
+            self.ys.voracious_mt_sort(4);
+        }
     }
 
     fn insert(&mut self, entry: Entry<Id, Item>) {
-        // 同 id 重插：先 remove 舊的
-        if let Some((_old_item, old_pos, _old_r)) = self.items.remove(&entry.id) {
-            Self::remove_axis(&mut self.xs, &entry.id, old_pos.x);
-            Self::remove_axis(&mut self.ys, &entry.id, old_pos.y);
+        // 同 id 重插：先 remove 舊的，再 insert 新的
+        if let Some(&old_slot) = self.id_to_slot.get(&entry.id) {
+            if let Some(Some(old)) = self.slots.get(old_slot as usize) {
+                let old_x = old.position.x;
+                let old_y = old.position.y;
+                Self::axis_remove(&mut self.xs, old_slot, old_x);
+                Self::axis_remove(&mut self.ys, old_slot, old_y);
+            }
+            self.free_slot(old_slot);
+            self.id_to_slot.remove(&entry.id);
+            self.recompute_max_radius();
         }
-        Self::insert_axis(&mut self.xs, AxisEntry { id: entry.id.clone(), coord: entry.position.x });
-        Self::insert_axis(&mut self.ys, AxisEntry { id: entry.id.clone(), coord: entry.position.y });
-        self.items.insert(entry.id, (entry.item, entry.position, entry.bounding_radius));
+
+        let r = entry.bounding_radius;
+        let pos = entry.position;
+        let id = entry.id.clone();
+        let slot = self.alloc_slot(Slot {
+            id: entry.id,
+            item: entry.item,
+            position: pos,
+            bounding_radius: r,
+        });
+        self.id_to_slot.insert(id, slot);
+        Self::axis_insert_sorted(&mut self.xs, AxisRef { slot, coord: pos.x });
+        Self::axis_insert_sorted(&mut self.ys, AxisRef { slot, coord: pos.y });
+        if r > self.max_bounding_radius {
+            self.max_bounding_radius = r;
+        }
     }
 
     fn remove(&mut self, id: &Id) -> bool {
-        let (_, pos, _) = match self.items.remove(id) {
-            Some(v) => v,
+        let slot = match self.id_to_slot.remove(id) {
+            Some(s) => s,
             None => return false,
         };
-        Self::remove_axis(&mut self.xs, id, pos.x);
-        Self::remove_axis(&mut self.ys, id, pos.y);
+        let (was_max, old_pos) = match self.slots.get(slot as usize) {
+            Some(Some(s)) => {
+                let was_max = s.bounding_radius >= self.max_bounding_radius;
+                (was_max, s.position)
+            }
+            _ => return false,
+        };
+        Self::axis_remove(&mut self.xs, slot, old_pos.x);
+        Self::axis_remove(&mut self.ys, slot, old_pos.y);
+        self.free_slot(slot);
+        if was_max {
+            self.recompute_max_radius();
+        }
         true
     }
 
     fn update(&mut self, entry: Entry<Id, Item>) {
-        self.remove(&entry.id);
+        // remove + insert（共用 self.insert 已處理同 id 重插）
         self.insert(entry);
     }
 
     fn query_in_range(&self, center: Vec2<f32>, radius: f32) -> Vec<Entry<Id, Item>> {
-        // 預估最大 bounding_radius 以擴大 axis 掃描範圍（不掃過會漏 entry）
-        let max_r = self.items.values().map(|(_, _, r)| *r).fold(0.0_f32, f32::max);
-        let extended = radius + max_r;
-
+        let extended = radius + self.max_bounding_radius;
         let (lx, rx) = Self::axis_range(&self.xs, center.x - extended, center.x + extended);
         let (ly, ry) = Self::axis_range(&self.ys, center.y - extended, center.y + extended);
 
-        // 取 X 範圍的 id set；對 Y 範圍 iterate，做交集
-        let mut x_ids: std::collections::BTreeSet<Id> = std::collections::BTreeSet::new();
+        // X 範圍 slots 集合
+        let mut x_slots: BTreeSet<u32> = BTreeSet::new();
         for i in lx..rx {
-            x_ids.insert(self.xs[i].id.clone());
+            x_slots.insert(self.xs[i].slot);
         }
 
+        // Y 範圍 iterate，slot 在 X set 才當候選
         let mut results: Vec<Entry<Id, Item>> = Vec::new();
         for i in ly..ry {
-            let id = &self.ys[i].id;
-            if !x_ids.contains(id) {
+            let slot = self.ys[i].slot;
+            if !x_slots.contains(&slot) {
                 continue;
             }
-            if let Some((item, pos, r)) = self.items.get(id) {
-                let extended_r = radius + r.max(0.0);
-                if pos.distance(center) <= extended_r {
+            if let Some(Some(s)) = self.slots.get(slot as usize) {
+                let extended_r = radius + s.bounding_radius.max(0.0);
+                if s.position.distance(center) <= extended_r {
                     results.push(Entry {
-                        id: id.clone(),
-                        item: item.clone(),
-                        position: *pos,
-                        bounding_radius: *r,
+                        id: s.id.clone(),
+                        item: s.item.clone(),
+                        position: s.position,
+                        bounding_radius: s.bounding_radius,
                     });
                 }
             }
@@ -198,7 +281,7 @@ where
     }
 
     fn count_nodes(&self) -> usize {
-        self.items.len()
+        self.id_to_slot.len()
     }
 
     fn name(&self) -> &'static str { "sap" }
@@ -270,28 +353,63 @@ mod tests {
             assert!(s.remove(&format!("o{}", i)));
         }
 
-        // Invariant: xs/ys sorted by coord
         for w in s.xs.windows(2) {
             assert!(w[0].coord <= w[1].coord, "xs not sorted: {} > {}", w[0].coord, w[1].coord);
         }
         for w in s.ys.windows(2) {
             assert!(w[0].coord <= w[1].coord, "ys not sorted: {} > {}", w[0].coord, w[1].coord);
         }
-        // 每個 id 都應在兩個 axis array 各自只出現一次
         assert_eq!(s.xs.len(), 25);
         assert_eq!(s.ys.len(), 25);
+        // free_slots 應有累積（被 remove 的 slot index）
+        assert!(s.free_slots.len() >= 25);
     }
 
     #[test]
     fn query_handles_large_bounding_radius_extension() {
         let mut s: SweepAndPrune<String, ()> = SweepAndPrune::new();
         s.initialize(world_bounds(), vec![
-            pt("big", 500.0, 500.0, 200.0),    // 大半徑：query 中心離 position 600 也應命中（500+200+query_r）
+            pt("big", 500.0, 500.0, 200.0),
             pt("far", 100.0, 100.0, 5.0),
         ]);
 
-        // query 中心在 (700, 500)，radius 50 — big.position 距 200，加 big radius 200 + query 50 = 250 > 200 ✓
         let q = s.query_in_range(Vec2::new(700.0, 500.0), 50.0);
         assert_eq!(ids_of(&q), vec!["big"]);
+    }
+
+    #[test]
+    fn voracious_sort_invariant_after_initialize() {
+        // 大量 entry 用 voracious_mt_sort 排序後，xs/ys 必須完全 sorted
+        let mut s: SweepAndPrune<String, ()> = SweepAndPrune::new();
+        let entries: Vec<_> = (0..500).map(|i| {
+            let x = ((i * 977 + 13) % 1000) as f32;
+            let y = ((i * 31 + 7) % 1000) as f32;
+            pt(&format!("e{}", i), x, y, 0.0)
+        }).collect();
+        s.initialize(world_bounds(), entries);
+
+        for w in s.xs.windows(2) {
+            assert!(w[0].coord <= w[1].coord, "xs voracious sort failed at {}", w[0].coord);
+        }
+        for w in s.ys.windows(2) {
+            assert!(w[0].coord <= w[1].coord, "ys voracious sort failed at {}", w[0].coord);
+        }
+    }
+
+    #[test]
+    fn slot_reuse_after_remove() {
+        // 移除後立即 insert 應該重用 slot index，slots Vec 不會無限長
+        let mut s: SweepAndPrune<String, ()> = SweepAndPrune::new();
+        s.initialize(world_bounds(), vec![pt("a", 100.0, 100.0, 5.0)]);
+        let initial_slots_len = s.slots.len();
+
+        for i in 0..10 {
+            s.insert(pt(&format!("tmp{}", i), 200.0, 200.0, 5.0));
+            assert!(s.remove(&format!("tmp{}", i)));
+        }
+        // 經過 10 次 insert+remove 後，slots Vec 不應該持續增長
+        // initial 1 個 + 1 個 reuse slot（每次 insert 使用同一個 free slot）= 2 個
+        assert!(s.slots.len() <= initial_slots_len + 1,
+            "slot map grew unexpectedly: {} → {}", initial_slots_len, s.slots.len());
     }
 }
