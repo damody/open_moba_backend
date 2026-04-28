@@ -737,6 +737,28 @@ impl State {
             }
         }
 
+        // P7 layered: pre-collect (proj_id, target_pos) for live single-target
+        // predeclared-damage projectiles. Per-player filter happens below
+        // (target visible in viewport → include in that player's heartbeat).
+        // Splash / directional / untargeted shots aren't predeclared so they
+        // don't enter this set.
+        #[cfg(any(feature = "grpc", feature = "kcp"))]
+        let all_in_flight_projectiles: Vec<(u32, f32, f32)> = {
+            use crate::comp::Projectile;
+            let projs = self.ecs.read_storage::<Projectile>();
+            let mut v: Vec<(u32, f32, f32)> = Vec::new();
+            for (e, p) in (&entities, &projs).join() {
+                if p.target.is_none() { continue; }
+                if p.radius >= 1.0 { continue; }
+                if p.damage_phys <= 0.0 { continue; }
+                let tgt = p.target.unwrap();
+                if let Some(tp) = positions.get(tgt) {
+                    v.push((e.id(), tp.0.x, tp.0.y));
+                }
+            }
+            v
+        };
+
         // 共用 top-level meta JSON builder；`hp_snap` 在各分支填完再放進來。
         let build_meta = |hp_snap: Vec<serde_json::Value>| -> serde_json::Value {
             json!({
@@ -782,7 +804,7 @@ impl State {
         let mqtx = &self.mqtx;
 
         #[cfg(feature = "kcp")]
-        let emit = |topic: &str, hp_snap_pairs: Vec<(u32, f32)>, pos_snap: Vec<(u32, f32, f32)>| {
+        let emit = |topic: &str, hp_snap_pairs: Vec<(u32, f32)>, pos_snap: Vec<(u32, f32, f32)>, in_flight: Vec<u32>| {
             let hp_snap_json: Vec<serde_json::Value> = hp_snap_pairs
                 .iter()
                 .map(|&(id, hp)| json!({ "i": id, "h": hp }))
@@ -791,9 +813,14 @@ impl State {
                 .iter()
                 .map(|&(id, x, y)| json!({ "i": id, "x": x, "y": y }))
                 .collect();
+            let in_flight_json: Vec<serde_json::Value> = in_flight
+                .iter()
+                .map(|&id| serde_json::Value::from(id))
+                .collect();
             let mut payload = build_meta(hp_snap_json);
             if let Some(obj) = payload.as_object_mut() {
                 obj.insert("pos_snapshot".into(), serde_json::Value::Array(pos_snap_json));
+                obj.insert("in_flight_projectiles".into(), serde_json::Value::Array(in_flight_json));
             }
             let ht = crate::state::resource_management::build_heartbeat_tick(
                 tick,
@@ -805,6 +832,7 @@ impl State {
                 render_delay_ms as u32,
                 &hp_snap_pairs,
                 &pos_snap,
+                &in_flight,
             );
             // P5: heartbeat is either per-player (when we loop over viewports
             // below) or fallback-all. The caller knows which; but since the
@@ -829,7 +857,7 @@ impl State {
         };
 
         #[cfg(all(feature = "grpc", not(feature = "kcp")))]
-        let emit = |topic: &str, hp_snap_pairs: Vec<(u32, f32)>, _pos_snap: Vec<(u32, f32, f32)>| {
+        let emit = |topic: &str, hp_snap_pairs: Vec<(u32, f32)>, _pos_snap: Vec<(u32, f32, f32)>, _in_flight: Vec<u32>| {
             let hp_snap_json: Vec<serde_json::Value> = hp_snap_pairs
                 .iter()
                 .map(|&(id, hp)| json!({ "i": id, "h": hp }))
@@ -851,7 +879,11 @@ impl State {
                 // identity to track, so we keep the legacy full snapshot path.
                 let full: Vec<(u32, f32)> = all_entity_hp.iter().map(|&(id, _x, _y, hp)| (id, hp)).collect();
                 let pos_sample = sample_creep_pos(&all_creep_pos);
-                if let Err(e) = emit("td/all/res", full, pos_sample) {
+                #[cfg(feature = "kcp")]
+                let in_flight_full: Vec<u32> = all_in_flight_projectiles.iter().map(|&(id, _, _)| id).collect();
+                #[cfg(not(feature = "kcp"))]
+                let in_flight_full: Vec<u32> = Vec::new();
+                if let Err(e) = emit("td/all/res", full, pos_sample, in_flight_full) {
                     log::error!("無法發送心跳訊息: {}", e);
                 } else {
                     log::trace!("💓 心跳已發送 (fallback broadcast) - tick: {}, entities: {}", tick, entity_count);
@@ -933,8 +965,23 @@ impl State {
                         sample_creep_pos(&visible_creeps)
                     };
 
+                    // P7 layered: filter projectiles whose target is in this
+                    // player's viewport. Always sent (even if no hp diff) so
+                    // client can promptly reconcile pending_pred_dmg when
+                    // shots settle without forcing creep/H broadcasts.
+                    #[cfg(feature = "kcp")]
+                    let in_flight_for_player: Vec<u32> = {
+                        all_in_flight_projectiles
+                            .iter()
+                            .filter(|&&(_, x, y)| vp.contains(x, y))
+                            .map(|&(id, _, _)| id)
+                            .collect()
+                    };
+                    #[cfg(not(feature = "kcp"))]
+                    let in_flight_for_player: Vec<u32> = Vec::new();
+
                     let topic = format!("td/{}/res", name);
-                    if let Err(e) = emit(&topic, diff_pairs, pos_sample) {
+                    if let Err(e) = emit(&topic, diff_pairs, pos_sample, in_flight_for_player) {
                         log::error!("無法發送心跳訊息 player='{}': {}", name, e);
                     } else {
                         log::trace!("💓 心跳已發送 player='{}' tick: {}", name, tick);

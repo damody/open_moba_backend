@@ -753,10 +753,15 @@ impl GameProcessor {
                 })
                 .build();
 
-            // 預期 P7 預測扣血在「server step 命中早於 client flight_time」+ 「heartbeat
-            // hp_snapshot 已先抵達 reconcile」時會跟 heartbeat 雙重計算（client 多扣一發）。
-            // 設 0 → server 走 !predeclared branch 正常廣播 creep/H，client 不做預測。
-            let predeclared_dmg = 0.0_f32;
+            // P7 layered: non-AOE single-target → pre-declare damage so client
+            // can apply optimistically on visual impact. Heartbeat's
+            // in_flight_projectiles set tells client which predictions are
+            // still un-settled vs already reflected in authoritative hp.
+            let predeclared_dmg = if splash_radius > 0.0 || !is_real || ntarget == 0 {
+                0.0
+            } else {
+                dmg_phys_this
+            };
             let _ = mqtx.try_send(make_projectile_create(
                 e.id(), ntarget,
                 start_pos.x, start_pos.y, p2.x, p2.y,

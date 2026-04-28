@@ -481,10 +481,15 @@ impl<'a> GameWorld for WorldAdapter<'a> {
             .build();
 
         let flight_time_ms: u64 = (flight_time_s * 1000.0).max(1.0) as u64;
-        // P7 disabled：server step 命中時間 vs client 固定 flight_time 在 target 移動時對不齊，
-        // heartbeat hp_snapshot 會在 client predicted_damage 之前先 reconcile，造成 client
-        // 多扣一發。關掉預測讓 server 走 creep/H 廣播。
-        let predeclared_dmg = 0.0_f32;
+        // P7 layered (re-enabled): pre-declared single-target damage. AOE
+        // (splash > 0), directional, or untargeted shots still carry 0 —
+        // those don't fit the in_flight reconciliation model and stay
+        // server-broadcast (creep/H per impact).
+        let predeclared_dmg = if spec.splash_radius > 0.0 || is_directional || target_id_out == 0 {
+            0.0
+        } else {
+            spec.damage
+        };
         let _ = self.mqtx.try_send(make_projectile_create_script(
             e.id(), target_id_out,
             from_vek.x, from_vek.y, end_pos_vek.x, end_pos_vek.y,

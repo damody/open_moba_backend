@@ -199,9 +199,11 @@ fn create_projectile_damage(
     log::debug!("彈道命中目標 {}，物理傷害: {:.1}，魔法傷害: {:.1}，真實傷害: {:.1}",
         target.id(), proj.damage_phys, proj.damage_magi, proj.damage_real);
 
-    // P7 disabled：predeclared 預測扣血跟 heartbeat hp_snapshot reconcile 在 target 移動時
-    // 會雙重計算（client over-applies 一發）。一律 false 讓 server 走 creep/H 權威廣播。
-    let predeclared = false;
+    // P7 layered (re-enabled with heartbeat in_flight_projectiles set):
+    // single-target (radius < 1.0) with damage > 0 → predeclared = true. Server
+    // skips creep/H. Client maintains pending_pred_dmg, applies on visual hit
+    // (t≥1.0), and reconciles via heartbeat in_flight set when server settles.
+    let predeclared = proj.radius < 1.0 && proj.damage_phys > 0.0;
     outcomes.push(Outcome::Damage {
         pos: pos,
         phys: proj.damage_phys,

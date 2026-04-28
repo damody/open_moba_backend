@@ -1363,6 +1363,7 @@ pub(crate) fn build_heartbeat_tick(
     render_delay_ms: u32,
     hp_snapshot: &[(u32, f32)],
     pos_snapshot: &[(u32, f32, f32)],
+    in_flight_projectiles: &[u32],
 ) -> crate::transport::kcp_transport::game_proto::HeartbeatTick {
     use crate::transport::kcp_transport::game_proto::{
         Fixed16, HeartbeatEntry, HeartbeatPosEntry, HeartbeatTick, Position16,
@@ -1398,6 +1399,7 @@ pub(crate) fn build_heartbeat_tick(
         render_delay_ms,
         hp_snapshot: entries,
         pos_snapshot: pos_entries,
+        in_flight_projectiles: in_flight_projectiles.to_vec(),
     }
 }
 
