@@ -409,7 +409,7 @@ impl State {
         self.last_visibility_tick = tick;
 
         if self.client_viewports.is_empty() {
-            log::trace!("👁 [diff tick={}] skipped: no client viewports", tick);
+            //log::trace!("👁 [diff tick={}] skipped: no client viewports", tick);
             return;
         }
 
@@ -434,8 +434,7 @@ impl State {
         for (e, _, p) in (&entities, &creeps, &positions).join()  { world.push((e, p.0.x, p.0.y, Kind::Creep)); }
         for (e, _, p) in (&entities, &towers, &positions).join()  { world.push((e, p.0.x, p.0.y, Kind::Tower)); }
 
-        log::info!("👁 [diff tick={}] world={} entities, players={}",
-            tick, world.len(), self.client_viewports.len());
+        //log::info!("👁 [diff tick={}] world={} entities, players={}", tick, world.len(), self.client_viewports.len());
 
         // Iterate players into a staging buffer, then write back (avoid mut-while-iter).
         let mut updates: Vec<(String, VisSet)> = Vec::with_capacity(self.client_viewports.len());
