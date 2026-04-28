@@ -131,18 +131,10 @@ impl StateInitializer {
         }
         let n = created.len();
         {
-            use voracious_radix_sort::RadixSort;
             let mut searcher = ecs.write_resource::<Searcher>();
-            searcher.region.xpos.clear();
-            searcher.region.ypos.clear();
-            for (e, p) in &created {
-                searcher.region.xpos.push(PosXIndex { e: *e, p: *p });
-                searcher.region.ypos.push(PosYIndex { e: *e, p: *p });
-            }
-            searcher.region.xpos.voracious_mt_sort(4);
-            searcher.region.ypos.voracious_mt_sort(4);
-            log::warn!("▶▶ searcher.region 寫入 xpos={} ypos={}",
-                searcher.region.xpos.len(), searcher.region.ypos.len());
+            searcher.region.rebuild_from(created.iter().map(|(e, p)| (*e, *p)));
+            log::warn!("▶▶ searcher.region 寫入 count={} (kind={})",
+                searcher.region.count(), searcher.region.kind());
         }
         log::warn!("▶▶ populate_region_blockers DONE: {} blockers created (polygons={})", n, polys.len());
         for (idx, (e, p)) in created.iter().take(3).enumerate() {

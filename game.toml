@@ -10,10 +10,25 @@ RENDER_DELAY_MS = 100
 # (STORY = TD_STRESS) 並在結束時自動還原。
 STORY = "TD_1"
 
-# Vision spatial index 切換。預設 quadtree 維持向後相容；
-# 可選: "quadtree" | "hash_grid" | "bvh"。
+# Vision shadow casting 用 spatial index。可選: "quadtree" | "hash_grid" | "bvh" | "sap"。
 [vision]
 SPATIAL_INDEX = "quadtree"
+SHG_CELL_SIZE = 128.0
+QUADTREE_MAX_DEPTH = 8
+QUADTREE_MAX_PER_NODE = 10
+BVH_MAX_LEAF = 4
+
+# Collision pre-detection 用 spatial index。Searcher 4 個類別獨立選演算法。
+# 可選: "quadtree" | "hash_grid" | "bvh" | "sap"
+# - tower: 大多靜態 → bvh / sap 都可
+# - creep: 高頻移動 → sap / hash_grid 通常最快
+# - hero: 數量少 → sap 簡單
+# - region: 一次性靜態 → bvh / sap 都可
+[collision]
+SPATIAL_INDEX_TOWER = "sap"
+SPATIAL_INDEX_CREEP = "sap"
+SPATIAL_INDEX_HERO = "sap"
+SPATIAL_INDEX_REGION = "sap"
 SHG_CELL_SIZE = 128.0
 QUADTREE_MAX_DEPTH = 8
 QUADTREE_MAX_PER_NODE = 10

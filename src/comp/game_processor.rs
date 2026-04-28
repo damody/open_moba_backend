@@ -939,7 +939,7 @@ impl GameProcessor {
         cjs.as_object_mut().unwrap().insert("id".to_owned(), json!(e.id()));
         cjs.as_object_mut().unwrap().insert("pos".to_owned(), json!(pos));
         mqtx.try_send(OutboundMsg::new_s_at("td/all/res", "tower", "C", cjs, pos.x, pos.y));
-        ecs.get_mut::<Searcher>().unwrap().tower.needsort = true;
+        ecs.get_mut::<Searcher>().unwrap().tower.mark_dirty();
         Ok(())
     }
     

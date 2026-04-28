@@ -296,7 +296,7 @@ impl ResourceManager {
                 return Ok(());
             }
         };
-        world.get_mut::<Searcher>().unwrap().tower.needsort = true;
+        world.get_mut::<Searcher>().unwrap().tower.mark_dirty();
         log::info!(
             "🏗 TD 塔 '{}' 已蓋於 ({:.0},{:.0}) entity={:?} cost={}",
             tpl.label, pos.x, pos.y, tower_entity, tpl.cost

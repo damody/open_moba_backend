@@ -141,7 +141,7 @@ impl<'a> System<'a> for Sys {
                         if elpsed.as_secs_f32() < 0.05 {
                             let search_n = 1.max(pty.mblock).max(6) as usize;
                             let (creeps, near_creeps) =
-                                tr.searcher.creep.SearchNN_XY2(pos.0, atk.range.val(), atk.range.val()+30., search_n);
+                                tr.searcher.creep.search_nn_two_radii(pos.0, atk.range.val(), atk.range.val()+30., search_n);
 
                             // faction filter：若本塔有 Faction，則只攻擊敵對 creep
                             let my_faction = tr.factions.get(e);

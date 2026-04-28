@@ -119,10 +119,10 @@ impl<'a> System<'a> for Sys {
         if t % 120 == 0 {
             log::warn!(
                 "🔍 searcher sizes: hero={}, creep={}, tower={}, region={}",
-                tr.searcher.hero.xpos.len(),
-                tr.searcher.creep.xpos.len(),
-                tr.searcher.tower.xpos.len(),
-                tr.searcher.region.xpos.len()
+                tr.searcher.hero.count(),
+                tr.searcher.creep.count(),
+                tr.searcher.tower.count(),
+                tr.searcher.region.count()
             );
         }
 

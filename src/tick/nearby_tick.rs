@@ -109,24 +109,12 @@ impl<'a> System<'a> for Sys {
                     },
                 );
                 
-            // 合併所有實體到 creep 索引中（向後兼容）
-            tw.searcher.creep.xpos.clear();
-            tw.searcher.creep.ypos.clear();
-            
-            // 添加 Unit 實體
-            for (i, p) in unit_pos.iter().enumerate() {
-                tw.searcher.creep.xpos.push(PosXIndex { e: unit_ents[i], p: p.0.clone() });
-                tw.searcher.creep.ypos.push(PosYIndex { e: unit_ents[i], p: p.0.clone() });
-            }
-            
-            // 添加 Creep 實體
-            for (i, p) in creep_pos.iter().enumerate() {
-                tw.searcher.creep.xpos.push(PosXIndex { e: creep_ents[i], p: p.0.clone() });
-                tw.searcher.creep.ypos.push(PosYIndex { e: creep_ents[i], p: p.0.clone() });
-            }
-            
-            tw.searcher.creep.xpos.voracious_mt_sort(4);
-            tw.searcher.creep.ypos.voracious_mt_sort(4);
+            // 合併所有實體到 creep 索引中（向後兼容）— 走 CollisionIndex::rebuild_from
+            let combined: Vec<(Entity, vek::Vec2<f32>)> = unit_ents.iter().zip(unit_pos.iter())
+                .map(|(e, p)| (*e, p.0))
+                .chain(creep_ents.iter().zip(creep_pos.iter()).map(|(e, p)| (*e, p.0)))
+                .collect();
+            tw.searcher.creep.rebuild_from(combined);
 
             log::debug!("Updated searcher index: {} units, {} creeps", unit_ents.len(), creep_ents.len());
         }
@@ -163,16 +151,12 @@ impl<'a> System<'a> for Sys {
                     },
                 );
 
-            tw.searcher.hero.xpos.clear();
-            tw.searcher.hero.ypos.clear();
-            for (i, p) in hero_pos.iter().enumerate() {
-                tw.searcher.hero.xpos.push(PosXIndex { e: hero_ents[i], p: p.0.clone() });
-                tw.searcher.hero.ypos.push(PosYIndex { e: hero_ents[i], p: p.0.clone() });
-            }
-            tw.searcher.hero.xpos.voracious_mt_sort(4);
-            tw.searcher.hero.ypos.voracious_mt_sort(4);
+            let hero_items: Vec<(Entity, vek::Vec2<f32>)> = hero_ents.iter().zip(hero_pos.iter())
+                .map(|(e, p)| (*e, p.0))
+                .collect();
+            tw.searcher.hero.rebuild_from(hero_items);
         }
-        if tw.searcher.tower.needsort {
+        if tw.searcher.tower.is_dirty() {
             let (ents, pos) = (
                 &tr.entities,
                 &tr.pos,
@@ -204,17 +188,12 @@ impl<'a> System<'a> for Sys {
                         (ents, pos)
                     },
                 );
-            if tw.searcher.tower.needsort {
-                tw.searcher.tower.needsort = false;
+            if tw.searcher.tower.is_dirty() {
                 let time1 = Instant::now();
-                tw.searcher.tower.xpos.clear();
-                tw.searcher.tower.ypos.clear();
-                for (i, p) in pos.iter().enumerate() {
-                    tw.searcher.tower.xpos.push(PosXIndex { e: ents[i], p: p.0.clone() });
-                    tw.searcher.tower.ypos.push(PosYIndex { e: ents[i], p: p.0.clone() });
-                }
-                tw.searcher.tower.xpos.voracious_mt_sort(4);
-                tw.searcher.tower.ypos.voracious_mt_sort(4);
+                let tower_items: Vec<(Entity, vek::Vec2<f32>)> = ents.iter().zip(pos.iter())
+                    .map(|(e, p)| (*e, p.0))
+                    .collect();
+                tw.searcher.tower.rebuild_from(tower_items);
                 let time2 = Instant::now();
                 let elpsed = time2.duration_since(time1);
                 log::info!("build tower Sort pos time {:?}", elpsed);

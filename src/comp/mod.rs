@@ -29,6 +29,8 @@ pub mod circular_vision_refactored;
 pub mod vision;
 pub mod outcome_system;
 pub mod gold;
+pub mod collision_index;
+pub use collision_index::CollisionIndex;
 pub mod inventory;
 pub mod item_effects;
 pub mod is_base;

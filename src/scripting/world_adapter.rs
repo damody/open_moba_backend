@@ -481,17 +481,10 @@ impl<'a> GameWorld for WorldAdapter<'a> {
             .build();
 
         let flight_time_ms: u64 = (flight_time_s * 1000.0).max(1.0) as u64;
-        // P7: pre-declared damage for single-target (non-AOE) projectiles.
-        // AOE (splash_radius > 0) stays at 0 — server still emits creep.H per
-        // splash target on impact. Non-directional single-target carries the
-        // deterministic base physical damage; client applies HP locally at
-        // impact, server skips creep.H (see `Outcome::Damage { predeclared }`
-        // handling in game_processor::handle_damage).
-        let predeclared_dmg = if spec.splash_radius > 0.0 || is_directional || target_id_out == 0 {
-            0.0
-        } else {
-            spec.damage
-        };
+        // P7 disabled：server step 命中時間 vs client 固定 flight_time 在 target 移動時對不齊，
+        // heartbeat hp_snapshot 會在 client predicted_damage 之前先 reconcile，造成 client
+        // 多扣一發。關掉預測讓 server 走 creep/H 廣播。
+        let predeclared_dmg = 0.0_f32;
         let _ = self.mqtx.try_send(make_projectile_create_script(
             e.id(), target_id_out,
             from_vek.x, from_vek.y, end_pos_vek.x, end_pos_vek.y,

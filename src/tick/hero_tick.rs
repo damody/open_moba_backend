@@ -154,9 +154,9 @@ impl<'a> System<'a> for Sys {
                             let range_bonus = attack_range - atk.range.v;
                             let search_range = attack_range + 50.0; // 稍微擴大搜尋範圍以確保不遺漏邊界目標
                             let (creep_targets, _) =
-                                tr.searcher.creep.SearchNN_XY2(pos.0, attack_range, search_range, search_n);
+                                tr.searcher.creep.search_nn_two_radii(pos.0, attack_range, search_range, search_n);
                             let (tower_targets, _) =
-                                tr.searcher.tower.SearchNN_XY2(pos.0, attack_range, search_range, search_n);
+                                tr.searcher.tower.search_nn_two_radii(pos.0, attack_range, search_range, search_n);
                             // 合併 creep + tower 候選，一起走敵友判斷
                             let mut potential_targets = Vec::with_capacity(creep_targets.len() + tower_targets.len());
                             potential_targets.extend(creep_targets);
@@ -197,10 +197,6 @@ impl<'a> System<'a> for Sys {
                                 }
                             } else {
                                 log::warn!("{} 沒有陣營信息，無法進行敵友判斷", hero_name);
-                            }
-                                
-                            if valid_targets.len() > 0 {
-                                log::info!("{} 有效目標數量: {}", hero_name, valid_targets.len());
                             }
                             
                             if valid_targets.len() > 0 {

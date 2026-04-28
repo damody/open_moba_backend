@@ -97,7 +97,7 @@ impl<'a> System<'a> for Sys {
                         let half_len = ((b - a).magnitude()) * 0.5;
                         // 從 mid 找 (half_len + needle_r) 半徑內的 creep 候選，再做 segment 距離
                         let search_r = half_len + needle_r + 5.0;
-                        let candidates = tr.searcher.creep.SearchNN_XY(seg_mid, search_r, 16);
+                        let candidates = tr.searcher.creep.search_nn(seg_mid, search_r, 16);
                         let needle_r2 = needle_r * needle_r;
                         let mut hit: Option<specs::Entity> = None;
                         for ci in candidates.iter() {
@@ -132,7 +132,7 @@ impl<'a> System<'a> for Sys {
                         pos.0 = hit_pos;
                         if proj.radius > 1.0 {
                             // 範圍攻擊：以 hit_pos 為中心掃半徑內敵人
-                            let targets = tr.searcher.creep.SearchNN_XY(hit_pos, proj.radius, 5);
+                            let targets = tr.searcher.creep.search_nn(hit_pos, proj.radius, 5);
                             for target_info in targets.iter() {
                                 create_projectile_damage(&proj, target_info.e, &mut outcomes, hit_pos);
                             }
@@ -199,8 +199,9 @@ fn create_projectile_damage(
     log::debug!("彈道命中目標 {}，物理傷害: {:.1}，魔法傷害: {:.1}，真實傷害: {:.1}",
         target.id(), proj.damage_phys, proj.damage_magi, proj.damage_real);
 
-    // P7: single-target (non-AOE) → predeclared; AOE → authoritative H.
-    let predeclared = proj.radius < 1.0 && proj.damage_phys > 0.0;
+    // P7 disabled：predeclared 預測扣血跟 heartbeat hp_snapshot reconcile 在 target 移動時
+    // 會雙重計算（client over-applies 一發）。一律 false 讓 server 走 creep/H 權威廣播。
+    let predeclared = false;
     outcomes.push(Outcome::Damage {
         pos: pos,
         phys: proj.damage_phys,

@@ -112,7 +112,7 @@ impl CreationEventHandler {
         
         // 標記塔搜尋索引需要重新排序
         if let Some(mut searcher) = world.try_fetch_mut::<Searcher>() {
-            searcher.tower.needsort = true;
+            searcher.tower.mark_dirty();
             info!("標記塔搜尋索引需要重新排序");
         } else {
             warn!("無法獲取 Searcher 資源，跳過索引更新");
