@@ -41,10 +41,20 @@ pub struct VisionEventFilter {
 }
 
 impl VisionUpdateSystem {
-    /// 創建新的視野更新系統
+    /// 創建新的視野更新系統。Spatial index 從 game.toml `[vision] SPATIAL_INDEX` 讀取。
     pub fn new() -> Self {
+        use crate::config::vision_config::VISION_CONFIG;
+        use crate::vision::SpatialIndexParams;
+
+        let cfg = &*VISION_CONFIG;
+        let params = SpatialIndexParams {
+            quadtree_max_depth: cfg.QUADTREE_MAX_DEPTH,
+            quadtree_max_per_node: cfg.QUADTREE_MAX_PER_NODE,
+            hash_grid_cell_size: cfg.SHG_CELL_SIZE,
+            bvh_max_leaf: cfg.BVH_MAX_LEAF,
+        };
         Self {
-            shadow_calculator: ShadowCalculator::with_config(500, 6, 8), // 中等性能配置
+            shadow_calculator: ShadowCalculator::with_index_kind(&cfg.SPATIAL_INDEX, params, 500),
             output_generator: VisionOutputGenerator::new(25.0),
             update_interval: 1.0 / 30.0, // 30 FPS 更新頻率
         }

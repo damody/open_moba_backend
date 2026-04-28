@@ -8,15 +8,16 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::comp::circular_vision::{VisionResult, ShadowArea, ObstacleInfo};
 
 // Import refactored modules from the vision module
-use super::quadtree::{QuadTree, Bounds, TreeEntry};
+use super::spatial_index::{Bounds, SpatialIndex, SpatialIndexParams, TreeEntry, build_spatial_index};
+use super::quadtree::QuadTree;
 use super::shadow_calculation::ShadowCalculator as ShadowCalc;
 use super::vision_cache::{CacheManager, CacheStats};
 use super::geometry_utils::GeometryUtils;
 
 /// 高效能陰影計算器
 pub struct ShadowCalculator {
-    /// 四叉樹
-    quadtree: QuadTree,
+    /// Spatial index（QuadTree / SpatialHashGrid / BVH 任一）
+    index: Box<dyn SpatialIndex>,
     /// 緩存管理器
     cache_manager: CacheManager,
     /// 障礙物位置索引
@@ -24,29 +25,43 @@ pub struct ShadowCalculator {
 }
 
 impl ShadowCalculator {
-    /// 創建新的陰影計算器
+    /// 創建新的陰影計算器（預設 QuadTree，向後相容測試）。
+    /// 生產環境應改呼 `with_index_kind` 從 `VISION_CONFIG` 注入。
     pub fn new() -> Self {
         Self {
-            quadtree: QuadTree::new(8, 10),
+            index: Box::new(QuadTree::new(8, 10)),
             cache_manager: CacheManager::new(1000),
             obstacle_index: BTreeMap::new(),
         }
     }
 
-    /// 配置計算器參數
+    /// 配置 QuadTree 參數（保留舊簽名給既有呼叫端）
     pub fn with_config(
         max_cache_size: usize,
         max_tree_depth: usize,
         max_obstacles_per_node: usize,
     ) -> Self {
         Self {
-            quadtree: QuadTree::new(max_tree_depth, max_obstacles_per_node),
+            index: Box::new(QuadTree::new(max_tree_depth, max_obstacles_per_node)),
             cache_manager: CacheManager::new(max_cache_size),
             obstacle_index: BTreeMap::new(),
         }
     }
 
-    /// 初始化四叉樹
+    /// 用指定的 spatial index kind + params 構造（生產注入路徑）
+    pub fn with_index_kind(
+        kind: &str,
+        params: SpatialIndexParams,
+        max_cache_size: usize,
+    ) -> Self {
+        Self {
+            index: build_spatial_index(kind, params),
+            cache_manager: CacheManager::new(max_cache_size),
+            obstacle_index: BTreeMap::new(),
+        }
+    }
+
+    /// 初始化四叉樹（命名保留向後相容；實際初始化的是 self.index 的當前 impl）
     pub fn initialize_quadtree(&mut self, world_bounds: Bounds, obstacles: Vec<ObstacleInfo>) {
         // 重建障礙物索引
         self.obstacle_index.clear();
@@ -57,8 +72,8 @@ impl ShadowCalculator {
             entries.push(TreeEntry { id, obstacle });
         }
 
-        // 初始化四叉樹（含 id），之後 update/remove 走增量 API
-        self.quadtree.initialize(world_bounds, entries);
+        // 初始化（含 id），之後 update/remove 走增量 API
+        self.index.initialize(world_bounds, entries);
 
         // 清理可能失效的緩存
         self.cache_manager.invalidate_all_cache();
@@ -79,8 +94,8 @@ impl ShadowCalculator {
             return cached.result.clone();
         }
 
-        // 使用四叉樹查詢相關障礙物（含 id 用於 cache dependency 追蹤）
-        let relevant_entries = self.quadtree.query_entries_in_range(observer_pos, vision_range);
+        // 使用 spatial index 查詢相關障礙物（含 id 用於 cache dependency 追蹤）
+        let relevant_entries = self.index.query_entries_in_range(observer_pos, vision_range);
 
         // 使用陰影投射算法
         let mut shadows = Vec::new();
@@ -126,15 +141,15 @@ impl ShadowCalculator {
         // 使相關緩存失效
         self.cache_manager.invalidate_cache_for_obstacle(&obstacle_id);
 
-        // 增量更新四叉樹（移除舊 entry，插入新 entry）
-        self.quadtree.update_obstacle(&obstacle_id, obstacle);
+        // 增量更新 spatial index（移除舊 entry，插入新 entry）
+        self.index.update(&obstacle_id, obstacle);
     }
 
     /// 移除障礙物
     pub fn remove_obstacle(&mut self, obstacle_id: &str) {
         self.obstacle_index.remove(obstacle_id);
         self.cache_manager.invalidate_cache_for_obstacle(obstacle_id);
-        self.quadtree.remove_obstacle(obstacle_id);
+        self.index.remove(obstacle_id);
     }
 
     /// 獲取當前時間戳
@@ -151,9 +166,14 @@ impl ShadowCalculator {
         PerformanceStats {
             cache_size: cache_stats.cache_size,
             obstacle_count: self.obstacle_index.len(),
-            quadtree_nodes: self.quadtree.count_nodes(),
+            quadtree_nodes: self.index.count_nodes(),
             max_cache_size: cache_stats.max_cache_size,
         }
+    }
+
+    /// 取得目前 spatial index 的名稱（用於 metric / log）
+    pub fn index_name(&self) -> &'static str {
+        self.index.name()
     }
 
     /// 射線與線段相交檢測（暴露給外部使用）

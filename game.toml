@@ -9,3 +9,12 @@ RENDER_DELAY_MS = 100
 # 預設場景。run.bat 直接讀此檔；run_stress.bat 會臨時 swap 成 game_stress.toml
 # (STORY = TD_STRESS) 並在結束時自動還原。
 STORY = "TD_1"
+
+# Vision spatial index 切換。預設 quadtree 維持向後相容；
+# 可選: "quadtree" | "hash_grid" | "bvh"。
+[vision]
+SPATIAL_INDEX = "quadtree"
+SHG_CELL_SIZE = 128.0
+QUADTREE_MAX_DEPTH = 8
+QUADTREE_MAX_PER_NODE = 10
+BVH_MAX_LEAF = 4

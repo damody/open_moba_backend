@@ -1,14 +1,8 @@
 use vek::Vec2;
 use crate::comp::circular_vision::{ObstacleInfo, ObstacleType};
 
-/// 一筆儲存於 QuadTree 內的障礙物連同它的字串 id。
-/// id 由呼叫端決定，用於 `update_obstacle` / `remove_obstacle` 的增量定位
-/// 以及 cache 失效追蹤。
-#[derive(Debug, Clone)]
-pub struct TreeEntry {
-    pub id: String,
-    pub obstacle: ObstacleInfo,
-}
+// 共用型別 TreeEntry / Bounds 統一定義在 spatial_index 模組，這裡 re-export。
+pub use super::spatial_index::{TreeEntry, Bounds, SpatialIndex};
 
 /// 四叉樹節點
 #[derive(Debug, Clone)]
@@ -21,32 +15,6 @@ pub struct QuadTreeNode {
     pub entries: Vec<TreeEntry>,
     /// 節點深度
     pub depth: usize,
-}
-
-/// 邊界矩形
-#[derive(Debug, Clone)]
-pub struct Bounds {
-    pub min: Vec2<f32>,
-    pub max: Vec2<f32>,
-}
-
-impl Bounds {
-    pub fn new(min: Vec2<f32>, max: Vec2<f32>) -> Self {
-        Self { min, max }
-    }
-
-    pub fn contains_point(&self, point: Vec2<f32>) -> bool {
-        point.x >= self.min.x && point.x <= self.max.x &&
-        point.y >= self.min.y && point.y <= self.max.y
-    }
-
-    pub fn width(&self) -> f32 {
-        self.max.x - self.min.x
-    }
-
-    pub fn height(&self) -> f32 {
-        self.max.y - self.min.y
-    }
 }
 
 pub struct QuadTree {
@@ -345,6 +313,38 @@ impl QuadTree {
         }
         count
     }
+}
+
+impl SpatialIndex for QuadTree {
+    fn initialize(&mut self, bounds: Bounds, entries: Vec<TreeEntry>) {
+        QuadTree::initialize(self, bounds, entries);
+    }
+
+    fn insert(&mut self, id: String, obstacle: ObstacleInfo) {
+        self.insert_obstacle(id, obstacle);
+    }
+
+    fn remove(&mut self, id: &str) -> bool {
+        self.remove_obstacle(id)
+    }
+
+    fn update(&mut self, id: &str, obstacle: ObstacleInfo) {
+        QuadTree::update_obstacle(self, id, obstacle);
+    }
+
+    fn query_entries_in_range(&self, center: Vec2<f32>, radius: f32) -> Vec<(String, ObstacleInfo)> {
+        QuadTree::query_entries_in_range(self, center, radius)
+    }
+
+    fn query_obstacles_in_range(&self, center: Vec2<f32>, radius: f32) -> Vec<ObstacleInfo> {
+        QuadTree::query_obstacles_in_range(self, center, radius)
+    }
+
+    fn count_nodes(&self) -> usize {
+        QuadTree::count_nodes(self)
+    }
+
+    fn name(&self) -> &'static str { "quadtree" }
 }
 
 #[cfg(test)]
