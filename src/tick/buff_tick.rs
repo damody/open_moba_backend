@@ -22,7 +22,8 @@ use crate::transport::OutboundMsg;
 /// 對應 Dota MOVESPEED_BONUS_* / MOVESPEED_ABSOLUTE / MIN / MAX / LIMIT。
 const MOVESPEED_PAYLOAD_KEYS: &[StatKey] = &[
     StatKey::MoveSpeedBonus,
-    StatKey::MoveSpeedBonusConstant,
+    StatKey::MoveSpeedBonusEquipment,
+    StatKey::MoveSpeedBonusBuff,
     StatKey::MoveSpeedBaseOverride,
     StatKey::MoveSpeedBonusPercentage,
     StatKey::MoveSpeedBonusPercentageUnique,

@@ -51,14 +51,18 @@ impl<'a> UnitStats<'a> {
         } else {
             let override_base = self.buffs.sum_add(e, StatKey::MoveSpeedBaseOverride);
             let base_eff = if override_base > 0.0 { override_base } else { base };
-            let bonus_c = self.buffs.sum_add(e, StatKey::MoveSpeedBonusConstant)
+            // Equipment flat（boots、靴類道具）：跟 base 一起被 percentage 縮放
+            let bonus_c = self.buffs.sum_add(e, StatKey::MoveSpeedBonusEquipment)
                 + self.buffs.sum_add(e, StatKey::MoveSpeedBonusUnique)
                 + self.buffs.sum_add(e, StatKey::MoveSpeedBonusUnique2);
+            // Percentage（含 ice tower 用的 MoveSpeedBonus，當 -50% 寫進去）
             let pct = self.buffs.sum_add(e, StatKey::MoveSpeedBonusPercentage)
                 + self.buffs.sum_add(e, StatKey::MoveSpeedBonusPercentageUnique)
                 + self.buffs.sum_add(e, StatKey::MoveSpeedBonusPercentageUnique2)
                 + self.buffs.sum_add(e, StatKey::MoveSpeedBonus);
-            (base_eff + bonus_c) * (1.0 + pct)
+            // Buff flat post-percentage：不被 slow 削弱、不疊到 base/equipment 上
+            let buff_bonus = self.buffs.sum_add(e, StatKey::MoveSpeedBonusBuff);
+            (base_eff + bonus_c) * (1.0 + pct) + buff_bonus
         };
         self.apply_move_clamp(effective, e)
     }
@@ -347,6 +351,68 @@ mod tests {
         assert!(
             (effective - 50.0).abs() < 1e-3,
             "expected 50.0, got {}",
+            effective
+        );
+    }
+
+    // Dota 順序：equipment bonus（boots 等）跟 base 一起被 percentage 縮放。
+    // base=300、boots +90、slow -50% → (300+90)*0.5 = 195。
+    #[test]
+    fn move_speed_equipment_bonus_scales_with_percentage() {
+        let mut world = World::new();
+        let e = world.create_entity().build();
+        let mut store = BuffStore::new();
+        store.add(
+            e,
+            "boots",
+            f32::INFINITY,
+            json!({ StatKey::MoveSpeedBonusEquipment.as_str(): 90.0 }),
+        );
+        store.add(
+            e,
+            "slow_ice",
+            2.0,
+            json!({ StatKey::MoveSpeedBonus.as_str(): -0.5 }),
+        );
+        let stats = UnitStats::from_refs(&store, false);
+        let effective = stats.final_move_speed(300.0, e);
+        assert!(
+            (effective - 195.0).abs() < 1e-3,
+            "expected 195.0, got {}",
+            effective
+        );
+    }
+
+    // Buff flat post-pct：不被 percentage 縮放，純加在最末端。
+    // base=300、boots +90、slow -50%、buff +60 → (300+90)*0.5 + 60 = 255。
+    #[test]
+    fn move_speed_buff_bonus_is_flat_post_percentage() {
+        let mut world = World::new();
+        let e = world.create_entity().build();
+        let mut store = BuffStore::new();
+        store.add(
+            e,
+            "boots",
+            f32::INFINITY,
+            json!({ StatKey::MoveSpeedBonusEquipment.as_str(): 90.0 }),
+        );
+        store.add(
+            e,
+            "slow_ice",
+            2.0,
+            json!({ StatKey::MoveSpeedBonus.as_str(): -0.5 }),
+        );
+        store.add(
+            e,
+            "haste_buff",
+            5.0,
+            json!({ StatKey::MoveSpeedBonusBuff.as_str(): 60.0 }),
+        );
+        let stats = UnitStats::from_refs(&store, false);
+        let effective = stats.final_move_speed(300.0, e);
+        assert!(
+            (effective - 255.0).abs() < 1e-3,
+            "expected 255.0, got {}",
             effective
         );
     }
