@@ -85,6 +85,16 @@ impl BuffStore {
         })
     }
 
+    /// 反向查詢：哪些 entity 身上有 buff payload 含 `key`。
+    /// 配合 `regen_tick` / `buff_tick` 的 DoT 掃描，把「對全表 sum_add」
+    /// 變成「只對候選 entity sum_add」。返回 iterator，呼叫端可 collect 或 filter。
+    pub fn entities_with_key<'a>(&'a self, key: &str) -> impl Iterator<Item = Entity> + 'a {
+        self.entities_by_key
+            .get(key)
+            .into_iter()
+            .flat_map(|m| m.keys().copied())
+    }
+
     /// 加法聚合：對 entity 身上所有 buff，若 `payload[stat]` 是數字則加總。
     /// 慣例：`_bonus` 後綴的 stat 用這個（例 `range_bonus`、`damage_bonus`）。
     pub fn sum_add(&self, entity: Entity, stat: StatKey) -> f32 {
@@ -141,5 +151,25 @@ impl BuffStore {
 
     pub fn is_empty(&self) -> bool {
         self.buffs.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use specs::world::Generation;
+
+    fn ent(id: u32, gen: i32) -> Entity {
+        Entity::new(id, Generation::new(gen))
+    }
+
+    #[test]
+    fn entities_with_key_returns_entity_after_add() {
+        let mut s = BuffStore::new();
+        let e = ent(1, 1);
+        s.add(e, "buff_a", 5.0, json!({ "move_speed_bonus": -0.5 }));
+        let found: Vec<Entity> = s.entities_with_key("move_speed_bonus").collect();
+        assert_eq!(found, vec![e]);
     }
 }
