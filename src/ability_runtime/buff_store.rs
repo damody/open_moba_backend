@@ -20,9 +20,12 @@ pub struct BuffEntry {
 }
 
 /// 以 `(Entity, buff_id)` 為 key 的 O(1) buff 索引。
+/// `entities_by_key` 是 stat key → entity → 引用計數的反向索引，
+/// 加速「哪些 entity 受某類 stat 影響」的查詢（regen / DoT 系統用）。
 #[derive(Default, Debug)]
 pub struct BuffStore {
     buffs: HashMap<(Entity, String), BuffEntry>,
+    entities_by_key: HashMap<String, HashMap<Entity, u32>>,
 }
 
 impl BuffStore {
