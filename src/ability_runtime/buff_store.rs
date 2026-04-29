@@ -183,15 +183,23 @@ impl BuffStore {
     /// 表示這是移速影響類 buff，要發 creep/S 還原訊息）。
     pub fn tick(&mut self, dt: f32) -> Vec<(Entity, String, Value)> {
         let mut expired = Vec::new();
-        self.buffs.retain(|(e, id), v| {
+        // 先收集 expired，避免 retain 內動態借 self（index_dec 也要 &mut self）
+        let mut to_drop: Vec<(Entity, String)> = Vec::new();
+        for ((e, id), v) in self.buffs.iter_mut() {
             v.remaining -= dt;
             if v.remaining <= 0.0 {
-                expired.push((*e, id.clone(), v.payload.clone()));
-                false
-            } else {
-                true
+                to_drop.push((*e, id.clone()));
             }
-        });
+        }
+        for (e, id) in to_drop {
+            if let Some(entry) = self.buffs.remove(&(e, id.clone())) {
+                let keys: Vec<String> = Self::payload_keys(&entry.payload).map(String::from).collect();
+                for k in &keys {
+                    self.index_dec(e, k);
+                }
+                expired.push((e, id, entry.payload));
+            }
+        }
         expired
     }
 
@@ -231,5 +239,16 @@ mod tests {
         s.remove(e, "b");
         let found: Vec<Entity> = s.entities_with_key("x").collect();
         assert!(found.is_empty(), "expected empty, got {:?}", found);
+    }
+
+    #[test]
+    fn tick_expired_clears_index() {
+        let mut s = BuffStore::new();
+        let e = ent(1, 1);
+        s.add(e, "b", 1.0, json!({ "x": 1.0 }));
+        let expired = s.tick(2.0); // duration < dt → expire
+        assert_eq!(expired.len(), 1);
+        let found: Vec<Entity> = s.entities_with_key("x").collect();
+        assert!(found.is_empty(), "expected empty after expire, got {:?}", found);
     }
 }
