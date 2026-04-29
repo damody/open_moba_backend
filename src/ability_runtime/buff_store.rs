@@ -75,7 +75,12 @@ impl BuffStore {
     }
 
     pub fn remove(&mut self, entity: Entity, buff_id: &str) {
-        self.buffs.remove(&(entity, buff_id.to_string()));
+        if let Some(entry) = self.buffs.remove(&(entity, buff_id.to_string())) {
+            let keys: Vec<String> = Self::payload_keys(&entry.payload).map(String::from).collect();
+            for k in &keys {
+                self.index_dec(entity, k);
+            }
+        }
     }
 
     pub fn has(&self, entity: Entity, buff_id: &str) -> bool {
@@ -216,5 +221,15 @@ mod tests {
         s.add(e, "buff_a", 5.0, json!({ "move_speed_bonus": -0.5 }));
         let found: Vec<Entity> = s.entities_with_key("move_speed_bonus").collect();
         assert_eq!(found, vec![e]);
+    }
+
+    #[test]
+    fn remove_clears_index() {
+        let mut s = BuffStore::new();
+        let e = ent(1, 1);
+        s.add(e, "b", 5.0, json!({ "x": 1.0 }));
+        s.remove(e, "b");
+        let found: Vec<Entity> = s.entities_with_key("x").collect();
+        assert!(found.is_empty(), "expected empty, got {:?}", found);
     }
 }
