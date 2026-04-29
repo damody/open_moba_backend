@@ -9,6 +9,8 @@ fn default_story() -> String {
     "MVP_1".to_string()
 }
 
+fn default_speed_mult() -> u32 { 1 }
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ServerSetting {
     pub SERVER_IP: String,
@@ -22,6 +24,11 @@ pub struct ServerSetting {
     /// TD 模式設為 "TD_1" 以載入塔防關卡。
     #[serde(default = "default_story")]
     pub STORY: String,
+    /// Game speed multiplier (debug only)。1 = real-time，2/4/8 = 快轉。
+    /// 每個 real frame 跑 N 個 sub-tick，sim 推進 N × frame-time。
+    /// Runtime 可由 stdin 指令 `:speed N` 動態切換（範圍 1..=16）。
+    #[serde(default = "default_speed_mult")]
+    pub SPEED_MULT: u32,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

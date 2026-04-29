@@ -172,6 +172,11 @@ async fn main() -> std::result::Result<(), Error> {
     state.attach_aoi_grid(aoi_grid);
     let mut clock = Clock::new(Duration::from_secs_f64(1.0 / TPS as f64));
 
+    // Game speed multiplier (debug)。每 real frame 跑 N 個 sub-tick，sim 推進 N×dt。
+    // 從 game.toml 讀 default，stdin 指令 `:speed N` 可 runtime 切換。clamp 1..=16。
+    let mut speed_mult: u32 = CONFIG.SPEED_MULT.clamp(1, 16);
+    log::info!("⏩ Game speed: {}× (use ':speed N' on stdin to change, range 1..=16)", speed_mult);
+
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || {
         loop {
@@ -191,10 +196,26 @@ async fn main() -> std::result::Result<(), Error> {
     });
     loop {
         for msg in rx.try_iter().take(10) {
+            // 攔截 `:speed N` 指令，不轉發到 chat
+            if let Some(rest) = msg.strip_prefix(":speed") {
+                let arg = rest.trim();
+                match arg.parse::<u32>() {
+                    Ok(n) if (1..=16).contains(&n) => {
+                        speed_mult = n;
+                        log::info!("⏩ Game speed → {}×", speed_mult);
+                    }
+                    _ => log::warn!("⏩ Invalid ':speed' arg {:?}, expected integer 1..=16", arg),
+                }
+                continue;
+            }
             state.send_chat(msg)
         }
-        if let Err(e) = state.tick(clock.dt()) {
-            log::error!("Tick error: {:?}", e);
+        // 跑 N 個 sub-tick；speed=1 時等同舊行為（單 tick 用 clock.dt()）
+        let dt = clock.dt();
+        for _ in 0..speed_mult {
+            if let Err(e) = state.tick(dt) {
+                log::error!("Tick error: {:?}", e);
+            }
         }
 
         // Wait for the next tick.

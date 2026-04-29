@@ -9,6 +9,11 @@ RENDER_DELAY_MS = 100
 # 預設場景。run.bat 直接讀此檔；run_stress.bat 會臨時 swap 成 game_stress.toml
 # (STORY = TD_STRESS) 並在結束時自動還原。
 STORY = "TD_1"
+# Game speed multiplier (debug only)。1 = real-time，2/4/8 = 快轉。
+# 每 real frame 跑 N 個 sub-tick，sim 推進 N × frame-time（每個 tick 仍是穩定 dt）。
+# Runtime: 在 omb 的 stdin 輸入 `:speed 4` 切到 4×、`:speed 1` 還原。範圍 1..=16。
+# 注意：硬體跟不上 N× 模擬負擔時會 frame drop（變成 N 倍以下的有效速度）。
+SPEED_MULT = 1
 
 # Vision shadow casting 用 spatial index。可選: "quadtree" | "hash_grid" | "bvh" | "sap"。
 [vision]
