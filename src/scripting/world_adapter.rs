@@ -141,7 +141,7 @@ impl<'a> AdapterCache<'a> {
     pub fn new(world: &'a World) -> Self {
         Self {
             entities: world.entities(),
-            lazy: world.read_resource::<LazyUpdate>(),
+            lazy: world.read_resource::<LazyUpdate>().into(),
 
             tattack: world.write_storage::<TAttack>(),
             pos: world.write_storage::<Pos>(),
@@ -157,11 +157,11 @@ impl<'a> AdapterCache<'a> {
             collision: world.read_storage::<CollisionRadius>(),
             tags: world.read_storage::<ScriptUnitTag>(),
 
-            buffs: world.write_resource::<BuffStore>(),
-            events: world.write_resource::<ScriptEventQueue>(),
-            searcher: world.read_resource::<Searcher>(),
-            blocked: world.read_resource::<BlockedRegions>(),
-            time: world.read_resource::<Time>(),
+            buffs: world.write_resource::<BuffStore>().into(),
+            events: world.write_resource::<ScriptEventQueue>().into(),
+            searcher: world.read_resource::<Searcher>().into(),
+            blocked: world.read_resource::<BlockedRegions>().into(),
+            time: world.read_resource::<Time>().into(),
         }
     }
 }
