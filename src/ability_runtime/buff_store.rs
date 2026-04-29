@@ -6,6 +6,13 @@
 //!
 //! 每筆 buff 可攜帶 `payload: serde_json::Value`，讓 host 系統（例如
 //! `creep_tick` 的移速計算）從 buff 身上讀出數值（如 slow factor）。
+//!
+//! ## Reserved payload conventions
+//!
+//! - `slow_factor: f64` — 觸發 add() 的「強蓋弱」語意：同 buff_id 已存在
+//!   且雙方 payload 都帶 `slow_factor` 時，較小者勝出（refresh duration 不變、
+//!   payload 只在新 factor 較強時才覆寫）。任一邊缺欄位或型別不對 → fallback
+//!   到舊行為（直接覆寫）。新增其他需要「比較合併」的 stat 時，請在這裡記載。
 
 use omb_script_abi::buff_ids::BuffId;
 use omb_script_abi::stat_keys::StatKey;
@@ -52,6 +59,7 @@ impl BuffStore {
                     payload.get("slow_factor").and_then(|v| v.as_f64()),
                 ) {
                     (Some(old), Some(new)) => new < old,
+                    // 任一邊缺 slow_factor 或型別非數字 → fallback 到舊行為（覆寫）
                     _ => true,
                 };
                 if should_replace {
