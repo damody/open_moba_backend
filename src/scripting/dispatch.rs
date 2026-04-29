@@ -273,8 +273,7 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
 
                 // 執行成功後啟動 CD；失敗不扣 CD（讓玩家重試）
                 if exec_ok && cd_seconds > 0.0 {
-                    let mut heroes = adapter.world.write_storage::<crate::comp::Hero>();
-                    if let Some(hero) = heroes.get_mut(caster) {
+                    if let Some(hero) = adapter.cache.hero.get_mut(caster) {
                         hero.start_cooldown(&skill_id, cd_seconds);
                     }
                 }
@@ -309,25 +308,22 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
 
             // 2) 若 attacker 是 Hero，輪詢已學的 Passive ability 並呼 on_attack_hit。
             //    先 snapshot passive ids + levels 避免 dispatch 中借用 hero storage 與 world_dyn 衝突。
-            let passive_calls: Vec<(String, u8)> = {
-                let heroes = adapter.world.read_storage::<crate::comp::Hero>();
-                match heroes.get(attacker) {
-                    Some(hero) => hero
-                        .ability_levels
-                        .iter()
-                        .filter(|(_, lv)| **lv > 0)
-                        .filter_map(|(ability_id, lv)| {
-                            registry.get_ability(ability_id).and_then(|(def, _)| {
-                                if def.ability_type == omoba_core::ability_meta::AbilityType::Passive {
-                                    Some((ability_id.clone(), (*lv).max(1) as u8))
-                                } else {
-                                    None
-                                }
-                            })
+            let passive_calls: Vec<(String, u8)> = match adapter.cache.hero.get(attacker) {
+                Some(hero) => hero
+                    .ability_levels
+                    .iter()
+                    .filter(|(_, lv)| **lv > 0)
+                    .filter_map(|(ability_id, lv)| {
+                        registry.get_ability(ability_id).and_then(|(def, _)| {
+                            if def.ability_type == omoba_core::ability_meta::AbilityType::Passive {
+                                Some((ability_id.clone(), (*lv).max(1) as u8))
+                            } else {
+                                None
+                            }
                         })
-                        .collect(),
-                    None => Vec::new(),
-                }
+                    })
+                    .collect(),
+                None => Vec::new(),
             };
             if !passive_calls.is_empty() {
                 let attacker_handle = WorldAdapter::entity_to_handle(attacker);
@@ -457,9 +453,8 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
 }
 
 /// Look up the `ScriptUnitTag` for an entity, returning its `unit_id`.
-fn script_id_of(world: &World, e: Entity) -> Option<String> {
-    let tags = world.read_storage::<ScriptUnitTag>();
-    tags.get(e).map(|t| t.unit_id.clone())
+fn script_id_of(cache: &AdapterCache, e: Entity) -> Option<String> {
+    cache.tags.get(e).map(|t| t.unit_id.clone())
 }
 
 /// Helper: fetch script for an entity and invoke `f` with (script, handle, world).
@@ -473,7 +468,7 @@ fn with_script<F>(
               EntityHandle,
               &mut GameWorldDyn<'_>),
 {
-    let Some(uid) = script_id_of(adapter.world, entity) else { return };
+    let Some(uid) = script_id_of(&adapter.cache, entity) else { return };
     let Some(script) = registry.get(&uid) else { return };
 
     let handle = WorldAdapter::entity_to_handle(entity);
@@ -500,17 +495,11 @@ fn world_dyn_of<'a>(adapter: &'a mut WorldAdapter<'_>) -> GameWorldDyn<'a> {
 /// `ScriptEvent::Damage` is not currently enqueued, so this helper only
 /// exists for future use when we wire scripts into the damage pipeline.
 fn apply_damage(adapter: &mut WorldAdapter<'_>, victim: Entity, amount: f32, _kind: DamageKind) {
-    use crate::comp::CProperty;
-    {
-        let mut store = adapter.world.write_storage::<CProperty>();
-        if let Some(p) = store.get_mut(victim) {
-            p.hp = (p.hp - amount).max(0.0);
-            return;
-        }
+    if let Some(p) = adapter.cache.cprop.get_mut(victim) {
+        p.hp = (p.hp - amount).max(0.0);
+        return;
     }
-    use crate::comp::Unit;
-    let mut store = adapter.world.write_storage::<Unit>();
-    if let Some(u) = store.get_mut(victim) {
+    if let Some(u) = adapter.cache.unit.get_mut(victim) {
         u.current_hp = (u.current_hp - amount as i32).max(0);
     }
 }
