@@ -7,6 +7,7 @@
 //! 只對 `cp.hp > 0` 的單位 tick；死亡後 regen 暫停。
 
 use crossbeam_channel::Sender;
+use rayon::prelude::*;
 use serde_json::json;
 use specs::{shred, Entities, Join, Read, ReadStorage, SystemData, Write, WriteStorage, World};
 
@@ -65,31 +66,49 @@ impl<'a> System<'a> for Sys {
             return;
         }
 
-        // 序列計算 + 寫回（par_iter 在 Task 2.4 加上）。
-        let mut hp_updates: Vec<(specs::Entity, f32, f32)> = Vec::with_capacity(candidates.len());
-        for &e in &candidates {
+        // 平行計算（read-only） + 序列寫回。Stress map 走不到這（candidates 已 early return）。
+        const PAR_MIN: usize = 32;
+
+        // 顯式捕獲 borrows，讓 closure 是 Send 並可在 par_iter 中使用。
+        // `cpropertys` 在這階段只讀（writeback 在下一階段做）。
+        let cp_storage = &data.cpropertys;
+        let creeps = &data.creeps;
+        let heroes = &data.heroes;
+        let is_buildings = &data.is_buildings;
+        let buffs: &BuffStore = &data.buffs;
+
+        let compute = |&e: &specs::Entity| -> Option<(specs::Entity, f32, f32)> {
             // 確認 entity 有 CProperty（creep / hero / 召喚物都有）
-            let Some(cp) = data.cpropertys.get(e) else { continue };
+            let cp = cp_storage.get(e)?;
             if cp.hp <= 0.0 {
-                continue;
+                return None;
             }
             // creep / hero 之外的 entity（例：純塔）不算 regen
-            let is_creep = data.creeps.get(e).is_some();
-            let is_hero = data.heroes.get(e).is_some();
+            let is_creep = creeps.get(e).is_some();
+            let is_hero = heroes.get(e).is_some();
             if !is_creep && !is_hero {
-                continue;
+                return None;
             }
-            let stats = UnitStats::from_refs(&*data.buffs, data.is_buildings.get(e).is_some());
+            let stats = UnitStats::from_refs(buffs, is_buildings.get(e).is_some());
             let regen = stats.hp_regen(0.0, e);
             if regen.abs() < 0.0001 {
-                continue;
+                return None;
             }
             let eff_max = cp.mhp + stats.max_hp_bonus(e);
             let new_hp = (cp.hp + regen * dt).clamp(0.0, eff_max);
             if (new_hp - cp.hp).abs() > 0.01 {
-                hp_updates.push((e, new_hp, eff_max));
+                Some((e, new_hp, eff_max))
+            } else {
+                None
             }
-        }
+        };
+
+        let candidates_vec: Vec<specs::Entity> = candidates.into_iter().collect();
+        let hp_updates: Vec<(specs::Entity, f32, f32)> = if candidates_vec.len() >= PAR_MIN {
+            candidates_vec.par_iter().filter_map(compute).collect()
+        } else {
+            candidates_vec.iter().filter_map(compute).collect()
+        };
 
         // 寫回 CProperty
         for (e, new_hp, _mhp) in &hp_updates {
