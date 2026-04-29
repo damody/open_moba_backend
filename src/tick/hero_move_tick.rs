@@ -1,6 +1,7 @@
 use specs::{
-    shred, Entities, Join, Read, SystemData, Write, WriteStorage, ReadStorage,
+    shred, Entities, Join, ParJoin, Read, SystemData, Write, WriteStorage, ReadStorage,
 };
+use specs::prelude::ParallelIterator;
 use crossbeam_channel::Sender;
 use vek::*;
 use serde_json::json;
@@ -126,87 +127,97 @@ impl<'a> System<'a> for Sys {
             );
         }
 
-        let mut arrived: Vec<specs::Entity> = Vec::new();
-        // (entity_id, x, y, facing)
-        let mut broadcasts: Vec<(u32, f32, f32, f32)> = Vec::new();
-
-        for (entity, _hero, property, pos, move_target, facing) in (
+        // par_join 並行處理所有 hero — 各 hero 的 collision query 是 Searcher 的 read-only
+        // 操作，可安全並行；&mut tw.pos / &mut tw.facings 由 specs 保證同 entity 只被一個
+        // thread 寫入。collect 結果後再一次性 remove move_targets + 廣播 OutboundMsg。
+        let results: Vec<(Option<specs::Entity>, (u32, f32, f32, f32))> = (
             &tr.entities,
             &tr.heroes,
             &tr.propertys,
             &mut tw.pos,
             &tw.move_targets,
             &mut tw.facings,
-        ).join() {
-            // Root / stun 狀態：完全凍結（不轉向、不位移、不消耗 MoveTarget）
-            if tr.buff_store.is_rooted(entity) {
-                broadcasts.push((entity.id(), pos.0.x, pos.0.y, facing.0));
-                continue;
-            }
-
-            let target = move_target.0;
-            let diff = target - pos.0;
-            let distance = diff.magnitude();
-            // 用 UnitStats 聚合移速（對應 Dota MOVESPEED_BONUS_* / MOVESPEED_ABSOLUTE /
-            // MOVESPEED_MAX/MIN/LIMIT）；建築物會被 is_buildings 跳過（hero 不會）。
-            let stats = crate::ability_runtime::UnitStats::from_refs(
-                &*tr.buff_store,
-                tr.is_buildings.get(entity).is_some(),
-            );
-            let effective_msd = stats.final_move_speed(property.msd, entity);
-            let step = effective_msd * dt;
-
-            // 先轉向目標方向
-            if distance > 0.5 {
-                let desired = diff.y.atan2(diff.x);
-                let turn = tr
-                    .turn_speeds
-                    .get(entity)
-                    .map(|t| t.0)
-                    .unwrap_or(std::f32::consts::FRAC_PI_2);
-                facing.0 = rotate_toward(facing.0, desired, turn * dt);
-
-                // 面向夾角 < 30° 才能前進
-                let angle_diff = normalize_angle(desired - facing.0).abs();
-                if angle_diff < MOVE_ANGLE_THRESHOLD {
-                    let radius = tr.radii.get(entity).map(|r| r.0).unwrap_or(30.0);
-                    let (new_pos, reached) = advance_with_collision(
-                        pos.0,
-                        target,
-                        step,
-                        radius,
-                        &tr.searcher,
-                        &tr.radii,
-                        entity,
-                        &tr.regions,
-                    );
-                    pos.0 = new_pos;
-                    if reached {
-                        arrived.push(entity);
+        )
+            .par_join()
+            .map_init(
+                || {
+                    prof_span!(guard, "hero_move rayon job");
+                    guard
+                },
+                |_guard, (entity, _hero, property, pos, move_target, facing)| {
+                    // Root / stun 狀態：完全凍結（不轉向、不位移、不消耗 MoveTarget）
+                    if tr.buff_store.is_rooted(entity) {
+                        return (None, (entity.id(), pos.0.x, pos.0.y, facing.0));
                     }
-                }
-                // 角度太大 → 只轉向、不位移（本 tick 不動）
-            } else {
-                arrived.push(entity);
+
+                    let target = move_target.0;
+                    let diff = target - pos.0;
+                    let distance = diff.magnitude();
+                    // 用 UnitStats 聚合移速（對應 Dota MOVESPEED_BONUS_* / MOVESPEED_ABSOLUTE /
+                    // MOVESPEED_MAX/MIN/LIMIT）；建築物會被 is_buildings 跳過（hero 不會）。
+                    let stats = crate::ability_runtime::UnitStats::from_refs(
+                        &*tr.buff_store,
+                        tr.is_buildings.get(entity).is_some(),
+                    );
+                    let effective_msd = stats.final_move_speed(property.msd, entity);
+                    let step = effective_msd * dt;
+
+                    let mut arrived_entity: Option<specs::Entity> = None;
+
+                    if distance > 0.5 {
+                        let desired = diff.y.atan2(diff.x);
+                        let turn = tr
+                            .turn_speeds
+                            .get(entity)
+                            .map(|t| t.0)
+                            .unwrap_or(std::f32::consts::FRAC_PI_2);
+                        facing.0 = rotate_toward(facing.0, desired, turn * dt);
+
+                        // 面向夾角 < 30° 才能前進
+                        let angle_diff = normalize_angle(desired - facing.0).abs();
+                        if angle_diff < MOVE_ANGLE_THRESHOLD {
+                            let radius = tr.radii.get(entity).map(|r| r.0).unwrap_or(30.0);
+                            let (new_pos, reached) = advance_with_collision(
+                                pos.0,
+                                target,
+                                step,
+                                radius,
+                                &tr.searcher,
+                                &tr.radii,
+                                entity,
+                                &tr.regions,
+                            );
+                            pos.0 = new_pos;
+                            if reached {
+                                arrived_entity = Some(entity);
+                            }
+                        }
+                        // 角度太大 → 只轉向、不位移（本 tick 不動）
+                    } else {
+                        arrived_entity = Some(entity);
+                    }
+
+                    (arrived_entity, (entity.id(), pos.0.x, pos.0.y, facing.0))
+                },
+            )
+            .collect();
+
+        // 移除已到達的 MoveTarget（par_join 結束後序列 mutation 才安全）
+        for (arrived, _) in &results {
+            if let Some(entity) = arrived {
+                tw.move_targets.remove(*entity);
             }
-
-            broadcasts.push((entity.id(), pos.0.x, pos.0.y, facing.0));
-        }
-
-        // 移除已到達的 MoveTarget
-        for entity in arrived {
-            tw.move_targets.remove(entity);
         }
 
         // 廣播位置 + facing 更新
-        if !broadcasts.is_empty() {
+        if !results.is_empty() {
             if let Some(tx) = tw.mqtx.get(0) {
-                for (id, x, y, facing) in broadcasts {
+                for (_, (id, x, y, facing)) in &results {
                     let _ = tx.send(OutboundMsg::new_s(
                         "td/all/res",
                         "hero",
                         "M",
-                        json!({"id": id, "x": x, "y": y, "facing": facing}),
+                        json!({"id": *id, "x": *x, "y": *y, "facing": *facing}),
                     ));
                 }
             }
