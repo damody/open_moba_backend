@@ -16,12 +16,16 @@ use omb_script_abi::{
 use rand::{Rng, SeedableRng};
 use rand_pcg::Pcg64Mcg;
 use serde_json::json;
-use specs::{Builder, Entity, Join, World, WorldExt};
+use specs::{
+    Builder, Entities, Entity, Join, LazyUpdate, Read, ReadStorage, World, WorldExt, Write,
+    WriteStorage,
+};
 use specs::world::Generation;
 
 use crate::ability_runtime::{BuffStore, UnitStats};
 use crate::comp::*;
 use crate::scripting::event::{ScriptEvent, ScriptEventQueue};
+use crate::scripting::tag::ScriptUnitTag;
 use crate::transport::OutboundMsg;
 
 // P2 typed payload helpers (local copies to avoid cross-module pub leakage).
@@ -100,21 +104,80 @@ fn make_game_explosion_script(x: f32, y: f32, radius: f32, duration: f32) -> Out
     }
 }
 
-/// Host-side adapter. Created fresh for each `run_script_dispatch` call.
+/// 預先 fetch 好的 storage / resource 集合。
+/// 在整個 `run_script_dispatch` 期間共用，每個 `GameWorld` API 不再重複 borrow。
 ///
-/// `log_str_scratch` is needed because `log_info(&self, ...)` is `&self`
-/// but we format into `&mut String`; a `RefCell` avoids that.
+/// 同時 read+write 的 component 統一用 `WriteStorage`（提供 `.get()` / `.get_mut()`）。
+/// 同時 read+write 的 resource 統一用 `Write<'_>`（deref 給 read，DerefMut 給 write）。
+pub struct AdapterCache<'a> {
+    pub entities: Entities<'a>,
+    pub lazy: Read<'a, LazyUpdate>,
+
+    // Component storages（read+write 混合，全用 WriteStorage）
+    pub tattack: WriteStorage<'a, TAttack>,
+    pub pos: WriteStorage<'a, Pos>,
+    pub facing: WriteStorage<'a, Facing>,
+    pub cprop: WriteStorage<'a, CProperty>,
+    pub unit: WriteStorage<'a, Unit>,
+    pub hero: WriteStorage<'a, Hero>,
+
+    // Read-only storages
+    pub faction: ReadStorage<'a, Faction>,
+    pub creep: ReadStorage<'a, Creep>,
+    pub tower: ReadStorage<'a, Tower>,
+    pub is_building: ReadStorage<'a, IsBuilding>,
+    pub collision: ReadStorage<'a, CollisionRadius>,
+    pub tags: ReadStorage<'a, ScriptUnitTag>,
+
+    // Resources
+    pub buffs: Write<'a, BuffStore>,
+    pub events: Write<'a, ScriptEventQueue>,
+    pub searcher: Read<'a, Searcher>,
+    pub blocked: Read<'a, BlockedRegions>,
+    pub time: Read<'a, Time>,
+}
+
+impl<'a> AdapterCache<'a> {
+    pub fn new(world: &'a World) -> Self {
+        Self {
+            entities: world.entities(),
+            lazy: world.read_resource::<LazyUpdate>(),
+
+            tattack: world.write_storage::<TAttack>(),
+            pos: world.write_storage::<Pos>(),
+            facing: world.write_storage::<Facing>(),
+            cprop: world.write_storage::<CProperty>(),
+            unit: world.write_storage::<Unit>(),
+            hero: world.write_storage::<Hero>(),
+
+            faction: world.read_storage::<Faction>(),
+            creep: world.read_storage::<Creep>(),
+            tower: world.read_storage::<Tower>(),
+            is_building: world.read_storage::<IsBuilding>(),
+            collision: world.read_storage::<CollisionRadius>(),
+            tags: world.read_storage::<ScriptUnitTag>(),
+
+            buffs: world.write_resource::<BuffStore>(),
+            events: world.write_resource::<ScriptEventQueue>(),
+            searcher: world.read_resource::<Searcher>(),
+            blocked: world.read_resource::<BlockedRegions>(),
+            time: world.read_resource::<Time>(),
+        }
+    }
+}
+
+/// Host-side adapter. Created fresh for each `run_script_dispatch` call.
 pub struct WorldAdapter<'a> {
-    pub world: &'a mut World,
+    pub cache: AdapterCache<'a>,
     pub rng: Pcg64Mcg,
-    /// 廣播給前端的 sender；supply_projectile_ex、emit_explosion 會用到
+    /// 廣播給前端的 sender；spawn_projectile_ex、emit_explosion 會用到
     pub mqtx: Sender<OutboundMsg>,
 }
 
 impl<'a> WorldAdapter<'a> {
-    pub fn new(world: &'a mut World, seed: u64, mqtx: Sender<OutboundMsg>) -> Self {
+    pub fn new(world: &'a World, seed: u64, mqtx: Sender<OutboundMsg>) -> Self {
         Self {
-            world,
+            cache: AdapterCache::new(world),
             rng: Pcg64Mcg::seed_from_u64(seed),
             mqtx,
         }
@@ -146,8 +209,7 @@ impl<'a> GameWorld for WorldAdapter<'a> {
 
     fn get_pos(&self, e: EntityHandle) -> ROption<Vec2f> {
         let Some(ent) = Self::handle_to_entity(e) else { return RNone };
-        let store = self.world.read_storage::<Pos>();
-        match store.get(ent) {
+        match self.cache.pos.get(ent) {
             Some(p) => RSome(Vec2f { x: p.0.x, y: p.0.y }),
             None => RNone,
         }
@@ -156,10 +218,10 @@ impl<'a> GameWorld for WorldAdapter<'a> {
     fn get_hp(&self, e: EntityHandle) -> ROption<f32> {
         let Some(ent) = Self::handle_to_entity(e) else { return RNone };
         // Prefer CProperty (used by creeps/towers in TD mode); fall back to Unit.
-        if let Some(p) = self.world.read_storage::<CProperty>().get(ent) {
+        if let Some(p) = self.cache.cprop.get(ent) {
             return RSome(p.hp);
         }
-        if let Some(u) = self.world.read_storage::<Unit>().get(ent) {
+        if let Some(u) = self.cache.unit.get(ent) {
             return RSome(u.current_hp as f32);
         }
         RNone
@@ -167,10 +229,10 @@ impl<'a> GameWorld for WorldAdapter<'a> {
 
     fn get_max_hp(&self, e: EntityHandle) -> ROption<f32> {
         let Some(ent) = Self::handle_to_entity(e) else { return RNone };
-        if let Some(p) = self.world.read_storage::<CProperty>().get(ent) {
+        if let Some(p) = self.cache.cprop.get(ent) {
             return RSome(p.mhp);
         }
-        if let Some(u) = self.world.read_storage::<Unit>().get(ent) {
+        if let Some(u) = self.cache.unit.get(ent) {
             return RSome(u.max_hp as f32);
         }
         RNone
@@ -178,7 +240,7 @@ impl<'a> GameWorld for WorldAdapter<'a> {
 
     fn is_alive(&self, e: EntityHandle) -> bool {
         let Some(ent) = Self::handle_to_entity(e) else { return false };
-        self.world.entities().is_alive(ent)
+        self.cache.entities.is_alive(ent)
     }
 
     fn faction_of(&self, _e: EntityHandle) -> ROption<RStr<'_>> {
@@ -202,11 +264,7 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         of: EntityHandle,
     ) -> RVec<EntityHandle> {
         let Some(of_ent) = Self::handle_to_entity(of) else { return RVec::new() };
-        let entities = self.world.entities();
-        let positions = self.world.read_storage::<Pos>();
-        let factions = self.world.read_storage::<Faction>();
-
-        let my_team = match factions.get(of_ent) {
+        let my_team = match self.cache.faction.get(of_ent) {
             Some(f) => f.team_id,
             None => return RVec::new(),
         };
@@ -216,7 +274,7 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         let cy = center.y;
         let mut out: RVec<EntityHandle> = RVec::new();
 
-        for (ent, pos, fac) in (&entities, &positions, &factions).join() {
+        for (ent, pos, fac) in (&self.cache.entities, &self.cache.pos, &self.cache.faction).join() {
             if fac.team_id == my_team { continue; }
             let dx = pos.0.x - cx;
             let dy = pos.0.y - cy;
@@ -231,8 +289,7 @@ impl<'a> GameWorld for WorldAdapter<'a> {
 
     fn set_pos(&mut self, e: EntityHandle, p: Vec2f) {
         let Some(ent) = Self::handle_to_entity(e) else { return };
-        let mut store = self.world.write_storage::<Pos>();
-        if let Some(pos) = store.get_mut(ent) {
+        if let Some(pos) = self.cache.pos.get_mut(ent) {
             pos.0.x = p.x;
             pos.0.y = p.y;
         }
@@ -247,22 +304,26 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         let Some(ent) = Self::handle_to_entity(e) else {
             return target;
         };
-        let pos = match self.world.read_storage::<Pos>().get(ent) {
+        let pos = match self.cache.pos.get(ent) {
             Some(p) => p.0,
             None => return target,
         };
         let radius = self
-            .world
-            .read_storage::<CollisionRadius>()
+            .cache
+            .collision
             .get(ent)
             .map(|r| r.0)
             .unwrap_or(30.0);
         let target_vek = vek::Vec2::new(target.x, target.y);
-        let searcher = self.world.read_resource::<Searcher>();
-        let radii = self.world.read_storage::<CollisionRadius>();
-        let regions = self.world.read_resource::<BlockedRegions>();
         let (new_pos, _reached) = crate::tick::hero_move_tick::advance_with_collision(
-            pos, target_vek, step, radius, &searcher, &radii, ent, &regions,
+            pos,
+            target_vek,
+            step,
+            radius,
+            &self.cache.searcher,
+            &self.cache.collision,
+            ent,
+            &self.cache.blocked,
         );
         Vec2f::new(new_pos.x, new_pos.y)
     }
@@ -276,30 +337,22 @@ impl<'a> GameWorld for WorldAdapter<'a> {
     ) {
         let Some(ent) = Self::handle_to_entity(target) else { return };
         // Prefer CProperty (TD mode).
-        {
-            let mut store = self.world.write_storage::<CProperty>();
-            if let Some(p) = store.get_mut(ent) {
-                p.hp = (p.hp - amount).max(0.0);
-                return;
-            }
+        if let Some(p) = self.cache.cprop.get_mut(ent) {
+            p.hp = (p.hp - amount).max(0.0);
+            return;
         }
-        let mut store = self.world.write_storage::<Unit>();
-        if let Some(u) = store.get_mut(ent) {
+        if let Some(u) = self.cache.unit.get_mut(ent) {
             u.current_hp = (u.current_hp - amount as i32).max(0);
         }
     }
 
     fn heal(&mut self, target: EntityHandle, amount: f32) {
         let Some(ent) = Self::handle_to_entity(target) else { return };
-        {
-            let mut store = self.world.write_storage::<CProperty>();
-            if let Some(p) = store.get_mut(ent) {
-                p.hp = (p.hp + amount).min(p.mhp);
-                return;
-            }
+        if let Some(p) = self.cache.cprop.get_mut(ent) {
+            p.hp = (p.hp + amount).min(p.mhp);
+            return;
         }
-        let mut store = self.world.write_storage::<Unit>();
-        if let Some(u) = store.get_mut(ent) {
+        if let Some(u) = self.cache.unit.get_mut(ent) {
             u.current_hp = (u.current_hp + amount as i32).min(u.max_hp);
         }
     }
@@ -307,29 +360,22 @@ impl<'a> GameWorld for WorldAdapter<'a> {
     fn add_buff(&mut self, target: EntityHandle, buff_id: RStr<'_>, duration: f32) {
         let Some(ent) = Self::handle_to_entity(target) else { return };
         let id_owned = buff_id.as_str().to_string();
-        {
-            let mut store = self.world.write_resource::<BuffStore>();
-            store.add(ent, &id_owned, duration, serde_json::Value::Null);
-        }
-        self.world.write_resource::<ScriptEventQueue>()
+        self.cache.buffs.add(ent, &id_owned, duration, serde_json::Value::Null);
+        self.cache.events
             .push(ScriptEvent::ModifierAdded { e: ent, modifier_id: id_owned });
     }
 
     fn remove_buff(&mut self, target: EntityHandle, buff_id: RStr<'_>) {
         let Some(ent) = Self::handle_to_entity(target) else { return };
         let id_owned = buff_id.as_str().to_string();
-        {
-            let mut store = self.world.write_resource::<BuffStore>();
-            store.remove(ent, &id_owned);
-        }
-        self.world.write_resource::<ScriptEventQueue>()
+        self.cache.buffs.remove(ent, &id_owned);
+        self.cache.events
             .push(ScriptEvent::ModifierRemoved { e: ent, modifier_id: id_owned });
     }
 
     fn has_buff(&self, target: EntityHandle, buff_id: RStr<'_>) -> bool {
         let Some(ent) = Self::handle_to_entity(target) else { return false };
-        let store = self.world.read_resource::<BuffStore>();
-        store.has(ent, buff_id.as_str())
+        self.cache.buffs.has(ent, buff_id.as_str())
     }
 
     fn add_stat_buff(
@@ -343,11 +389,8 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         let payload: serde_json::Value =
             serde_json::from_str(modifiers_json.as_str()).unwrap_or(serde_json::Value::Null);
         let id_owned = buff_id.as_str().to_string();
-        {
-            let mut store = self.world.write_resource::<BuffStore>();
-            store.add(ent, &id_owned, duration, payload);
-        }
-        self.world.write_resource::<ScriptEventQueue>()
+        self.cache.buffs.add(ent, &id_owned, duration, payload);
+        self.cache.events
             .push(ScriptEvent::ModifierAdded { e: ent, modifier_id: id_owned });
     }
 
@@ -364,10 +407,10 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         let unit_type_str = unit_type.as_str();
 
         // 繼承 owner 的 faction（陣營 + team_id）
-        let faction = {
-            let factions = self.world.read_storage::<Faction>();
-            factions.get(owner_ent).cloned().unwrap_or_else(|| Faction::new(FactionType::Player, 0))
-        };
+        let faction = self.cache.faction
+            .get(owner_ent)
+            .cloned()
+            .unwrap_or_else(|| Faction::new(FactionType::Player, 0));
 
         let Some(unit) = Unit::create_summon_unit(unit_type_str, (pos.x, pos.y), faction.team_id) else {
             return EntityHandle::INVALID;
@@ -389,14 +432,16 @@ impl<'a> GameWorld for WorldAdapter<'a> {
             bullet_speed: 1000.0,
         };
 
-        let summon_time = self.world.read_resource::<Time>().0 as f32;
+        let summon_time = self.cache.time.0 as f32;
         let summoned = SummonedUnit::new(
             owner_ent,
             if duration > 0.0 { Some(duration) } else { None },
             summon_time,
         );
 
-        let e = self.world.create_entity()
+        // LazyUpdate：entity id 立刻分配，components 在下次 maintain (core.rs:364) 真正附上。
+        // 本 frame 後續 system 已跑完，不會看到這個半成品。
+        let e = self.cache.lazy.create_entity(&self.cache.entities)
             .with(Pos(vek::Vec2::new(pos.x, pos.y)))
             .with(Vel(vek::Vec2::new(0.0, 0.0)))
             .with(unit.clone())
@@ -445,7 +490,7 @@ impl<'a> GameWorld for WorldAdapter<'a> {
                 let Some(target_ent) = Self::handle_to_entity(target) else {
                     return EntityHandle::INVALID;
                 };
-                let tpos = self.world.read_storage::<Pos>()
+                let tpos = self.cache.pos
                     .get(target_ent).map(|p| p.0).unwrap_or(from_vek);
                 (Some(target_ent), tpos, tpos, false, target.id)
             }
@@ -461,7 +506,8 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         } else { 0.01 };
         let safety = flight_time_s * 3.0 + 1.5;
 
-        let e = self.world.create_entity()
+        // LazyUpdate spawn — 同 frame 後續系統已跑完，maintain 在 core.rs tick 結尾。
+        let e = self.cache.lazy.create_entity(&self.cache.entities)
             .with(Pos(from_vek))
             .with(Projectile {
                 time_left: safety,
@@ -507,47 +553,42 @@ impl<'a> GameWorld for WorldAdapter<'a> {
 
     fn despawn(&mut self, e: EntityHandle) {
         let Some(ent) = Self::handle_to_entity(e) else { return };
-        let _ = self.world.entities().delete(ent);
+        // EntitiesRes::delete 內部走 atomic flag，&Entities 即可。
+        let _ = self.cache.entities.delete(ent);
     }
 
     // ---------------- 塔 / 單位屬性 ----------------
 
     fn get_tower_range(&self, e: EntityHandle) -> f32 {
         let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
-        self.world.read_storage::<TAttack>()
-            .get(ent).map(|t| t.range.v).unwrap_or(0.0)
+        self.cache.tattack.get(ent).map(|t| t.range.v).unwrap_or(0.0)
     }
 
     fn get_tower_atk(&self, e: EntityHandle) -> f32 {
         let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
-        self.world.read_storage::<TAttack>()
-            .get(ent).map(|t| t.atk_physic.v).unwrap_or(0.0)
+        self.cache.tattack.get(ent).map(|t| t.atk_physic.v).unwrap_or(0.0)
     }
 
     fn get_asd_interval(&self, e: EntityHandle) -> f32 {
         let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
-        self.world.read_storage::<TAttack>()
-            .get(ent).map(|t| t.asd.v).unwrap_or(0.0)
+        self.cache.tattack.get(ent).map(|t| t.asd.v).unwrap_or(0.0)
     }
 
     fn get_asd_count(&self, e: EntityHandle) -> f32 {
         let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
-        self.world.read_storage::<TAttack>()
-            .get(ent).map(|t| t.asd_count).unwrap_or(0.0)
+        self.cache.tattack.get(ent).map(|t| t.asd_count).unwrap_or(0.0)
     }
 
     fn set_asd_count(&mut self, e: EntityHandle, v: f32) {
         let Some(ent) = Self::handle_to_entity(e) else { return };
-        let mut store = self.world.write_storage::<TAttack>();
-        if let Some(t) = store.get_mut(ent) {
+        if let Some(t) = self.cache.tattack.get_mut(ent) {
             t.asd_count = v;
         }
     }
 
     fn set_tower_atk(&mut self, e: EntityHandle, v: f32) {
         let Some(ent) = Self::handle_to_entity(e) else { return };
-        let mut store = self.world.write_storage::<TAttack>();
-        if let Some(t) = store.get_mut(ent) {
+        if let Some(t) = self.cache.tattack.get_mut(ent) {
             t.atk_physic.bv = v;
             t.atk_physic.v = v;
         }
@@ -555,8 +596,7 @@ impl<'a> GameWorld for WorldAdapter<'a> {
 
     fn set_tower_range(&mut self, e: EntityHandle, v: f32) {
         let Some(ent) = Self::handle_to_entity(e) else { return };
-        let mut store = self.world.write_storage::<TAttack>();
-        if let Some(t) = store.get_mut(ent) {
+        if let Some(t) = self.cache.tattack.get_mut(ent) {
             t.range.bv = v;
             t.range.v = v;
         }
@@ -564,8 +604,7 @@ impl<'a> GameWorld for WorldAdapter<'a> {
 
     fn set_asd_interval(&mut self, e: EntityHandle, v: f32) {
         let Some(ent) = Self::handle_to_entity(e) else { return };
-        let mut store = self.world.write_storage::<TAttack>();
-        if let Some(t) = store.get_mut(ent) {
+        if let Some(t) = self.cache.tattack.get_mut(ent) {
             t.asd.bv = v;
             t.asd.v = v;
         }
@@ -573,15 +612,14 @@ impl<'a> GameWorld for WorldAdapter<'a> {
 
     fn set_facing(&mut self, e: EntityHandle, angle_rad: f32) {
         let Some(ent) = Self::handle_to_entity(e) else { return };
-        let mut store = self.world.write_storage::<Facing>();
-        if let Some(f) = store.get_mut(ent) {
+        if let Some(f) = self.cache.facing.get_mut(ent) {
             f.0 = angle_rad;
         }
     }
 
     fn get_facing(&self, e: EntityHandle) -> f32 {
         let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
-        self.world.read_storage::<Facing>().get(ent).map(|f| f.0).unwrap_or(0.0)
+        self.cache.facing.get(ent).map(|f| f.0).unwrap_or(0.0)
     }
 
     fn query_nearest_enemy(
@@ -591,19 +629,14 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         of: EntityHandle,
     ) -> ROption<EntityHandle> {
         let Some(of_ent) = Self::handle_to_entity(of) else { return RNone };
-        let entities = self.world.entities();
-        let positions = self.world.read_storage::<Pos>();
-        let factions = self.world.read_storage::<Faction>();
-        let creeps = self.world.read_storage::<Creep>();
-
-        let my_team = match factions.get(of_ent) {
+        let my_team = match self.cache.faction.get(of_ent) {
             Some(f) => f.team_id,
             None => return RNone,
         };
         let r2 = radius * radius;
         let mut best: Option<(Entity, f32)> = None;
         // 只選 creep（氣球）為目標；不要誤選隊友/其他塔
-        for (ent, pos, fac, _c) in (&entities, &positions, &factions, &creeps).join() {
+        for (ent, pos, fac, _c) in (&self.cache.entities, &self.cache.pos, &self.cache.faction, &self.cache.creep).join() {
             if fac.team_id == my_team { continue; }
             let dx = pos.0.x - center.x;
             let dy = pos.0.y - center.y;
@@ -653,35 +686,31 @@ impl<'a> GameWorld for WorldAdapter<'a> {
 
     fn sum_stat(&self, e: EntityHandle, stat_key: StatKey) -> f32 {
         let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
-        self.world.read_resource::<BuffStore>().sum_add(ent, stat_key)
+        self.cache.buffs.sum_add(ent, stat_key)
     }
 
     fn product_stat(&self, e: EntityHandle, stat_key: StatKey) -> f32 {
         let Some(ent) = Self::handle_to_entity(e) else { return 1.0 };
-        self.world.read_resource::<BuffStore>().product_mult(ent, stat_key)
+        self.cache.buffs.product_mult(ent, stat_key)
     }
 
     fn get_final_move_speed(&self, e: EntityHandle) -> f32 {
         let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
-        let base = self.world.read_storage::<CProperty>().get(ent).map(|p| p.msd).unwrap_or(0.0);
-        let store = self.world.read_resource::<BuffStore>();
-        let is_b = self.world.read_storage::<IsBuilding>().get(ent).is_some();
-        UnitStats::from_refs(&*store, is_b).final_move_speed(base, ent)
+        let base = self.cache.cprop.get(ent).map(|p| p.msd).unwrap_or(0.0);
+        let is_b = self.cache.is_building.get(ent).is_some();
+        UnitStats::from_refs(&*self.cache.buffs, is_b).final_move_speed(base, ent)
     }
 
     fn get_final_atk(&self, e: EntityHandle) -> f32 {
         let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
-        let base = self.world.read_storage::<TAttack>()
-            .get(ent).map(|t| t.atk_physic.v).unwrap_or(0.0);
-        let store = self.world.read_resource::<BuffStore>();
-        let is_b = self.world.read_storage::<IsBuilding>().get(ent).is_some();
-        UnitStats::from_refs(&*store, is_b).final_atk(base, ent)
+        let base = self.cache.tattack.get(ent).map(|t| t.atk_physic.v).unwrap_or(0.0);
+        let is_b = self.cache.is_building.get(ent).is_some();
+        UnitStats::from_refs(&*self.cache.buffs, is_b).final_atk(base, ent)
     }
 
     fn get_tower_upgrade(&self, e: EntityHandle, path: u8) -> u8 {
         let Some(ent) = Self::handle_to_entity(e) else { return 0 };
-        let towers = self.world.read_storage::<Tower>();
-        towers.get(ent)
+        self.cache.tower.get(ent)
             .and_then(|t| t.upgrade_levels.get(path as usize))
             .copied()
             .unwrap_or(0)
@@ -689,8 +718,7 @@ impl<'a> GameWorld for WorldAdapter<'a> {
 
     fn has_tower_flag(&self, e: EntityHandle, flag: RStr<'_>) -> bool {
         let Some(ent) = Self::handle_to_entity(e) else { return false };
-        let towers = self.world.read_storage::<Tower>();
-        towers.get(ent)
+        self.cache.tower.get(ent)
             .map(|t| t.upgrade_flags.iter().any(|f| f == flag.as_str()))
             .unwrap_or(false)
     }
@@ -701,16 +729,14 @@ impl<'a> GameWorld for WorldAdapter<'a> {
 
     fn get_final_attack_range(&self, e: EntityHandle) -> f32 {
         let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
-        let base = self.world.read_storage::<TAttack>()
-            .get(ent).map(|t| t.range.v).unwrap_or(0.0);
-        let store = self.world.read_resource::<BuffStore>();
-        let is_b = self.world.read_storage::<IsBuilding>().get(ent).is_some();
-        UnitStats::from_refs(&*store, is_b).final_attack_range(base, ent)
+        let base = self.cache.tattack.get(ent).map(|t| t.range.v).unwrap_or(0.0);
+        let is_b = self.cache.is_building.get(ent).is_some();
+        UnitStats::from_refs(&*self.cache.buffs, is_b).final_attack_range(base, ent)
     }
 
     fn get_buff_remaining(&self, e: EntityHandle, buff_id: RStr<'_>) -> f32 {
         let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
-        self.world.read_resource::<BuffStore>()
+        self.cache.buffs
             .get(ent, buff_id.as_str())
             .map(|b| b.remaining)
             .unwrap_or(0.0)
@@ -720,13 +746,13 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         // 沒有 current_mana component — 目前回 max（視為永遠滿）。
         // 如果之後加 `ManaPool` component，這裡要改成讀 current。
         let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
-        self.world.read_storage::<Hero>().get(ent).map(|h| h.get_max_mana()).unwrap_or(0.0)
+        self.cache.hero.get(ent).map(|h| h.get_max_mana()).unwrap_or(0.0)
     }
 
     fn spend_mana(&mut self, e: EntityHandle, amount: f32, ability_id: RStr<'_>) -> bool {
         let Some(ent) = Self::handle_to_entity(e) else { return false };
         // 目前沒有 mana storage，永遠視為成功；push 事件讓腳本 hook。
-        self.world.write_resource::<ScriptEventQueue>()
+        self.cache.events
             .push(ScriptEvent::SpentMana {
                 caster: ent,
                 cost: amount,
@@ -737,13 +763,13 @@ impl<'a> GameWorld for WorldAdapter<'a> {
 
     fn restore_mana(&mut self, e: EntityHandle, amount: f32) {
         let Some(ent) = Self::handle_to_entity(e) else { return };
-        self.world.write_resource::<ScriptEventQueue>()
+        self.cache.events
             .push(ScriptEvent::ManaGained { e: ent, amount });
     }
 
     fn trigger_modifier_added(&mut self, e: EntityHandle, modifier_id: RStr<'_>) {
         let Some(ent) = Self::handle_to_entity(e) else { return };
-        self.world.write_resource::<ScriptEventQueue>()
+        self.cache.events
             .push(ScriptEvent::ModifierAdded {
                 e: ent,
                 modifier_id: modifier_id.as_str().to_string(),
@@ -752,7 +778,7 @@ impl<'a> GameWorld for WorldAdapter<'a> {
 
     fn trigger_state_changed(&mut self, e: EntityHandle, state_id: RStr<'_>, active: bool) {
         let Some(ent) = Self::handle_to_entity(e) else { return };
-        self.world.write_resource::<ScriptEventQueue>()
+        self.cache.events
             .push(ScriptEvent::StateChanged {
                 e: ent,
                 state_id: state_id.as_str().to_string(),
@@ -764,80 +790,68 @@ impl<'a> GameWorld for WorldAdapter<'a> {
 
     fn get_final_armor(&self, e: EntityHandle) -> f32 {
         let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
-        let buffs = self.world.read_resource::<crate::ability_runtime::BuffStore>();
-        let is_bldg = self.world.read_storage::<IsBuilding>().get(ent).is_some();
-        let base = self.world.read_storage::<CProperty>()
-            .get(ent).map(|c| c.def_physic).unwrap_or(0.0);
-        crate::ability_runtime::UnitStats::from_refs(&*buffs, is_bldg).final_armor(base, ent)
+        let is_bldg = self.cache.is_building.get(ent).is_some();
+        let base = self.cache.cprop.get(ent).map(|c| c.def_physic).unwrap_or(0.0);
+        UnitStats::from_refs(&*self.cache.buffs, is_bldg).final_armor(base, ent)
     }
 
     fn get_final_magic_resist(&self, e: EntityHandle) -> f32 {
         let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
-        let buffs = self.world.read_resource::<crate::ability_runtime::BuffStore>();
-        let is_bldg = self.world.read_storage::<IsBuilding>().get(ent).is_some();
-        let base = self.world.read_storage::<CProperty>()
-            .get(ent).map(|c| c.def_magic).unwrap_or(0.0);
-        crate::ability_runtime::UnitStats::from_refs(&*buffs, is_bldg).final_magic_resist(base, ent)
+        let is_bldg = self.cache.is_building.get(ent).is_some();
+        let base = self.cache.cprop.get(ent).map(|c| c.def_magic).unwrap_or(0.0);
+        UnitStats::from_refs(&*self.cache.buffs, is_bldg).final_magic_resist(base, ent)
     }
 
     fn get_evasion_chance(&self, e: EntityHandle) -> f32 {
         let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
-        let buffs = self.world.read_resource::<crate::ability_runtime::BuffStore>();
-        let is_bldg = self.world.read_storage::<IsBuilding>().get(ent).is_some();
-        crate::ability_runtime::UnitStats::from_refs(&*buffs, is_bldg).evasion_chance(ent)
+        let is_bldg = self.cache.is_building.get(ent).is_some();
+        UnitStats::from_refs(&*self.cache.buffs, is_bldg).evasion_chance(ent)
     }
 
     fn get_miss_chance(&self, e: EntityHandle) -> f32 {
         let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
-        let buffs = self.world.read_resource::<crate::ability_runtime::BuffStore>();
-        let is_bldg = self.world.read_storage::<IsBuilding>().get(ent).is_some();
-        crate::ability_runtime::UnitStats::from_refs(&*buffs, is_bldg).miss_chance(ent)
+        let is_bldg = self.cache.is_building.get(ent).is_some();
+        UnitStats::from_refs(&*self.cache.buffs, is_bldg).miss_chance(ent)
     }
 
     fn get_crit_chance(&self, e: EntityHandle) -> f32 {
         let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
-        let buffs = self.world.read_resource::<crate::ability_runtime::BuffStore>();
-        let is_bldg = self.world.read_storage::<IsBuilding>().get(ent).is_some();
-        crate::ability_runtime::UnitStats::from_refs(&*buffs, is_bldg).crit(ent).0
+        let is_bldg = self.cache.is_building.get(ent).is_some();
+        UnitStats::from_refs(&*self.cache.buffs, is_bldg).crit(ent).0
     }
 
     fn get_crit_multiplier(&self, e: EntityHandle) -> f32 {
         let Some(ent) = Self::handle_to_entity(e) else { return 1.0 };
-        let buffs = self.world.read_resource::<crate::ability_runtime::BuffStore>();
-        let is_bldg = self.world.read_storage::<IsBuilding>().get(ent).is_some();
-        crate::ability_runtime::UnitStats::from_refs(&*buffs, is_bldg).crit(ent).1
+        let is_bldg = self.cache.is_building.get(ent).is_some();
+        UnitStats::from_refs(&*self.cache.buffs, is_bldg).crit(ent).1
     }
 
     fn get_cooldown_mult(&self, e: EntityHandle) -> f32 {
         let Some(ent) = Self::handle_to_entity(e) else { return 1.0 };
-        let buffs = self.world.read_resource::<crate::ability_runtime::BuffStore>();
-        let is_bldg = self.world.read_storage::<IsBuilding>().get(ent).is_some();
-        crate::ability_runtime::UnitStats::from_refs(&*buffs, is_bldg).cooldown_mult(ent)
+        let is_bldg = self.cache.is_building.get(ent).is_some();
+        UnitStats::from_refs(&*self.cache.buffs, is_bldg).cooldown_mult(ent)
     }
 
     fn is_building(&self, e: EntityHandle) -> bool {
         let Some(ent) = Self::handle_to_entity(e) else { return false };
-        self.world.read_storage::<IsBuilding>().get(ent).is_some()
+        self.cache.is_building.get(ent).is_some()
     }
 
     fn get_max_hp_bonus(&self, e: EntityHandle) -> f32 {
         let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
-        let buffs = self.world.read_resource::<crate::ability_runtime::BuffStore>();
-        let is_bldg = self.world.read_storage::<IsBuilding>().get(ent).is_some();
-        crate::ability_runtime::UnitStats::from_refs(&*buffs, is_bldg).max_hp_bonus(ent)
+        let is_bldg = self.cache.is_building.get(ent).is_some();
+        UnitStats::from_refs(&*self.cache.buffs, is_bldg).max_hp_bonus(ent)
     }
 
     fn get_hp_regen(&self, e: EntityHandle) -> f32 {
         let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
-        let buffs = self.world.read_resource::<crate::ability_runtime::BuffStore>();
-        let is_bldg = self.world.read_storage::<IsBuilding>().get(ent).is_some();
-        crate::ability_runtime::UnitStats::from_refs(&*buffs, is_bldg).hp_regen(0.0, ent)
+        let is_bldg = self.cache.is_building.get(ent).is_some();
+        UnitStats::from_refs(&*self.cache.buffs, is_bldg).hp_regen(0.0, ent)
     }
 
     fn get_stat_bonus(&self, e: EntityHandle, key: StatKey) -> f32 {
         let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
-        self.world.read_resource::<crate::ability_runtime::BuffStore>()
-            .sum_add(ent, key)
+        self.cache.buffs.sum_add(ent, key)
     }
 
     fn deal_damage_splash(

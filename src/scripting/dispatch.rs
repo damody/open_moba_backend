@@ -23,7 +23,7 @@ use crate::transport::OutboundMsg;
 use super::event::{ScriptEvent, ScriptEventQueue, SkillTarget};
 use super::registry::ScriptRegistry;
 use super::tag::ScriptUnitTag;
-use super::world_adapter::WorldAdapter;
+use super::world_adapter::{AdapterCache, WorldAdapter};
 
 /// Main entry point — call once per tick, AFTER all parallel tick systems
 /// have finished and BEFORE `world.maintain()`.
@@ -55,7 +55,9 @@ pub fn run_script_dispatch(
 
     // One adapter per tick; RNG is local to this dispatch pass for
     // deterministic replay (seed driven by tick counter upstream).
-    let mut adapter = WorldAdapter::new(world, rng_seed, mqtx);
+    // Cached storages 在這個 adapter 生命週期內共用，所有 GameWorld API 不再
+    // 重新 borrow specs storage（單筆 4.17µs → 預期 ~1.5µs）。
+    let mut adapter = WorldAdapter::new(&*world, rng_seed, mqtx);
 
     // Dispatch queued events first（Spawn / AttackHit / Damage / Death / ...）
     // 這樣新 spawn 的塔 on_spawn 能先初始化 stats，第一次 on_tick 看得到正確值
@@ -136,7 +138,7 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
             };
 
             // 1) victim.on_damage_taken (may mutate info.amount)
-            if let Some(uid) = script_id_of(adapter.world, victim) {
+            if let Some(uid) = script_id_of(&adapter.cache, victim) {
                 if let Some(script) = registry.get(&uid) {
                     let mut world_dyn = world_dyn_of(adapter);
                     let r = catch_unwind(AssertUnwindSafe(|| {
@@ -150,7 +152,7 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
 
             // 2) attacker.on_damage_dealt (reads final amount)
             if let (Some(att), Some(att_h)) = (attacker, attacker_handle_opt) {
-                if let Some(uid) = script_id_of(adapter.world, att) {
+                if let Some(uid) = script_id_of(&adapter.cache, att) {
                     if let Some(script) = registry.get(&uid) {
                         let mut world_dyn = world_dyn_of(adapter);
                         let r = catch_unwind(AssertUnwindSafe(|| {
@@ -169,41 +171,35 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
 
         ScriptEvent::SkillCast { caster, skill_id, target } => {
             // Silence 檢查：施法者若有 silence/stun buff，跳過整個 cast
-            {
-                let store = adapter.world.read_resource::<crate::ability_runtime::BuffStore>();
-                if store.is_silenced(caster) {
-                    log::info!(
-                        "[scripting] skill '{}' by entity {} blocked — silenced/stunned",
-                        skill_id,
-                        caster.id()
-                    );
-                    return;
-                }
+            if adapter.cache.buffs.is_silenced(caster) {
+                log::info!(
+                    "[scripting] skill '{}' by entity {} blocked — silenced/stunned",
+                    skill_id,
+                    caster.id()
+                );
+                return;
             }
 
             // Cooldown / Passive gate：
             // - Passive 技能不該走 SkillCast 路徑（on_learn 已處理）
             // - Active / Toggle / Ultimate：若仍在 CD 中直接拒絕
-            {
-                let heroes = adapter.world.read_storage::<crate::comp::Hero>();
-                if let Some(hero) = heroes.get(caster) {
-                    if hero.is_on_cooldown(&skill_id) {
-                        log::info!(
-                            "[scripting] skill '{}' blocked — on cooldown ({:.1}s remaining)",
-                            skill_id,
-                            hero.get_cooldown(&skill_id)
-                        );
-                        return;
-                    }
+            if let Some(hero) = adapter.cache.hero.get(caster) {
+                if hero.is_on_cooldown(&skill_id) {
+                    log::info!(
+                        "[scripting] skill '{}' blocked — on cooldown ({:.1}s remaining)",
+                        skill_id,
+                        hero.get_cooldown(&skill_id)
+                    );
+                    return;
                 }
-                if let Some((def, _)) = registry.get_ability(&skill_id) {
-                    if def.ability_type == omoba_core::ability_meta::AbilityType::Passive {
-                        log::info!(
-                            "[scripting] skill '{}' is passive — cannot be cast actively",
-                            skill_id
-                        );
-                        return;
-                    }
+            }
+            if let Some((def, _)) = registry.get_ability(&skill_id) {
+                if def.ability_type == omoba_core::ability_meta::AbilityType::Passive {
+                    log::info!(
+                        "[scripting] skill '{}' is passive — cannot be cast actively",
+                        skill_id
+                    );
+                    return;
                 }
             }
 
@@ -215,14 +211,11 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
             };
 
             // 取 caster 英雄身上該技能的等級（未習得則預設 1 讓腳本至少 fire）
-            let level: u8 = {
-                let heroes = adapter.world.read_storage::<crate::comp::Hero>();
-                heroes
-                    .get(caster)
-                    .and_then(|h| h.ability_levels.get(&skill_id).copied())
-                    .map(|lv| lv.max(1) as u8)
-                    .unwrap_or(1)
-            };
+            let level: u8 = adapter.cache.hero
+                .get(caster)
+                .and_then(|h| h.ability_levels.get(&skill_id).copied())
+                .map(|lv| lv.max(1) as u8)
+                .unwrap_or(1);
 
             // 1) 先呼叫 caster unit 本身的 on_skill_cast（pre-processing 機會）
             {
