@@ -12,7 +12,7 @@
 use crossbeam_channel::Sender;
 use omb_script_abi::stat_keys::StatKey;
 use serde_json::json;
-use specs::{shred, Entities, Join, Read, ReadStorage, SystemData, Write, World};
+use specs::{shred, Read, ReadStorage, SystemData, Write, World};
 
 use crate::ability_runtime::{BuffStore, UnitStats};
 use crate::comp::*;
@@ -37,7 +37,6 @@ const MOVESPEED_PAYLOAD_KEYS: &[StatKey] = &[
 
 #[derive(SystemData)]
 pub struct BuffTickData<'a> {
-    entities: Entities<'a>,
     dt: Read<'a, DeltaTime>,
     buffs: Write<'a, BuffStore>,
     creeps: ReadStorage<'a, Creep>,
