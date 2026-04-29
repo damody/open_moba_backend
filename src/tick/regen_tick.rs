@@ -13,6 +13,7 @@ use specs::{shred, Entities, Join, Read, ReadStorage, SystemData, Write, WriteSt
 use crate::ability_runtime::{BuffStore, UnitStats};
 use crate::comp::*;
 use crate::transport::OutboundMsg;
+use omb_script_abi::stat_keys::StatKey;
 
 #[derive(SystemData)]
 pub struct RegenTickData<'a> {
@@ -47,49 +48,46 @@ impl<'a> System<'a> for Sys {
         }
         let dt = std::mem::replace(&mut job.own.dt_acc, 0.0);
         let tx = data.mqtx.get(0).cloned();
-        let entities_ref = &data._entities;
 
-        // 收集 entity + new_hp；再寫回。避免 join 內同時 mut borrow 兩處
-        let mut hp_updates: Vec<(specs::Entity, f32, f32)> = Vec::new(); // (ent, new_hp, max_hp)
+        // 候選 entity：身上至少有一條 buff 含 HP regen 相關 key（任一）。
+        // stress map 預期空集合 → 整個 system 跳過。
+        use std::collections::HashSet;
+        let candidates: HashSet<specs::Entity> = [
+            StatKey::HealthRegenConstant.as_str(),
+            StatKey::HealthRegenPercentage.as_str(),
+            StatKey::HpRegenAmplifyPercentage.as_str(),
+        ]
+        .iter()
+        .flat_map(|k| data.buffs.entities_with_key(k))
+        .collect();
 
-        {
-            let cp_read = &data.cpropertys;
-            for (e, cp, _c) in (entities_ref, cp_read, &data.creeps).join() {
-                if cp.hp <= 0.0 {
-                    continue;
-                }
-                let stats = UnitStats::from_refs(
-                    &*data.buffs,
-                    data.is_buildings.get(e).is_some(),
-                );
-                let regen = stats.hp_regen(0.0, e); // base regen 目前預設 0；buff 提供
-                if regen.abs() < 0.0001 {
-                    continue;
-                }
-                // effective max = base mhp + HEALTH_BONUS + EXTRA_HEALTH_BONUS
-                let eff_max = cp.mhp + stats.max_hp_bonus(e);
-                let new_hp = (cp.hp + regen * dt).clamp(0.0, eff_max);
-                if (new_hp - cp.hp).abs() > 0.01 {
-                    hp_updates.push((e, new_hp, eff_max));
-                }
+        if candidates.is_empty() {
+            return;
+        }
+
+        // 序列計算 + 寫回（par_iter 在 Task 2.4 加上）。
+        let mut hp_updates: Vec<(specs::Entity, f32, f32)> = Vec::with_capacity(candidates.len());
+        for &e in &candidates {
+            // 確認 entity 有 CProperty（creep / hero / 召喚物都有）
+            let Some(cp) = data.cpropertys.get(e) else { continue };
+            if cp.hp <= 0.0 {
+                continue;
             }
-            for (e, cp, _h) in (entities_ref, cp_read, &data.heroes).join() {
-                if cp.hp <= 0.0 {
-                    continue;
-                }
-                let stats = UnitStats::from_refs(
-                    &*data.buffs,
-                    data.is_buildings.get(e).is_some(),
-                );
-                let regen = stats.hp_regen(0.0, e);
-                if regen.abs() < 0.0001 {
-                    continue;
-                }
-                let eff_max = cp.mhp + stats.max_hp_bonus(e);
-                let new_hp = (cp.hp + regen * dt).clamp(0.0, eff_max);
-                if (new_hp - cp.hp).abs() > 0.01 {
-                    hp_updates.push((e, new_hp, eff_max));
-                }
+            // creep / hero 之外的 entity（例：純塔）不算 regen
+            let is_creep = data.creeps.get(e).is_some();
+            let is_hero = data.heroes.get(e).is_some();
+            if !is_creep && !is_hero {
+                continue;
+            }
+            let stats = UnitStats::from_refs(&*data.buffs, data.is_buildings.get(e).is_some());
+            let regen = stats.hp_regen(0.0, e);
+            if regen.abs() < 0.0001 {
+                continue;
+            }
+            let eff_max = cp.mhp + stats.max_hp_bonus(e);
+            let new_hp = (cp.hp + regen * dt).clamp(0.0, eff_max);
+            if (new_hp - cp.hp).abs() > 0.01 {
+                hp_updates.push((e, new_hp, eff_max));
             }
         }
 
