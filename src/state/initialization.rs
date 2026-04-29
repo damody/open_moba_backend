@@ -462,14 +462,38 @@ impl StateInitializer {
         let tower_templates: HashMap<&str, &crate::ue4::import_map::TowerJD> =
             cw.Tower.iter().map(|t| (t.Name.as_str(), t)).collect();
 
+        let mut script_count = 0usize;
+        let mut dumb_count = 0usize;
+        let total = cw.Structures.len();
+
         for s in cw.Structures.iter() {
-            let Some(tpl) = tower_templates.get(s.Tower.as_str()) else {
-                log::warn!("Structure 未知 Tower 模板 '{}'，跳過", s.Tower);
-                continue;
-            };
+            let pos = Vec2::new(s.X, s.Y);
             let faction_type = match s.Faction.as_str() {
                 "Player" | "player" => FactionType::Player,
                 _ => FactionType::Enemy,
+            };
+
+            // 優先嘗試 script-driven 塔：如果 template name 對得上 TowerTemplateRegistry
+            // 註冊過的 unit_id（"tower_dart" / "tower_ice" / "tower_bomb" / "tower_tack"），
+            // 走 spawn_td_tower 路徑 — 自動掛 ScriptUnitTag、push Spawn event、由腳本 on_tick 驅動。
+            // 只對玩家方非基地實體做（敵塔目前沒有對應腳本）。
+            if faction_type == FactionType::Player && !s.IsBase {
+                let has_script = ecs
+                    .read_resource::<crate::comp::tower_registry::TowerTemplateRegistry>()
+                    .get(s.Tower.as_str())
+                    .is_some();
+                if has_script {
+                    if crate::comp::tower_template::spawn_td_tower(ecs, pos, &s.Tower).is_some() {
+                        script_count += 1;
+                        continue;
+                    }
+                }
+            }
+
+            // Fallback：走 map.json Tower 模板的 dumb tower 路徑（無腳本）
+            let Some(tpl) = tower_templates.get(s.Tower.as_str()) else {
+                log::warn!("Structure 未知 Tower 模板 '{}'，跳過", s.Tower);
+                continue;
             };
             let hp = tpl.Property.Hp as f32;
             let range = tpl.Attack.Range;
@@ -480,13 +504,12 @@ impl StateInitializer {
                 1.0
             };
             let turn_deg = tpl.TurnSpeed.unwrap_or(45.0);
-            // Structure 實例可覆寫碰撞半徑，否則用模板的，再否則用預設 50
             let radius = s.CollisionRadius
                 .or(tpl.CollisionRadius)
                 .unwrap_or(50.0);
             Self::spawn_tower(
                 ecs,
-                Vec2::new(s.X, s.Y),
+                pos,
                 faction_type,
                 hp,
                 range,
@@ -496,8 +519,10 @@ impl StateInitializer {
                 turn_deg,
                 radius,
             );
+            dumb_count += 1;
         }
-        log::info!("已依 map.json 放置 {} 個 Structure", cw.Structures.len());
+        log::info!("已依 map.json 放置 {} 個 Structure (script-driven={}, dumb={})",
+            total, script_count, dumb_count);
     }
 
     fn spawn_tower(

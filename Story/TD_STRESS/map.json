@@ -19,7 +19,7 @@
     {
       "Name": "td_stress",
       "Label": "壓測怪",
-      "HP": 10000.0,
+      "HP": 10000000.0,
       "DefendPhysic": 0.0,
       "DefendMagic": 0.0,
       "MoveSpeed": 100.0,
@@ -80,7 +80,22 @@
   ],
   "Tower": [
     {
-      "Name": "stress_tower",
+      "Name": "tower_ice",
+      "Property": {
+        "Hp": 1000,
+        "Block": 0
+      },
+      "Attack": {
+        "Range": 200.0,
+        "AttackSpeed": 1.0,
+        "Physic": 20.0,
+        "Magic": 0.0
+      },
+      "TurnSpeed": 360.0,
+      "CollisionRadius": 50.0
+    },
+    {
+      "Name": "tower_bomb",
       "Property": {
         "Hp": 1000,
         "Block": 0
@@ -97,7 +112,7 @@
   ],
   "Structures": [
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1340.0,
       "Y": -740.0,
@@ -105,7 +120,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1340.0,
       "Y": -690.0,
@@ -113,7 +128,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1340.0,
       "Y": -640.0,
@@ -121,7 +136,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1340.0,
       "Y": -590.0,
@@ -129,7 +144,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1340.0,
       "Y": -540.0,
@@ -137,7 +152,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1340.0,
       "Y": -490.0,
@@ -145,7 +160,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1340.0,
       "Y": -440.0,
@@ -153,7 +168,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1340.0,
       "Y": -390.0,
@@ -161,7 +176,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1340.0,
       "Y": -340.0,
@@ -169,7 +184,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1340.0,
       "Y": -290.0,
@@ -177,7 +192,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1290.0,
       "Y": -740.0,
@@ -185,7 +200,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1290.0,
       "Y": -690.0,
@@ -193,7 +208,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1290.0,
       "Y": -640.0,
@@ -201,7 +216,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1290.0,
       "Y": -590.0,
@@ -209,7 +224,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1290.0,
       "Y": -540.0,
@@ -217,7 +232,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1290.0,
       "Y": -490.0,
@@ -225,7 +240,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1290.0,
       "Y": -440.0,
@@ -233,7 +248,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1290.0,
       "Y": -390.0,
@@ -241,7 +256,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1290.0,
       "Y": -340.0,
@@ -249,7 +264,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1290.0,
       "Y": -290.0,
@@ -257,7 +272,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1240.0,
       "Y": -740.0,
@@ -265,7 +280,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1240.0,
       "Y": -690.0,
@@ -273,7 +288,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1240.0,
       "Y": -640.0,
@@ -281,7 +296,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1240.0,
       "Y": -590.0,
@@ -289,7 +304,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1240.0,
       "Y": -540.0,
@@ -297,7 +312,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1240.0,
       "Y": -490.0,
@@ -305,7 +320,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1240.0,
       "Y": -440.0,
@@ -313,7 +328,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1240.0,
       "Y": -390.0,
@@ -321,7 +336,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1240.0,
       "Y": -340.0,
@@ -329,7 +344,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1240.0,
       "Y": -290.0,
@@ -337,7 +352,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1190.0,
       "Y": -740.0,
@@ -345,7 +360,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1190.0,
       "Y": -690.0,
@@ -353,7 +368,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1190.0,
       "Y": -640.0,
@@ -361,7 +376,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1190.0,
       "Y": -590.0,
@@ -369,7 +384,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1190.0,
       "Y": -540.0,
@@ -377,7 +392,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1190.0,
       "Y": -490.0,
@@ -385,7 +400,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1190.0,
       "Y": -440.0,
@@ -393,7 +408,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1190.0,
       "Y": -390.0,
@@ -401,7 +416,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1190.0,
       "Y": -340.0,
@@ -409,7 +424,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1190.0,
       "Y": -290.0,
@@ -417,7 +432,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1140.0,
       "Y": -740.0,
@@ -425,7 +440,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1140.0,
       "Y": -690.0,
@@ -433,7 +448,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1140.0,
       "Y": -640.0,
@@ -441,7 +456,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1140.0,
       "Y": -590.0,
@@ -449,7 +464,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1140.0,
       "Y": -540.0,
@@ -457,7 +472,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1140.0,
       "Y": -490.0,
@@ -465,7 +480,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1140.0,
       "Y": -440.0,
@@ -473,7 +488,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1140.0,
       "Y": -390.0,
@@ -481,7 +496,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1140.0,
       "Y": -340.0,
@@ -489,7 +504,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1140.0,
       "Y": -290.0,
@@ -497,7 +512,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1090.0,
       "Y": -740.0,
@@ -505,7 +520,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1090.0,
       "Y": -690.0,
@@ -513,7 +528,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1090.0,
       "Y": -640.0,
@@ -521,7 +536,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1090.0,
       "Y": -590.0,
@@ -529,7 +544,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1090.0,
       "Y": -540.0,
@@ -537,7 +552,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1090.0,
       "Y": -490.0,
@@ -545,7 +560,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1090.0,
       "Y": -440.0,
@@ -553,7 +568,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1090.0,
       "Y": -390.0,
@@ -561,7 +576,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1090.0,
       "Y": -340.0,
@@ -569,7 +584,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1090.0,
       "Y": -290.0,
@@ -577,7 +592,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1040.0,
       "Y": -740.0,
@@ -585,7 +600,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1040.0,
       "Y": -690.0,
@@ -593,7 +608,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1040.0,
       "Y": -640.0,
@@ -601,7 +616,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1040.0,
       "Y": -590.0,
@@ -609,7 +624,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1040.0,
       "Y": -540.0,
@@ -617,7 +632,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1040.0,
       "Y": -490.0,
@@ -625,7 +640,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1040.0,
       "Y": -440.0,
@@ -633,7 +648,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1040.0,
       "Y": -390.0,
@@ -641,7 +656,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1040.0,
       "Y": -340.0,
@@ -649,7 +664,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1040.0,
       "Y": -290.0,
@@ -657,7 +672,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -990.0,
       "Y": -740.0,
@@ -665,7 +680,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -990.0,
       "Y": -690.0,
@@ -673,7 +688,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -990.0,
       "Y": -640.0,
@@ -681,7 +696,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -990.0,
       "Y": -590.0,
@@ -689,7 +704,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -990.0,
       "Y": -540.0,
@@ -697,7 +712,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -990.0,
       "Y": -490.0,
@@ -705,7 +720,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -990.0,
       "Y": -440.0,
@@ -713,7 +728,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -990.0,
       "Y": -390.0,
@@ -721,7 +736,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -990.0,
       "Y": -340.0,
@@ -729,7 +744,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -990.0,
       "Y": -290.0,
@@ -737,7 +752,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -940.0,
       "Y": -740.0,
@@ -745,7 +760,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -940.0,
       "Y": -690.0,
@@ -753,7 +768,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -940.0,
       "Y": -640.0,
@@ -761,7 +776,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -940.0,
       "Y": -590.0,
@@ -769,7 +784,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -940.0,
       "Y": -540.0,
@@ -777,7 +792,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -940.0,
       "Y": -490.0,
@@ -785,7 +800,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -940.0,
       "Y": -440.0,
@@ -793,7 +808,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -940.0,
       "Y": -390.0,
@@ -801,7 +816,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -940.0,
       "Y": -340.0,
@@ -809,7 +824,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -940.0,
       "Y": -290.0,
@@ -817,7 +832,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -890.0,
       "Y": -740.0,
@@ -825,7 +840,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -890.0,
       "Y": -690.0,
@@ -833,7 +848,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -890.0,
       "Y": -640.0,
@@ -841,7 +856,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -890.0,
       "Y": -590.0,
@@ -849,7 +864,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -890.0,
       "Y": -540.0,
@@ -857,7 +872,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -890.0,
       "Y": -490.0,
@@ -865,7 +880,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -890.0,
       "Y": -440.0,
@@ -873,7 +888,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -890.0,
       "Y": -390.0,
@@ -881,7 +896,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -890.0,
       "Y": -340.0,
@@ -889,7 +904,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -890.0,
       "Y": -290.0,
@@ -897,7 +912,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -840.0,
       "Y": -740.0,
@@ -905,7 +920,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -840.0,
       "Y": -690.0,
@@ -913,7 +928,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -840.0,
       "Y": -640.0,
@@ -921,7 +936,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -840.0,
       "Y": -590.0,
@@ -929,7 +944,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -840.0,
       "Y": -540.0,
@@ -937,7 +952,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -840.0,
       "Y": -490.0,
@@ -945,7 +960,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -840.0,
       "Y": -440.0,
@@ -953,7 +968,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -840.0,
       "Y": -390.0,
@@ -961,7 +976,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -840.0,
       "Y": -340.0,
@@ -969,7 +984,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -840.0,
       "Y": -290.0,
@@ -977,7 +992,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -790.0,
       "Y": -740.0,
@@ -985,7 +1000,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -790.0,
       "Y": -690.0,
@@ -993,7 +1008,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -790.0,
       "Y": -640.0,
@@ -1001,7 +1016,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -790.0,
       "Y": -590.0,
@@ -1009,7 +1024,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -790.0,
       "Y": -540.0,
@@ -1017,7 +1032,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -790.0,
       "Y": -490.0,
@@ -1025,7 +1040,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -790.0,
       "Y": -440.0,
@@ -1033,7 +1048,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -790.0,
       "Y": -390.0,
@@ -1041,7 +1056,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -790.0,
       "Y": -340.0,
@@ -1049,7 +1064,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -790.0,
       "Y": -290.0,
@@ -1057,7 +1072,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -740.0,
       "Y": -740.0,
@@ -1065,7 +1080,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -740.0,
       "Y": -690.0,
@@ -1073,7 +1088,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -740.0,
       "Y": -640.0,
@@ -1081,7 +1096,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -740.0,
       "Y": -590.0,
@@ -1089,7 +1104,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -740.0,
       "Y": -540.0,
@@ -1097,7 +1112,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -740.0,
       "Y": -490.0,
@@ -1105,7 +1120,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -740.0,
       "Y": -440.0,
@@ -1113,7 +1128,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -740.0,
       "Y": -390.0,
@@ -1121,7 +1136,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -740.0,
       "Y": -340.0,
@@ -1129,7 +1144,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -740.0,
       "Y": -290.0,
@@ -1137,7 +1152,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -690.0,
       "Y": -740.0,
@@ -1145,7 +1160,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -690.0,
       "Y": -690.0,
@@ -1153,7 +1168,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -690.0,
       "Y": -640.0,
@@ -1161,7 +1176,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -690.0,
       "Y": -590.0,
@@ -1169,7 +1184,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -690.0,
       "Y": -540.0,
@@ -1177,7 +1192,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -690.0,
       "Y": -490.0,
@@ -1185,7 +1200,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -690.0,
       "Y": -440.0,
@@ -1193,7 +1208,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -690.0,
       "Y": -390.0,
@@ -1201,7 +1216,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -690.0,
       "Y": -340.0,
@@ -1209,7 +1224,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -690.0,
       "Y": -290.0,
@@ -1217,7 +1232,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -640.0,
       "Y": -740.0,
@@ -1225,7 +1240,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -640.0,
       "Y": -690.0,
@@ -1233,7 +1248,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -640.0,
       "Y": -640.0,
@@ -1241,7 +1256,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -640.0,
       "Y": -590.0,
@@ -1249,7 +1264,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -640.0,
       "Y": -540.0,
@@ -1257,7 +1272,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -640.0,
       "Y": -490.0,
@@ -1265,7 +1280,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -640.0,
       "Y": -440.0,
@@ -1273,7 +1288,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -640.0,
       "Y": -390.0,
@@ -1281,7 +1296,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -640.0,
       "Y": -340.0,
@@ -1289,7 +1304,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -640.0,
       "Y": -290.0,
@@ -1297,7 +1312,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -590.0,
       "Y": -740.0,
@@ -1305,7 +1320,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -590.0,
       "Y": -690.0,
@@ -1313,7 +1328,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -590.0,
       "Y": -640.0,
@@ -1321,7 +1336,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -590.0,
       "Y": -590.0,
@@ -1329,7 +1344,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -590.0,
       "Y": -540.0,
@@ -1337,7 +1352,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -590.0,
       "Y": -490.0,
@@ -1345,7 +1360,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -590.0,
       "Y": -440.0,
@@ -1353,7 +1368,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -590.0,
       "Y": -390.0,
@@ -1361,7 +1376,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -590.0,
       "Y": -340.0,
@@ -1369,7 +1384,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -590.0,
       "Y": -290.0,
@@ -1377,7 +1392,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -540.0,
       "Y": -740.0,
@@ -1385,7 +1400,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -540.0,
       "Y": -690.0,
@@ -1393,7 +1408,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -540.0,
       "Y": -640.0,
@@ -1401,7 +1416,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -540.0,
       "Y": -590.0,
@@ -1409,7 +1424,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -540.0,
       "Y": -540.0,
@@ -1417,7 +1432,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -540.0,
       "Y": -490.0,
@@ -1425,7 +1440,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -540.0,
       "Y": -440.0,
@@ -1433,7 +1448,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -540.0,
       "Y": -390.0,
@@ -1441,7 +1456,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -540.0,
       "Y": -340.0,
@@ -1449,7 +1464,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -540.0,
       "Y": -290.0,
@@ -1457,7 +1472,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -490.0,
       "Y": -740.0,
@@ -1465,7 +1480,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -490.0,
       "Y": -690.0,
@@ -1473,7 +1488,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -490.0,
       "Y": -640.0,
@@ -1481,7 +1496,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -490.0,
       "Y": -590.0,
@@ -1489,7 +1504,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -490.0,
       "Y": -540.0,
@@ -1497,7 +1512,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -490.0,
       "Y": -490.0,
@@ -1505,7 +1520,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -490.0,
       "Y": -440.0,
@@ -1513,7 +1528,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -490.0,
       "Y": -390.0,
@@ -1521,7 +1536,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -490.0,
       "Y": -340.0,
@@ -1529,7 +1544,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -490.0,
       "Y": -290.0,
@@ -1537,7 +1552,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -440.0,
       "Y": -740.0,
@@ -1545,7 +1560,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -440.0,
       "Y": -690.0,
@@ -1553,7 +1568,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -440.0,
       "Y": -640.0,
@@ -1561,7 +1576,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -440.0,
       "Y": -590.0,
@@ -1569,7 +1584,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -440.0,
       "Y": -540.0,
@@ -1577,7 +1592,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -440.0,
       "Y": -490.0,
@@ -1585,7 +1600,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -440.0,
       "Y": -440.0,
@@ -1593,7 +1608,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -440.0,
       "Y": -390.0,
@@ -1601,7 +1616,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -440.0,
       "Y": -340.0,
@@ -1609,7 +1624,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -440.0,
       "Y": -290.0,
@@ -1617,7 +1632,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -390.0,
       "Y": -740.0,
@@ -1625,7 +1640,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -390.0,
       "Y": -690.0,
@@ -1633,7 +1648,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -390.0,
       "Y": -640.0,
@@ -1641,7 +1656,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -390.0,
       "Y": -590.0,
@@ -1649,7 +1664,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -390.0,
       "Y": -540.0,
@@ -1657,7 +1672,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -390.0,
       "Y": -490.0,
@@ -1665,7 +1680,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -390.0,
       "Y": -440.0,
@@ -1673,7 +1688,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -390.0,
       "Y": -390.0,
@@ -1681,7 +1696,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -390.0,
       "Y": -340.0,
@@ -1689,7 +1704,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -390.0,
       "Y": -290.0,
@@ -1697,7 +1712,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -340.0,
       "Y": -740.0,
@@ -1705,7 +1720,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -340.0,
       "Y": -690.0,
@@ -1713,7 +1728,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -340.0,
       "Y": -640.0,
@@ -1721,7 +1736,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -340.0,
       "Y": -590.0,
@@ -1729,7 +1744,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -340.0,
       "Y": -540.0,
@@ -1737,7 +1752,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -340.0,
       "Y": -490.0,
@@ -1745,7 +1760,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -340.0,
       "Y": -440.0,
@@ -1753,7 +1768,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -340.0,
       "Y": -390.0,
@@ -1761,7 +1776,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -340.0,
       "Y": -340.0,
@@ -1769,7 +1784,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -340.0,
       "Y": -290.0,
@@ -1777,7 +1792,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -290.0,
       "Y": -740.0,
@@ -1785,7 +1800,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -290.0,
       "Y": -690.0,
@@ -1793,7 +1808,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -290.0,
       "Y": -640.0,
@@ -1801,7 +1816,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -290.0,
       "Y": -590.0,
@@ -1809,7 +1824,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -290.0,
       "Y": -540.0,
@@ -1817,7 +1832,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -290.0,
       "Y": -490.0,
@@ -1825,7 +1840,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -290.0,
       "Y": -440.0,
@@ -1833,7 +1848,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -290.0,
       "Y": -390.0,
@@ -1841,7 +1856,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -290.0,
       "Y": -340.0,
@@ -1849,7 +1864,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -290.0,
       "Y": -290.0,
@@ -1857,7 +1872,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -240.0,
       "Y": -740.0,
@@ -1865,7 +1880,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -240.0,
       "Y": -690.0,
@@ -1873,7 +1888,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -240.0,
       "Y": -640.0,
@@ -1881,7 +1896,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -240.0,
       "Y": -590.0,
@@ -1889,7 +1904,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -240.0,
       "Y": -540.0,
@@ -1897,7 +1912,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -240.0,
       "Y": -490.0,
@@ -1905,7 +1920,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -240.0,
       "Y": -440.0,
@@ -1913,7 +1928,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -240.0,
       "Y": -390.0,
@@ -1921,7 +1936,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -240.0,
       "Y": -340.0,
@@ -1929,7 +1944,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -240.0,
       "Y": -290.0,
@@ -1937,7 +1952,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -190.0,
       "Y": -740.0,
@@ -1945,7 +1960,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -190.0,
       "Y": -690.0,
@@ -1953,7 +1968,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -190.0,
       "Y": -640.0,
@@ -1961,7 +1976,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -190.0,
       "Y": -590.0,
@@ -1969,7 +1984,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -190.0,
       "Y": -540.0,
@@ -1977,7 +1992,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -190.0,
       "Y": -490.0,
@@ -1985,7 +2000,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -190.0,
       "Y": -440.0,
@@ -1993,7 +2008,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -190.0,
       "Y": -390.0,
@@ -2001,7 +2016,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -190.0,
       "Y": -340.0,
@@ -2009,7 +2024,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -190.0,
       "Y": -290.0,
@@ -2017,7 +2032,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -140.0,
       "Y": -740.0,
@@ -2025,7 +2040,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -140.0,
       "Y": -690.0,
@@ -2033,7 +2048,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -140.0,
       "Y": -640.0,
@@ -2041,7 +2056,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -140.0,
       "Y": -590.0,
@@ -2049,7 +2064,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -140.0,
       "Y": -540.0,
@@ -2057,7 +2072,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -140.0,
       "Y": -490.0,
@@ -2065,7 +2080,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -140.0,
       "Y": -440.0,
@@ -2073,7 +2088,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -140.0,
       "Y": -390.0,
@@ -2081,7 +2096,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -140.0,
       "Y": -340.0,
@@ -2089,7 +2104,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -140.0,
       "Y": -290.0,
@@ -2097,7 +2112,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -90.0,
       "Y": -740.0,
@@ -2105,7 +2120,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -90.0,
       "Y": -690.0,
@@ -2113,7 +2128,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -90.0,
       "Y": -640.0,
@@ -2121,7 +2136,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -90.0,
       "Y": -590.0,
@@ -2129,7 +2144,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -90.0,
       "Y": -540.0,
@@ -2137,7 +2152,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -90.0,
       "Y": -490.0,
@@ -2145,7 +2160,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -90.0,
       "Y": -440.0,
@@ -2153,7 +2168,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -90.0,
       "Y": -390.0,
@@ -2161,7 +2176,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -90.0,
       "Y": -340.0,
@@ -2169,7 +2184,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -90.0,
       "Y": -290.0,
@@ -2177,7 +2192,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -40.0,
       "Y": -740.0,
@@ -2185,7 +2200,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -40.0,
       "Y": -690.0,
@@ -2193,7 +2208,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -40.0,
       "Y": -640.0,
@@ -2201,7 +2216,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -40.0,
       "Y": -590.0,
@@ -2209,7 +2224,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -40.0,
       "Y": -540.0,
@@ -2217,7 +2232,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -40.0,
       "Y": -490.0,
@@ -2225,7 +2240,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -40.0,
       "Y": -440.0,
@@ -2233,7 +2248,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -40.0,
       "Y": -390.0,
@@ -2241,7 +2256,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -40.0,
       "Y": -340.0,
@@ -2249,7 +2264,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -40.0,
       "Y": -290.0,
@@ -2257,7 +2272,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 10.0,
       "Y": -740.0,
@@ -2265,7 +2280,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 10.0,
       "Y": -690.0,
@@ -2273,7 +2288,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 10.0,
       "Y": -640.0,
@@ -2281,7 +2296,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 10.0,
       "Y": -590.0,
@@ -2289,7 +2304,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 10.0,
       "Y": -540.0,
@@ -2297,7 +2312,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 10.0,
       "Y": -490.0,
@@ -2305,7 +2320,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 10.0,
       "Y": -440.0,
@@ -2313,7 +2328,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 10.0,
       "Y": -390.0,
@@ -2321,7 +2336,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 10.0,
       "Y": -340.0,
@@ -2329,7 +2344,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 10.0,
       "Y": -290.0,
@@ -2337,7 +2352,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 60.0,
       "Y": -740.0,
@@ -2345,7 +2360,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 60.0,
       "Y": -690.0,
@@ -2353,7 +2368,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 60.0,
       "Y": -640.0,
@@ -2361,7 +2376,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 60.0,
       "Y": -590.0,
@@ -2369,7 +2384,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 60.0,
       "Y": -540.0,
@@ -2377,7 +2392,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 60.0,
       "Y": -490.0,
@@ -2385,7 +2400,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 60.0,
       "Y": -440.0,
@@ -2393,7 +2408,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 60.0,
       "Y": -390.0,
@@ -2401,7 +2416,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 60.0,
       "Y": -340.0,
@@ -2409,7 +2424,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 60.0,
       "Y": -290.0,
@@ -2417,7 +2432,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 110.0,
       "Y": -740.0,
@@ -2425,7 +2440,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 110.0,
       "Y": -690.0,
@@ -2433,7 +2448,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 110.0,
       "Y": -640.0,
@@ -2441,7 +2456,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 110.0,
       "Y": -590.0,
@@ -2449,7 +2464,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 110.0,
       "Y": -540.0,
@@ -2457,7 +2472,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 110.0,
       "Y": -490.0,
@@ -2465,7 +2480,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 110.0,
       "Y": -440.0,
@@ -2473,7 +2488,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 110.0,
       "Y": -390.0,
@@ -2481,7 +2496,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 110.0,
       "Y": -340.0,
@@ -2489,7 +2504,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 110.0,
       "Y": -290.0,
@@ -2497,7 +2512,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 160.0,
       "Y": -740.0,
@@ -2505,7 +2520,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 160.0,
       "Y": -690.0,
@@ -2513,7 +2528,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 160.0,
       "Y": -640.0,
@@ -2521,7 +2536,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 160.0,
       "Y": -590.0,
@@ -2529,7 +2544,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 160.0,
       "Y": -540.0,
@@ -2537,7 +2552,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 160.0,
       "Y": -490.0,
@@ -2545,7 +2560,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 160.0,
       "Y": -440.0,
@@ -2553,7 +2568,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 160.0,
       "Y": -390.0,
@@ -2561,7 +2576,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 160.0,
       "Y": -340.0,
@@ -2569,7 +2584,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 160.0,
       "Y": -290.0,
@@ -2577,7 +2592,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 210.0,
       "Y": -740.0,
@@ -2585,7 +2600,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 210.0,
       "Y": -690.0,
@@ -2593,7 +2608,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 210.0,
       "Y": -640.0,
@@ -2601,7 +2616,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 210.0,
       "Y": -590.0,
@@ -2609,7 +2624,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 210.0,
       "Y": -540.0,
@@ -2617,7 +2632,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 210.0,
       "Y": -490.0,
@@ -2625,7 +2640,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 210.0,
       "Y": -440.0,
@@ -2633,7 +2648,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 210.0,
       "Y": -390.0,
@@ -2641,7 +2656,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 210.0,
       "Y": -340.0,
@@ -2649,7 +2664,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 210.0,
       "Y": -290.0,
@@ -2657,7 +2672,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 260.0,
       "Y": -740.0,
@@ -2665,7 +2680,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 260.0,
       "Y": -690.0,
@@ -2673,7 +2688,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 260.0,
       "Y": -640.0,
@@ -2681,7 +2696,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 260.0,
       "Y": -590.0,
@@ -2689,7 +2704,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 260.0,
       "Y": -540.0,
@@ -2697,7 +2712,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 260.0,
       "Y": -490.0,
@@ -2705,7 +2720,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 260.0,
       "Y": -440.0,
@@ -2713,7 +2728,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 260.0,
       "Y": -390.0,
@@ -2721,7 +2736,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 260.0,
       "Y": -340.0,
@@ -2729,7 +2744,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 260.0,
       "Y": -290.0,
@@ -2737,7 +2752,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 310.0,
       "Y": -740.0,
@@ -2745,7 +2760,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 310.0,
       "Y": -690.0,
@@ -2753,7 +2768,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 310.0,
       "Y": -640.0,
@@ -2761,7 +2776,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 310.0,
       "Y": -590.0,
@@ -2769,7 +2784,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 310.0,
       "Y": -540.0,
@@ -2777,7 +2792,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 310.0,
       "Y": -490.0,
@@ -2785,7 +2800,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 310.0,
       "Y": -440.0,
@@ -2793,7 +2808,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 310.0,
       "Y": -390.0,
@@ -2801,7 +2816,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 310.0,
       "Y": -340.0,
@@ -2809,7 +2824,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 310.0,
       "Y": -290.0,
@@ -2817,7 +2832,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 360.0,
       "Y": -740.0,
@@ -2825,7 +2840,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 360.0,
       "Y": -690.0,
@@ -2833,7 +2848,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 360.0,
       "Y": -640.0,
@@ -2841,7 +2856,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 360.0,
       "Y": -590.0,
@@ -2849,7 +2864,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 360.0,
       "Y": -540.0,
@@ -2857,7 +2872,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 360.0,
       "Y": -490.0,
@@ -2865,7 +2880,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 360.0,
       "Y": -440.0,
@@ -2873,7 +2888,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 360.0,
       "Y": -390.0,
@@ -2881,7 +2896,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 360.0,
       "Y": -340.0,
@@ -2889,7 +2904,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 360.0,
       "Y": -290.0,
@@ -2897,7 +2912,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 410.0,
       "Y": -740.0,
@@ -2905,7 +2920,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 410.0,
       "Y": -690.0,
@@ -2913,7 +2928,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 410.0,
       "Y": -640.0,
@@ -2921,7 +2936,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 410.0,
       "Y": -590.0,
@@ -2929,7 +2944,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 410.0,
       "Y": -540.0,
@@ -2937,7 +2952,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 410.0,
       "Y": -490.0,
@@ -2945,7 +2960,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 410.0,
       "Y": -440.0,
@@ -2953,7 +2968,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 410.0,
       "Y": -390.0,
@@ -2961,7 +2976,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 410.0,
       "Y": -340.0,
@@ -2969,7 +2984,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 410.0,
       "Y": -290.0,
@@ -2977,7 +2992,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 460.0,
       "Y": -740.0,
@@ -2985,7 +3000,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 460.0,
       "Y": -690.0,
@@ -2993,7 +3008,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 460.0,
       "Y": -640.0,
@@ -3001,7 +3016,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 460.0,
       "Y": -590.0,
@@ -3009,7 +3024,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 460.0,
       "Y": -540.0,
@@ -3017,7 +3032,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 460.0,
       "Y": -490.0,
@@ -3025,7 +3040,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 460.0,
       "Y": -440.0,
@@ -3033,7 +3048,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 460.0,
       "Y": -390.0,
@@ -3041,7 +3056,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 460.0,
       "Y": -340.0,
@@ -3049,7 +3064,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 460.0,
       "Y": -290.0,
@@ -3057,7 +3072,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 510.0,
       "Y": -740.0,
@@ -3065,7 +3080,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 510.0,
       "Y": -690.0,
@@ -3073,7 +3088,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 510.0,
       "Y": -640.0,
@@ -3081,7 +3096,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 510.0,
       "Y": -590.0,
@@ -3089,7 +3104,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 510.0,
       "Y": -540.0,
@@ -3097,7 +3112,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 510.0,
       "Y": -490.0,
@@ -3105,7 +3120,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 510.0,
       "Y": -440.0,
@@ -3113,7 +3128,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 510.0,
       "Y": -390.0,
@@ -3121,7 +3136,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 510.0,
       "Y": -340.0,
@@ -3129,7 +3144,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 510.0,
       "Y": -290.0,
@@ -3137,7 +3152,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 560.0,
       "Y": -740.0,
@@ -3145,7 +3160,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 560.0,
       "Y": -690.0,
@@ -3153,7 +3168,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 560.0,
       "Y": -640.0,
@@ -3161,7 +3176,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 560.0,
       "Y": -590.0,
@@ -3169,7 +3184,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 560.0,
       "Y": -540.0,
@@ -3177,7 +3192,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 560.0,
       "Y": -490.0,
@@ -3185,7 +3200,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 560.0,
       "Y": -440.0,
@@ -3193,7 +3208,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 560.0,
       "Y": -390.0,
@@ -3201,7 +3216,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 560.0,
       "Y": -340.0,
@@ -3209,7 +3224,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 560.0,
       "Y": -290.0,
@@ -3217,7 +3232,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 610.0,
       "Y": -740.0,
@@ -3225,7 +3240,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 610.0,
       "Y": -690.0,
@@ -3233,7 +3248,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 610.0,
       "Y": -640.0,
@@ -3241,7 +3256,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 610.0,
       "Y": -590.0,
@@ -3249,7 +3264,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 610.0,
       "Y": -540.0,
@@ -3257,7 +3272,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 610.0,
       "Y": -490.0,
@@ -3265,7 +3280,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 610.0,
       "Y": -440.0,
@@ -3273,7 +3288,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 610.0,
       "Y": -390.0,
@@ -3281,7 +3296,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 610.0,
       "Y": -340.0,
@@ -3289,7 +3304,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 610.0,
       "Y": -290.0,
@@ -3297,7 +3312,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 660.0,
       "Y": -740.0,
@@ -3305,7 +3320,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 660.0,
       "Y": -690.0,
@@ -3313,7 +3328,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 660.0,
       "Y": -640.0,
@@ -3321,7 +3336,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 660.0,
       "Y": -590.0,
@@ -3329,7 +3344,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 660.0,
       "Y": -540.0,
@@ -3337,7 +3352,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 660.0,
       "Y": -490.0,
@@ -3345,7 +3360,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 660.0,
       "Y": -440.0,
@@ -3353,7 +3368,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 660.0,
       "Y": -390.0,
@@ -3361,7 +3376,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 660.0,
       "Y": -340.0,
@@ -3369,7 +3384,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 660.0,
       "Y": -290.0,
@@ -3377,7 +3392,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 710.0,
       "Y": -740.0,
@@ -3385,7 +3400,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 710.0,
       "Y": -690.0,
@@ -3393,7 +3408,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 710.0,
       "Y": -640.0,
@@ -3401,7 +3416,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 710.0,
       "Y": -590.0,
@@ -3409,7 +3424,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 710.0,
       "Y": -540.0,
@@ -3417,7 +3432,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 710.0,
       "Y": -490.0,
@@ -3425,7 +3440,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 710.0,
       "Y": -440.0,
@@ -3433,7 +3448,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 710.0,
       "Y": -390.0,
@@ -3441,7 +3456,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 710.0,
       "Y": -340.0,
@@ -3449,7 +3464,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 710.0,
       "Y": -290.0,
@@ -3457,7 +3472,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 760.0,
       "Y": -740.0,
@@ -3465,7 +3480,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 760.0,
       "Y": -690.0,
@@ -3473,7 +3488,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 760.0,
       "Y": -640.0,
@@ -3481,7 +3496,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 760.0,
       "Y": -590.0,
@@ -3489,7 +3504,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 760.0,
       "Y": -540.0,
@@ -3497,7 +3512,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 760.0,
       "Y": -490.0,
@@ -3505,7 +3520,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 760.0,
       "Y": -440.0,
@@ -3513,7 +3528,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 760.0,
       "Y": -390.0,
@@ -3521,7 +3536,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 760.0,
       "Y": -340.0,
@@ -3529,7 +3544,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 760.0,
       "Y": -290.0,
@@ -3537,7 +3552,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 810.0,
       "Y": -740.0,
@@ -3545,7 +3560,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 810.0,
       "Y": -690.0,
@@ -3553,7 +3568,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 810.0,
       "Y": -640.0,
@@ -3561,7 +3576,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 810.0,
       "Y": -590.0,
@@ -3569,7 +3584,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 810.0,
       "Y": -540.0,
@@ -3577,7 +3592,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 810.0,
       "Y": -490.0,
@@ -3585,7 +3600,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 810.0,
       "Y": -440.0,
@@ -3593,7 +3608,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 810.0,
       "Y": -390.0,
@@ -3601,7 +3616,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 810.0,
       "Y": -340.0,
@@ -3609,7 +3624,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 810.0,
       "Y": -290.0,
@@ -3617,7 +3632,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 860.0,
       "Y": -740.0,
@@ -3625,7 +3640,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 860.0,
       "Y": -690.0,
@@ -3633,7 +3648,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 860.0,
       "Y": -640.0,
@@ -3641,7 +3656,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 860.0,
       "Y": -590.0,
@@ -3649,7 +3664,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 860.0,
       "Y": -540.0,
@@ -3657,7 +3672,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 860.0,
       "Y": -490.0,
@@ -3665,7 +3680,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 860.0,
       "Y": -440.0,
@@ -3673,7 +3688,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 860.0,
       "Y": -390.0,
@@ -3681,7 +3696,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 860.0,
       "Y": -340.0,
@@ -3689,7 +3704,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 860.0,
       "Y": -290.0,
@@ -3697,7 +3712,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 910.0,
       "Y": -740.0,
@@ -3705,7 +3720,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 910.0,
       "Y": -690.0,
@@ -3713,7 +3728,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 910.0,
       "Y": -640.0,
@@ -3721,7 +3736,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 910.0,
       "Y": -590.0,
@@ -3729,7 +3744,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 910.0,
       "Y": -540.0,
@@ -3737,7 +3752,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 910.0,
       "Y": -490.0,
@@ -3745,7 +3760,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 910.0,
       "Y": -440.0,
@@ -3753,7 +3768,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 910.0,
       "Y": -390.0,
@@ -3761,7 +3776,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 910.0,
       "Y": -340.0,
@@ -3769,7 +3784,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 910.0,
       "Y": -290.0,
@@ -3777,7 +3792,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 960.0,
       "Y": -740.0,
@@ -3785,7 +3800,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 960.0,
       "Y": -690.0,
@@ -3793,7 +3808,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 960.0,
       "Y": -640.0,
@@ -3801,7 +3816,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 960.0,
       "Y": -590.0,
@@ -3809,7 +3824,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 960.0,
       "Y": -540.0,
@@ -3817,7 +3832,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 960.0,
       "Y": -490.0,
@@ -3825,7 +3840,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 960.0,
       "Y": -440.0,
@@ -3833,7 +3848,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 960.0,
       "Y": -390.0,
@@ -3841,7 +3856,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 960.0,
       "Y": -340.0,
@@ -3849,7 +3864,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 960.0,
       "Y": -290.0,
@@ -3857,7 +3872,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 1010.0,
       "Y": -740.0,
@@ -3865,7 +3880,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 1010.0,
       "Y": -690.0,
@@ -3873,7 +3888,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 1010.0,
       "Y": -640.0,
@@ -3881,7 +3896,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 1010.0,
       "Y": -590.0,
@@ -3889,7 +3904,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 1010.0,
       "Y": -540.0,
@@ -3897,7 +3912,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 1010.0,
       "Y": -490.0,
@@ -3905,7 +3920,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 1010.0,
       "Y": -440.0,
@@ -3913,7 +3928,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 1010.0,
       "Y": -390.0,
@@ -3921,7 +3936,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 1010.0,
       "Y": -340.0,
@@ -3929,7 +3944,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 1010.0,
       "Y": -290.0,
@@ -3937,7 +3952,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 1060.0,
       "Y": -740.0,
@@ -3945,7 +3960,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 1060.0,
       "Y": -690.0,
@@ -3953,7 +3968,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 1060.0,
       "Y": -640.0,
@@ -3961,7 +3976,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 1060.0,
       "Y": -590.0,
@@ -3969,7 +3984,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 1060.0,
       "Y": -540.0,
@@ -3977,7 +3992,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 1060.0,
       "Y": -490.0,
@@ -3985,7 +4000,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 1060.0,
       "Y": -440.0,
@@ -3993,7 +4008,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 1060.0,
       "Y": -390.0,
@@ -4001,7 +4016,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 1060.0,
       "Y": -340.0,
@@ -4009,7 +4024,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 1060.0,
       "Y": -290.0,
@@ -4017,7 +4032,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 1110.0,
       "Y": -740.0,
@@ -4025,7 +4040,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 1110.0,
       "Y": -690.0,
@@ -4033,7 +4048,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 1110.0,
       "Y": -640.0,
@@ -4041,7 +4056,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 1110.0,
       "Y": -590.0,
@@ -4049,7 +4064,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 1110.0,
       "Y": -540.0,
@@ -4057,7 +4072,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 1110.0,
       "Y": -490.0,
@@ -4065,7 +4080,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 1110.0,
       "Y": -440.0,
@@ -4073,7 +4088,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 1110.0,
       "Y": -390.0,
@@ -4081,7 +4096,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 1110.0,
       "Y": -340.0,
@@ -4089,7 +4104,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 1110.0,
       "Y": -290.0,
@@ -4097,7 +4112,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 1160.0,
       "Y": -740.0,
@@ -4105,7 +4120,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 1160.0,
       "Y": -690.0,
@@ -4113,7 +4128,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 1160.0,
       "Y": -640.0,
@@ -4121,7 +4136,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 1160.0,
       "Y": -590.0,
@@ -4129,7 +4144,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 1160.0,
       "Y": -540.0,
@@ -4137,7 +4152,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 1160.0,
       "Y": -490.0,
@@ -4145,7 +4160,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 1160.0,
       "Y": -440.0,
@@ -4153,7 +4168,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 1160.0,
       "Y": -390.0,
@@ -4161,7 +4176,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 1160.0,
       "Y": -340.0,
@@ -4169,7 +4184,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 1160.0,
       "Y": -290.0,
@@ -4177,7 +4192,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 1210.0,
       "Y": -740.0,
@@ -4185,7 +4200,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 1210.0,
       "Y": -690.0,
@@ -4193,7 +4208,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 1210.0,
       "Y": -640.0,
@@ -4201,7 +4216,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 1210.0,
       "Y": -590.0,
@@ -4209,7 +4224,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 1210.0,
       "Y": -540.0,
@@ -4217,7 +4232,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 1210.0,
       "Y": -490.0,
@@ -4225,7 +4240,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 1210.0,
       "Y": -440.0,
@@ -4233,7 +4248,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 1210.0,
       "Y": -390.0,
@@ -4241,7 +4256,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 1210.0,
       "Y": -340.0,
@@ -4249,7 +4264,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 1210.0,
       "Y": -290.0,
@@ -4257,7 +4272,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 1260.0,
       "Y": -740.0,
@@ -4265,7 +4280,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 1260.0,
       "Y": -690.0,
@@ -4273,7 +4288,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 1260.0,
       "Y": -640.0,
@@ -4281,7 +4296,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 1260.0,
       "Y": -590.0,
@@ -4289,7 +4304,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 1260.0,
       "Y": -540.0,
@@ -4297,7 +4312,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 1260.0,
       "Y": -490.0,
@@ -4305,7 +4320,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 1260.0,
       "Y": -440.0,
@@ -4313,7 +4328,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 1260.0,
       "Y": -390.0,
@@ -4321,7 +4336,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 1260.0,
       "Y": -340.0,
@@ -4329,7 +4344,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 1260.0,
       "Y": -290.0,
@@ -4337,7 +4352,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 1310.0,
       "Y": -740.0,
@@ -4345,7 +4360,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 1310.0,
       "Y": -690.0,
@@ -4353,7 +4368,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 1310.0,
       "Y": -640.0,
@@ -4361,7 +4376,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 1310.0,
       "Y": -590.0,
@@ -4369,7 +4384,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 1310.0,
       "Y": -540.0,
@@ -4377,7 +4392,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 1310.0,
       "Y": -490.0,
@@ -4385,7 +4400,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 1310.0,
       "Y": -440.0,
@@ -4393,7 +4408,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 1310.0,
       "Y": -390.0,
@@ -4401,7 +4416,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 1310.0,
       "Y": -340.0,
@@ -4409,7 +4424,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 1310.0,
       "Y": -290.0,
@@ -4417,7 +4432,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1340.0,
       "Y": -140.0,
@@ -4425,7 +4440,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1340.0,
       "Y": -90.0,
@@ -4433,7 +4448,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1340.0,
       "Y": -40.0,
@@ -4441,7 +4456,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1340.0,
       "Y": 10.0,
@@ -4449,7 +4464,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1340.0,
       "Y": 60.0,
@@ -4457,7 +4472,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1340.0,
       "Y": 110.0,
@@ -4465,7 +4480,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1340.0,
       "Y": 160.0,
@@ -4473,7 +4488,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1340.0,
       "Y": 210.0,
@@ -4481,7 +4496,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1340.0,
       "Y": 260.0,
@@ -4489,7 +4504,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1340.0,
       "Y": 310.0,
@@ -4497,7 +4512,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1290.0,
       "Y": -140.0,
@@ -4505,7 +4520,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1290.0,
       "Y": -90.0,
@@ -4513,7 +4528,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1290.0,
       "Y": -40.0,
@@ -4521,7 +4536,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1290.0,
       "Y": 10.0,
@@ -4529,7 +4544,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1290.0,
       "Y": 60.0,
@@ -4537,7 +4552,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1290.0,
       "Y": 110.0,
@@ -4545,7 +4560,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1290.0,
       "Y": 160.0,
@@ -4553,7 +4568,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1290.0,
       "Y": 210.0,
@@ -4561,7 +4576,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1290.0,
       "Y": 260.0,
@@ -4569,7 +4584,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1290.0,
       "Y": 310.0,
@@ -4577,7 +4592,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1240.0,
       "Y": -140.0,
@@ -4585,7 +4600,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1240.0,
       "Y": -90.0,
@@ -4593,7 +4608,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1240.0,
       "Y": -40.0,
@@ -4601,7 +4616,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1240.0,
       "Y": 10.0,
@@ -4609,7 +4624,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1240.0,
       "Y": 60.0,
@@ -4617,7 +4632,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1240.0,
       "Y": 110.0,
@@ -4625,7 +4640,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1240.0,
       "Y": 160.0,
@@ -4633,7 +4648,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1240.0,
       "Y": 210.0,
@@ -4641,7 +4656,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1240.0,
       "Y": 260.0,
@@ -4649,7 +4664,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1240.0,
       "Y": 310.0,
@@ -4657,7 +4672,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1190.0,
       "Y": -140.0,
@@ -4665,7 +4680,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1190.0,
       "Y": -90.0,
@@ -4673,7 +4688,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1190.0,
       "Y": -40.0,
@@ -4681,7 +4696,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1190.0,
       "Y": 10.0,
@@ -4689,7 +4704,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1190.0,
       "Y": 60.0,
@@ -4697,7 +4712,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1190.0,
       "Y": 110.0,
@@ -4705,7 +4720,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1190.0,
       "Y": 160.0,
@@ -4713,7 +4728,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1190.0,
       "Y": 210.0,
@@ -4721,7 +4736,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1190.0,
       "Y": 260.0,
@@ -4729,7 +4744,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1190.0,
       "Y": 310.0,
@@ -4737,7 +4752,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1140.0,
       "Y": -140.0,
@@ -4745,7 +4760,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1140.0,
       "Y": -90.0,
@@ -4753,7 +4768,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1140.0,
       "Y": -40.0,
@@ -4761,7 +4776,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1140.0,
       "Y": 10.0,
@@ -4769,7 +4784,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1140.0,
       "Y": 60.0,
@@ -4777,7 +4792,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1140.0,
       "Y": 110.0,
@@ -4785,7 +4800,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1140.0,
       "Y": 160.0,
@@ -4793,7 +4808,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1140.0,
       "Y": 210.0,
@@ -4801,7 +4816,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1140.0,
       "Y": 260.0,
@@ -4809,7 +4824,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1140.0,
       "Y": 310.0,
@@ -4817,7 +4832,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1090.0,
       "Y": -140.0,
@@ -4825,7 +4840,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1090.0,
       "Y": -90.0,
@@ -4833,7 +4848,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1090.0,
       "Y": -40.0,
@@ -4841,7 +4856,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1090.0,
       "Y": 10.0,
@@ -4849,7 +4864,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1090.0,
       "Y": 60.0,
@@ -4857,7 +4872,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1090.0,
       "Y": 110.0,
@@ -4865,7 +4880,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1090.0,
       "Y": 160.0,
@@ -4873,7 +4888,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1090.0,
       "Y": 210.0,
@@ -4881,7 +4896,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1090.0,
       "Y": 260.0,
@@ -4889,7 +4904,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1090.0,
       "Y": 310.0,
@@ -4897,7 +4912,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1040.0,
       "Y": -140.0,
@@ -4905,7 +4920,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1040.0,
       "Y": -90.0,
@@ -4913,7 +4928,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1040.0,
       "Y": -40.0,
@@ -4921,7 +4936,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1040.0,
       "Y": 10.0,
@@ -4929,7 +4944,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1040.0,
       "Y": 60.0,
@@ -4937,7 +4952,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1040.0,
       "Y": 110.0,
@@ -4945,7 +4960,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1040.0,
       "Y": 160.0,
@@ -4953,7 +4968,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1040.0,
       "Y": 210.0,
@@ -4961,7 +4976,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -1040.0,
       "Y": 260.0,
@@ -4969,7 +4984,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -1040.0,
       "Y": 310.0,
@@ -4977,7 +4992,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -990.0,
       "Y": -140.0,
@@ -4985,7 +5000,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -990.0,
       "Y": -90.0,
@@ -4993,7 +5008,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -990.0,
       "Y": -40.0,
@@ -5001,7 +5016,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -990.0,
       "Y": 10.0,
@@ -5009,7 +5024,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -990.0,
       "Y": 60.0,
@@ -5017,7 +5032,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -990.0,
       "Y": 110.0,
@@ -5025,7 +5040,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -990.0,
       "Y": 160.0,
@@ -5033,7 +5048,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -990.0,
       "Y": 210.0,
@@ -5041,7 +5056,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -990.0,
       "Y": 260.0,
@@ -5049,7 +5064,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -990.0,
       "Y": 310.0,
@@ -5057,7 +5072,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -940.0,
       "Y": -140.0,
@@ -5065,7 +5080,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -940.0,
       "Y": -90.0,
@@ -5073,7 +5088,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -940.0,
       "Y": -40.0,
@@ -5081,7 +5096,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -940.0,
       "Y": 10.0,
@@ -5089,7 +5104,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -940.0,
       "Y": 60.0,
@@ -5097,7 +5112,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -940.0,
       "Y": 110.0,
@@ -5105,7 +5120,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -940.0,
       "Y": 160.0,
@@ -5113,7 +5128,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -940.0,
       "Y": 210.0,
@@ -5121,7 +5136,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -940.0,
       "Y": 260.0,
@@ -5129,7 +5144,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -940.0,
       "Y": 310.0,
@@ -5137,7 +5152,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -890.0,
       "Y": -140.0,
@@ -5145,7 +5160,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -890.0,
       "Y": -90.0,
@@ -5153,7 +5168,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -890.0,
       "Y": -40.0,
@@ -5161,7 +5176,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -890.0,
       "Y": 10.0,
@@ -5169,7 +5184,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -890.0,
       "Y": 60.0,
@@ -5177,7 +5192,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -890.0,
       "Y": 110.0,
@@ -5185,7 +5200,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -890.0,
       "Y": 160.0,
@@ -5193,7 +5208,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -890.0,
       "Y": 210.0,
@@ -5201,7 +5216,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -890.0,
       "Y": 260.0,
@@ -5209,7 +5224,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -890.0,
       "Y": 310.0,
@@ -5217,7 +5232,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -840.0,
       "Y": -140.0,
@@ -5225,7 +5240,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -840.0,
       "Y": -90.0,
@@ -5233,7 +5248,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -840.0,
       "Y": -40.0,
@@ -5241,7 +5256,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -840.0,
       "Y": 10.0,
@@ -5249,7 +5264,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -840.0,
       "Y": 60.0,
@@ -5257,7 +5272,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -840.0,
       "Y": 110.0,
@@ -5265,7 +5280,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -840.0,
       "Y": 160.0,
@@ -5273,7 +5288,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -840.0,
       "Y": 210.0,
@@ -5281,7 +5296,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -840.0,
       "Y": 260.0,
@@ -5289,7 +5304,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -840.0,
       "Y": 310.0,
@@ -5297,7 +5312,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -790.0,
       "Y": -140.0,
@@ -5305,7 +5320,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -790.0,
       "Y": -90.0,
@@ -5313,7 +5328,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -790.0,
       "Y": -40.0,
@@ -5321,7 +5336,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -790.0,
       "Y": 10.0,
@@ -5329,7 +5344,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -790.0,
       "Y": 60.0,
@@ -5337,7 +5352,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -790.0,
       "Y": 110.0,
@@ -5345,7 +5360,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -790.0,
       "Y": 160.0,
@@ -5353,7 +5368,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -790.0,
       "Y": 210.0,
@@ -5361,7 +5376,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -790.0,
       "Y": 260.0,
@@ -5369,7 +5384,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -790.0,
       "Y": 310.0,
@@ -5377,7 +5392,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -740.0,
       "Y": -140.0,
@@ -5385,7 +5400,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -740.0,
       "Y": -90.0,
@@ -5393,7 +5408,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -740.0,
       "Y": -40.0,
@@ -5401,7 +5416,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -740.0,
       "Y": 10.0,
@@ -5409,7 +5424,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -740.0,
       "Y": 60.0,
@@ -5417,7 +5432,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -740.0,
       "Y": 110.0,
@@ -5425,7 +5440,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -740.0,
       "Y": 160.0,
@@ -5433,7 +5448,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -740.0,
       "Y": 210.0,
@@ -5441,7 +5456,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -740.0,
       "Y": 260.0,
@@ -5449,7 +5464,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -740.0,
       "Y": 310.0,
@@ -5457,7 +5472,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -690.0,
       "Y": -140.0,
@@ -5465,7 +5480,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -690.0,
       "Y": -90.0,
@@ -5473,7 +5488,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -690.0,
       "Y": -40.0,
@@ -5481,7 +5496,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -690.0,
       "Y": 10.0,
@@ -5489,7 +5504,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -690.0,
       "Y": 60.0,
@@ -5497,7 +5512,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -690.0,
       "Y": 110.0,
@@ -5505,7 +5520,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -690.0,
       "Y": 160.0,
@@ -5513,7 +5528,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -690.0,
       "Y": 210.0,
@@ -5521,7 +5536,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -690.0,
       "Y": 260.0,
@@ -5529,7 +5544,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -690.0,
       "Y": 310.0,
@@ -5537,7 +5552,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -640.0,
       "Y": -140.0,
@@ -5545,7 +5560,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -640.0,
       "Y": -90.0,
@@ -5553,7 +5568,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -640.0,
       "Y": -40.0,
@@ -5561,7 +5576,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -640.0,
       "Y": 10.0,
@@ -5569,7 +5584,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -640.0,
       "Y": 60.0,
@@ -5577,7 +5592,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -640.0,
       "Y": 110.0,
@@ -5585,7 +5600,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -640.0,
       "Y": 160.0,
@@ -5593,7 +5608,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -640.0,
       "Y": 210.0,
@@ -5601,7 +5616,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -640.0,
       "Y": 260.0,
@@ -5609,7 +5624,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -640.0,
       "Y": 310.0,
@@ -5617,7 +5632,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -590.0,
       "Y": -140.0,
@@ -5625,7 +5640,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -590.0,
       "Y": -90.0,
@@ -5633,7 +5648,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -590.0,
       "Y": -40.0,
@@ -5641,7 +5656,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -590.0,
       "Y": 10.0,
@@ -5649,7 +5664,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -590.0,
       "Y": 60.0,
@@ -5657,7 +5672,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -590.0,
       "Y": 110.0,
@@ -5665,7 +5680,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -590.0,
       "Y": 160.0,
@@ -5673,7 +5688,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -590.0,
       "Y": 210.0,
@@ -5681,7 +5696,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -590.0,
       "Y": 260.0,
@@ -5689,7 +5704,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -590.0,
       "Y": 310.0,
@@ -5697,7 +5712,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -540.0,
       "Y": -140.0,
@@ -5705,7 +5720,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -540.0,
       "Y": -90.0,
@@ -5713,7 +5728,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -540.0,
       "Y": -40.0,
@@ -5721,7 +5736,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -540.0,
       "Y": 10.0,
@@ -5729,7 +5744,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -540.0,
       "Y": 60.0,
@@ -5737,7 +5752,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -540.0,
       "Y": 110.0,
@@ -5745,7 +5760,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -540.0,
       "Y": 160.0,
@@ -5753,7 +5768,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -540.0,
       "Y": 210.0,
@@ -5761,7 +5776,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -540.0,
       "Y": 260.0,
@@ -5769,7 +5784,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -540.0,
       "Y": 310.0,
@@ -5777,7 +5792,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -490.0,
       "Y": -140.0,
@@ -5785,7 +5800,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -490.0,
       "Y": -90.0,
@@ -5793,7 +5808,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -490.0,
       "Y": -40.0,
@@ -5801,7 +5816,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -490.0,
       "Y": 10.0,
@@ -5809,7 +5824,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -490.0,
       "Y": 60.0,
@@ -5817,7 +5832,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -490.0,
       "Y": 110.0,
@@ -5825,7 +5840,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -490.0,
       "Y": 160.0,
@@ -5833,7 +5848,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -490.0,
       "Y": 210.0,
@@ -5841,7 +5856,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -490.0,
       "Y": 260.0,
@@ -5849,7 +5864,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -490.0,
       "Y": 310.0,
@@ -5857,7 +5872,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -440.0,
       "Y": -140.0,
@@ -5865,7 +5880,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -440.0,
       "Y": -90.0,
@@ -5873,7 +5888,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -440.0,
       "Y": -40.0,
@@ -5881,7 +5896,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -440.0,
       "Y": 10.0,
@@ -5889,7 +5904,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -440.0,
       "Y": 60.0,
@@ -5897,7 +5912,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -440.0,
       "Y": 110.0,
@@ -5905,7 +5920,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -440.0,
       "Y": 160.0,
@@ -5913,7 +5928,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -440.0,
       "Y": 210.0,
@@ -5921,7 +5936,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -440.0,
       "Y": 260.0,
@@ -5929,7 +5944,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -440.0,
       "Y": 310.0,
@@ -5937,7 +5952,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -390.0,
       "Y": -140.0,
@@ -5945,7 +5960,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -390.0,
       "Y": -90.0,
@@ -5953,7 +5968,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -390.0,
       "Y": -40.0,
@@ -5961,7 +5976,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -390.0,
       "Y": 10.0,
@@ -5969,7 +5984,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -390.0,
       "Y": 60.0,
@@ -5977,7 +5992,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -390.0,
       "Y": 110.0,
@@ -5985,7 +6000,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -390.0,
       "Y": 160.0,
@@ -5993,7 +6008,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -390.0,
       "Y": 210.0,
@@ -6001,7 +6016,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -390.0,
       "Y": 260.0,
@@ -6009,7 +6024,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -390.0,
       "Y": 310.0,
@@ -6017,7 +6032,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -340.0,
       "Y": -140.0,
@@ -6025,7 +6040,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -340.0,
       "Y": -90.0,
@@ -6033,7 +6048,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -340.0,
       "Y": -40.0,
@@ -6041,7 +6056,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -340.0,
       "Y": 10.0,
@@ -6049,7 +6064,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -340.0,
       "Y": 60.0,
@@ -6057,7 +6072,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -340.0,
       "Y": 110.0,
@@ -6065,7 +6080,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -340.0,
       "Y": 160.0,
@@ -6073,7 +6088,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -340.0,
       "Y": 210.0,
@@ -6081,7 +6096,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -340.0,
       "Y": 260.0,
@@ -6089,7 +6104,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -340.0,
       "Y": 310.0,
@@ -6097,7 +6112,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -290.0,
       "Y": -140.0,
@@ -6105,7 +6120,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -290.0,
       "Y": -90.0,
@@ -6113,7 +6128,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -290.0,
       "Y": -40.0,
@@ -6121,7 +6136,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -290.0,
       "Y": 10.0,
@@ -6129,7 +6144,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -290.0,
       "Y": 60.0,
@@ -6137,7 +6152,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -290.0,
       "Y": 110.0,
@@ -6145,7 +6160,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -290.0,
       "Y": 160.0,
@@ -6153,7 +6168,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -290.0,
       "Y": 210.0,
@@ -6161,7 +6176,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -290.0,
       "Y": 260.0,
@@ -6169,7 +6184,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -290.0,
       "Y": 310.0,
@@ -6177,7 +6192,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -240.0,
       "Y": -140.0,
@@ -6185,7 +6200,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -240.0,
       "Y": -90.0,
@@ -6193,7 +6208,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -240.0,
       "Y": -40.0,
@@ -6201,7 +6216,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -240.0,
       "Y": 10.0,
@@ -6209,7 +6224,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -240.0,
       "Y": 60.0,
@@ -6217,7 +6232,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -240.0,
       "Y": 110.0,
@@ -6225,7 +6240,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -240.0,
       "Y": 160.0,
@@ -6233,7 +6248,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -240.0,
       "Y": 210.0,
@@ -6241,7 +6256,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -240.0,
       "Y": 260.0,
@@ -6249,7 +6264,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -240.0,
       "Y": 310.0,
@@ -6257,7 +6272,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -190.0,
       "Y": -140.0,
@@ -6265,7 +6280,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -190.0,
       "Y": -90.0,
@@ -6273,7 +6288,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -190.0,
       "Y": -40.0,
@@ -6281,7 +6296,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -190.0,
       "Y": 10.0,
@@ -6289,7 +6304,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -190.0,
       "Y": 60.0,
@@ -6297,7 +6312,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -190.0,
       "Y": 110.0,
@@ -6305,7 +6320,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -190.0,
       "Y": 160.0,
@@ -6313,7 +6328,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -190.0,
       "Y": 210.0,
@@ -6321,7 +6336,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -190.0,
       "Y": 260.0,
@@ -6329,7 +6344,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -190.0,
       "Y": 310.0,
@@ -6337,7 +6352,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -140.0,
       "Y": -140.0,
@@ -6345,7 +6360,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -140.0,
       "Y": -90.0,
@@ -6353,7 +6368,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -140.0,
       "Y": -40.0,
@@ -6361,7 +6376,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -140.0,
       "Y": 10.0,
@@ -6369,7 +6384,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -140.0,
       "Y": 60.0,
@@ -6377,7 +6392,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -140.0,
       "Y": 110.0,
@@ -6385,7 +6400,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -140.0,
       "Y": 160.0,
@@ -6393,7 +6408,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -140.0,
       "Y": 210.0,
@@ -6401,7 +6416,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -140.0,
       "Y": 260.0,
@@ -6409,7 +6424,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -140.0,
       "Y": 310.0,
@@ -6417,7 +6432,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -90.0,
       "Y": -140.0,
@@ -6425,7 +6440,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -90.0,
       "Y": -90.0,
@@ -6433,7 +6448,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -90.0,
       "Y": -40.0,
@@ -6441,7 +6456,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -90.0,
       "Y": 10.0,
@@ -6449,7 +6464,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -90.0,
       "Y": 60.0,
@@ -6457,7 +6472,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -90.0,
       "Y": 110.0,
@@ -6465,7 +6480,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -90.0,
       "Y": 160.0,
@@ -6473,7 +6488,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -90.0,
       "Y": 210.0,
@@ -6481,7 +6496,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -90.0,
       "Y": 260.0,
@@ -6489,7 +6504,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -90.0,
       "Y": 310.0,
@@ -6497,7 +6512,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -40.0,
       "Y": -140.0,
@@ -6505,7 +6520,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -40.0,
       "Y": -90.0,
@@ -6513,7 +6528,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -40.0,
       "Y": -40.0,
@@ -6521,7 +6536,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -40.0,
       "Y": 10.0,
@@ -6529,7 +6544,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -40.0,
       "Y": 60.0,
@@ -6537,7 +6552,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -40.0,
       "Y": 110.0,
@@ -6545,7 +6560,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -40.0,
       "Y": 160.0,
@@ -6553,7 +6568,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -40.0,
       "Y": 210.0,
@@ -6561,7 +6576,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": -40.0,
       "Y": 260.0,
@@ -6569,7 +6584,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": -40.0,
       "Y": 310.0,
@@ -6577,7 +6592,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 10.0,
       "Y": -140.0,
@@ -6585,7 +6600,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 10.0,
       "Y": -90.0,
@@ -6593,7 +6608,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 10.0,
       "Y": -40.0,
@@ -6601,7 +6616,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 10.0,
       "Y": 10.0,
@@ -6609,7 +6624,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 10.0,
       "Y": 60.0,
@@ -6617,7 +6632,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 10.0,
       "Y": 110.0,
@@ -6625,7 +6640,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 10.0,
       "Y": 160.0,
@@ -6633,7 +6648,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 10.0,
       "Y": 210.0,
@@ -6641,7 +6656,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 10.0,
       "Y": 260.0,
@@ -6649,7 +6664,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 10.0,
       "Y": 310.0,
@@ -6657,7 +6672,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 60.0,
       "Y": -140.0,
@@ -6665,7 +6680,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 60.0,
       "Y": -90.0,
@@ -6673,7 +6688,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 60.0,
       "Y": -40.0,
@@ -6681,7 +6696,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 60.0,
       "Y": 10.0,
@@ -6689,7 +6704,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 60.0,
       "Y": 60.0,
@@ -6697,7 +6712,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 60.0,
       "Y": 110.0,
@@ -6705,7 +6720,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 60.0,
       "Y": 160.0,
@@ -6713,7 +6728,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 60.0,
       "Y": 210.0,
@@ -6721,7 +6736,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 60.0,
       "Y": 260.0,
@@ -6729,7 +6744,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 60.0,
       "Y": 310.0,
@@ -6737,7 +6752,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 110.0,
       "Y": -140.0,
@@ -6745,7 +6760,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 110.0,
       "Y": -90.0,
@@ -6753,7 +6768,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 110.0,
       "Y": -40.0,
@@ -6761,7 +6776,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 110.0,
       "Y": 10.0,
@@ -6769,7 +6784,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 110.0,
       "Y": 60.0,
@@ -6777,7 +6792,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 110.0,
       "Y": 110.0,
@@ -6785,7 +6800,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 110.0,
       "Y": 160.0,
@@ -6793,7 +6808,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 110.0,
       "Y": 210.0,
@@ -6801,7 +6816,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 110.0,
       "Y": 260.0,
@@ -6809,7 +6824,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 110.0,
       "Y": 310.0,
@@ -6817,7 +6832,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 160.0,
       "Y": -140.0,
@@ -6825,7 +6840,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 160.0,
       "Y": -90.0,
@@ -6833,7 +6848,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 160.0,
       "Y": -40.0,
@@ -6841,7 +6856,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 160.0,
       "Y": 10.0,
@@ -6849,7 +6864,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 160.0,
       "Y": 60.0,
@@ -6857,7 +6872,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 160.0,
       "Y": 110.0,
@@ -6865,7 +6880,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 160.0,
       "Y": 160.0,
@@ -6873,7 +6888,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 160.0,
       "Y": 210.0,
@@ -6881,7 +6896,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 160.0,
       "Y": 260.0,
@@ -6889,7 +6904,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 160.0,
       "Y": 310.0,
@@ -6897,7 +6912,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 210.0,
       "Y": -140.0,
@@ -6905,7 +6920,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 210.0,
       "Y": -90.0,
@@ -6913,7 +6928,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 210.0,
       "Y": -40.0,
@@ -6921,7 +6936,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 210.0,
       "Y": 10.0,
@@ -6929,7 +6944,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 210.0,
       "Y": 60.0,
@@ -6937,7 +6952,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 210.0,
       "Y": 110.0,
@@ -6945,7 +6960,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 210.0,
       "Y": 160.0,
@@ -6953,7 +6968,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 210.0,
       "Y": 210.0,
@@ -6961,7 +6976,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 210.0,
       "Y": 260.0,
@@ -6969,7 +6984,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 210.0,
       "Y": 310.0,
@@ -6977,7 +6992,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 260.0,
       "Y": -140.0,
@@ -6985,7 +7000,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 260.0,
       "Y": -90.0,
@@ -6993,7 +7008,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 260.0,
       "Y": -40.0,
@@ -7001,7 +7016,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 260.0,
       "Y": 10.0,
@@ -7009,7 +7024,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 260.0,
       "Y": 60.0,
@@ -7017,7 +7032,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 260.0,
       "Y": 110.0,
@@ -7025,7 +7040,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 260.0,
       "Y": 160.0,
@@ -7033,7 +7048,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 260.0,
       "Y": 210.0,
@@ -7041,7 +7056,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 260.0,
       "Y": 260.0,
@@ -7049,7 +7064,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 260.0,
       "Y": 310.0,
@@ -7057,7 +7072,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 310.0,
       "Y": -140.0,
@@ -7065,7 +7080,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 310.0,
       "Y": -90.0,
@@ -7073,7 +7088,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 310.0,
       "Y": -40.0,
@@ -7081,7 +7096,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 310.0,
       "Y": 10.0,
@@ -7089,7 +7104,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 310.0,
       "Y": 60.0,
@@ -7097,7 +7112,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 310.0,
       "Y": 110.0,
@@ -7105,7 +7120,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 310.0,
       "Y": 160.0,
@@ -7113,7 +7128,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 310.0,
       "Y": 210.0,
@@ -7121,7 +7136,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 310.0,
       "Y": 260.0,
@@ -7129,7 +7144,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 310.0,
       "Y": 310.0,
@@ -7137,7 +7152,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 360.0,
       "Y": -140.0,
@@ -7145,7 +7160,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 360.0,
       "Y": -90.0,
@@ -7153,7 +7168,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 360.0,
       "Y": -40.0,
@@ -7161,7 +7176,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 360.0,
       "Y": 10.0,
@@ -7169,7 +7184,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 360.0,
       "Y": 60.0,
@@ -7177,7 +7192,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 360.0,
       "Y": 110.0,
@@ -7185,7 +7200,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 360.0,
       "Y": 160.0,
@@ -7193,7 +7208,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 360.0,
       "Y": 210.0,
@@ -7201,7 +7216,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 360.0,
       "Y": 260.0,
@@ -7209,7 +7224,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 360.0,
       "Y": 310.0,
@@ -7217,7 +7232,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 410.0,
       "Y": -140.0,
@@ -7225,7 +7240,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 410.0,
       "Y": -90.0,
@@ -7233,7 +7248,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 410.0,
       "Y": -40.0,
@@ -7241,7 +7256,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 410.0,
       "Y": 10.0,
@@ -7249,7 +7264,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 410.0,
       "Y": 60.0,
@@ -7257,7 +7272,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 410.0,
       "Y": 110.0,
@@ -7265,7 +7280,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 410.0,
       "Y": 160.0,
@@ -7273,7 +7288,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 410.0,
       "Y": 210.0,
@@ -7281,7 +7296,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 410.0,
       "Y": 260.0,
@@ -7289,7 +7304,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 410.0,
       "Y": 310.0,
@@ -7297,7 +7312,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 460.0,
       "Y": -140.0,
@@ -7305,7 +7320,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 460.0,
       "Y": -90.0,
@@ -7313,7 +7328,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 460.0,
       "Y": -40.0,
@@ -7321,7 +7336,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 460.0,
       "Y": 10.0,
@@ -7329,7 +7344,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 460.0,
       "Y": 60.0,
@@ -7337,7 +7352,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 460.0,
       "Y": 110.0,
@@ -7345,7 +7360,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 460.0,
       "Y": 160.0,
@@ -7353,7 +7368,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 460.0,
       "Y": 210.0,
@@ -7361,7 +7376,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 460.0,
       "Y": 260.0,
@@ -7369,7 +7384,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 460.0,
       "Y": 310.0,
@@ -7377,7 +7392,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 510.0,
       "Y": -140.0,
@@ -7385,7 +7400,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 510.0,
       "Y": -90.0,
@@ -7393,7 +7408,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 510.0,
       "Y": -40.0,
@@ -7401,7 +7416,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 510.0,
       "Y": 10.0,
@@ -7409,7 +7424,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 510.0,
       "Y": 60.0,
@@ -7417,7 +7432,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 510.0,
       "Y": 110.0,
@@ -7425,7 +7440,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 510.0,
       "Y": 160.0,
@@ -7433,7 +7448,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 510.0,
       "Y": 210.0,
@@ -7441,7 +7456,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 510.0,
       "Y": 260.0,
@@ -7449,7 +7464,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 510.0,
       "Y": 310.0,
@@ -7457,7 +7472,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 560.0,
       "Y": -140.0,
@@ -7465,7 +7480,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 560.0,
       "Y": -90.0,
@@ -7473,7 +7488,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 560.0,
       "Y": -40.0,
@@ -7481,7 +7496,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 560.0,
       "Y": 10.0,
@@ -7489,7 +7504,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 560.0,
       "Y": 60.0,
@@ -7497,7 +7512,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 560.0,
       "Y": 110.0,
@@ -7505,7 +7520,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 560.0,
       "Y": 160.0,
@@ -7513,7 +7528,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 560.0,
       "Y": 210.0,
@@ -7521,7 +7536,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 560.0,
       "Y": 260.0,
@@ -7529,7 +7544,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 560.0,
       "Y": 310.0,
@@ -7537,7 +7552,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 610.0,
       "Y": -140.0,
@@ -7545,7 +7560,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 610.0,
       "Y": -90.0,
@@ -7553,7 +7568,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 610.0,
       "Y": -40.0,
@@ -7561,7 +7576,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 610.0,
       "Y": 10.0,
@@ -7569,7 +7584,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 610.0,
       "Y": 60.0,
@@ -7577,7 +7592,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 610.0,
       "Y": 110.0,
@@ -7585,7 +7600,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 610.0,
       "Y": 160.0,
@@ -7593,7 +7608,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 610.0,
       "Y": 210.0,
@@ -7601,7 +7616,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 610.0,
       "Y": 260.0,
@@ -7609,7 +7624,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 610.0,
       "Y": 310.0,
@@ -7617,7 +7632,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 660.0,
       "Y": -140.0,
@@ -7625,7 +7640,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 660.0,
       "Y": -90.0,
@@ -7633,7 +7648,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 660.0,
       "Y": -40.0,
@@ -7641,7 +7656,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 660.0,
       "Y": 10.0,
@@ -7649,7 +7664,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 660.0,
       "Y": 60.0,
@@ -7657,7 +7672,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 660.0,
       "Y": 110.0,
@@ -7665,7 +7680,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 660.0,
       "Y": 160.0,
@@ -7673,7 +7688,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 660.0,
       "Y": 210.0,
@@ -7681,7 +7696,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 660.0,
       "Y": 260.0,
@@ -7689,7 +7704,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 660.0,
       "Y": 310.0,
@@ -7697,7 +7712,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 710.0,
       "Y": -140.0,
@@ -7705,7 +7720,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 710.0,
       "Y": -90.0,
@@ -7713,7 +7728,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 710.0,
       "Y": -40.0,
@@ -7721,7 +7736,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 710.0,
       "Y": 10.0,
@@ -7729,7 +7744,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 710.0,
       "Y": 60.0,
@@ -7737,7 +7752,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 710.0,
       "Y": 110.0,
@@ -7745,7 +7760,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 710.0,
       "Y": 160.0,
@@ -7753,7 +7768,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 710.0,
       "Y": 210.0,
@@ -7761,7 +7776,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 710.0,
       "Y": 260.0,
@@ -7769,7 +7784,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 710.0,
       "Y": 310.0,
@@ -7777,7 +7792,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 760.0,
       "Y": -140.0,
@@ -7785,7 +7800,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 760.0,
       "Y": -90.0,
@@ -7793,7 +7808,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 760.0,
       "Y": -40.0,
@@ -7801,7 +7816,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 760.0,
       "Y": 10.0,
@@ -7809,7 +7824,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 760.0,
       "Y": 60.0,
@@ -7817,7 +7832,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 760.0,
       "Y": 110.0,
@@ -7825,7 +7840,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 760.0,
       "Y": 160.0,
@@ -7833,7 +7848,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 760.0,
       "Y": 210.0,
@@ -7841,7 +7856,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 760.0,
       "Y": 260.0,
@@ -7849,7 +7864,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 760.0,
       "Y": 310.0,
@@ -7857,7 +7872,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 810.0,
       "Y": -140.0,
@@ -7865,7 +7880,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 810.0,
       "Y": -90.0,
@@ -7873,7 +7888,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 810.0,
       "Y": -40.0,
@@ -7881,7 +7896,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 810.0,
       "Y": 10.0,
@@ -7889,7 +7904,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 810.0,
       "Y": 60.0,
@@ -7897,7 +7912,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 810.0,
       "Y": 110.0,
@@ -7905,7 +7920,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 810.0,
       "Y": 160.0,
@@ -7913,7 +7928,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 810.0,
       "Y": 210.0,
@@ -7921,7 +7936,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 810.0,
       "Y": 260.0,
@@ -7929,7 +7944,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 810.0,
       "Y": 310.0,
@@ -7937,7 +7952,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 860.0,
       "Y": -140.0,
@@ -7945,7 +7960,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 860.0,
       "Y": -90.0,
@@ -7953,7 +7968,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 860.0,
       "Y": -40.0,
@@ -7961,7 +7976,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 860.0,
       "Y": 10.0,
@@ -7969,7 +7984,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 860.0,
       "Y": 60.0,
@@ -7977,7 +7992,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 860.0,
       "Y": 110.0,
@@ -7985,7 +8000,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 860.0,
       "Y": 160.0,
@@ -7993,7 +8008,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 860.0,
       "Y": 210.0,
@@ -8001,7 +8016,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 860.0,
       "Y": 260.0,
@@ -8009,7 +8024,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 860.0,
       "Y": 310.0,
@@ -8017,7 +8032,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 910.0,
       "Y": -140.0,
@@ -8025,7 +8040,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 910.0,
       "Y": -90.0,
@@ -8033,7 +8048,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 910.0,
       "Y": -40.0,
@@ -8041,7 +8056,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 910.0,
       "Y": 10.0,
@@ -8049,7 +8064,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 910.0,
       "Y": 60.0,
@@ -8057,7 +8072,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 910.0,
       "Y": 110.0,
@@ -8065,7 +8080,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 910.0,
       "Y": 160.0,
@@ -8073,7 +8088,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 910.0,
       "Y": 210.0,
@@ -8081,7 +8096,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_ice",
       "Faction": "Player",
       "X": 910.0,
       "Y": 260.0,
@@ -8089,7 +8104,7 @@
       "CollisionRadius": null
     },
     {
-      "Tower": "stress_tower",
+      "Tower": "tower_bomb",
       "Faction": "Player",
       "X": 910.0,
       "Y": 310.0,
