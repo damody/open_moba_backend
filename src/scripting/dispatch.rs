@@ -17,6 +17,8 @@ use omb_script_abi::{
 use specs::{Entity, Join, World, WorldExt};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
+use std::time::Instant;
+
 use crate::transport::OutboundMsg;
 use super::event::{ScriptEvent, ScriptEventQueue, SkillTarget};
 use super::registry::ScriptRegistry;
@@ -57,20 +59,46 @@ pub fn run_script_dispatch(
 
     // Dispatch queued events first（Spawn / AttackHit / Damage / Death / ...）
     // 這樣新 spawn 的塔 on_spawn 能先初始化 stats，第一次 on_tick 看得到正確值
+    let event_count = events.len();
+    let event_t = Instant::now();
     for ev in events {
         dispatch_one(&mut adapter, registry, ev);
     }
+    let event_ns = event_t.elapsed().as_nanos();
 
     // Dispatch on_tick for every tagged entity（塔主動行為）
+    // 收集 (script_id, ns) — 不能在迴圈裡觸 adapter borrow 的 world，所以先攢著
+    // 之後 drop(adapter) 再一次性 push 到 TickProfile。
+    let mut on_tick_timings: Vec<(String, u128)> = Vec::with_capacity(tagged.len());
     for (ent, uid) in &tagged {
         let Some(script) = registry.get(uid) else { continue };
         let handle = WorldAdapter::entity_to_handle(*ent);
+        let t = Instant::now();
         let mut world_dyn = world_dyn_of(&mut adapter);
         let r = catch_unwind(AssertUnwindSafe(|| {
             script.on_tick(handle, dt, &mut world_dyn);
         }));
+        let ns = t.elapsed().as_nanos();
         if r.is_err() {
             log::error!("[scripting] panic in on_tick of {}", uid);
+        }
+        on_tick_timings.push((uid.clone(), ns));
+    }
+
+    // 釋放 adapter 對 world 的 &mut 借用，才能拿到 TickProfile resource
+    drop(adapter);
+
+    {
+        use crate::comp::TickProfile;
+        let mut profile = world.write_resource::<TickProfile>();
+        if event_count > 0 {
+            // queued events 的耗時拆出來（events 內部又會分 Spawn/Damage/...，這裡只收總和）
+            for _ in 0..event_count {
+                profile.record_script_event(event_ns / event_count as u128);
+            }
+        }
+        for (id, ns) in on_tick_timings {
+            profile.record_script(&id, ns);
         }
     }
 }

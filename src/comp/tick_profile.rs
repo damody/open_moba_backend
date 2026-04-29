@@ -7,6 +7,13 @@ pub struct TickProfile {
     pub script_dispatch_ns: u128,
     pub process_outcomes_ns: u128,
     pub variant_stats: BTreeMap<&'static str, VariantStat>,
+    /// Per-script-id timing：script id（"dart" / "ice" / ...）→ (count, total_ns)。
+    /// 在 dispatch.rs 的 on_tick 迴圈每次量測後 record。Window 結束時 emit_log 印
+    /// top N 最耗時 scripts，可確認 script_dispatch_ns 主要花在哪。
+    pub script_stats: BTreeMap<String, VariantStat>,
+    /// 本 window 累積的 queued events 總耗時（Spawn / Death / AttackHit ... 之類）
+    pub script_events_ns: u128,
+    pub script_events_count: u64,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -37,6 +44,19 @@ impl TickProfile {
         let entry = self.variant_stats.entry(kind).or_default();
         entry.count += 1;
         entry.ns += ns;
+    }
+
+    /// 記錄一次 UnitScript on_tick 的耗時。`script_id` 對應 manifest 的 unit_id。
+    pub fn record_script(&mut self, script_id: &str, ns: u128) {
+        let entry = self.script_stats.entry(script_id.to_string()).or_default();
+        entry.count += 1;
+        entry.ns += ns;
+    }
+
+    /// 記錄一次 queued event dispatch（Spawn / AttackHit / Death / ...）的耗時。
+    pub fn record_script_event(&mut self, ns: u128) {
+        self.script_events_ns += ns;
+        self.script_events_count += 1;
     }
 
     pub fn finish_tick_and_maybe_log(&mut self) {
@@ -99,6 +119,39 @@ impl TickProfile {
                 avg_ms,
             );
         }
+
+        // Script dispatch 細項：on_tick 各 script id 排序 + queued events 總和
+        if !self.script_stats.is_empty() || self.script_events_count > 0 {
+            let events_total_ms = self.script_events_ns as f64 / 1_000_000.0;
+            let events_avg_us = if self.script_events_count > 0 {
+                self.script_events_ns as f64 / self.script_events_count as f64 / 1_000.0
+            } else {
+                0.0
+            };
+            log::info!(
+                "  script  events                count={:>6} total_ms={:>7.3} avg_us={:>7.2}",
+                self.script_events_count,
+                events_total_ms,
+                events_avg_us,
+            );
+            let mut s_entries: Vec<_> = self.script_stats.iter().collect();
+            s_entries.sort_by(|a, b| b.1.ns.cmp(&a.1.ns));
+            for (name, stat) in s_entries.iter().take(8) {
+                let total_ms = stat.ns as f64 / 1_000_000.0;
+                let avg_us = if stat.count > 0 {
+                    stat.ns as f64 / stat.count as f64 / 1_000.0
+                } else {
+                    0.0
+                };
+                log::info!(
+                    "  script  {:<22} count={:>6} total_ms={:>7.3} avg_us={:>7.2}",
+                    name,
+                    stat.count,
+                    total_ms,
+                    avg_us,
+                );
+            }
+        }
     }
 
     fn reset_window(&mut self) {
@@ -106,5 +159,8 @@ impl TickProfile {
         self.script_dispatch_ns = 0;
         self.process_outcomes_ns = 0;
         self.variant_stats.clear();
+        self.script_stats.clear();
+        self.script_events_ns = 0;
+        self.script_events_count = 0;
     }
 }
