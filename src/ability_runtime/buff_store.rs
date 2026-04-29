@@ -93,7 +93,22 @@ impl BuffStore {
 
     /// 清除 entity 的所有 buff（單位死亡時呼叫）。
     pub fn remove_all_for(&mut self, entity: Entity) {
-        self.buffs.retain(|(e, _), _| *e != entity);
+        // 收集要清掉的 buff 索引（避免 retain 內部觸 &mut self）
+        let drained: Vec<(Entity, String)> = self
+            .buffs
+            .iter()
+            .filter(|((e, _), _)| *e == entity)
+            .map(|((e, id), _)| (*e, id.clone()))
+            .collect();
+        for (e, id) in drained {
+            if let Some(entry) = self.buffs.remove(&(e, id.clone())) {
+                let keys: Vec<String> =
+                    Self::payload_keys(&entry.payload).map(String::from).collect();
+                for k in &keys {
+                    self.index_dec(e, k);
+                }
+            }
+        }
     }
 
     /// 迭代某單位身上所有 buff（供 creep_tick 算移速乘數等）。
@@ -250,5 +265,18 @@ mod tests {
         assert_eq!(expired.len(), 1);
         let found: Vec<Entity> = s.entities_with_key("x").collect();
         assert!(found.is_empty(), "expected empty after expire, got {:?}", found);
+    }
+
+    #[test]
+    fn remove_all_for_clears_index() {
+        let mut s = BuffStore::new();
+        let e = ent(1, 1);
+        s.add(e, "a", 5.0, json!({ "x": 1.0, "y": 2.0 }));
+        s.add(e, "b", 5.0, json!({ "z": 3.0 }));
+        s.remove_all_for(e);
+        for k in &["x", "y", "z"] {
+            let found: Vec<Entity> = s.entities_with_key(k).collect();
+            assert!(found.is_empty(), "key {} not cleared: {:?}", k, found);
+        }
     }
 }
