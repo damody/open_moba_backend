@@ -27,15 +27,25 @@ pub struct RegenTickData<'a> {
 }
 
 #[derive(Default)]
-pub struct Sys;
+pub struct Sys {
+    /// 累積 dt 達 0.25s 才觸發一次 regen 計算（4 Hz），降低每 frame 跑 1000 creep 的壓力。
+    /// 觸發時用累積值當 effective dt，總回血量不變。
+    dt_acc: f32,
+}
+
+const REGEN_INTERVAL: f32 = 0.25;
 
 impl<'a> System<'a> for Sys {
     type SystemData = RegenTickData<'a>;
 
     const NAME: &'static str = "regen";
 
-    fn run(_job: &mut Job<Self>, mut data: Self::SystemData) {
-        let dt = data.dt.0;
+    fn run(job: &mut Job<Self>, mut data: Self::SystemData) {
+        job.own.dt_acc += data.dt.0;
+        if job.own.dt_acc < REGEN_INTERVAL {
+            return;
+        }
+        let dt = std::mem::replace(&mut job.own.dt_acc, 0.0);
         let tx = data.mqtx.get(0).cloned();
         let entities_ref = &data._entities;
 
