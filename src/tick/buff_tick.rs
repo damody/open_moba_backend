@@ -61,9 +61,11 @@ impl<'a> System<'a> for Sys {
         let tx = data.mqtx.get(0).cloned();
 
         // DoT (Task 15)：連續扣血，每 tick dot_damage * dt，達 dot/s 持續傷害
-        // 累積到單次廣播避免每 tick 刷 creep/H
-        let dot_targets: Vec<(specs::Entity, f32)> = (&data.entities)
-            .join()
+        // 累積到單次廣播避免每 tick 刷 creep/H。
+        // 用 entities_by_key 反向索引取候選，避免對全表 entity 都呼 sum_add。
+        let dot_targets: Vec<(specs::Entity, f32)> = data
+            .buffs
+            .entities_with_key(StatKey::DotDamage.as_str())
             .filter_map(|e| {
                 let d = data.buffs.sum_add(e, StatKey::DotDamage);
                 if d > 0.0 { Some((e, d)) } else { None }
