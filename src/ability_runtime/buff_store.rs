@@ -299,4 +299,31 @@ mod tests {
         // both gone → not indexed
         assert!(s.entities_with_key("k").next().is_none());
     }
+
+    #[test]
+    fn slow_dedup_stronger_replaces_weaker() {
+        let mut s = BuffStore::new();
+        let e = ent(1, 1);
+        // 先加弱 slow（factor 越小越強，0.5 比 0.3 弱）
+        s.add(e, "slow", 5.0, json!({ "move_speed_bonus": -0.5, "slow_factor": 0.5 }));
+        // 加強 slow
+        s.add(e, "slow", 5.0, json!({ "move_speed_bonus": -0.7, "slow_factor": 0.3 }));
+        // 應該保留強 slow（factor=0.3）
+        let entry = s.get(e, "slow").expect("slow buff missing");
+        let factor = entry.payload.get("slow_factor").and_then(|v| v.as_f64()).unwrap();
+        assert!((factor - 0.3).abs() < 1e-6, "expected 0.3 (stronger), got {}", factor);
+    }
+
+    #[test]
+    fn slow_dedup_weaker_does_not_replace_stronger() {
+        let mut s = BuffStore::new();
+        let e = ent(1, 1);
+        s.add(e, "slow", 3.0, json!({ "move_speed_bonus": -0.7, "slow_factor": 0.3 }));
+        s.add(e, "slow", 10.0, json!({ "move_speed_bonus": -0.5, "slow_factor": 0.5 }));
+        let entry = s.get(e, "slow").expect("slow buff missing");
+        let factor = entry.payload.get("slow_factor").and_then(|v| v.as_f64()).unwrap();
+        assert!((factor - 0.3).abs() < 1e-6, "expected 0.3 to be preserved, got {}", factor);
+        // duration 應取 max（既有行為）
+        assert!(entry.remaining >= 9.99, "expected duration ≥ 10, got {}", entry.remaining);
+    }
 }
