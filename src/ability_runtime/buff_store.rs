@@ -279,4 +279,24 @@ mod tests {
             assert!(found.is_empty(), "key {} not cleared: {:?}", k, found);
         }
     }
+
+    #[test]
+    fn refcount_multiple_buffs_same_key() {
+        let mut s = BuffStore::new();
+        let e = ent(1, 1);
+        s.add(e, "buff1", 5.0, json!({ "k": 1.0 }));
+        s.add(e, "buff2", 5.0, json!({ "k": 2.0 }));
+
+        // both present — entity still in index
+        assert_eq!(s.entities_with_key("k").count(), 1);
+
+        s.remove(e, "buff1");
+        // one still left → still indexed
+        let found: Vec<Entity> = s.entities_with_key("k").collect();
+        assert_eq!(found, vec![e], "after removing 1 of 2, entity should still be indexed");
+
+        s.remove(e, "buff2");
+        // both gone → not indexed
+        assert!(s.entities_with_key("k").next().is_none());
+    }
 }
