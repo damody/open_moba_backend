@@ -248,7 +248,11 @@ impl<'a, T> specs::System<'a> for Job<T>
 where
     T: System<'a>,
 {
-    type SystemData = (T::SystemData, ReadExpect<'a, SysMetrics>);
+    type SystemData = (
+        T::SystemData,
+        ReadExpect<'a, SysMetrics>,
+        ReadExpect<'a, crate::comp::TickProfile>,
+    );
 
     fn run(&mut self, data: Self::SystemData) {
         // 舊版每次 run 會做三件浪費：
@@ -259,7 +263,11 @@ where
         // 在這裡改用 lock-free per-thread 統計即可。
         let start = std::time::Instant::now();
         T::run(self, data.0);
-        let millis = start.elapsed().as_millis();
+        let elapsed = start.elapsed();
+        let ns = elapsed.as_nanos();
+        // ReadExpect<TickProfile> 拿到 &TickProfile，內部 Mutex 處理並行寫入。
+        data.2.record_system(T::NAME, ns);
+        let millis = elapsed.as_millis();
         if millis > 500 {
             let name = T::NAME;
             tracing::warn!(?millis, ?name, "slow system execution");

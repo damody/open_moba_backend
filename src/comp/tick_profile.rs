@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::sync::Mutex;
 
 #[derive(Default)]
 pub struct TickProfile {
@@ -14,6 +15,11 @@ pub struct TickProfile {
     /// 本 window 累積的 queued events 總耗時（Spawn / Death / AttackHit ... 之類）
     pub script_events_ns: u128,
     pub script_events_count: u64,
+    /// Per-system timing：tower_sys / creep_sys / projectile_sys ... → (count, total_ns)。
+    /// 由 `Job::<T>::run` 每次系統跑完寫入。Mutex 是必要的：specs 並行系統用
+    /// `ReadExpect<TickProfile>` 取資源（不會 serialize 系統），但寫入仍要避競爭。
+    /// 鎖只在系統結束時短暫持有 ~50ns，contention 可忽略。
+    pub system_stats: Mutex<BTreeMap<&'static str, VariantStat>>,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -59,6 +65,15 @@ impl TickProfile {
         self.script_events_count += 1;
     }
 
+    /// Job::<T>::run 結束時呼叫；鎖短暫持有不影響並行 systems。
+    pub fn record_system(&self, name: &'static str, ns: u128) {
+        if let Ok(mut stats) = self.system_stats.lock() {
+            let entry = stats.entry(name).or_default();
+            entry.count += 1;
+            entry.ns += ns;
+        }
+    }
+
     pub fn finish_tick_and_maybe_log(&mut self) {
         self.tick_count += 1;
         if self.tick_count % Self::WINDOW == 0 {
@@ -102,52 +117,82 @@ impl TickProfile {
             outcomes_pct,
         );
 
+        // 把 `run` 拆給 13 個 specs systems 看誰吃最多。
+        // 注意：systems 並行跑，每個系統的 ms/frame 加總會 > run 總值，這正常。
+        if let Ok(stats) = self.system_stats.lock() {
+            let mut sys_entries: Vec<_> = stats.iter().collect();
+            sys_entries.sort_by(|a, b| b.1.ns.cmp(&a.1.ns));
+            for (name, stat) in sys_entries.iter().take(13) {
+                let per_frame_ms = stat.ns as f64 / window / 1_000_000.0;
+                let avg_ms = if stat.count > 0 {
+                    stat.ns as f64 / stat.count as f64 / 1_000_000.0
+                } else {
+                    0.0
+                };
+                let pct_of_run = if run_avg_ms > 0.0 {
+                    per_frame_ms * 100.0 / run_avg_ms
+                } else {
+                    0.0
+                };
+                log::info!(
+                    "  system  {:<22} ms/frame={:>7.3} ({:>4.0}% of run)  avg_ms={:>7.4}",
+                    name,
+                    per_frame_ms,
+                    pct_of_run,
+                    avg_ms,
+                );
+            }
+        }
+
         let mut entries: Vec<_> = self.variant_stats.iter().collect();
         entries.sort_by(|a, b| b.1.ns.cmp(&a.1.ns));
         for (name, stat) in entries.iter().take(6) {
-            let total_ms = stat.ns as f64 / 1_000_000.0;
+            let per_frame_count = stat.count as f64 / window;
+            let per_frame_ms = stat.ns as f64 / window / 1_000_000.0;
             let avg_ms = if stat.count > 0 {
                 stat.ns as f64 / stat.count as f64 / 1_000_000.0
             } else {
                 0.0
             };
             log::info!(
-                "  outcome {:<22} count={:>6} total_ms={:>7.3} avg_ms={:>7.4}",
+                "  outcome {:<22} per_frame={:>7.1} ms/frame={:>7.3} avg_ms={:>7.4}",
                 name,
-                stat.count,
-                total_ms,
+                per_frame_count,
+                per_frame_ms,
                 avg_ms,
             );
         }
 
         // Script dispatch 細項：on_tick 各 script id 排序 + queued events 總和
         if !self.script_stats.is_empty() || self.script_events_count > 0 {
-            let events_total_ms = self.script_events_ns as f64 / 1_000_000.0;
+            let events_per_frame = self.script_events_count as f64 / window;
+            let events_ms_per_frame = self.script_events_ns as f64 / window / 1_000_000.0;
             let events_avg_us = if self.script_events_count > 0 {
                 self.script_events_ns as f64 / self.script_events_count as f64 / 1_000.0
             } else {
                 0.0
             };
             log::info!(
-                "  script  events                count={:>6} total_ms={:>7.3} avg_us={:>7.2}",
-                self.script_events_count,
-                events_total_ms,
+                "  script  events                per_frame={:>7.1} ms/frame={:>7.3} avg_us={:>7.2}",
+                events_per_frame,
+                events_ms_per_frame,
                 events_avg_us,
             );
             let mut s_entries: Vec<_> = self.script_stats.iter().collect();
             s_entries.sort_by(|a, b| b.1.ns.cmp(&a.1.ns));
             for (name, stat) in s_entries.iter().take(8) {
-                let total_ms = stat.ns as f64 / 1_000_000.0;
+                let per_frame_count = stat.count as f64 / window;
+                let per_frame_ms = stat.ns as f64 / window / 1_000_000.0;
                 let avg_us = if stat.count > 0 {
                     stat.ns as f64 / stat.count as f64 / 1_000.0
                 } else {
                     0.0
                 };
                 log::info!(
-                    "  script  {:<22} count={:>6} total_ms={:>7.3} avg_us={:>7.2}",
+                    "  script  {:<22} per_frame={:>7.1} ms/frame={:>7.3} avg_us={:>7.2}",
                     name,
-                    stat.count,
-                    total_ms,
+                    per_frame_count,
+                    per_frame_ms,
                     avg_us,
                 );
             }
@@ -162,5 +207,8 @@ impl TickProfile {
         self.script_stats.clear();
         self.script_events_ns = 0;
         self.script_events_count = 0;
+        if let Ok(mut stats) = self.system_stats.lock() {
+            stats.clear();
+        }
     }
 }
