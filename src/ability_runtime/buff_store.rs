@@ -43,20 +43,35 @@ impl BuffStore {
                 if duration > e.remaining {
                     e.remaining = duration;
                 }
-                // 索引：扣舊 payload 的 key、加新 payload 的 key（差集）
-                let old_keys: Vec<String> = Self::payload_keys(&e.payload).map(String::from).collect();
-                let new_keys: Vec<String> = Self::payload_keys(&payload).map(String::from).collect();
-                e.payload = payload;
-                for k in &old_keys {
-                    if !new_keys.contains(k) {
-                        self.index_dec(entity, k);
+                // payload 替換策略：
+                //   - 若雙方 payload 都帶 `slow_factor`，較小者（更強）勝出，
+                //     僅在新 payload 較強時才覆寫；否則保留原 payload。
+                //   - 否則維持原本行為：覆寫。
+                let should_replace = match (
+                    e.payload.get("slow_factor").and_then(|v| v.as_f64()),
+                    payload.get("slow_factor").and_then(|v| v.as_f64()),
+                ) {
+                    (Some(old), Some(new)) => new < old,
+                    _ => true,
+                };
+                if should_replace {
+                    let old_keys: Vec<String> =
+                        Self::payload_keys(&e.payload).map(String::from).collect();
+                    let new_keys: Vec<String> =
+                        Self::payload_keys(&payload).map(String::from).collect();
+                    e.payload = payload;
+                    for k in &old_keys {
+                        if !new_keys.contains(k) {
+                            self.index_dec(entity, k);
+                        }
+                    }
+                    for k in &new_keys {
+                        if !old_keys.contains(k) {
+                            self.index_inc(entity, k);
+                        }
                     }
                 }
-                for k in &new_keys {
-                    if !old_keys.contains(k) {
-                        self.index_inc(entity, k);
-                    }
-                }
+                // should_replace == false: duration 已 refresh, payload 不動, 索引不動
             }
             None => {
                 let new_keys: Vec<String> = Self::payload_keys(&payload).map(String::from).collect();
