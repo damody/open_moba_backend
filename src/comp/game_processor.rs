@@ -810,6 +810,16 @@ impl GameProcessor {
             .build();
         ecs.write_resource::<crate::scripting::ScriptEventQueue>()
             .push(crate::scripting::ScriptEvent::Spawn { e });
+        // Default min-move-speed buff：避免多重 ice 減速把 ms 壓到 ≤ 1 觸發 frontend
+        // lerp/extrap fallback 導致 creep 瞬移到下個 waypoint。
+        // 用 BuffStore 寫入而非全域 clamp — 不同 creep 類型未來可以有不同下限、
+        // 設計上也允許某些 buff 顯式拿掉這個下限（例如「凍結 1 秒」效果）。
+        ecs.write_resource::<crate::ability_runtime::BuffStore>().add(
+            e,
+            "creep_min_speed_floor",
+            f32::MAX,
+            serde_json::json!({ "movespeed_absolute_min": 10.0 }),
+        );
         // Pass internal template id (`creep_name`) not the display label — client
         // looks up display via omoba-template-ids reverse table.
         let _ = mqtx.try_send(make_creep_create(e.id(), pos.x, pos.y, hp, mhp, msd, &creep_name));
@@ -1021,7 +1031,12 @@ impl GameProcessor {
                     target_props.hp = 0.0;
                     hp_after = 0.0;
                     died = true;
-                    log::debug!("💀 {} died from damage!", target_name);
+                    // [DEBUG-STRESS] 死亡關鍵診斷：印 max_hp / hp_before / total_damage / source
+                    // 篩 mhp > 100 跳過 1HP 塔本身的死亡（目前只關心 creep 怎麼死）
+                    if max_hp > 100.0 {
+                        log::info!("💀 {} died | max_hp={} hp_before={} dmg={:.1} (×{:.2}) source={}",
+                            target_name, max_hp, hp_before, total_damage, dmg_multiplier, source_name);
+                    }
                 }
             }
         }

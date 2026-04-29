@@ -59,5 +59,9 @@ pub fn spawn_td_tower(world: &mut World, pos: Vec2<f32>, unit_id: &str) -> Optio
     world.write_resource::<crate::scripting::ScriptEventQueue>()
         .push(crate::scripting::ScriptEvent::Spawn { e: entity });
 
+    // 標記 Searcher.tower 索引髒污 → 下個 nearby_tick 重建。
+    // 否則 collision system 看不到塔，creep / hero 會穿過塔。
+    world.write_resource::<crate::comp::outcome::Searcher>().tower.mark_dirty();
+
     Some(entity)
 }

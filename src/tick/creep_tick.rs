@@ -198,6 +198,9 @@ impl<'a> System<'a> for Sys {
                     let mut outcomes:Vec<Outcome> = Vec::new();
                     let mut cands: Vec<MoveCandidate> = Vec::new();
                     if cp.hp <= 0. {
+                        // [DEBUG-STRESS] creep_tick 看到的 hp 值（應該與 handle_damage 寫入後的 hp 一致）
+                        log::info!("☠️ creep_tick sees hp<=0: name={} hp={} mhp={} ent={}",
+                            creep.name, cp.hp, cp.mhp, e.id());
                         outcomes.push(Outcome::Death { pos: pos.0.clone(), ent: e.clone() });
                     } else {
                         if let Some(path) = tr.paths.get(&creep.path) {
