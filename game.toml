@@ -25,15 +25,21 @@ BVH_MAX_LEAF = 4
 
 # Collision pre-detection 用 spatial index。Searcher 4 個類別獨立選演算法。
 # 可選: "quadtree" | "hash_grid" | "bvh" | "sap"
-# - tower: 大多靜態 → bvh / sap 都可
-# - creep: 高頻移動 → sap / hash_grid 通常最快
-# - hero: 數量少 → sap 簡單
-# - region: 一次性靜態 → bvh / sap 都可
+#
+# 預設配置依據 micro-bench (N=5000) 的觀察：
+#   spatial_index_consistency_tests::bench_four_impls
+#
+# - tower: 變更罕見（mark_dirty 觸發）+ tower_tick 每 tick query → BVH
+#          (5000 entry: query 2.5 ms vs SAP 5.9 ms；rebuild 5 ms 罕見可吞)
+# - creep: 每 tick rebuild_from + 大量 entries → SAP（diff + voracious_mt_sort）
+#          (5000 entry: bulk 0.65 ms vs hash_grid 1.66 ms vs quadtree 4.48 ms)
+# - hero: N 通常 < 10，演算法差異不可量；用 SAP 沿用 creep 風格保持一致
+# - region: 一次性 init 後永遠 query → BVH（query 最快、rebuild 只發生一次）
 [collision]
-SPATIAL_INDEX_TOWER = "sap"
+SPATIAL_INDEX_TOWER = "bvh"
 SPATIAL_INDEX_CREEP = "sap"
 SPATIAL_INDEX_HERO = "sap"
-SPATIAL_INDEX_REGION = "sap"
+SPATIAL_INDEX_REGION = "bvh"
 SHG_CELL_SIZE = 128.0
 QUADTREE_MAX_DEPTH = 8
 QUADTREE_MAX_PER_NODE = 10

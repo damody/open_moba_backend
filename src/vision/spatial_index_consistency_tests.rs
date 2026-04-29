@@ -218,6 +218,201 @@ fn stress_1000_obstacles_four_impls_agree() {
     }
 }
 
+/// 四個 spatial index impl 的 micro-bench。預設 #[ignore]，需顯式 --release 跑：
+///
+/// ```bash
+/// cargo test --release --manifest-path omb/Cargo.toml -p omobab \
+///     vision::spatial_index_consistency_tests::bench_four_impls -- --ignored --nocapture
+/// ```
+///
+/// 量測：
+/// - `initialize` (cold): 從空構造 N 個 entry
+/// - `bulk_replace 0%`: 同 set 重新 replace（不變動），測 SAP diff 路徑的 best case
+/// - `bulk_replace 10/50/100%`: 模擬 nearby_tick 部分到全部 entity 移動
+/// - `query × 100`: 100 次隨機範圍查詢
+/// - `single insert/remove/update`: 單筆增量
+///
+/// 跑五次取中位數降低 jitter。輸出 markdown table 方便貼。
+#[test]
+#[ignore]
+fn bench_four_impls() {
+    use std::collections::BTreeMap;
+    use std::time::Instant;
+
+    // 跑多個 N 看 scaling
+    const SIZES: &[usize] = &[1000, 5000];
+    const QUERIES_PER_RUN: usize = 100;
+    const RUNS: usize = 5;
+
+    fn median(times: &mut Vec<f64>) -> f64 {
+        times.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        times[times.len() / 2]
+    }
+
+    fn fmt_ms(ms: f64) -> String {
+        if ms < 1.0 { format!("{:.3} µs", ms * 1000.0) } else { format!("{:.3} ms", ms) }
+    }
+
+    let ops = [
+        "initialize",
+        "bulk_replace 0%",
+        "bulk_replace 10%",
+        "bulk_replace 50%",
+        "bulk_replace 100%",
+        "100× query",
+        "1× insert",
+        "1× remove",
+        "1× update",
+    ];
+
+    println!();
+    println!("=== Spatial Index micro-bench (median of {} runs, --release) ===", RUNS);
+    println!();
+
+    for &n in SIZES {
+        let mut g = Lcg::new(42);
+
+        // N 個隨機 entry
+        let entries: Vec<Entry<String, ObstacleInfo>> = (0..n).map(|i| {
+            let x = g.next_f32_range(-1900.0, 1900.0);
+            let y = g.next_f32_range(-1900.0, 1900.0);
+            make_entry(&format!("e{}", i), x, y, 30.0)
+        }).collect();
+
+        // diff sets：保持 id 一致，只改部分 entry 的 position
+        let make_moved = |pct: f32| -> Vec<Entry<String, ObstacleInfo>> {
+            let mut h = Lcg::new(99);
+            entries.iter().map(|e| {
+                let dice = h.next_f32_range(0.0, 1.0);
+                if dice < pct {
+                    let nx = h.next_f32_range(-1900.0, 1900.0);
+                    let ny = h.next_f32_range(-1900.0, 1900.0);
+                    make_entry(&e.id, nx, ny, 30.0)
+                } else {
+                    e.clone()
+                }
+            }).collect()
+        };
+        let moved_10 = make_moved(0.1);
+        let moved_50 = make_moved(0.5);
+        let moved_100 = make_moved(1.0);
+
+        // 100 個隨機 query
+        let queries: Vec<(Vec2<f32>, f32)> = (0..QUERIES_PER_RUN).map(|_| {
+            let cx = g.next_f32_range(-1900.0, 1900.0);
+            let cy = g.next_f32_range(-1900.0, 1900.0);
+            let r = g.next_f32_range(100.0, 500.0);
+            (Vec2::new(cx, cy), r)
+        }).collect();
+
+        let mut results: Vec<(String, BTreeMap<&'static str, f64>)> = Vec::new();
+
+        for &kind in KINDS {
+            let mut row: BTreeMap<&'static str, f64> = BTreeMap::new();
+
+            // initialize (cold)
+            let mut times = Vec::new();
+            for _ in 0..RUNS {
+                let mut idx = build(kind);
+                let t = Instant::now();
+                idx.initialize(world_bounds(), entries.clone());
+                times.push(t.elapsed().as_secs_f64() * 1000.0);
+            }
+            row.insert("initialize", median(&mut times));
+
+            // bulk_replace with various %-moved diff
+            for (label, set) in [
+                ("bulk_replace 0%", &entries),
+                ("bulk_replace 10%", &moved_10),
+                ("bulk_replace 50%", &moved_50),
+                ("bulk_replace 100%", &moved_100),
+            ] {
+                let mut idx = build(kind);
+                idx.initialize(world_bounds(), entries.clone());
+                let mut times = Vec::new();
+                for _ in 0..RUNS {
+                    let t = Instant::now();
+                    idx.bulk_replace(world_bounds(), set.clone());
+                    times.push(t.elapsed().as_secs_f64() * 1000.0);
+                }
+                row.insert(label, median(&mut times));
+            }
+
+            // 100× query
+            let mut idx = build(kind);
+            idx.initialize(world_bounds(), entries.clone());
+            let mut times = Vec::new();
+            for _ in 0..RUNS {
+                let t = Instant::now();
+                for &(c, r) in &queries {
+                    let _ = idx.query_in_range(c, r);
+                }
+                times.push(t.elapsed().as_secs_f64() * 1000.0);
+            }
+            row.insert("100× query", median(&mut times));
+
+            // 1× insert (新 id)
+            let mut times = Vec::new();
+            for run in 0..RUNS {
+                let mut idx = build(kind);
+                idx.initialize(world_bounds(), entries.clone());
+                let new_entry = make_entry(&format!("bench_new_{}", run), 0.0, 0.0, 30.0);
+                let t = Instant::now();
+                idx.insert(new_entry);
+                times.push(t.elapsed().as_secs_f64() * 1000.0);
+            }
+            row.insert("1× insert", median(&mut times));
+
+            // 1× remove (既有 id)
+            let mut times = Vec::new();
+            for _ in 0..RUNS {
+                let mut idx = build(kind);
+                idx.initialize(world_bounds(), entries.clone());
+                let id = format!("e{}", n / 2);
+                let t = Instant::now();
+                let _ = idx.remove(&id);
+                times.push(t.elapsed().as_secs_f64() * 1000.0);
+            }
+            row.insert("1× remove", median(&mut times));
+
+            // 1× update (既有 id 移到新位置)
+            let mut times = Vec::new();
+            for _ in 0..RUNS {
+                let mut idx = build(kind);
+                idx.initialize(world_bounds(), entries.clone());
+                let updated = make_entry(&format!("e{}", n / 2), 0.0, 0.0, 30.0);
+                let t = Instant::now();
+                idx.update(updated);
+                times.push(t.elapsed().as_secs_f64() * 1000.0);
+            }
+            row.insert("1× update", median(&mut times));
+
+            results.push((kind.to_string(), row));
+        }
+
+        // 每個 N 各印一張表
+        println!("--- N = {} entries ---", n);
+        println!();
+
+        print!("| {:<18} |", "Operation");
+        for (kind, _) in &results { print!(" {:>12} |", kind); }
+        println!();
+        print!("|{:-<20}|", "");
+        for _ in 0..results.len() { print!("{:-<14}|", ""); }
+        println!();
+
+        for op in &ops {
+            print!("| {:<18} |", op);
+            for (_, row) in &results {
+                let v = row.get(*op).copied().unwrap_or(0.0);
+                print!(" {:>12} |", fmt_ms(v));
+            }
+            println!();
+        }
+        println!();
+    }
+}
+
 /// 對 (Entity-style Id=u64, Item=()) 也跑一次基本一致性，確認 generic 化後對非 String/ObstacleInfo
 /// 的 (Id, Item) 配對也正常 — 這是 collision pre-detection 的 smoke test。
 #[test]
