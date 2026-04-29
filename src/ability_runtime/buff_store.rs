@@ -43,9 +43,23 @@ impl BuffStore {
                 if duration > e.remaining {
                     e.remaining = duration;
                 }
+                // 索引：扣舊 payload 的 key、加新 payload 的 key（差集）
+                let old_keys: Vec<String> = Self::payload_keys(&e.payload).map(String::from).collect();
+                let new_keys: Vec<String> = Self::payload_keys(&payload).map(String::from).collect();
                 e.payload = payload;
+                for k in &old_keys {
+                    if !new_keys.contains(k) {
+                        self.index_dec(entity, k);
+                    }
+                }
+                for k in &new_keys {
+                    if !old_keys.contains(k) {
+                        self.index_inc(entity, k);
+                    }
+                }
             }
             None => {
+                let new_keys: Vec<String> = Self::payload_keys(&payload).map(String::from).collect();
                 self.buffs.insert(
                     key,
                     BuffEntry {
@@ -53,6 +67,9 @@ impl BuffStore {
                         payload,
                     },
                 );
+                for k in &new_keys {
+                    self.index_inc(entity, k);
+                }
             }
         }
     }
@@ -83,6 +100,34 @@ impl BuffStore {
                 None
             }
         })
+    }
+
+    /// 從 payload 抽出所有頂層 key（這些就是 stat key 字串）。
+    /// payload 不是 Object 時返回空 iterator。
+    fn payload_keys(payload: &Value) -> impl Iterator<Item = &str> {
+        payload
+            .as_object()
+            .into_iter()
+            .flat_map(|m| m.keys().map(|s| s.as_str()))
+    }
+
+    fn index_inc(&mut self, entity: Entity, key: &str) {
+        let inner = self.entities_by_key.entry(key.to_string()).or_default();
+        *inner.entry(entity).or_insert(0) += 1;
+    }
+
+    fn index_dec(&mut self, entity: Entity, key: &str) {
+        if let Some(inner) = self.entities_by_key.get_mut(key) {
+            if let Some(cnt) = inner.get_mut(&entity) {
+                *cnt = cnt.saturating_sub(1);
+                if *cnt == 0 {
+                    inner.remove(&entity);
+                }
+            }
+            if inner.is_empty() {
+                self.entities_by_key.remove(key);
+            }
+        }
     }
 
     /// 反向查詢：哪些 entity 身上有 buff payload 含 `key`。
