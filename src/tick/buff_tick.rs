@@ -3,7 +3,8 @@
 //! 取代舊 `slow_buff_tick`；所有 buff 統一走 `ability_runtime::BuffStore`。
 //! 過期 buff 若 payload 含 `move_speed_bonus` 且 target 還活著且是 Creep →
 //! 廣播 `creep/S { id, move_speed }` 讓 client 重算 lerp（buff_id 不再限定
-//! "slow"，因為現在 slow buff_id 是 `slow_{attacker_id}` 多 instance）。
+//! "slow"，但 slow buff 採單一 instance 設計：buff_id = "slow"，由 payload
+//! 內的 `slow_factor` 欄位驅動「強蓋弱」比較，多次命中只 refresh duration）。
 //!
 //! **DoT (Task 15)**：payload 含 `dot_damage` 的 buff 每秒對 target 扣 HP。
 //! 以 1 秒累計槽 (`dot_accum: f32`) 控制頻率，累積到 1s 時觸發一次整批 dot。

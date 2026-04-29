@@ -181,8 +181,11 @@ impl<'a> System<'a> for Sys {
 
 /// 創建投射物傷害事件 - 使用新的傷害事件系統。
 /// 若 projectile 帶有 slow_factor/slow_duration（Ice 塔）則同時 push `AddBuff`：
-/// 以 `slow_{owner_id}` 為 buff_id 保證多攻擊者可加總聚合，
-/// payload 寫 `move_speed_bonus = -(1 - factor)`（負值 = 減速）。
+/// Slow buff 採單一 instance 設計：buff_id = "slow"。同 creep 上多次命中：
+///   - duration 取 max（refresh 不疊加）
+///   - payload 只在新 slow_factor 較小（更強）時覆寫，否則保留舊 payload
+/// 由 BuffStore::add 的 should_replace 邏輯處理（讀 payload 內的 `slow_factor` 欄位）。
+/// payload 寫 `move_speed_bonus = -(1 - factor)`（負值 = 減速）+ `slow_factor`。
 ///
 /// P7 latency hiding: 非 AOE（`proj.radius < 1.0`）的單體追蹤彈在發射時
 /// 已把 final damage 寫到 ProjectileCreate.damage 欄位，client 會在 impact
@@ -222,9 +225,10 @@ fn create_projectile_damage(
             StatKey::MoveSpeedBonus.as_str().to_string(),
             serde_json::json!(bonus),
         );
+        payload.insert("slow_factor".into(), serde_json::json!(proj.slow_factor));
         outcomes.push(Outcome::AddBuff {
             target,
-            buff_id: format!("slow_{}", proj.owner.id()),
+            buff_id: "slow".to_string(),
             duration: proj.slow_duration,
             payload: serde_json::Value::Object(payload),
         });

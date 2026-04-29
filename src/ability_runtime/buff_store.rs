@@ -40,9 +40,10 @@ impl BuffStore {
         Self::default()
     }
 
-    /// 新增或刷新 buff。若已存在：duration 取 max、payload 覆蓋（交由呼叫端
-    /// 決定是否合併/疊加——例如 slow 用 buff_id = `slow_{attacker}` 每個來源
-    /// 一個 entry，由 `sum_add("move_speed_bonus")` 加總聚合）。
+    /// 新增或刷新 buff。若已存在：duration 取 max、payload 依 should_replace
+    /// 策略決定是否覆寫——例如 slow 採單一 instance（buff_id = "slow"），
+    /// 由 payload 的 `slow_factor` 欄位驅動「強蓋弱」比較（見上方 Reserved
+    /// payload conventions）。
     pub fn add(&mut self, entity: Entity, buff_id: &str, duration: f32, payload: Value) {
         let key = (entity, buff_id.to_string());
         match self.buffs.get_mut(&key) {
