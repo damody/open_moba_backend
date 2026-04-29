@@ -9,7 +9,7 @@
 use crossbeam_channel::Sender;
 use rayon::prelude::*;
 use serde_json::json;
-use specs::{shred, Entities, Join, Read, ReadStorage, SystemData, Write, WriteStorage, World};
+use specs::{shred, Read, ReadStorage, SystemData, Write, WriteStorage, World};
 
 use crate::ability_runtime::{BuffStore, UnitStats};
 use crate::comp::*;
@@ -18,7 +18,6 @@ use omb_script_abi::stat_keys::StatKey;
 
 #[derive(SystemData)]
 pub struct RegenTickData<'a> {
-    _entities: Entities<'a>,
     dt: Read<'a, DeltaTime>,
     buffs: Read<'a, BuffStore>,
     is_buildings: ReadStorage<'a, IsBuilding>,
