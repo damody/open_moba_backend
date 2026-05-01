@@ -92,7 +92,7 @@
         "Magic": 0.0
       },
       "TurnSpeed": 360.0,
-      "CollisionRadius": 25.0
+      "CollisionRadius": 12.5
     },
     {
       "Name": "tower_bomb",
@@ -107,7 +107,7 @@
         "Magic": 0.0
       },
       "TurnSpeed": 360.0,
-      "CollisionRadius": 25.0
+      "CollisionRadius": 12.5
     }
   ],
   "Structures": [
