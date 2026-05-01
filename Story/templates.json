@@ -2,11 +2,36 @@
   "_comment": "Single source of truth for all template ids. Append-only — changing order shifts ids. Id 0 reserved as UNSPECIFIED; sequential u16 assigned from 1 in declaration order.",
   "_design_doc": "docs/plans/2026-04-25-template-id-codegen-design.md",
 
+  "_tower_stats_doc": "Tower stats live here as the single source of truth. omoba-template-ids/build.rs reads them and emits TOWER_<NAME>_STATS const + tower_stats(id) lookup, used by base_content tower scripts. 改完 stats 重 build script DLL 即生效，不需動 host 程式碼或 map.json。",
   "towers": [
-    { "id": "tower_dart", "display_name": "Dart Monkey" },
-    { "id": "tower_tack", "display_name": "Tack Shooter" },
-    { "id": "tower_bomb", "display_name": "Bomb Shooter" },
-    { "id": "tower_ice",  "display_name": "Ice Tower" }
+    {
+      "id": "tower_dart", "display_name": "Dart Monkey",
+      "atk": 10.0, "asd_interval": 0.8, "range": 350.0, "bullet_speed": 1200.0,
+      "splash_radius": 0.0, "hit_radius": 0.0,
+      "slow_factor": 0.0, "slow_duration": 0.0,
+      "cost": 200, "footprint": 10.0, "hp": 1.0, "turn_speed_deg": 360.0
+    },
+    {
+      "id": "tower_tack", "display_name": "Tack Shooter",
+      "atk": 8.0, "asd_interval": 1.2, "range": 380.0, "bullet_speed": 1400.0,
+      "splash_radius": 0.0, "hit_radius": 80.0,
+      "slow_factor": 0.0, "slow_duration": 0.0,
+      "cost": 400, "footprint": 10.0, "hp": 1.0, "turn_speed_deg": 3600.0
+    },
+    {
+      "id": "tower_bomb", "display_name": "Bomb Shooter",
+      "atk": 30.0, "asd_interval": 1.5, "range": 400.0, "bullet_speed": 900.0,
+      "splash_radius": 200.0, "hit_radius": 0.0,
+      "slow_factor": 0.0, "slow_duration": 0.0,
+      "cost": 650, "footprint": 12.5, "hp": 1.0, "turn_speed_deg": 360.0
+    },
+    {
+      "id": "tower_ice", "display_name": "Ice Monkey",
+      "atk": 3.0, "asd_interval": 1.5, "range": 180.0, "bullet_speed": 600.0,
+      "splash_radius": 90.0, "hit_radius": 0.0,
+      "slow_factor": 0.5, "slow_duration": 2.0,
+      "cost": 400, "footprint": 10.0, "hp": 1.0, "turn_speed_deg": 360.0
+    }
   ],
 
   "heroes": [

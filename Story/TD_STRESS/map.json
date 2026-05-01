@@ -78,38 +78,7 @@
       "Y": 800.0
     }
   ],
-  "Tower": [
-    {
-      "Name": "tower_ice",
-      "Property": {
-        "Hp": 1000,
-        "Block": 0
-      },
-      "Attack": {
-        "Range": 200.0,
-        "AttackSpeed": 1.0,
-        "Physic": 20.0,
-        "Magic": 0.0
-      },
-      "TurnSpeed": 360.0,
-      "CollisionRadius": 12.5
-    },
-    {
-      "Name": "tower_bomb",
-      "Property": {
-        "Hp": 1000,
-        "Block": 0
-      },
-      "Attack": {
-        "Range": 200.0,
-        "AttackSpeed": 1.0,
-        "Physic": 20.0,
-        "Magic": 0.0
-      },
-      "TurnSpeed": 360.0,
-      "CollisionRadius": 12.5
-    }
-  ],
+  "Tower": [],
   "Structures": [
     {
       "Tower": "tower_ice",
