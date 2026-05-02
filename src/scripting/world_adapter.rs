@@ -10,9 +10,10 @@ use abi_stable::std_types::{RNone, ROption, RSome, RStr, RVec};
 use crossbeam_channel::Sender;
 use omb_script_abi::{
     stat_keys::StatKey,
-    types::{DamageKind, EntityHandle, PathSpec, ProjectileSpec, Vec2f},
+    types::{Angle, DamageKind, EntityHandle, Fixed32, PathSpec, ProjectileSpec, Vec2},
     world::GameWorld,
 };
+use omoba_sim::trig::TAU_TICKS;
 use rand::{Rng, SeedableRng};
 use rand_pcg::Pcg64Mcg;
 use serde_json::json;
@@ -204,36 +205,79 @@ impl<'a> WorldAdapter<'a> {
     }
 }
 
+// ============================================================
+// Phase 1a.4e ABI boundary conversions.
+// omb internal ECS still f32 in this sub-phase; scripts speak Fixed32/Vec2/Angle.
+// All call sites tagged `// TODO Phase 1[bcd]` for cleanup when each ECS
+// component migrates to deterministic types.
+// ============================================================
+
+#[inline]
+fn f32_to_fixed(v: f32) -> Fixed32 {
+    // TODO Phase 1[bcd]: drop conversion when source is Fixed32 natively.
+    Fixed32::from_raw((v * 1024.0) as i32)
+}
+
+#[inline]
+fn vek_to_abi(v: vek::Vec2<f32>) -> Vec2 {
+    // TODO Phase 1[bcd]: drop conversion when omb Pos migrates to Vec2<Fixed32>.
+    Vec2 { x: f32_to_fixed(v.x), y: f32_to_fixed(v.y) }
+}
+
+#[inline]
+fn abi_to_vek(v: Vec2) -> vek::Vec2<f32> {
+    // TODO Phase 1[bcd]: drop conversion when omb Pos migrates to Vec2<Fixed32>.
+    vek::Vec2::new(v.x.to_f32_for_render(), v.y.to_f32_for_render())
+}
+
+#[inline]
+fn rad_to_angle(rad: f32) -> Angle {
+    // TODO Phase 1[bcd]: drop when omb Facing migrates to Angle.
+    let ticks = (rad / (2.0 * std::f32::consts::PI) * TAU_TICKS as f32).round() as i32;
+    Angle::from_ticks(ticks)
+}
+
+#[inline]
+fn angle_to_rad(a: Angle) -> f32 {
+    // TODO Phase 1[bcd]: drop when omb Facing migrates to Angle.
+    (a.ticks() as f32 / TAU_TICKS as f32) * 2.0 * std::f32::consts::PI
+}
+
 impl<'a> GameWorld for WorldAdapter<'a> {
     // ---------------- Query ----------------
 
-    fn get_pos(&self, e: EntityHandle) -> ROption<Vec2f> {
+    fn get_pos(&self, e: EntityHandle) -> ROption<Vec2> {
         let Some(ent) = Self::handle_to_entity(e) else { return RNone };
         match self.cache.pos.get(ent) {
-            Some(p) => RSome(Vec2f { x: p.0.x, y: p.0.y }),
+            // TODO Phase 1[bcd]: drop conversion when Pos migrates to Vec2<Fixed32>.
+            Some(p) => RSome(vek_to_abi(p.0)),
             None => RNone,
         }
     }
 
-    fn get_hp(&self, e: EntityHandle) -> ROption<f32> {
+    fn get_hp(&self, e: EntityHandle) -> ROption<Fixed32> {
         let Some(ent) = Self::handle_to_entity(e) else { return RNone };
         // Prefer CProperty (used by creeps/towers in TD mode); fall back to Unit.
         if let Some(p) = self.cache.cprop.get(ent) {
-            return RSome(p.hp);
+            // TODO Phase 1[bcd]: drop conversion when CProperty.hp migrates to Fixed32.
+            return RSome(f32_to_fixed(p.hp));
         }
         if let Some(u) = self.cache.unit.get(ent) {
-            return RSome(u.current_hp as f32);
+            // TODO Phase 1[bcd]: drop conversion when Unit.current_hp migrates to Fixed32.
+            return RSome(f32_to_fixed(u.current_hp as f32));
         }
         RNone
     }
 
-    fn get_max_hp(&self, e: EntityHandle) -> ROption<f32> {
+    fn get_max_hp(&self, e: EntityHandle) -> ROption<Fixed32> {
         let Some(ent) = Self::handle_to_entity(e) else { return RNone };
         if let Some(p) = self.cache.cprop.get(ent) {
-            return RSome(p.mhp);
+            // TODO Phase 1[bcd]: drop conversion when CProperty.mhp migrates to Fixed32.
+            return RSome(f32_to_fixed(p.mhp));
         }
         if let Some(u) = self.cache.unit.get(ent) {
-            return RSome(u.max_hp as f32);
+            // TODO Phase 1[bcd]: drop conversion when Unit.max_hp migrates to Fixed32.
+            return RSome(f32_to_fixed(u.max_hp as f32));
         }
         RNone
     }
@@ -259,8 +303,8 @@ impl<'a> GameWorld for WorldAdapter<'a> {
 
     fn query_enemies_in_range(
         &self,
-        center: Vec2f,
-        radius: f32,
+        center: Vec2,
+        radius: Fixed32,
         of: EntityHandle,
     ) -> RVec<EntityHandle> {
         let Some(of_ent) = Self::handle_to_entity(of) else { return RVec::new() };
@@ -269,9 +313,11 @@ impl<'a> GameWorld for WorldAdapter<'a> {
             None => return RVec::new(),
         };
 
-        let r2 = radius * radius;
-        let cx = center.x;
-        let cy = center.y;
+        // TODO Phase 1[bcd]: do this comparison in fixed-point when Pos migrates.
+        let radius_f = radius.to_f32_for_render();
+        let r2 = radius_f * radius_f;
+        let cx = center.x.to_f32_for_render();
+        let cy = center.y.to_f32_for_render();
         let mut out: RVec<EntityHandle> = RVec::new();
 
         for (ent, pos, fac) in (&self.cache.entities, &self.cache.pos, &self.cache.faction).join() {
@@ -287,20 +333,21 @@ impl<'a> GameWorld for WorldAdapter<'a> {
 
     // ---------------- Mutate ----------------
 
-    fn set_pos(&mut self, e: EntityHandle, p: Vec2f) {
+    fn set_pos(&mut self, e: EntityHandle, p: Vec2) {
         let Some(ent) = Self::handle_to_entity(e) else { return };
         if let Some(pos) = self.cache.pos.get_mut(ent) {
-            pos.0.x = p.x;
-            pos.0.y = p.y;
+            // TODO Phase 1[bcd]: drop conversion when Pos migrates to Vec2<Fixed32>.
+            pos.0.x = p.x.to_f32_for_render();
+            pos.0.y = p.y.to_f32_for_render();
         }
     }
 
     fn advance_with_collision(
         &mut self,
         e: EntityHandle,
-        target: Vec2f,
-        step: f32,
-    ) -> Vec2f {
+        target: Vec2,
+        step: Fixed32,
+    ) -> Vec2 {
         let Some(ent) = Self::handle_to_entity(e) else {
             return target;
         };
@@ -314,53 +361,59 @@ impl<'a> GameWorld for WorldAdapter<'a> {
             .get(ent)
             .map(|r| r.0)
             .unwrap_or(30.0);
-        let target_vek = vek::Vec2::new(target.x, target.y);
+        // TODO Phase 1[bcd]: drop conversions once collision tick takes Fixed32.
+        let target_vek = abi_to_vek(target);
         let (new_pos, _reached) = crate::tick::hero_move_tick::advance_with_collision(
             pos,
             target_vek,
-            step,
+            step.to_f32_for_render(),
             radius,
             &self.cache.searcher,
             &self.cache.collision,
             ent,
             &self.cache.blocked,
         );
-        Vec2f::new(new_pos.x, new_pos.y)
+        vek_to_abi(new_pos)
     }
 
     fn deal_damage(
         &mut self,
         target: EntityHandle,
-        amount: f32,
+        amount: Fixed32,
         _kind: DamageKind,
         _source: ROption<EntityHandle>,
     ) {
         let Some(ent) = Self::handle_to_entity(target) else { return };
+        // TODO Phase 1[bcd]: drop conversion when CProperty.hp / Unit.current_hp migrate to Fixed32.
+        let amount_f = amount.to_f32_for_render();
         // Prefer CProperty (TD mode).
         if let Some(p) = self.cache.cprop.get_mut(ent) {
-            p.hp = (p.hp - amount).max(0.0);
+            p.hp = (p.hp - amount_f).max(0.0);
             return;
         }
         if let Some(u) = self.cache.unit.get_mut(ent) {
-            u.current_hp = (u.current_hp - amount as i32).max(0);
+            u.current_hp = (u.current_hp - amount_f as i32).max(0);
         }
     }
 
-    fn heal(&mut self, target: EntityHandle, amount: f32) {
+    fn heal(&mut self, target: EntityHandle, amount: Fixed32) {
         let Some(ent) = Self::handle_to_entity(target) else { return };
+        // TODO Phase 1[bcd]: drop conversion when CProperty.hp / Unit.current_hp migrate to Fixed32.
+        let amount_f = amount.to_f32_for_render();
         if let Some(p) = self.cache.cprop.get_mut(ent) {
-            p.hp = (p.hp + amount).min(p.mhp);
+            p.hp = (p.hp + amount_f).min(p.mhp);
             return;
         }
         if let Some(u) = self.cache.unit.get_mut(ent) {
-            u.current_hp = (u.current_hp + amount as i32).min(u.max_hp);
+            u.current_hp = (u.current_hp + amount_f as i32).min(u.max_hp);
         }
     }
 
-    fn add_buff(&mut self, target: EntityHandle, buff_id: RStr<'_>, duration: f32) {
+    fn add_buff(&mut self, target: EntityHandle, buff_id: RStr<'_>, duration: Fixed32) {
         let Some(ent) = Self::handle_to_entity(target) else { return };
         let id_owned = buff_id.as_str().to_string();
-        self.cache.buffs.add(ent, &id_owned, duration, serde_json::Value::Null);
+        // TODO Phase 1[bcd]: drop conversion when BuffStore migrates to Fixed32.
+        self.cache.buffs.add(ent, &id_owned, duration.to_f32_for_render(), serde_json::Value::Null);
         self.cache.events
             .push(ScriptEvent::ModifierAdded { e: ent, modifier_id: id_owned });
     }
@@ -382,24 +435,25 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         &mut self,
         target: EntityHandle,
         buff_id: RStr<'_>,
-        duration: f32,
+        duration: Fixed32,
         modifiers_json: RStr<'_>,
     ) {
         let Some(ent) = Self::handle_to_entity(target) else { return };
         let payload: serde_json::Value =
             serde_json::from_str(modifiers_json.as_str()).unwrap_or(serde_json::Value::Null);
         let id_owned = buff_id.as_str().to_string();
-        self.cache.buffs.add(ent, &id_owned, duration, payload);
+        // TODO Phase 1[bcd]: drop conversion when BuffStore migrates to Fixed32.
+        self.cache.buffs.add(ent, &id_owned, duration.to_f32_for_render(), payload);
         self.cache.events
             .push(ScriptEvent::ModifierAdded { e: ent, modifier_id: id_owned });
     }
 
     fn spawn_summoned_unit(
         &mut self,
-        pos: Vec2f,
+        pos: Vec2,
         unit_type: RStr<'_>,
         owner: EntityHandle,
-        duration: f32,
+        duration: Fixed32,
     ) -> EntityHandle {
         let Some(owner_ent) = Self::handle_to_entity(owner) else {
             return EntityHandle::INVALID;
@@ -412,7 +466,11 @@ impl<'a> GameWorld for WorldAdapter<'a> {
             .cloned()
             .unwrap_or_else(|| Faction::new(FactionType::Player, 0));
 
-        let Some(unit) = Unit::create_summon_unit(unit_type_str, (pos.x, pos.y), faction.team_id) else {
+        // TODO Phase 1[bcd]: drop conversions when Unit / spawn helpers migrate to Fixed32.
+        let pos_x_f = pos.x.to_f32_for_render();
+        let pos_y_f = pos.y.to_f32_for_render();
+        let duration_f = duration.to_f32_for_render();
+        let Some(unit) = Unit::create_summon_unit(unit_type_str, (pos_x_f, pos_y_f), faction.team_id) else {
             return EntityHandle::INVALID;
         };
 
@@ -435,14 +493,14 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         let summon_time = self.cache.time.0 as f32;
         let summoned = SummonedUnit::new(
             owner_ent,
-            if duration > 0.0 { Some(duration) } else { None },
+            if duration_f > 0.0 { Some(duration_f) } else { None },
             summon_time,
         );
 
         // LazyUpdate：entity id 立刻分配，components 在下次 maintain (core.rs:364) 真正附上。
         // 本 frame 後續 system 已跑完，不會看到這個半成品。
         let e = self.cache.lazy.create_entity(&self.cache.entities)
-            .with(Pos(vek::Vec2::new(pos.x, pos.y)))
+            .with(Pos(vek::Vec2::new(pos_x_f, pos_y_f)))
             .with(Vel(vek::Vec2::new(0.0, 0.0)))
             .with(unit.clone())
             .with(faction)
@@ -466,13 +524,13 @@ impl<'a> GameWorld for WorldAdapter<'a> {
                 "id": e.id(),
                 "unit_id": unit_type_str,
                 "name": unit.name,
-                "position": { "x": pos.x, "y": pos.y },
+                "position": { "x": pos_x_f, "y": pos_y_f },
                 "hp": unit.current_hp,
                 "max_hp": unit.max_hp,
                 "move_speed": unit.move_speed,
-                "duration": duration,
+                "duration": duration_f,
             }),
-            pos.x, pos.y,
+            pos_x_f, pos_y_f,
         ));
 
         Self::entity_to_handle(e)
@@ -482,7 +540,15 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         let Some(owner_ent) = Self::handle_to_entity(spec.owner) else {
             return EntityHandle::INVALID;
         };
-        let from_vek = vek::Vec2::new(spec.from.x, spec.from.y);
+        // TODO Phase 1[bcd]: drop these conversions when Projectile / Pos migrate to Fixed32.
+        let from_vek = abi_to_vek(spec.from);
+        let speed_f = spec.speed.to_f32_for_render();
+        let damage_f = spec.damage.to_f32_for_render();
+        let splash_radius_f = spec.splash_radius.to_f32_for_render();
+        let hit_radius_f = spec.hit_radius.to_f32_for_render();
+        let slow_factor_f = spec.slow_factor.to_f32_for_render();
+        let slow_duration_f = spec.slow_duration.to_f32_for_render();
+        let stun_duration_f = spec.stun_duration.to_f32_for_render();
 
         // 依 PathSpec 算 tpos + target option + end_pos（供前端直線渲染）
         let (target_opt, tpos_vek, end_pos_vek, is_directional, target_id_out) = match spec.path {
@@ -495,14 +561,14 @@ impl<'a> GameWorld for WorldAdapter<'a> {
                 (Some(target_ent), tpos, tpos, false, target.id)
             }
             PathSpec::Straight { end_pos } => {
-                let end = vek::Vec2::new(end_pos.x, end_pos.y);
+                let end = abi_to_vek(end_pos);
                 (None, end, end, true, 0u32)
             }
         };
 
         let initial_dist = (tpos_vek - from_vek).magnitude();
-        let flight_time_s: f32 = if spec.speed > 0.0 {
-            (initial_dist / spec.speed).max(0.01)
+        let flight_time_s: f32 = if speed_f > 0.0 {
+            (initial_dist / speed_f).max(0.01)
         } else { 0.01 };
         let safety = flight_time_s * 3.0 + 1.5;
 
@@ -514,15 +580,15 @@ impl<'a> GameWorld for WorldAdapter<'a> {
                 owner: owner_ent,
                 tpos: tpos_vek,
                 target: target_opt,
-                radius: spec.splash_radius,
-                msd: spec.speed,
-                damage_phys: spec.damage,
+                radius: splash_radius_f,
+                msd: speed_f,
+                damage_phys: damage_f,
                 damage_magi: 0.0,
                 damage_real: 0.0,
-                slow_factor: spec.slow_factor,
-                slow_duration: spec.slow_duration,
-                hit_radius: spec.hit_radius,
-                stun_duration: spec.stun_duration,
+                slow_factor: slow_factor_f,
+                slow_duration: slow_duration_f,
+                hit_radius: hit_radius_f,
+                stun_duration: stun_duration_f,
             })
             .build();
 
@@ -531,24 +597,30 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         // (splash > 0), directional, or untargeted shots still carry 0 —
         // those don't fit the in_flight reconciliation model and stay
         // server-broadcast (creep/H per impact).
-        let predeclared_dmg = if spec.splash_radius > 0.0 || is_directional || target_id_out == 0 {
+        let predeclared_dmg = if splash_radius_f > 0.0 || is_directional || target_id_out == 0 {
             0.0
         } else {
-            spec.damage
+            damage_f
         };
         let _ = self.mqtx.try_send(make_projectile_create_script(
             e.id(), target_id_out,
             from_vek.x, from_vek.y, end_pos_vek.x, end_pos_vek.y,
-            spec.speed, flight_time_ms,
-            is_directional, spec.splash_radius, spec.hit_radius, spec.kind_id,
+            speed_f, flight_time_ms,
+            is_directional, splash_radius_f, hit_radius_f, spec.kind_id,
             predeclared_dmg,
         ));
 
         Self::entity_to_handle(e)
     }
 
-    fn emit_explosion(&mut self, pos: Vec2f, radius: f32, duration: f32) {
-        let _ = self.mqtx.try_send(make_game_explosion_script(pos.x, pos.y, radius, duration));
+    fn emit_explosion(&mut self, pos: Vec2, radius: Fixed32, duration: Fixed32) {
+        // TODO Phase 1[bcd]: drop conversions when explosion VFX takes Fixed32.
+        let _ = self.mqtx.try_send(make_game_explosion_script(
+            pos.x.to_f32_for_render(),
+            pos.y.to_f32_for_render(),
+            radius.to_f32_for_render(),
+            duration.to_f32_for_render(),
+        ));
     }
 
     fn despawn(&mut self, e: EntityHandle) {
@@ -559,73 +631,87 @@ impl<'a> GameWorld for WorldAdapter<'a> {
 
     // ---------------- 塔 / 單位屬性 ----------------
 
-    fn get_tower_range(&self, e: EntityHandle) -> f32 {
-        let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
-        self.cache.tattack.get(ent).map(|t| t.range.v).unwrap_or(0.0)
+    fn get_tower_range(&self, e: EntityHandle) -> Fixed32 {
+        let Some(ent) = Self::handle_to_entity(e) else { return Fixed32::ZERO };
+        // TODO Phase 1[bcd]: drop conversion when TAttack migrates to Fixed32.
+        f32_to_fixed(self.cache.tattack.get(ent).map(|t| t.range.v).unwrap_or(0.0))
     }
 
-    fn get_tower_atk(&self, e: EntityHandle) -> f32 {
-        let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
-        self.cache.tattack.get(ent).map(|t| t.atk_physic.v).unwrap_or(0.0)
+    fn get_tower_atk(&self, e: EntityHandle) -> Fixed32 {
+        let Some(ent) = Self::handle_to_entity(e) else { return Fixed32::ZERO };
+        // TODO Phase 1[bcd]: drop conversion when TAttack migrates to Fixed32.
+        f32_to_fixed(self.cache.tattack.get(ent).map(|t| t.atk_physic.v).unwrap_or(0.0))
     }
 
-    fn get_asd_interval(&self, e: EntityHandle) -> f32 {
-        let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
-        self.cache.tattack.get(ent).map(|t| t.asd.v).unwrap_or(0.0)
+    fn get_asd_interval(&self, e: EntityHandle) -> Fixed32 {
+        let Some(ent) = Self::handle_to_entity(e) else { return Fixed32::ZERO };
+        // TODO Phase 1[bcd]: drop conversion when TAttack migrates to Fixed32.
+        f32_to_fixed(self.cache.tattack.get(ent).map(|t| t.asd.v).unwrap_or(0.0))
     }
 
-    fn get_asd_count(&self, e: EntityHandle) -> f32 {
-        let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
-        self.cache.tattack.get(ent).map(|t| t.asd_count).unwrap_or(0.0)
+    fn get_asd_count(&self, e: EntityHandle) -> Fixed32 {
+        let Some(ent) = Self::handle_to_entity(e) else { return Fixed32::ZERO };
+        // TODO Phase 1[bcd]: drop conversion when TAttack migrates to Fixed32.
+        f32_to_fixed(self.cache.tattack.get(ent).map(|t| t.asd_count).unwrap_or(0.0))
     }
 
-    fn set_asd_count(&mut self, e: EntityHandle, v: f32) {
+    fn set_asd_count(&mut self, e: EntityHandle, v: Fixed32) {
         let Some(ent) = Self::handle_to_entity(e) else { return };
         if let Some(t) = self.cache.tattack.get_mut(ent) {
-            t.asd_count = v;
+            // TODO Phase 1[bcd]: drop conversion when TAttack migrates to Fixed32.
+            t.asd_count = v.to_f32_for_render();
         }
     }
 
-    fn set_tower_atk(&mut self, e: EntityHandle, v: f32) {
+    fn set_tower_atk(&mut self, e: EntityHandle, v: Fixed32) {
         let Some(ent) = Self::handle_to_entity(e) else { return };
         if let Some(t) = self.cache.tattack.get_mut(ent) {
-            t.atk_physic.bv = v;
-            t.atk_physic.v = v;
+            // TODO Phase 1[bcd]: drop conversion when TAttack migrates to Fixed32.
+            let vf = v.to_f32_for_render();
+            t.atk_physic.bv = vf;
+            t.atk_physic.v = vf;
         }
     }
 
-    fn set_tower_range(&mut self, e: EntityHandle, v: f32) {
+    fn set_tower_range(&mut self, e: EntityHandle, v: Fixed32) {
         let Some(ent) = Self::handle_to_entity(e) else { return };
         if let Some(t) = self.cache.tattack.get_mut(ent) {
-            t.range.bv = v;
-            t.range.v = v;
+            // TODO Phase 1[bcd]: drop conversion when TAttack migrates to Fixed32.
+            let vf = v.to_f32_for_render();
+            t.range.bv = vf;
+            t.range.v = vf;
         }
     }
 
-    fn set_asd_interval(&mut self, e: EntityHandle, v: f32) {
+    fn set_asd_interval(&mut self, e: EntityHandle, v: Fixed32) {
         let Some(ent) = Self::handle_to_entity(e) else { return };
         if let Some(t) = self.cache.tattack.get_mut(ent) {
-            t.asd.bv = v;
-            t.asd.v = v;
+            // TODO Phase 1[bcd]: drop conversion when TAttack migrates to Fixed32.
+            let vf = v.to_f32_for_render();
+            t.asd.bv = vf;
+            t.asd.v = vf;
         }
     }
 
-    fn set_facing(&mut self, e: EntityHandle, angle_rad: f32) {
+    fn set_facing(&mut self, e: EntityHandle, angle: Angle) {
         let Some(ent) = Self::handle_to_entity(e) else { return };
         if let Some(f) = self.cache.facing.get_mut(ent) {
-            f.0 = angle_rad;
+            // TODO Phase 1[bcd]: drop conversion when Facing migrates to Angle.
+            f.0 = angle_to_rad(angle);
         }
     }
 
-    fn get_facing(&self, e: EntityHandle) -> f32 {
-        let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
-        self.cache.facing.get(ent).map(|f| f.0).unwrap_or(0.0)
+    fn get_facing(&self, e: EntityHandle) -> Angle {
+        let Some(ent) = Self::handle_to_entity(e) else { return Angle::ZERO };
+        // TODO Phase 1[bcd]: drop conversion when Facing migrates to Angle.
+        let rad = self.cache.facing.get(ent).map(|f| f.0).unwrap_or(0.0);
+        rad_to_angle(rad)
     }
 
     fn query_nearest_enemy(
         &self,
-        center: Vec2f,
-        radius: f32,
+        center: Vec2,
+        radius: Fixed32,
         of: EntityHandle,
     ) -> ROption<EntityHandle> {
         let Some(of_ent) = Self::handle_to_entity(of) else { return RNone };
@@ -633,13 +719,17 @@ impl<'a> GameWorld for WorldAdapter<'a> {
             Some(f) => f.team_id,
             None => return RNone,
         };
-        let r2 = radius * radius;
+        // TODO Phase 1[bcd]: do this comparison in fixed-point when Pos migrates.
+        let radius_f = radius.to_f32_for_render();
+        let r2 = radius_f * radius_f;
+        let cx = center.x.to_f32_for_render();
+        let cy = center.y.to_f32_for_render();
         let mut best: Option<(Entity, f32)> = None;
         // 只選 creep（氣球）為目標；不要誤選隊友/其他塔
         for (ent, pos, fac, _c) in (&self.cache.entities, &self.cache.pos, &self.cache.faction, &self.cache.creep).join() {
             if fac.team_id == my_team { continue; }
-            let dx = pos.0.x - center.x;
-            let dy = pos.0.y - center.y;
+            let dx = pos.0.x - cx;
+            let dy = pos.0.y - cy;
             let d2 = dx * dx + dy * dy;
             if d2 <= r2 {
                 if best.map(|(_, b)| d2 < b).unwrap_or(true) {
@@ -655,19 +745,27 @@ impl<'a> GameWorld for WorldAdapter<'a> {
 
     // ---------------- Side effects ----------------
 
-    fn play_vfx(&mut self, id: RStr<'_>, at: Vec2f) {
-        log::debug!("[scripting] play_vfx id={} at=({},{})", id.as_str(), at.x, at.y);
+    fn play_vfx(&mut self, id: RStr<'_>, at: Vec2) {
+        // TODO Phase 1[bcd]: drop conversion when VFX bus takes Fixed32.
+        log::debug!("[scripting] play_vfx id={} at=({},{})", id.as_str(),
+            at.x.to_f32_for_render(), at.y.to_f32_for_render());
     }
 
-    fn play_sfx(&mut self, id: RStr<'_>, at: Vec2f) {
-        log::debug!("[scripting] play_sfx id={} at=({},{})", id.as_str(), at.x, at.y);
+    fn play_sfx(&mut self, id: RStr<'_>, at: Vec2) {
+        // TODO Phase 1[bcd]: drop conversion when VFX bus takes Fixed32.
+        log::debug!("[scripting] play_sfx id={} at=({},{})", id.as_str(),
+            at.x.to_f32_for_render(), at.y.to_f32_for_render());
     }
 
     // ---------------- RNG ----------------
 
-    fn rand_f32(&mut self) -> f32 {
-        // rand_pcg 0.9: gen_range for f32 is inclusive of low, exclusive of high
-        self.rng.gen_range(0.0_f32..1.0_f32)
+    fn rand_unit(&mut self) -> Fixed32 {
+        // TODO Phase 1[bcd]: replace with omoba_sim::SimRng for full deterministic
+        // bit-exact replay. Today we're piggy-backing on Pcg64Mcg seeded from tick
+        // counter (deterministic across replays, but f32 sample loses 6 bits at
+        // the SCALE=1024 quantization).
+        let r = self.rng.gen_range(0.0_f32..1.0_f32);
+        Fixed32::from_raw((r * 1024.0) as i32)
     }
 
     // ---------------- Log ----------------
@@ -684,28 +782,32 @@ impl<'a> GameWorld for WorldAdapter<'a> {
 
     // ---------------- Dota 2 modifier 風格聚合 ----------------
 
-    fn sum_stat(&self, e: EntityHandle, stat_key: StatKey) -> f32 {
-        let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
-        self.cache.buffs.sum_add(ent, stat_key)
+    fn sum_stat(&self, e: EntityHandle, stat_key: StatKey) -> Fixed32 {
+        let Some(ent) = Self::handle_to_entity(e) else { return Fixed32::ZERO };
+        // TODO Phase 1[bcd]: drop conversion when BuffStore migrates to Fixed32.
+        f32_to_fixed(self.cache.buffs.sum_add(ent, stat_key))
     }
 
-    fn product_stat(&self, e: EntityHandle, stat_key: StatKey) -> f32 {
-        let Some(ent) = Self::handle_to_entity(e) else { return 1.0 };
-        self.cache.buffs.product_mult(ent, stat_key)
+    fn product_stat(&self, e: EntityHandle, stat_key: StatKey) -> Fixed32 {
+        let Some(ent) = Self::handle_to_entity(e) else { return Fixed32::ONE };
+        // TODO Phase 1[bcd]: drop conversion when BuffStore migrates to Fixed32.
+        f32_to_fixed(self.cache.buffs.product_mult(ent, stat_key))
     }
 
-    fn get_final_move_speed(&self, e: EntityHandle) -> f32 {
-        let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
+    fn get_final_move_speed(&self, e: EntityHandle) -> Fixed32 {
+        let Some(ent) = Self::handle_to_entity(e) else { return Fixed32::ZERO };
         let base = self.cache.cprop.get(ent).map(|p| p.msd).unwrap_or(0.0);
         let is_b = self.cache.is_building.get(ent).is_some();
-        UnitStats::from_refs(&*self.cache.buffs, is_b).final_move_speed(base, ent)
+        // TODO Phase 1[bcd]: drop conversion when UnitStats migrates to Fixed32.
+        f32_to_fixed(UnitStats::from_refs(&*self.cache.buffs, is_b).final_move_speed(base, ent))
     }
 
-    fn get_final_atk(&self, e: EntityHandle) -> f32 {
-        let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
+    fn get_final_atk(&self, e: EntityHandle) -> Fixed32 {
+        let Some(ent) = Self::handle_to_entity(e) else { return Fixed32::ZERO };
         let base = self.cache.tattack.get(ent).map(|t| t.atk_physic.v).unwrap_or(0.0);
         let is_b = self.cache.is_building.get(ent).is_some();
-        UnitStats::from_refs(&*self.cache.buffs, is_b).final_atk(base, ent)
+        // TODO Phase 1[bcd]: drop conversion when UnitStats migrates to Fixed32.
+        f32_to_fixed(UnitStats::from_refs(&*self.cache.buffs, is_b).final_atk(base, ent))
     }
 
     fn get_tower_upgrade(&self, e: EntityHandle, path: u8) -> u8 {
@@ -724,47 +826,55 @@ impl<'a> GameWorld for WorldAdapter<'a> {
     }
 
     fn apply_tower_permanent_buff(&mut self, e: EntityHandle, buff_id: RStr<'_>, modifiers_json: RStr<'_>) {
-        self.add_stat_buff(e, buff_id, f32::MAX, modifiers_json);
+        // TODO Phase 1[bcd]: replace with a sentinel "permanent" Fixed32 instead of MAX-clamp magic.
+        self.add_stat_buff(e, buff_id, f32_to_fixed(f32::MAX), modifiers_json);
     }
 
-    fn get_final_attack_range(&self, e: EntityHandle) -> f32 {
-        let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
+    fn get_final_attack_range(&self, e: EntityHandle) -> Fixed32 {
+        let Some(ent) = Self::handle_to_entity(e) else { return Fixed32::ZERO };
         let base = self.cache.tattack.get(ent).map(|t| t.range.v).unwrap_or(0.0);
         let is_b = self.cache.is_building.get(ent).is_some();
-        UnitStats::from_refs(&*self.cache.buffs, is_b).final_attack_range(base, ent)
+        // TODO Phase 1[bcd]: drop conversion when UnitStats migrates to Fixed32.
+        f32_to_fixed(UnitStats::from_refs(&*self.cache.buffs, is_b).final_attack_range(base, ent))
     }
 
-    fn get_buff_remaining(&self, e: EntityHandle, buff_id: RStr<'_>) -> f32 {
-        let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
-        self.cache.buffs
-            .get(ent, buff_id.as_str())
-            .map(|b| b.remaining)
-            .unwrap_or(0.0)
+    fn get_buff_remaining(&self, e: EntityHandle, buff_id: RStr<'_>) -> Fixed32 {
+        let Some(ent) = Self::handle_to_entity(e) else { return Fixed32::ZERO };
+        // TODO Phase 1[bcd]: drop conversion when BuffStore migrates to Fixed32.
+        f32_to_fixed(
+            self.cache.buffs
+                .get(ent, buff_id.as_str())
+                .map(|b| b.remaining)
+                .unwrap_or(0.0)
+        )
     }
 
-    fn current_mana(&self, e: EntityHandle) -> f32 {
+    fn current_mana(&self, e: EntityHandle) -> Fixed32 {
         // 沒有 current_mana component — 目前回 max（視為永遠滿）。
         // 如果之後加 `ManaPool` component，這裡要改成讀 current。
-        let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
-        self.cache.hero.get(ent).map(|h| h.get_max_mana()).unwrap_or(0.0)
+        let Some(ent) = Self::handle_to_entity(e) else { return Fixed32::ZERO };
+        // TODO Phase 1[bcd]: drop conversion when Hero.mana migrates to Fixed32.
+        f32_to_fixed(self.cache.hero.get(ent).map(|h| h.get_max_mana()).unwrap_or(0.0))
     }
 
-    fn spend_mana(&mut self, e: EntityHandle, amount: f32, ability_id: RStr<'_>) -> bool {
+    fn spend_mana(&mut self, e: EntityHandle, amount: Fixed32, ability_id: RStr<'_>) -> bool {
         let Some(ent) = Self::handle_to_entity(e) else { return false };
         // 目前沒有 mana storage，永遠視為成功；push 事件讓腳本 hook。
         self.cache.events
             .push(ScriptEvent::SpentMana {
                 caster: ent,
-                cost: amount,
+                // TODO Phase 1[bcd]: drop conversion when ScriptEvent::SpentMana migrates to Fixed32.
+                cost: amount.to_f32_for_render(),
                 ability_id: ability_id.as_str().to_string(),
             });
         true
     }
 
-    fn restore_mana(&mut self, e: EntityHandle, amount: f32) {
+    fn restore_mana(&mut self, e: EntityHandle, amount: Fixed32) {
         let Some(ent) = Self::handle_to_entity(e) else { return };
+        // TODO Phase 1[bcd]: drop conversion when ScriptEvent::ManaGained migrates to Fixed32.
         self.cache.events
-            .push(ScriptEvent::ManaGained { e: ent, amount });
+            .push(ScriptEvent::ManaGained { e: ent, amount: amount.to_f32_for_render() });
     }
 
     fn trigger_modifier_added(&mut self, e: EntityHandle, modifier_id: RStr<'_>) {
@@ -788,48 +898,55 @@ impl<'a> GameWorld for WorldAdapter<'a> {
 
     // ---------------- Dota 2 property 完整查詢 ----------------
 
-    fn get_final_armor(&self, e: EntityHandle) -> f32 {
-        let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
+    fn get_final_armor(&self, e: EntityHandle) -> Fixed32 {
+        let Some(ent) = Self::handle_to_entity(e) else { return Fixed32::ZERO };
         let is_bldg = self.cache.is_building.get(ent).is_some();
         let base = self.cache.cprop.get(ent).map(|c| c.def_physic).unwrap_or(0.0);
-        UnitStats::from_refs(&*self.cache.buffs, is_bldg).final_armor(base, ent)
+        // TODO Phase 1[bcd]: drop conversion when UnitStats migrates to Fixed32.
+        f32_to_fixed(UnitStats::from_refs(&*self.cache.buffs, is_bldg).final_armor(base, ent))
     }
 
-    fn get_final_magic_resist(&self, e: EntityHandle) -> f32 {
-        let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
+    fn get_final_magic_resist(&self, e: EntityHandle) -> Fixed32 {
+        let Some(ent) = Self::handle_to_entity(e) else { return Fixed32::ZERO };
         let is_bldg = self.cache.is_building.get(ent).is_some();
         let base = self.cache.cprop.get(ent).map(|c| c.def_magic).unwrap_or(0.0);
-        UnitStats::from_refs(&*self.cache.buffs, is_bldg).final_magic_resist(base, ent)
+        // TODO Phase 1[bcd]: drop conversion when UnitStats migrates to Fixed32.
+        f32_to_fixed(UnitStats::from_refs(&*self.cache.buffs, is_bldg).final_magic_resist(base, ent))
     }
 
-    fn get_evasion_chance(&self, e: EntityHandle) -> f32 {
-        let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
+    fn get_evasion_chance(&self, e: EntityHandle) -> Fixed32 {
+        let Some(ent) = Self::handle_to_entity(e) else { return Fixed32::ZERO };
         let is_bldg = self.cache.is_building.get(ent).is_some();
-        UnitStats::from_refs(&*self.cache.buffs, is_bldg).evasion_chance(ent)
+        // TODO Phase 1[bcd]: drop conversion when UnitStats migrates to Fixed32.
+        f32_to_fixed(UnitStats::from_refs(&*self.cache.buffs, is_bldg).evasion_chance(ent))
     }
 
-    fn get_miss_chance(&self, e: EntityHandle) -> f32 {
-        let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
+    fn get_miss_chance(&self, e: EntityHandle) -> Fixed32 {
+        let Some(ent) = Self::handle_to_entity(e) else { return Fixed32::ZERO };
         let is_bldg = self.cache.is_building.get(ent).is_some();
-        UnitStats::from_refs(&*self.cache.buffs, is_bldg).miss_chance(ent)
+        // TODO Phase 1[bcd]: drop conversion when UnitStats migrates to Fixed32.
+        f32_to_fixed(UnitStats::from_refs(&*self.cache.buffs, is_bldg).miss_chance(ent))
     }
 
-    fn get_crit_chance(&self, e: EntityHandle) -> f32 {
-        let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
+    fn get_crit_chance(&self, e: EntityHandle) -> Fixed32 {
+        let Some(ent) = Self::handle_to_entity(e) else { return Fixed32::ZERO };
         let is_bldg = self.cache.is_building.get(ent).is_some();
-        UnitStats::from_refs(&*self.cache.buffs, is_bldg).crit(ent).0
+        // TODO Phase 1[bcd]: drop conversion when UnitStats migrates to Fixed32.
+        f32_to_fixed(UnitStats::from_refs(&*self.cache.buffs, is_bldg).crit(ent).0)
     }
 
-    fn get_crit_multiplier(&self, e: EntityHandle) -> f32 {
-        let Some(ent) = Self::handle_to_entity(e) else { return 1.0 };
+    fn get_crit_multiplier(&self, e: EntityHandle) -> Fixed32 {
+        let Some(ent) = Self::handle_to_entity(e) else { return Fixed32::ONE };
         let is_bldg = self.cache.is_building.get(ent).is_some();
-        UnitStats::from_refs(&*self.cache.buffs, is_bldg).crit(ent).1
+        // TODO Phase 1[bcd]: drop conversion when UnitStats migrates to Fixed32.
+        f32_to_fixed(UnitStats::from_refs(&*self.cache.buffs, is_bldg).crit(ent).1)
     }
 
-    fn get_cooldown_mult(&self, e: EntityHandle) -> f32 {
-        let Some(ent) = Self::handle_to_entity(e) else { return 1.0 };
+    fn get_cooldown_mult(&self, e: EntityHandle) -> Fixed32 {
+        let Some(ent) = Self::handle_to_entity(e) else { return Fixed32::ONE };
         let is_bldg = self.cache.is_building.get(ent).is_some();
-        UnitStats::from_refs(&*self.cache.buffs, is_bldg).cooldown_mult(ent)
+        // TODO Phase 1[bcd]: drop conversion when UnitStats migrates to Fixed32.
+        f32_to_fixed(UnitStats::from_refs(&*self.cache.buffs, is_bldg).cooldown_mult(ent))
     }
 
     fn is_building(&self, e: EntityHandle) -> bool {
@@ -837,28 +954,31 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         self.cache.is_building.get(ent).is_some()
     }
 
-    fn get_max_hp_bonus(&self, e: EntityHandle) -> f32 {
-        let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
+    fn get_max_hp_bonus(&self, e: EntityHandle) -> Fixed32 {
+        let Some(ent) = Self::handle_to_entity(e) else { return Fixed32::ZERO };
         let is_bldg = self.cache.is_building.get(ent).is_some();
-        UnitStats::from_refs(&*self.cache.buffs, is_bldg).max_hp_bonus(ent)
+        // TODO Phase 1[bcd]: drop conversion when UnitStats migrates to Fixed32.
+        f32_to_fixed(UnitStats::from_refs(&*self.cache.buffs, is_bldg).max_hp_bonus(ent))
     }
 
-    fn get_hp_regen(&self, e: EntityHandle) -> f32 {
-        let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
+    fn get_hp_regen(&self, e: EntityHandle) -> Fixed32 {
+        let Some(ent) = Self::handle_to_entity(e) else { return Fixed32::ZERO };
         let is_bldg = self.cache.is_building.get(ent).is_some();
-        UnitStats::from_refs(&*self.cache.buffs, is_bldg).hp_regen(0.0, ent)
+        // TODO Phase 1[bcd]: drop conversion when UnitStats migrates to Fixed32.
+        f32_to_fixed(UnitStats::from_refs(&*self.cache.buffs, is_bldg).hp_regen(0.0, ent))
     }
 
-    fn get_stat_bonus(&self, e: EntityHandle, key: StatKey) -> f32 {
-        let Some(ent) = Self::handle_to_entity(e) else { return 0.0 };
-        self.cache.buffs.sum_add(ent, key)
+    fn get_stat_bonus(&self, e: EntityHandle, key: StatKey) -> Fixed32 {
+        let Some(ent) = Self::handle_to_entity(e) else { return Fixed32::ZERO };
+        // TODO Phase 1[bcd]: drop conversion when BuffStore migrates to Fixed32.
+        f32_to_fixed(self.cache.buffs.sum_add(ent, key))
     }
 
     fn deal_damage_splash(
         &mut self,
-        at: Vec2f,
-        radius: f32,
-        damage: f32,
+        at: Vec2,
+        radius: Fixed32,
+        damage: Fixed32,
         kind: DamageKind,
         source: ROption<EntityHandle>,
     ) {

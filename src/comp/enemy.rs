@@ -123,17 +123,19 @@ impl Enemy {
             _ => AiType::Aggressive,
         };
 
+        // TODO Phase 1[bcd]: drop conversions when Enemy migrates to Fixed32.
+        // template-ids creep_stats is Fixed32; Enemy ECS component is f32 / i32.
         Enemy {
             id: enemy_data.id.clone(),
             name: creep_display(id).to_string(),
             enemy_type,
-            max_hp: s.hp as i32,
-            current_hp: s.hp as i32,
-            armor: s.armor,
-            magic_resistance: s.magic_resistance,
-            base_damage: s.damage as i32,
-            attack_range: s.attack_range,
-            move_speed: s.move_speed,
+            max_hp: s.hp.to_f32_for_render() as i32,
+            current_hp: s.hp.to_f32_for_render() as i32,
+            armor: s.armor.to_f32_for_render(),
+            magic_resistance: s.magic_resistance.to_f32_for_render(),
+            base_damage: s.damage.to_f32_for_render() as i32,
+            attack_range: s.attack_range.to_f32_for_render(),
+            move_speed: s.move_speed.to_f32_for_render(),
             attack_speed: 1.0,
             ai_type,
             aggro_range: 800.0,

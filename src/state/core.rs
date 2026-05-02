@@ -214,21 +214,23 @@ impl State {
                 RSome(m) => m,
                 _ => continue,
             };
+            // TODO Phase 1[bcd]: drop these conversions when TowerTemplateRegistry migrates to Fixed32.
+            // TowerMetadata is the script-side ABI surface (Fixed32); host runtime template is still f32.
             reg.insert(RuntimeTpl {
                 unit_id: uid.to_string(),
                 label: meta.label.to_string(),
-                atk: meta.atk,
-                asd_interval: meta.asd_interval,
-                range: meta.range,
-                bullet_speed: meta.bullet_speed,
-                splash_radius: meta.splash_radius,
-                hit_radius: meta.hit_radius,
-                slow_factor: meta.slow_factor,
-                slow_duration: meta.slow_duration,
+                atk: meta.atk.to_f32_for_render(),
+                asd_interval: meta.asd_interval.to_f32_for_render(),
+                range: meta.range.to_f32_for_render(),
+                bullet_speed: meta.bullet_speed.to_f32_for_render(),
+                splash_radius: meta.splash_radius.to_f32_for_render(),
+                hit_radius: meta.hit_radius.to_f32_for_render(),
+                slow_factor: meta.slow_factor.to_f32_for_render(),
+                slow_duration: meta.slow_duration.to_f32_for_render(),
                 cost: meta.cost,
-                footprint: meta.footprint,
-                hp: meta.hp,
-                turn_speed_deg: meta.turn_speed_deg,
+                footprint: meta.footprint.to_f32_for_render(),
+                hp: meta.hp.to_f32_for_render(),
+                turn_speed_deg: meta.turn_speed_deg.to_f32_for_render(),
             });
         }
         log::info!("[tower_registry] {} templates loaded", reg.templates.len());
@@ -316,11 +318,13 @@ impl State {
         // 放在並行系統之後、其他序列處理之前，確保腳本能看到本 tick 的
         // 完整戰鬥結果，也能修改狀態讓下游處理看見。
         let t_dispatch = Instant::now();
+        // TODO Phase 1[bcd]: replace with Fixed32 dt directly when omb tick clock migrates.
+        let dt_fx = omoba_template_ids::Fixed32::from_raw((dt.as_secs_f32() * 1024.0) as i32);
         scripting::run_script_dispatch(
             &mut self.ecs,
             &self.script_registry,
             self.local_tick,
-            dt.as_secs_f32(),
+            dt_fx,
             self.mqtx.clone(),
         );
         let script_dispatch_ns = t_dispatch.elapsed().as_nanos();

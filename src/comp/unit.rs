@@ -142,17 +142,20 @@ impl Unit {
             _ => AiType::Defensive,
         };
 
+        // TODO Phase 1[bcd]: drop conversions when Unit migrates to Fixed32.
+        // template-ids creep_stats is Fixed32; Unit ECS component is f32 / i32.
+        let attack_range_f32 = s.attack_range.to_f32_for_render();
         Unit {
             id: creep_data.id.clone(),
             name: creep_display(cid).to_string(),
             unit_type,
-            max_hp: s.hp as i32,
-            current_hp: s.hp as i32,
-            base_armor: s.armor,
-            magic_resistance: s.magic_resistance,
-            base_damage: s.damage as i32,
-            attack_range: if s.attack_range > 0.0 { s.attack_range } else { 150.0 },
-            move_speed: s.move_speed,
+            max_hp: s.hp.to_f32_for_render() as i32,
+            current_hp: s.hp.to_f32_for_render() as i32,
+            base_armor: s.armor.to_f32_for_render(),
+            magic_resistance: s.magic_resistance.to_f32_for_render(),
+            base_damage: s.damage.to_f32_for_render() as i32,
+            attack_range: if attack_range_f32 > 0.0 { attack_range_f32 } else { 150.0 },
+            move_speed: s.move_speed.to_f32_for_render(),
             attack_speed: 1.0,
             ai_type,
             aggro_range: 600.0,
@@ -189,17 +192,18 @@ impl Unit {
             _ => AiType::Aggressive,
         };
 
+        // TODO Phase 1[bcd]: drop conversions when Unit migrates to Fixed32.
         Unit {
             id: enemy_data.id.clone(),
             name: creep_display(cid).to_string(),
             unit_type: unit_type.clone(),
-            max_hp: s.hp as i32,
-            current_hp: s.hp as i32,
-            base_armor: s.armor,
-            magic_resistance: s.magic_resistance,
-            base_damage: s.damage as i32,
-            attack_range: s.attack_range,
-            move_speed: s.move_speed,
+            max_hp: s.hp.to_f32_for_render() as i32,
+            current_hp: s.hp.to_f32_for_render() as i32,
+            base_armor: s.armor.to_f32_for_render(),
+            magic_resistance: s.magic_resistance.to_f32_for_render(),
+            base_damage: s.damage.to_f32_for_render() as i32,
+            attack_range: s.attack_range.to_f32_for_render(),
+            move_speed: s.move_speed.to_f32_for_render(),
             attack_speed: 1.0,
             ai_type,
             aggro_range: 800.0,

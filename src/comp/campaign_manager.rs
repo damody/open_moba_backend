@@ -80,28 +80,31 @@ impl CampaignManager {
             .unwrap_or_else(|| panic!("hero id '{}' not in templates.json", hero_data.id));
         let s = hero_stats(id)
             .unwrap_or_else(|| panic!("hero '{}' has no stats in templates.json", hero_data.id));
-        let hero_properties = Self::create_hero_properties(&hero, s.base_armor);
-        let hero_attack = Self::create_hero_attack(&hero, s.attack_range);
+        // TODO Phase 1[bcd]: drop these conversions when CProperty / TAttack migrate to Fixed32.
+        let hero_properties = Self::create_hero_properties(&hero, s.base_armor.to_f32_for_render());
+        let hero_attack = Self::create_hero_attack(&hero, s.attack_range.to_f32_for_render());
         let abilities: Vec<String> = if hero_data.abilities.is_empty() {
             hero_abilities(id).iter().map(|a| a.as_str().to_string()).collect()
         } else {
             hero_data.abilities.clone()
         };
 
+        // TODO Phase 1[bcd]: drop conversions when Unit migrates to Fixed32.
+        let s_attack_range_f32 = s.attack_range.to_f32_for_render();
         let hero_unit = Unit {
             id: hero.id.clone(),
             name: hero.name.clone(),
             unit_type: UnitType::Hero,
             max_hp: hero.get_max_hp() as i32,
             current_hp: hero.get_max_hp() as i32,
-            base_armor: s.base_armor,
+            base_armor: s.base_armor.to_f32_for_render(),
             magic_resistance: 0.0,
             base_damage: hero.get_base_damage() as i32,
-            attack_range: s.attack_range,
+            attack_range: s_attack_range_f32,
             move_speed: hero.get_move_speed(),
             attack_speed: hero.get_attack_speed_multiplier(),
             ai_type: unit::AiType::None,
-            aggro_range: s.attack_range + 200.0,
+            aggro_range: s_attack_range_f32 + 200.0,
             abilities: abilities.clone(),
             current_target: None,
             last_attack_time: 0.0,
@@ -114,7 +117,8 @@ impl CampaignManager {
         let hero_faction = Faction::new(FactionType::Player, 0);
         let hero_pos = Pos(vek::Vec2::new(0.0, 0.0));
         let hero_vel = Vel(vek::Vec2::new(0.0, 0.0));
-        let hero_vision = CircularVision::new(s.attack_range + 300.0, 30.0).with_precision(720);
+        // TODO Phase 1[bcd]: drop conversion when CircularVision migrates to Fixed32.
+        let hero_vision = CircularVision::new(s_attack_range_f32 + 300.0, 30.0).with_precision(720);
 
         let hero_entity = ecs.create_entity()
             .with(hero_pos)

@@ -409,7 +409,8 @@ impl StateInitializer {
             let hero_attack = TAttack {
                 atk_physic: Vf32::new(base_damage),
                 asd: Vf32::new(1.0 / 1.7), // 攻擊間隔（攻擊速度的倒數）
-                range: Vf32::new(hero_template_stats.attack_range),
+                // TODO Phase 1[bcd]: drop conversion when TAttack migrates to Fixed32.
+                range: Vf32::new(hero_template_stats.attack_range.to_f32_for_render()),
                 asd_count: 0.0,
                 bullet_speed: 1000.0,
             };
@@ -420,7 +421,9 @@ impl StateInitializer {
                 180.0   // 英雄高度
             ).with_precision(720); // 高精度視野
 
-            let hero_turn_rad = hero_template_stats.turn_speed.to_radians();
+            // TODO Phase 1[bcd]: drop conversion when TurnSpeed migrates to Angle/Fixed32.
+            // hero_template_stats.turn_speed is Fixed32 in degrees; convert to radians (f32) for omb internal.
+            let hero_turn_rad = hero_template_stats.turn_speed.to_f32_for_render() * std::f32::consts::PI / 180.0;
             // Hero collision_radius 暫定 30（之前由 entity.json optional override，
             // 簡化後固定）。
             let hero_radius = 30.0_f32;
