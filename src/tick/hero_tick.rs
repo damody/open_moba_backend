@@ -10,6 +10,7 @@ use std::{
     time::{Duration, Instant},
 };
 use specs::Entity;
+use omoba_sim::{Fixed32, Vec2 as SimVec2};
 
 /// MOBA 鏡頭下肉眼無感的 facing 變化量（~15°）。舊值 0.05 (~3°) 造成過多 F event。
 const FACING_BROADCAST_THRESHOLD_RAD: f32 = 0.26;
@@ -75,8 +76,11 @@ impl<'a> System<'a> for Sys {
 
     fn run(_job: &mut Job<Self>, (tr, mut tw): Self::SystemData) {
         let time = tr.time.0;
-        // TODO Phase 1[c]: drop conversion when battle tick goes Fixed32-native.
-        let dt = tr.dt.0.to_f32_for_render();
+        // Phase 1c.4: dt is now Fixed32 throughout battle tick.
+        let dt: Fixed32 = tr.dt.0;
+        // Lossy projection retained ONLY for Searcher boundary + facing radians math.
+        // TODO Phase 1e: drop when Searcher / Facing go Fixed32-native.
+        let dt_f = dt.to_f32_for_render();
         let time1 = Instant::now();
         
         // 獲取英雄的陣營信息和名稱用於敵友判斷和日誌記錄
@@ -131,8 +135,11 @@ impl<'a> System<'a> for Sys {
                         &*tr.buff_store,
                         tr.is_buildings.get(e).is_some(),
                     );
-                    let asd_mult = stats.final_attack_speed_mult(e).max(0.01);
-                    let effective_interval = atk.asd.v / asd_mult;
+                    // 0.01 ≈ 10/1024 raw — floor to avoid div-by-zero divergence.
+                    let asd_mult_raw = stats.final_attack_speed_mult(e);
+                    let min_asd_mult = Fixed32::from_raw(10);
+                    let asd_mult = if asd_mult_raw < min_asd_mult { min_asd_mult } else { asd_mult_raw };
+                    let effective_interval: Fixed32 = atk.asd.v / asd_mult;
 
                     // 直接更新攻擊冷卻時間
                     if atk.asd_count < effective_interval {
@@ -155,13 +162,16 @@ impl<'a> System<'a> for Sys {
                             // 搜尋攻擊範圍內的所有單位
                             let search_n = 10; // 搜尋最近的 10 個目標
                             // 攻擊範圍：UnitStats 聚合（Dota ATTACK_RANGE_BONUS + ATTACK_RANGE_BONUS_UNIQUE，MAX_ATTACK_RANGE clamp）
-                            let attack_range = stats.final_attack_range(atk.range.v, e);
-                            let range_bonus = attack_range - atk.range.v;
-                            let search_range = attack_range + 50.0; // 稍微擴大搜尋範圍以確保不遺漏邊界目標
+                            let attack_range: Fixed32 = stats.final_attack_range(atk.range.v, e);
+                            let range_bonus: Fixed32 = attack_range - atk.range.v;
+                            let search_range: Fixed32 = attack_range + Fixed32::from_i32(50); // 稍微擴大搜尋範圍以確保不遺漏邊界目標
+                            // TODO Phase 1e: Searcher Fixed32 — drop these conversions when search_nn_two_radii goes native.
+                            let attack_range_f = attack_range.to_f32_for_render();
+                            let search_range_f = search_range.to_f32_for_render();
                             let (creep_targets, _) =
-                                tr.searcher.creep.search_nn_two_radii(pos_vek, attack_range, search_range, search_n);
+                                tr.searcher.creep.search_nn_two_radii(pos_vek, attack_range_f, search_range_f, search_n);
                             let (tower_targets, _) =
-                                tr.searcher.tower.search_nn_two_radii(pos_vek, attack_range, search_range, search_n);
+                                tr.searcher.tower.search_nn_two_radii(pos_vek, attack_range_f, search_range_f, search_n);
                             // 合併 creep + tower 候選，一起走敵友判斷
                             let mut potential_targets = Vec::with_capacity(creep_targets.len() + tower_targets.len());
                             potential_targets.extend(creep_targets);
@@ -175,15 +185,19 @@ impl<'a> System<'a> for Sys {
                                 .unwrap_or_else(|| format!("英雄 {}", e.id()));
                             
                             if potential_targets.len() > 0 {
-                                log::trace!("{} 在位置 ({:.0}, {:.0}) 搜尋到 {} 個潛在目標，攻擊範圍: {} (基礎 {} + buff {})",
-                                    hero_name, pos_x_f, pos_y_f, potential_targets.len(), attack_range, atk.range.v, range_bonus);
+                                log::trace!("{} 在位置 ({:.0}, {:.0}) 搜尋到 {} 個潛在目標，攻擊範圍: {:.1} (基礎 {:.1} + buff {:.1})",
+                                    hero_name, pos_x_f, pos_y_f, potential_targets.len(),
+                                    attack_range.to_f32_for_render(),
+                                    atk.range.v.to_f32_for_render(),
+                                    range_bonus.to_f32_for_render());
                             } else {
                                 log::trace!("{} 沒有找到目標", hero_name);
                             }
-                                
+
                             // 過濾出可攻擊的敵對目標（必須在攻擊範圍內）
+                            // TODO Phase 1e: Searcher returns f32 distance squared; compare in f32 boundary.
                             let mut valid_targets = Vec::new();
-                            let attack_range_squared = attack_range * attack_range; // 計算攻擊範圍的平方
+                            let attack_range_squared = attack_range_f * attack_range_f; // 計算攻擊範圍的平方
                             
                             if let Some(hero_faction) = hero_faction_map.get(&e) {
                                 for target_info in potential_targets.iter() {
@@ -217,7 +231,7 @@ impl<'a> System<'a> for Sys {
                                     let turn = tr.turn_speeds.get(e).map(|t| t.0.to_f32_for_render())
                                         .unwrap_or(std::f32::consts::FRAC_PI_2);
                                     let cur_rad = facing.rad_f32();
-                                    let new_rad = rotate_toward(cur_rad, desired, turn * dt);
+                                    let new_rad = rotate_toward(cur_rad, desired, turn * dt_f);
                                     *facing = Facing::from_rad_f32(new_rad);
 
                                     // 廣播 facing 變化：和「上次廣播」差 > 15° 才送。
@@ -236,19 +250,25 @@ impl<'a> System<'a> for Sys {
                                     if angle_diff < MOVE_ANGLE_THRESHOLD {
                                         atk.asd_count -= effective_interval;
                                         outcomes.push(Outcome::ProjectileLine2 {
-                                            pos: pos_vek,
+                                            pos: pos.0,
                                             source: Some(e.clone()),
                                             target: Some(target)
                                         });
                                         let actual_distance = valid_targets[0].dis.sqrt();
-                                        log::error!("⚔️ {} 發射彈道攻擊，距離: {:.0}，攻擊力: {:.1}", hero_name, actual_distance, atk.atk_physic.v);
+                                        log::error!("⚔️ {} 發射彈道攻擊，距離: {:.0}，攻擊力: {:.1}",
+                                            hero_name, actual_distance,
+                                            atk.atk_physic.v.to_f32_for_render());
                                     }
                                     // 角度太大 → 繼續轉，本 tick 不開火
                                 }
                             } else {
                                 // 沒有有效目標時，減少一些攻擊冷卻時間避免過度檢查
-                                atk.asd_count = effective_interval - 0.3 - fastrand::u8(..) as f32 * 0.001;
-                                log::trace!("{} 沒有找到有效目標，減少攻擊冷卻時間: {:.3}", hero_name, atk.asd_count);
+                                // 0.3 ≈ 307/1024 raw; 0.001 ≈ 1/1024 raw.
+                                // TODO Phase 1d: replace fastrand::u8 with SimRng for replay determinism in this branch.
+                                let jitter = Fixed32::from_raw(fastrand::u8(..) as i32);
+                                atk.asd_count = effective_interval - Fixed32::from_raw(307) - jitter;
+                                log::trace!("{} 沒有找到有效目標，減少攻擊冷卻時間: {:.3}",
+                                    hero_name, atk.asd_count.to_f32_for_render());
                             }
                         }
                     }

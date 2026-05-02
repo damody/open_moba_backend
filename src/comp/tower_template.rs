@@ -26,16 +26,26 @@ pub fn spawn_td_tower(world: &mut World, pos: Vec2<f32>, unit_id: &str) -> Optio
         return None;
     };
 
-    let tprop = TProperty::new(tpl.hp, 0, 120.0);
-    let tatk = TAttack::new(tpl.atk, tpl.asd_interval, tpl.range, tpl.bullet_speed);
+    // Phase 1c.4: TProperty / TAttack / CProperty 全 Fixed32（Phase 1c.2）。
+    // TowerTemplate 仍 f32（Phase 1d）。Bridge once per spawn.
+    use omoba_sim::Fixed32;
+    let f32_to_fx = |v: f32| Fixed32::from_raw((v * omoba_sim::fixed::SCALE as f32) as i32);
+    let tpl_hp = f32_to_fx(tpl.hp);
+    let tprop = TProperty::new(tpl_hp, 0, Fixed32::from_i32(120));
+    let tatk = TAttack::new(
+        f32_to_fx(tpl.atk),
+        f32_to_fx(tpl.asd_interval),
+        f32_to_fx(tpl.range),
+        f32_to_fx(tpl.bullet_speed),
+    );
     let faction = Faction::new(FactionType::Player, 0);
     let vision = CircularVision::new(tpl.range + 100.0, 40.0).with_precision(120);
     let cprop = CProperty {
-        hp: tpl.hp,
-        mhp: tpl.hp,
-        msd: 0.0,
-        def_physic: 0.0,
-        def_magic: 0.0,
+        hp: tpl_hp,
+        mhp: tpl_hp,
+        msd: Fixed32::ZERO,
+        def_physic: Fixed32::ZERO,
+        def_magic: Fixed32::ZERO,
     };
 
     let entity = world

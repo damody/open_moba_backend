@@ -129,7 +129,8 @@ impl<'a> System<'a> for Sys {
                             let hit_pos = if (c - a).magnitude_squared() <= (c - b).magnitude_squared() { a } else { b };
                             let _ = ta; // silence unused
                             create_projectile_damage(&proj, hit_ent, &mut outcomes, hit_pos);
-                            outcomes.push(Outcome::Death { pos: hit_pos, ent: e.clone() });
+                            // Outcome::Death.pos is SimVec2 (Phase 1c.2). Lossy boundary.
+                            outcomes.push(Outcome::Death { pos: f32_to_sim(hit_pos), ent: e.clone() });
                             return outcomes;
                         }
                     }
@@ -163,7 +164,8 @@ impl<'a> System<'a> for Sys {
                             create_projectile_damage(&proj, target, &mut outcomes, hit_pos);
                         }
                         // 方向性子彈：抵達 end_pos 但沒打到任何敵人 → 直接消失
-                        outcomes.push(Outcome::Death { pos: hit_pos, ent: e.clone() });
+                        // Outcome::Death.pos is SimVec2 (Phase 1c.2). Lossy boundary.
+                        outcomes.push(Outcome::Death { pos: f32_to_sim(hit_pos), ent: e.clone() });
                     } else {
                         // 還沒抵達：往目標方向前進一個 step
                         let vel = delta / dist * step;
@@ -176,7 +178,8 @@ impl<'a> System<'a> for Sys {
                         // 安全閥：time_left 到期仍未命中（例如 target 死掉 tpos 凍結），讓 projectile 自然消失
                         proj.time_left -= dt;
                         if proj.time_left <= 0.0 {
-                            outcomes.push(Outcome::Death { pos: pos_f, ent: e.clone() });
+                            // Outcome::Death.pos is SimVec2 (Phase 1c.2). Lossy boundary.
+                            outcomes.push(Outcome::Death { pos: f32_to_sim(pos_f), ent: e.clone() });
                         }
                     }
                     outcomes
@@ -231,11 +234,13 @@ fn create_projectile_damage(
     // skips creep/H. Client maintains pending_pred_dmg, applies on visual hit
     // (t≥1.0), and reconciles via heartbeat in_flight set when server settles.
     let predeclared = proj.radius < 1.0 && proj.damage_phys > 0.0;
+    // Outcome::Damage / AddBuff fields are Fixed32 / SimVec2 (Phase 1c.2).
+    // Projectile internals stay f32 (Phase 1d). Bridge here.
     outcomes.push(Outcome::Damage {
-        pos: pos,
-        phys: proj.damage_phys,
-        magi: proj.damage_magi,
-        real: proj.damage_real,
+        pos: f32_to_sim(pos),
+        phys: f32_to_fx(proj.damage_phys),
+        magi: f32_to_fx(proj.damage_magi),
+        real: f32_to_fx(proj.damage_real),
         source: proj.owner,
         target: target,
         predeclared,
@@ -253,7 +258,7 @@ fn create_projectile_damage(
         outcomes.push(Outcome::AddBuff {
             target,
             buff_id: "slow".to_string(),
-            duration: proj.slow_duration,
+            duration: f32_to_fx(proj.slow_duration),
             payload: serde_json::Value::Object(payload),
         });
     }
@@ -263,8 +268,20 @@ fn create_projectile_damage(
         outcomes.push(Outcome::AddBuff {
             target,
             buff_id: BuffId::Stun.as_str().to_string(),
-            duration: proj.stun_duration,
+            duration: f32_to_fx(proj.stun_duration),
             payload: serde_json::Value::Null,
         });
     }
+}
+
+/// TODO Phase 1d: drop when Projectile internals migrate to Fixed32.
+#[inline]
+fn f32_to_fx(v: f32) -> Fixed32 {
+    Fixed32::from_raw((v * omoba_sim::fixed::SCALE as f32) as i32)
+}
+
+/// TODO Phase 1d: drop when Projectile internals migrate to SimVec2.
+#[inline]
+fn f32_to_sim(v: vek::Vec2<f32>) -> SimVec2 {
+    SimVec2::new(f32_to_fx(v.x), f32_to_fx(v.y))
 }

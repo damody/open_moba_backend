@@ -1,5 +1,12 @@
 use specs::{shred, Entities, Join, Read, ReadExpect, ReadStorage, SystemData, Write, WriteStorage};
 use crate::comp::*;
+use omoba_sim::Fixed32;
+
+/// TODO Phase 1d: drop when Inventory / ItemBonus / ItemEffects migrate to Fixed32.
+#[inline]
+fn f32_to_fx(v: f32) -> Fixed32 {
+    Fixed32::from_raw((v * omoba_sim::fixed::SCALE as f32) as i32)
+}
 
 #[derive(SystemData)]
 pub struct ItemRead<'a> {
@@ -78,15 +85,28 @@ impl<'a> System<'a> for Sys {
                 }
             };
 
+            // CProperty / TAttack 全 Fixed32（Phase 1c.2）；ItemEffects / ItemBonus 仍 f32（Phase 1d）。
+            // 在 apply 邊界做一次轉換 — 邏輯不變。
+            let applied_hp_fx = f32_to_fx(applied_hp);
+            let sum_hp_fx = f32_to_fx(sum_hp);
+            let applied_ms_fx = f32_to_fx(applied_ms);
+            let sum_ms_fx = f32_to_fx(sum_ms);
+            let applied_armor_fx = f32_to_fx(applied_armor);
+            let sum_armor_fx = f32_to_fx(sum_armor);
+            let applied_atk_fx = f32_to_fx(applied_atk);
+            let sum_atk_fx = f32_to_fx(sum_atk);
+
             if let Some(prop) = tw.properties.get_mut(e) {
-                prop.mhp = prop.mhp - applied_hp + sum_hp;
-                prop.hp = prop.hp.min(prop.mhp).max(1.0);
-                prop.msd = prop.msd - applied_ms + sum_ms;
-                prop.def_physic = prop.def_physic - applied_armor + sum_armor;
+                prop.mhp = prop.mhp - applied_hp_fx + sum_hp_fx;
+                let one = Fixed32::ONE;
+                let hp_clamped_max = if prop.hp < prop.mhp { prop.hp } else { prop.mhp };
+                prop.hp = if hp_clamped_max < one { one } else { hp_clamped_max };
+                prop.msd = prop.msd - applied_ms_fx + sum_ms_fx;
+                prop.def_physic = prop.def_physic - applied_armor_fx + sum_armor_fx;
             }
             if let Some(atk) = tw.attacks.get_mut(e) {
                 let cur = atk.atk_physic.val();
-                atk.atk_physic = Vf32::new(cur - applied_atk + sum_atk);
+                atk.atk_physic = Vf32::new(cur - applied_atk_fx + sum_atk_fx);
             }
 
             if let Some(eff) = tw.effects.get_mut(e) {

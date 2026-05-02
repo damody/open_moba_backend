@@ -3,6 +3,13 @@ use specs::{World, WorldExt, Builder};
 
 use crate::comp::*;
 use crate::ue4::import_campaign::CampaignData;
+use omoba_sim::Fixed32;
+
+/// TODO Phase 1d: drop when Unit / CircularVision migrate to Fixed32 fully.
+#[inline]
+fn f32_to_fx(v: f32) -> Fixed32 {
+    Fixed32::from_raw((v * omoba_sim::fixed::SCALE as f32) as i32)
+}
 
 pub struct CampaignManager;
 
@@ -80,34 +87,37 @@ impl CampaignManager {
             .unwrap_or_else(|| panic!("hero id '{}' not in templates.json", hero_data.id));
         let s = hero_stats(id)
             .unwrap_or_else(|| panic!("hero '{}' has no stats in templates.json", hero_data.id));
-        // TODO Phase 1[cd]: drop these conversions when CProperty / TAttack migrate to Fixed32.
-        let hero_properties = Self::create_hero_properties(&hero, s.base_armor.to_f32_for_render());
-        let hero_attack = Self::create_hero_attack(&hero, s.attack_range.to_f32_for_render());
+        // Phase 1c.4: CProperty / TAttack are Fixed32 (Phase 1c.2). Pass Fixed32 直送。
+        let hero_properties = Self::create_hero_properties(&hero, s.base_armor);
+        let hero_attack = Self::create_hero_attack(&hero, s.attack_range);
         let abilities: Vec<String> = if hero_data.abilities.is_empty() {
             hero_abilities(id).iter().map(|a| a.as_str().to_string()).collect()
         } else {
             hero_data.abilities.clone()
         };
 
-        // TODO Phase 1[cd]: drop conversions when Unit migrates to Fixed32.
-        let s_attack_range_f32 = s.attack_range.to_f32_for_render();
+        // TODO Phase 1[d]: max_hp / current_hp / base_damage 仍 i32 (Unit struct)；
+        // 透過 to_f32_for_render() as i32 在邊界轉。
+        let max_hp_i = hero.get_max_hp().to_f32_for_render() as i32;
+        let base_damage_i = hero.get_base_damage().to_f32_for_render() as i32;
+        let attack_range_fx = s.attack_range;
         let hero_unit = Unit {
             id: hero.id.clone(),
             name: hero.name.clone(),
             unit_type: UnitType::Hero,
-            max_hp: hero.get_max_hp() as i32,
-            current_hp: hero.get_max_hp() as i32,
-            base_armor: s.base_armor.to_f32_for_render(),
-            magic_resistance: 0.0,
-            base_damage: hero.get_base_damage() as i32,
-            attack_range: s_attack_range_f32,
+            max_hp: max_hp_i,
+            current_hp: max_hp_i,
+            base_armor: s.base_armor,
+            magic_resistance: Fixed32::ZERO,
+            base_damage: base_damage_i,
+            attack_range: attack_range_fx,
             move_speed: hero.get_move_speed(),
             attack_speed: hero.get_attack_speed_multiplier(),
             ai_type: unit::AiType::None,
-            aggro_range: s_attack_range_f32 + 200.0,
+            aggro_range: attack_range_fx + Fixed32::from_i32(200),
             abilities: abilities.clone(),
             current_target: None,
-            last_attack_time: 0.0,
+            last_attack_time: Fixed32::ZERO,
             spawn_position: (0.0, 0.0),
             exp_reward: 0,
             gold_reward: 0,
@@ -117,8 +127,11 @@ impl CampaignManager {
         let hero_faction = Faction::new(FactionType::Player, 0);
         let hero_pos = Pos::from_xy_f32(0.0, 0.0);
         let hero_vel = Vel::zero();
-        // TODO Phase 1[cd]: drop conversion when CircularVision migrates to Fixed32.
-        let hero_vision = CircularVision::new(s_attack_range_f32 + 300.0, 30.0).with_precision(720);
+        // TODO Phase 1d: CircularVision::new still takes f32; drop on full migration.
+        let hero_vision = CircularVision::new(
+            (attack_range_fx + Fixed32::from_i32(300)).to_f32_for_render(),
+            30.0,
+        ).with_precision(720);
 
         let hero_entity = ecs.create_entity()
             .with(hero_pos)
@@ -135,7 +148,7 @@ impl CampaignManager {
         Self::create_hero_abilities(ecs, hero_entity, &abilities, campaign_data);
     }
 
-    fn create_hero_properties(hero: &Hero, base_armor: f32) -> CProperty {
+    fn create_hero_properties(hero: &Hero, base_armor: Fixed32) -> CProperty {
         let max_hp = hero.get_max_hp();
         let move_speed = hero.get_move_speed();
 
@@ -144,21 +157,22 @@ impl CampaignManager {
             mhp: max_hp,
             msd: move_speed,
             def_physic: base_armor,
-            def_magic: 0.0,
+            def_magic: Fixed32::ZERO,
         }
     }
 
-    fn create_hero_attack(hero: &Hero, attack_range: f32) -> TAttack {
+    fn create_hero_attack(hero: &Hero, attack_range: Fixed32) -> TAttack {
         let base_damage = hero.get_base_damage();
         let attack_speed_multiplier = hero.get_attack_speed_multiplier();
-        let attack_interval = 1.0 / attack_speed_multiplier;
+        // 1.0 / attack_speed_multiplier — Fixed32 division.
+        let attack_interval = Fixed32::ONE / attack_speed_multiplier;
 
         TAttack {
             atk_physic: Vf32::new(base_damage),
             asd: Vf32::new(attack_interval),
             range: Vf32::new(attack_range),
-            asd_count: 0.0,
-            bullet_speed: 1000.0,
+            asd_count: Fixed32::ZERO,
+            bullet_speed: Fixed32::from_i32(1000),
         }
     }
     
@@ -183,23 +197,29 @@ impl CampaignManager {
                 let unit_pos = Pos::from_xy_f32(*x, *y);
                 let unit_vel = Vel::zero();
 
+                // Phase 1c.4: CProperty / TAttack 全 Fixed32；Unit.{current_hp,max_hp,base_damage}
+                // 仍 i32 (Phase 1d)。在邊界用 Fixed32::from_i32 轉。
                 let unit_properties = CProperty {
-                    hp: unit.current_hp as f32,
-                    mhp: unit.max_hp as f32,
+                    hp: Fixed32::from_i32(unit.current_hp),
+                    mhp: Fixed32::from_i32(unit.max_hp),
                     msd: unit.move_speed,
                     def_physic: unit.base_armor,
                     def_magic: unit.magic_resistance,
                 };
 
                 let unit_attack = TAttack {
-                    atk_physic: Vf32::new(unit.base_damage as f32),
-                    asd: Vf32::new(1.0 / unit.attack_speed),
+                    atk_physic: Vf32::new(Fixed32::from_i32(unit.base_damage)),
+                    asd: Vf32::new(Fixed32::ONE / unit.attack_speed),
                     range: Vf32::new(unit.attack_range),
-                    asd_count: 0.0,
-                    bullet_speed: 800.0,
+                    asd_count: Fixed32::ZERO,
+                    bullet_speed: Fixed32::from_i32(800),
                 };
 
-                let enemy_vision = CircularVision::new(unit.attack_range + 150.0, 20.0).with_precision(360);
+                // TODO Phase 1d: CircularVision::new still takes f32.
+                let enemy_vision = CircularVision::new(
+                    (unit.attack_range + Fixed32::from_i32(150)).to_f32_for_render(),
+                    20.0,
+                ).with_precision(360);
 
                 let unit_entity = ecs.create_entity()
                     .with(unit_pos)
@@ -210,7 +230,7 @@ impl CampaignManager {
                     .with(unit_attack)
                     .with(enemy_vision)
                     .build();
-                    
+
                 log::info!("Created training enemy unit '{}' at position ({}, {})", enemy_data.id, x, y);
             }
         }
@@ -228,20 +248,22 @@ impl CampaignManager {
                 let unit_pos = Pos::from_xy_f32(*x, *y);
                 let unit_vel = Vel::zero();
                 
+                // Phase 1c.4: CProperty / TAttack 全 Fixed32；Unit.{current_hp,max_hp,base_damage}
+                // 仍 i32 (Phase 1d)。在邊界用 Fixed32::from_i32 轉。
                 let unit_properties = CProperty {
-                    hp: unit.current_hp as f32,
-                    mhp: unit.max_hp as f32,
+                    hp: Fixed32::from_i32(unit.current_hp),
+                    mhp: Fixed32::from_i32(unit.max_hp),
                     msd: unit.move_speed,
                     def_physic: unit.base_armor,
                     def_magic: unit.magic_resistance,
                 };
-                
+
                 let unit_attack = TAttack {
-                    atk_physic: Vf32::new(unit.base_damage as f32),
-                    asd: Vf32::new(1.0 / unit.attack_speed),
+                    atk_physic: Vf32::new(Fixed32::from_i32(unit.base_damage)),
+                    asd: Vf32::new(Fixed32::ONE / unit.attack_speed),
                     range: Vf32::new(unit.attack_range),
-                    asd_count: 0.0,
-                    bullet_speed: 600.0,
+                    asd_count: Fixed32::ZERO,
+                    bullet_speed: Fixed32::from_i32(600),
                 };
                 
                 let unit_entity = ecs.create_entity()

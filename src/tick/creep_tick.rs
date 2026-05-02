@@ -215,11 +215,14 @@ impl<'a> System<'a> for Sys {
                         (a.ticks() as f32 / TAU_TICKS as f32) * std::f32::consts::TAU
                     }
 
-                    if cp.hp <= 0. {
+                    if cp.hp <= Fixed32::ZERO {
                         // [DEBUG-STRESS] creep_tick 看到的 hp 值（應該與 handle_damage 寫入後的 hp 一致）
-                        log::info!("☠️ creep_tick sees hp<=0: name={} hp={} mhp={} ent={}",
-                            creep.name, cp.hp, cp.mhp, e.id());
-                        outcomes.push(Outcome::Death { pos: p_to_f(pos.0), ent: e.clone() });
+                        log::info!("☠️ creep_tick sees hp<=0: name={} hp={:.1} mhp={:.1} ent={}",
+                            creep.name,
+                            cp.hp.to_f32_for_render(),
+                            cp.mhp.to_f32_for_render(),
+                            e.id());
+                        outcomes.push(Outcome::Death { pos: pos.0, ent: e.clone() });
                     } else {
                         if let Some(path) = tr.paths.get(&creep.path) {
                             if let Some(_b) = creep.block_tower {
@@ -395,7 +398,7 @@ impl<'a> System<'a> for Sys {
                                     creep.status = next_status;
                                 } else {
                                     // creep 到終點了
-                                    outcomes.push(Outcome::Death { pos: p_to_f(pos.0), ent: e });
+                                    outcomes.push(Outcome::Death { pos: pos.0, ent: e });
                                 }
                             }
                         }
@@ -458,11 +461,14 @@ impl<'a> System<'a> for Sys {
                 // 記錄攻擊前狀態
                 let hp_before = cp.hp;
                 let max_hp = cp.mhp;
-                
-                let phys_damage = (td.phys - cp.def_physic).max(0.);
-                let magi_damage = (td.magi - cp.def_magic).max(0.);
-                let total_damage = phys_damage + magi_damage;
-                
+
+                // Phase 1c.4: cp.* / td.* / Outcome::Damage.{phys,magi,real} 全 Fixed32。
+                let phys_raw = td.phys - cp.def_physic;
+                let phys_damage: Fixed32 = if phys_raw < Fixed32::ZERO { Fixed32::ZERO } else { phys_raw };
+                let magi_raw = td.magi - cp.def_magic;
+                let magi_damage: Fixed32 = if magi_raw < Fixed32::ZERO { Fixed32::ZERO } else { magi_raw };
+                let total_damage: Fixed32 = phys_damage + magi_damage;
+
                 // 獲取目標名稱用於日誌
                 let target_name = if let Some(creep) = tw.creeps.get(td.ent) {
                     creep.name.clone()
@@ -470,37 +476,33 @@ impl<'a> System<'a> for Sys {
                     // 暫時使用實體 ID，因為沒有在 Read 結構中包含 Hero
                     format!("Entity({:?})", td.ent.id())
                 };
-                
-                if total_damage > 0.0 {
-                    // 獲取目標位置 — Pos.0 is SimVec2; Outcome::Damage.pos is still
-                    // vek::Vec2<f32> (Phase 1d migration). Lossy boundary.
+
+                if total_damage > Fixed32::ZERO {
+                    // Phase 1c.4: Outcome::Damage.pos is SimVec2 (Phase 1c.2).
                     let target_pos = tw.pos.get(td.ent)
-                        .map(|pos| vek::Vec2::new(
-                            pos.0.x.to_f32_for_render(),
-                            pos.0.y.to_f32_for_render(),
-                        ))
-                        .unwrap_or(vek::Vec2::new(0.0, 0.0));
+                        .map(|p| p.0)
+                        .unwrap_or(SimVec2::ZERO);
 
                     // 生成傷害事件（日誌將在 state.rs 中統一處理）
                     tw.outcomes.push(Outcome::Damage {
                         pos: target_pos,
                         phys: phys_damage,
                         magi: magi_damage,
-                        real: 0.0,
+                        real: Fixed32::ZERO,
                         source: td.source, // 使用正確的攻擊者
                         target: td.ent,
                         predeclared: false, // melee / on-touch damage — never pre-declared
                     });
-                } else if td.phys > 0.0 || td.magi > 0.0 {
+                } else if td.phys > Fixed32::ZERO || td.magi > Fixed32::ZERO {
                     // 只有在有原始傷害但被完全防禦時才顯示
-                    log::info!("🛡️ {} | Damage BLOCKED: Phys {:.1} vs Def {:.1}, Magi {:.1} vs Def {:.1}", 
+                    log::info!("🛡️ {} | Damage BLOCKED: Phys {:.1} vs Def {:.1}, Magi {:.1} vs Def {:.1}",
                         target_name,
-                        td.phys, cp.def_physic,
-                        td.magi, cp.def_magic
+                        td.phys.to_f32_for_render(), cp.def_physic.to_f32_for_render(),
+                        td.magi.to_f32_for_render(), cp.def_magic.to_f32_for_render()
                     );
                 }
             }
-        } 
+        }
         tw.taken_damages.clear();
     }
 }

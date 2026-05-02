@@ -13,6 +13,7 @@ use std::{
     time::{Duration, Instant},
 };
 use specs::Entity;
+use omoba_sim::{Fixed32, Vec2 as SimVec2};
 
 /// MOBA 鏡頭下肉眼無感的 facing 變化量（~15°）。舊值 0.05 (~3°) 造成過多 F event。
 const FACING_BROADCAST_THRESHOLD_RAD: f32 = 0.26;
@@ -76,8 +77,11 @@ impl<'a> System<'a> for Sys {
 
     fn run(_job: &mut Job<Self>, (tr, mut tw): Self::SystemData) {
         let time = tr.time.0;
-        // TODO Phase 1[c]: drop conversion when battle tick goes Fixed32-native.
-        let dt = tr.dt.0.to_f32_for_render();
+        // Phase 1c.4: dt is Fixed32 throughout battle tick.
+        let dt: Fixed32 = tr.dt.0;
+        // Lossy projection retained ONLY for facing-radian arithmetic + Searcher boundary.
+        // TODO Phase 1e: drop when Searcher / Facing migrate to Fixed32 / Angle natively.
+        let dt_f = dt.to_f32_for_render();
         let time1 = Instant::now();
         let tx = tw.mqtx.get(0).cloned();
         let mut outcomes = (
@@ -122,17 +126,15 @@ impl<'a> System<'a> for Sys {
                     }
                     if pty.mblock > pty.block {
                         // 試試看會不會阻檔
-                        let size = pty.size*pty.size;
+                        let size_sq: Fixed32 = pty.size * pty.size;
                         for nc in tower.nearby_creeps.iter() {
                             if tower.block_creeps.contains(&nc.ent) {
                                 // 已經阻檔了
                             } else {
                                 if let Some(p) = tr.pos.get(nc.ent) {
-                                    // distance_squared returns Fixed32; convert size (f32) for compare.
-                                    let (npx, npy) = p.xy_f32();
-                                    let dx = npx - pos_x_f;
-                                    let dy = npy - pos_y_f;
-                                    if dx * dx + dy * dy < size {
+                                    // 距離平方 in Fixed32 — 與 size_sq (Fixed32) 直接比較。
+                                    let diff = p.0 - pos.0;
+                                    if diff.length_squared() < size_sq {
                                         tower.block_creeps.push(nc.ent);
                                         outcomes.push(Outcome::CreepStop { source: e, target: nc.ent });
                                     }
@@ -149,8 +151,10 @@ impl<'a> System<'a> for Sys {
                         let elpsed = time2.duration_since(time1);
                         if elpsed.as_secs_f32() < 0.05 {
                             let search_n = 1.max(pty.mblock).max(6) as usize;
+                            // TODO Phase 1e: Searcher Fixed32 — drop conversions when search_nn_two_radii goes native.
+                            let range_f = atk.range.val().to_f32_for_render();
                             let (creeps, near_creeps) =
-                                tr.searcher.creep.search_nn_two_radii(pos_vek, atk.range.val(), atk.range.val()+30., search_n);
+                                tr.searcher.creep.search_nn_two_radii(pos_vek, range_f, range_f + 30., search_n);
 
                             // faction filter：若本塔有 Faction，則只攻擊敵對 creep
                             let my_faction = tr.factions.get(e);
@@ -169,7 +173,9 @@ impl<'a> System<'a> for Sys {
                                 if pty.mblock > 0 {
                                     tower.nearby_creeps.clear();
                                     for c in hostile_creeps.iter() {
-                                        tower.nearby_creeps.push(NearbyEnt { ent: c.e, dis: c.dis });
+                                        // TODO Phase 1e: DisIndex.dis is still f32 (Searcher boundary).
+                                        let dis_fx = Fixed32::from_raw((c.dis * 1024.0) as i32);
+                                        tower.nearby_creeps.push(NearbyEnt { ent: c.e, dis: dis_fx });
                                     }
                                 }
                                 // 轉向目標：算出 desired angle，旋轉 facing
@@ -183,7 +189,7 @@ impl<'a> System<'a> for Sys {
                                     let turn = tr.turn_speeds.get(e).map(|t| t.0.to_f32_for_render())
                                         .unwrap_or(std::f32::consts::FRAC_PI_2);
                                     let cur_rad = facing.rad_f32();
-                                    let new_rad = rotate_toward(cur_rad, desired, turn * dt);
+                                    let new_rad = rotate_toward(cur_rad, desired, turn * dt_f);
                                     *facing = Facing::from_rad_f32(new_rad);
 
                                     // 廣播 facing 變化：和「上次廣播」差 > 15° 才送。
@@ -209,7 +215,7 @@ impl<'a> System<'a> for Sys {
                                     if normalize_angle(desired - new_rad).abs() < MOVE_ANGLE_THRESHOLD {
                                         atk.asd_count -= atk.asd.val();
                                         outcomes.push(Outcome::ProjectileLine2 {
-                                            pos: pos_vek,
+                                            pos: pos.0,
                                             source: Some(e.clone()),
                                             target: Some(target_entity),
                                         });
@@ -218,7 +224,10 @@ impl<'a> System<'a> for Sys {
                                 }
                             } else {
                                 if !is_scripted && near_creeps.len() == 0 {
-                                    atk.asd_count = atk.asd.val() - 0.3 - fastrand::u8(..) as f32 * 0.001;
+                                    // 0.3 ≈ 307/1024 raw; 0.001 ≈ 1/1024 raw.
+                                    // TODO Phase 1d: replace fastrand::u8 with SimRng for replay determinism.
+                                    let jitter = Fixed32::from_raw(fastrand::u8(..) as i32);
+                                    atk.asd_count = atk.asd.val() - Fixed32::from_raw(307) - jitter;
                                 }
                             }
                         }

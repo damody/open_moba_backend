@@ -185,12 +185,10 @@ impl<'a> System<'a> for Sys {
                         &*tr.buff_store,
                         tr.is_buildings.get(entity).is_some(),
                     );
-                    let effective_msd = stats.final_move_speed(property.msd, entity);
-                    // step in Fixed32 for collision math; effective_msd is still f32 today.
-                    // TODO Phase 1c: drop step_f -> step Fixed32 conversion when CProperty.msd
-                    // migrates to Fixed32.
-                    let step_f = effective_msd * dt_f;
-                    let step = Fixed32::from_raw((step_f * omoba_sim::fixed::SCALE as f32) as i32);
+                    // Phase 1c.4: CProperty.msd / final_move_speed are Fixed32 (Phase 1c.2 / 1c.3).
+                    // dt is Fixed32. step = effective_msd * dt — stays in Fixed32 throughout.
+                    let effective_msd: Fixed32 = stats.final_move_speed(property.msd, entity);
+                    let step: Fixed32 = effective_msd * dt;
 
                     let mut arrived_entity: Option<specs::Entity> = None;
 
