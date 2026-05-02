@@ -8,6 +8,7 @@ use specs::{World, WorldExt};
 
 use crate::comp::*;
 use crate::transport::{OutboundMsg, InboundMsg};
+use omoba_template_ids::{HERO_SAIKA_MAGOICHI, hero_abilities};
 
 pub struct MqttHandler;
 
@@ -100,13 +101,15 @@ impl MqttHandler {
                         "name": "TestPlayer",
                         "position": [400.0, 300.0],
                         "health": [100.0, 100.0],
-                        "hero_type": "saika_magoichi",
-                        "abilities": [
-                            {"ability_id": "sniper_mode", "cooldown_remaining": 0.0, "is_available": true},
-                            {"ability_id": "saika_reinforcements", "cooldown_remaining": 0.0, "is_available": true},
-                            {"ability_id": "rain_iron_cannon", "cooldown_remaining": 0.0, "is_available": true},
-                            {"ability_id": "three_stage_technique", "cooldown_remaining": 0.0, "is_available": true}
-                        ],
+                        "hero_type": HERO_SAIKA_MAGOICHI.as_str(),
+                        "abilities": hero_abilities(HERO_SAIKA_MAGOICHI)
+                            .iter()
+                            .map(|aid| json!({
+                                "ability_id": aid.as_str(),
+                                "cooldown_remaining": 0.0,
+                                "is_available": true,
+                            }))
+                            .collect::<Vec<_>>(),
                         "items": []
                     }
                 ],

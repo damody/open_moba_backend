@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 use omb_script_abi::stat_keys::StatKey;
 use omoba_core::tower_meta::{TowerUpgradeDef, UpgradeEffect, StatOp};
+use omoba_template_ids::{TOWER_DART, TOWER_BOMB, TOWER_TACK, TOWER_ICE};
 
 pub struct TowerUpgradeRegistry {
     /// key = (tower_kind, path, level)
@@ -32,7 +33,7 @@ impl TowerUpgradeRegistry {
 
     // Dart Monkey (base 200): Path 0 Sharp, Path 1 Quick, Path 2 Crit
     fn register_dart(&mut self) {
-        let kind = "tower_dart";
+        let kind = TOWER_DART.as_str();
         // Path 0 — Sharp Shots
         self.insert(TowerUpgradeDef {
             tower_kind: kind.into(), path: 0, level: 1,
@@ -143,7 +144,7 @@ impl TowerUpgradeRegistry {
 
     // Bomb Shooter (base 650): Path 0 Bigger Bombs, Path 1 Missile Launcher, Path 2 Cluster Bombs
     fn register_bomb(&mut self) {
-        let kind = "tower_bomb";
+        let kind = TOWER_BOMB.as_str();
         // Path 0 — Bigger Bombs
         self.insert(TowerUpgradeDef {
             tower_kind: kind.into(), path: 0, level: 1,
@@ -254,7 +255,7 @@ impl TowerUpgradeRegistry {
 
     // Tack Shooter (base 400): Path 0 Sharp Tacks, Path 1 Ring of Fire, Path 2 More Tacks
     fn register_tack(&mut self) {
-        let kind = "tower_tack";
+        let kind = TOWER_TACK.as_str();
         // Path 0 — Sharp Tacks
         self.insert(TowerUpgradeDef {
             tower_kind: kind.into(), path: 0, level: 1,
@@ -364,7 +365,7 @@ impl TowerUpgradeRegistry {
 
     // Ice Monkey (base 400): Path 0 Permafrost, Path 1 Arctic Wind, Path 2 Embrittlement
     fn register_ice(&mut self) {
-        let kind = "tower_ice";
+        let kind = TOWER_ICE.as_str();
         // Path 0 — Permafrost
         self.insert(TowerUpgradeDef {
             tower_kind: kind.into(), path: 0, level: 1,
@@ -479,7 +480,7 @@ mod tests {
         let reg = TowerUpgradeRegistry::new();
         for path in 0..3 {
             for level in 1..=4 {
-                assert!(reg.get("tower_dart", path, level).is_some(),
+                assert!(reg.get(TOWER_DART.as_str(), path, level).is_some(),
                     "dart path {} level {}", path, level);
             }
         }
@@ -488,7 +489,7 @@ mod tests {
     #[test]
     fn all_four_towers_have_12_upgrades_each() {
         let reg = TowerUpgradeRegistry::new();
-        for kind in &["tower_dart", "tower_bomb", "tower_tack", "tower_ice"] {
+        for kind in &[TOWER_DART.as_str(), TOWER_BOMB.as_str(), TOWER_TACK.as_str(), TOWER_ICE.as_str()] {
             for path in 0..3 {
                 for level in 1..=4 {
                     assert!(reg.get(kind, path, level).is_some(),
@@ -501,8 +502,18 @@ mod tests {
     #[test]
     fn costs_match_formula() {
         use omoba_core::tower_meta::upgrade_cost;
+        use omoba_template_ids::{
+            TOWER_DART_STATS, TOWER_BOMB_STATS, TOWER_TACK_STATS, TOWER_ICE_STATS,
+        };
         let reg = TowerUpgradeRegistry::new();
-        let bases = [("tower_dart", 200), ("tower_bomb", 650), ("tower_tack", 400), ("tower_ice", 400)];
+        // Base costs 從 templates.json towers[].cost 走 codegen const 取，
+        // 改 templates.json 一處同步全部測試。
+        let bases = [
+            (TOWER_DART.as_str(), TOWER_DART_STATS.cost),
+            (TOWER_BOMB.as_str(), TOWER_BOMB_STATS.cost),
+            (TOWER_TACK.as_str(), TOWER_TACK_STATS.cost),
+            (TOWER_ICE.as_str(),  TOWER_ICE_STATS.cost),
+        ];
         for (kind, base) in bases {
             for path in 0..3u8 {
                 for level in 1..=4 {
