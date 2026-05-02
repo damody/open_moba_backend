@@ -123,7 +123,7 @@ impl StateInitializer {
             for (p, r) in circles {
                 let e = ecs.create_entity()
                     .with(Pos::from_xy_f32(p.x, p.y))
-                    .with(CollisionRadius(omoba_sim::Fixed32::from_raw((r * 1024.0) as i32)))
+                    .with(CollisionRadius(omoba_sim::Fixed64::from_raw((r * 1024.0) as i64)))
                     .with(RegionBlocker)
                     .build();
                 created.push((e, p));
@@ -138,7 +138,7 @@ impl StateInitializer {
         }
         log::warn!("▶▶ populate_region_blockers DONE: {} blockers created (polygons={})", n, polys.len());
         for (idx, (e, p)) in created.iter().take(3).enumerate() {
-            // NOTE: log uses f32 boundary — Fixed32 has no Display.
+            // NOTE: log uses f32 boundary — Fixed64 has no Display.
             let r = ecs.read_storage::<CollisionRadius>().get(*e).map(|c| c.0.to_f32_for_render()).unwrap_or(0.0);
             log::warn!("▶▶   blocker[{}] entity={:?} pos=({:.1},{:.1}) r={:.1}",
                 idx, e, p.x, p.y, r);
@@ -188,11 +188,11 @@ impl StateInitializer {
                 },
                 property: CProperty {
                     // PHASE 2: campaign JSON CreepData fields are still f32; redesign in Phase 2 KCP tag rework.
-                    hp: omoba_sim::Fixed32::from_raw((cp.HP * 1024.0) as i32),
-                    mhp: omoba_sim::Fixed32::from_raw((cp.HP * 1024.0) as i32),
-                    msd: omoba_sim::Fixed32::from_raw((cp.MoveSpeed * 1024.0) as i32),
-                    def_physic: omoba_sim::Fixed32::from_raw((cp.DefendPhysic * 1024.0) as i32),
-                    def_magic: omoba_sim::Fixed32::from_raw((cp.DefendMagic * 1024.0) as i32),
+                    hp: omoba_sim::Fixed64::from_raw((cp.HP * 1024.0) as i64),
+                    mhp: omoba_sim::Fixed64::from_raw((cp.HP * 1024.0) as i64),
+                    msd: omoba_sim::Fixed64::from_raw((cp.MoveSpeed * 1024.0) as i64),
+                    def_physic: omoba_sim::Fixed64::from_raw((cp.DefendPhysic * 1024.0) as i64),
+                    def_magic: omoba_sim::Fixed64::from_raw((cp.DefendMagic * 1024.0) as i64),
                 },
                 faction_name: cp.Faction.clone().unwrap_or_default(),
                 turn_speed_deg: cp.TurnSpeed.unwrap_or(90.0),
@@ -308,7 +308,7 @@ impl StateInitializer {
         ecs.insert(TickStart(Instant::now()));
         ecs.insert(TimeOfDay(0.0));
         ecs.insert(Time(0.0));
-        ecs.insert(DeltaTime(omoba_sim::Fixed32::ZERO));
+        ecs.insert(DeltaTime(omoba_sim::Fixed64::ZERO));
         // Phase 1c.3: master seed for deterministic SimRng streams. Phase 2 will
         // overwrite this from the GameStart message; for now use a fixed default.
         ecs.insert(crate::comp::MasterSeed::default());
@@ -322,12 +322,12 @@ impl StateInitializer {
         let mut p = Player { name: player_name.clone(), cost: 100., towers: vec![] };
         // PHASE 2: hard-coded test stats; should come from omoba_template_ids — Phase 2 KCP tag rework.
         p.towers.push(TowerData {
-            tpty: TProperty::new(omoba_sim::Fixed32::from_i32(10), 1, omoba_sim::Fixed32::from_i32(100)),
+            tpty: TProperty::new(omoba_sim::Fixed64::from_i32(10), 1, omoba_sim::Fixed64::from_i32(100)),
             tatk: TAttack::new(
-                omoba_sim::Fixed32::from_i32(3),
-                omoba_sim::Fixed32::from_raw(307), // ≈ 0.3
-                omoba_sim::Fixed32::from_i32(300),
-                omoba_sim::Fixed32::from_i32(100),
+                omoba_sim::Fixed64::from_i32(3),
+                omoba_sim::Fixed64::from_raw(307), // ≈ 0.3
+                omoba_sim::Fixed64::from_i32(300),
+                omoba_sim::Fixed64::from_i32(100),
             ),
         });
         player_map.insert(player_name.clone(), p);
@@ -403,17 +403,17 @@ impl StateInitializer {
             let hero_vel = Vel::zero();
 
             // 創建英雄的戰鬥屬性 (基於英雄等級和屬性計算)
-            // PHASE 2: hero spawn defaults still f32 literals; promote to Fixed32 templates in Phase 2 KCP tag rework.
-            use omoba_sim::Fixed32;
-            let base_hp = Fixed32::from_i32(500) + Fixed32::from_i32(hero.level) * hero.level_growth.hp_per_level;
-            let base_damage = Fixed32::from_i32(50) + Fixed32::from_i32(hero.level) * hero.level_growth.damage_per_level;
+            // PHASE 2: hero spawn defaults still f32 literals; promote to Fixed64 templates in Phase 2 KCP tag rework.
+            use omoba_sim::Fixed64;
+            let base_hp = Fixed64::from_i32(500) + Fixed64::from_i32(hero.level) * hero.level_growth.hp_per_level;
+            let base_damage = Fixed64::from_i32(50) + Fixed64::from_i32(hero.level) * hero.level_growth.damage_per_level;
 
             let hero_properties = CProperty {
                 hp: base_hp,
                 mhp: base_hp,
-                msd: Fixed32::from_i32(350), // 基礎移動速度
-                def_physic: Fixed32::from_i32(hero.strength) * Fixed32::from_raw(205), // ≈ 0.2 = 205/1024
-                def_magic: Fixed32::from_i32(hero.intelligence) * Fixed32::from_raw(154), // ≈ 0.15 = 154/1024
+                msd: Fixed64::from_i32(350), // 基礎移動速度
+                def_physic: Fixed64::from_i32(hero.strength) * Fixed64::from_raw(205), // ≈ 0.2 = 205/1024
+                def_magic: Fixed64::from_i32(hero.intelligence) * Fixed64::from_raw(154), // ≈ 0.15 = 154/1024
             };
 
             // 從 templates.json 取 hero stats（attack_range / turn_speed / 等）。
@@ -424,10 +424,10 @@ impl StateInitializer {
 
             let hero_attack = TAttack {
                 atk_physic: Vf32::new(base_damage),
-                asd: Vf32::new(Fixed32::from_raw(602)), // 1/1.7 ≈ 0.588 (= 602/1024)
+                asd: Vf32::new(Fixed64::from_raw(602)), // 1/1.7 ≈ 0.588 (= 602/1024)
                 range: Vf32::new(hero_template_stats.attack_range),
-                asd_count: Fixed32::ZERO,
-                bullet_speed: Fixed32::from_i32(1000),
+                asd_count: Fixed64::ZERO,
+                bullet_speed: Fixed64::from_i32(1000),
             };
 
             // 創建英雄圓形視野組件
@@ -437,7 +437,7 @@ impl StateInitializer {
             ).with_precision(720); // 高精度視野
 
             // PHASE 2: TurnSpeed source uses degrees, omb internal uses radians; redesign in Phase 2 KCP tag rework.
-            // hero_template_stats.turn_speed is Fixed32 in degrees; convert to radians (f32) for omb internal.
+            // hero_template_stats.turn_speed is Fixed64 in degrees; convert to radians (f32) for omb internal.
             let hero_turn_rad = hero_template_stats.turn_speed.to_f32_for_render() * std::f32::consts::PI / 180.0;
             // Hero collision_radius 暫定 30（之前由 entity.json optional override，
             // 簡化後固定）。
@@ -459,8 +459,8 @@ impl StateInitializer {
                 .with(Facing(omoba_sim::Angle::ZERO))
                 .with(FacingBroadcast(None))
                 // PHASE 2: TurnSpeed source still f32 radians; redesign in Phase 2 KCP tag rework.
-                .with(TurnSpeed(omoba_sim::Fixed32::from_raw((hero_turn_rad * 1024.0) as i32)))
-                .with(CollisionRadius(omoba_sim::Fixed32::from_raw((hero_radius * 1024.0) as i32)))
+                .with(TurnSpeed(omoba_sim::Fixed64::from_raw((hero_turn_rad * 1024.0) as i64)))
+                .with(CollisionRadius(omoba_sim::Fixed64::from_raw((hero_radius * 1024.0) as i64)))
                 .with(crate::scripting::ScriptUnitTag { unit_id: unit_id.clone() })
                 .build();
 
@@ -565,13 +565,13 @@ impl StateInitializer {
         collision_radius: f32,
     ) {
         // PHASE 2: spawn_tower API still f32; redesign in Phase 2 KCP tag rework.
-        use omoba_sim::Fixed32;
-        let hp_fx = Fixed32::from_raw((hp * 1024.0) as i32);
-        let range_fx = Fixed32::from_raw((range * 1024.0) as i32);
-        let atk_fx = Fixed32::from_raw((atk * 1024.0) as i32);
-        let asd_fx = Fixed32::from_raw((asd * 1024.0) as i32);
-        let prop = TProperty::new(hp_fx, 0, Fixed32::from_i32(120));
-        let atk_c = TAttack::new(atk_fx, asd_fx, range_fx, Fixed32::from_i32(1200));
+        use omoba_sim::Fixed64;
+        let hp_fx = Fixed64::from_raw((hp * 1024.0) as i64);
+        let range_fx = Fixed64::from_raw((range * 1024.0) as i64);
+        let atk_fx = Fixed64::from_raw((atk * 1024.0) as i64);
+        let asd_fx = Fixed64::from_raw((asd * 1024.0) as i64);
+        let prop = TProperty::new(hp_fx, 0, Fixed64::from_i32(120));
+        let atk_c = TAttack::new(atk_fx, asd_fx, range_fx, Fixed64::from_i32(1200));
         // Team id 0 for Player, 1 for Enemy (matches create_campaign_heroes convention)
         let team_id = if faction_type == FactionType::Player { 0 } else { 1 };
         let faction = Faction::new(faction_type.clone(), team_id);
@@ -580,9 +580,9 @@ impl StateInitializer {
         let cprop = CProperty {
             hp: hp_fx,
             mhp: hp_fx,
-            msd: Fixed32::ZERO,
-            def_physic: Fixed32::ZERO,
-            def_magic: Fixed32::ZERO,
+            msd: Fixed64::ZERO,
+            def_physic: Fixed64::ZERO,
+            def_magic: Fixed64::ZERO,
         };
 
         // 擊毀獎勵：一般塔 150g / 200xp；基地 300g / 500xp；我方被擊毀不給獎勵
@@ -607,8 +607,8 @@ impl StateInitializer {
             .with(Facing(omoba_sim::Angle::ZERO))
             .with(FacingBroadcast(None))
             // PHASE 2: tower config still uses f32 turn_speed_deg; redesign in Phase 2 KCP tag rework.
-            .with(TurnSpeed(omoba_sim::Fixed32::from_raw((turn_speed_deg.to_radians() * 1024.0) as i32)))
-            .with(CollisionRadius(omoba_sim::Fixed32::from_raw((collision_radius * 1024.0) as i32)));
+            .with(TurnSpeed(omoba_sim::Fixed64::from_raw((turn_speed_deg.to_radians() * 1024.0) as i64)))
+            .with(CollisionRadius(omoba_sim::Fixed64::from_raw((collision_radius * 1024.0) as i64)));
 
         // 雙方基地都標記 IsBase（前端依此顯示「基地」名稱）；
         // 勝負判定在 handle_death 裡還要檢查 faction，只有敵方基地死亡才觸發玩家勝
@@ -638,20 +638,20 @@ impl StateInitializer {
 
                 let unit_properties = CProperty {
                     // NOTE: Unit.{current_hp, max_hp, base_damage} are i32 by design (integer game values).
-                    hp: omoba_sim::Fixed32::from_i32(unit.current_hp),
-                    mhp: omoba_sim::Fixed32::from_i32(unit.max_hp),
+                    hp: omoba_sim::Fixed64::from_i32(unit.current_hp),
+                    mhp: omoba_sim::Fixed64::from_i32(unit.max_hp),
                     msd: unit.move_speed,
                     def_physic: unit.base_armor,
                     def_magic: unit.magic_resistance,
                 };
 
                 let unit_attack = TAttack {
-                    atk_physic: Vf32::new(omoba_sim::Fixed32::from_i32(unit.base_damage)),
-                    // NOTE: Fixed32::ONE / attack_speed exercises Fixed32 division at spawn boundary; sim-side reads asd.v directly.
-                    asd: Vf32::new(omoba_sim::Fixed32::ONE / unit.attack_speed),
+                    atk_physic: Vf32::new(omoba_sim::Fixed64::from_i32(unit.base_damage)),
+                    // NOTE: Fixed64::ONE / attack_speed exercises Fixed64 division at spawn boundary; sim-side reads asd.v directly.
+                    asd: Vf32::new(omoba_sim::Fixed64::ONE / unit.attack_speed),
                     range: Vf32::new(unit.attack_range),
-                    asd_count: omoba_sim::Fixed32::ZERO,
-                    bullet_speed: omoba_sim::Fixed32::from_i32(800),
+                    asd_count: omoba_sim::Fixed64::ZERO,
+                    bullet_speed: omoba_sim::Fixed64::from_i32(800),
                 };
 
                 let enemy_vision = CircularVision::new(
@@ -670,7 +670,7 @@ impl StateInitializer {
                     .with(unit_properties)
                     .with(unit_attack)
                     .with(enemy_vision)
-                    .with(CollisionRadius(omoba_sim::Fixed32::from_i32(20)))
+                    .with(CollisionRadius(omoba_sim::Fixed64::from_i32(20)))
                     .with(crate::scripting::ScriptUnitTag { unit_id: unit_uid.clone() })
                     .build();
                 ecs.write_resource::<crate::scripting::ScriptEventQueue>()

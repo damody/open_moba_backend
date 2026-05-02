@@ -55,7 +55,7 @@ impl<'a> System<'a> for Sys {
     const NAME: &'static str = "buff";
 
     fn run(_job: &mut Job<Self>, mut data: Self::SystemData) {
-        // Phase 1c.3: BuffStore::tick now takes Fixed32 directly.
+        // Phase 1c.3: BuffStore::tick now takes Fixed64 directly.
         let dt = data.dt.0;
         let expired = data.buffs.tick(dt);
         let tx = data.mqtx.get(0).cloned();
@@ -63,18 +63,18 @@ impl<'a> System<'a> for Sys {
         // DoT (Task 15)：連續扣血，每 tick dot_damage * dt，達 dot/s 持續傷害
         // 累積到單次廣播避免每 tick 刷 creep/H。
         // 用 entities_by_key 反向索引取候選，避免對全表 entity 都呼 sum_add。
-        let dot_targets: Vec<(specs::Entity, omoba_sim::Fixed32)> = data
+        let dot_targets: Vec<(specs::Entity, omoba_sim::Fixed64)> = data
             .buffs
             .entities_with_key(StatKey::DotDamage.as_str())
             .filter_map(|e| {
                 let d = data.buffs.sum_add(e, StatKey::DotDamage);
-                if d > omoba_sim::Fixed32::ZERO { Some((e, d)) } else { None }
+                if d > omoba_sim::Fixed64::ZERO { Some((e, d)) } else { None }
             })
             .collect();
         for (entity, dot) in dot_targets {
             if let Some(cp) = data.cpropertys.get_mut(entity) {
                 let new_hp = cp.hp - dot * dt;
-                cp.hp = if new_hp < omoba_sim::Fixed32::ZERO { omoba_sim::Fixed32::ZERO } else { new_hp };
+                cp.hp = if new_hp < omoba_sim::Fixed64::ZERO { omoba_sim::Fixed64::ZERO } else { new_hp };
                 if let Some(t) = tx.as_ref() {
                     let msg_type = if data.creeps.get(entity).is_some() { "creep" } else { "entity" };
                     // PHASE 2: wire format f32 — proto schemas migrate in Phase 2 KCP tag rework.

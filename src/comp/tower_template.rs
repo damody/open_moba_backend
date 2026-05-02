@@ -26,12 +26,12 @@ pub fn spawn_td_tower(world: &mut World, pos: Vec2<f32>, unit_id: &str) -> Optio
         return None;
     };
 
-    // Phase 1c.4: TProperty / TAttack / CProperty 全 Fixed32（Phase 1c.2）。
+    // Phase 1c.4: TProperty / TAttack / CProperty 全 Fixed64（Phase 1c.2）。
     // TowerTemplate 仍 f32（Phase 1d）。Bridge once per spawn.
-    use omoba_sim::Fixed32;
-    let f32_to_fx = |v: f32| Fixed32::from_raw((v * omoba_sim::fixed::SCALE as f32) as i32);
+    use omoba_sim::Fixed64;
+    let f32_to_fx = |v: f32| Fixed64::from_raw((v * omoba_sim::fixed::SCALE as f32) as i64);
     let tpl_hp = f32_to_fx(tpl.hp);
-    let tprop = TProperty::new(tpl_hp, 0, Fixed32::from_i32(120));
+    let tprop = TProperty::new(tpl_hp, 0, Fixed64::from_i32(120));
     let tatk = TAttack::new(
         f32_to_fx(tpl.atk),
         f32_to_fx(tpl.asd_interval),
@@ -43,9 +43,9 @@ pub fn spawn_td_tower(world: &mut World, pos: Vec2<f32>, unit_id: &str) -> Optio
     let cprop = CProperty {
         hp: tpl_hp,
         mhp: tpl_hp,
-        msd: Fixed32::ZERO,
-        def_physic: Fixed32::ZERO,
-        def_magic: Fixed32::ZERO,
+        msd: Fixed64::ZERO,
+        def_physic: Fixed64::ZERO,
+        def_magic: Fixed64::ZERO,
     };
 
     let entity = world
@@ -61,8 +61,8 @@ pub fn spawn_td_tower(world: &mut World, pos: Vec2<f32>, unit_id: &str) -> Optio
         .with(Facing(omoba_sim::Angle::ZERO))
         .with(crate::comp::FacingBroadcast(None))
         // PHASE 2: tower template metadata still uses turn_speed_deg f32; redesign in Phase 2 KCP tag rework.
-        .with(TurnSpeed(omoba_sim::Fixed32::from_raw((tpl.turn_speed_deg.to_radians() * 1024.0) as i32)))
-        .with(CollisionRadius(omoba_sim::Fixed32::from_raw((tpl.footprint * 1024.0) as i32)))
+        .with(TurnSpeed(omoba_sim::Fixed64::from_raw((tpl.turn_speed_deg.to_radians() * 1024.0) as i64)))
+        .with(CollisionRadius(omoba_sim::Fixed64::from_raw((tpl.footprint * 1024.0) as i64)))
         .with(crate::scripting::ScriptUnitTag { unit_id: unit_id.to_string() })
         .build();
 

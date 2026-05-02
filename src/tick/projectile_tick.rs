@@ -9,7 +9,7 @@ use crate::comp::*;
 use crate::transport::OutboundMsg;
 use specs::prelude::ParallelIterator;
 use specs::Entity;
-use omoba_sim::{Fixed32, Vec2 as SimVec2};
+use omoba_sim::{Fixed64, Vec2 as SimVec2};
 
 #[derive(SystemData)]
 pub struct ProjectileRead<'a> {
@@ -43,8 +43,8 @@ impl<'a> System<'a> for Sys {
 
     fn run(_job: &mut Job<Self>, (tr, mut tw): Self::SystemData) {
         let time = tr.time.0;
-        // dt is Fixed32; arithmetic against Projectile fields stays in Fixed32.
-        let dt: Fixed32 = tr.dt.0;
+        // dt is Fixed64; arithmetic against Projectile fields stays in Fixed64.
+        let dt: Fixed64 = tr.dt.0;
 
         // Snapshot every entity's current Pos so projectiles can home toward the
         // target's LIVE position each tick (homing). Previously `tpos` was frozen
@@ -65,7 +65,7 @@ impl<'a> System<'a> for Sys {
             &mut tw.pos,
         )
             .par_join()
-            .filter(|(e, proj, p)| proj.time_left > Fixed32::ZERO)
+            .filter(|(e, proj, p)| proj.time_left > Fixed64::ZERO)
             .map_init(
                 || {
                     prof_span!(guard, "projectile update rayon job");
@@ -87,19 +87,19 @@ impl<'a> System<'a> for Sys {
                     // 無 target 的方向性子彈（Tack 放射針）：用掃掠 segment 檢查命中
                     // （不只檢查當前 point，還要檢查本 tick 即將走過的路徑）避免高速子彈
                     // 跨過氣球之間的間隔而沒打中。
-                    let needle_r = if proj.hit_radius > Fixed32::ZERO {
+                    let needle_r = if proj.hit_radius > Fixed64::ZERO {
                         proj.hit_radius
                     } else {
-                        Fixed32::from_i32(50)
+                        Fixed64::from_i32(50)
                     };
-                    if proj.target.is_none() && proj.radius < Fixed32::ONE {
+                    if proj.target.is_none() && proj.radius < Fixed64::ONE {
                         // 計算本 tick 的 swept segment：從 pos.0 出發，沿 delta 方向走 step 距離
                         let a: SimVec2 = pos.0;
-                        let b: SimVec2 = if dist > Fixed32::ZERO {
+                        let b: SimVec2 = if dist > Fixed64::ZERO {
                             a + delta.normalized() * step
                         } else { a };
                         // NOTE: mid + half_len computed in f32 only at the search-call boundary
-                        // (Searcher uses f32 internally for instant_distance lib compat; final distance check in caller is Fixed32).
+                        // (Searcher uses f32 internally for instant_distance lib compat; final distance check in caller is Fixed64).
                         let a_xf = a.x.to_f32_for_render();
                         let a_yf = a.y.to_f32_for_render();
                         let b_xf = b.x.to_f32_for_render();
@@ -137,7 +137,7 @@ impl<'a> System<'a> for Sys {
                     }
 
                     // 命中判定：本 tick 的移動量已足夠抵達目標 → 直接 hit
-                    let reached = dist <= step || dist < Fixed32::ONE;
+                    let reached = dist <= step || dist < Fixed64::ONE;
                     if reached {
                         // 命中點：優先用 target 的最新位置（snapshot = 本 tick 初的 Pos storage），
                         // 這樣 AoE 圓心和爆炸特效一定落在氣球身上，不會停在子彈剛發射時那一刻。
@@ -147,9 +147,9 @@ impl<'a> System<'a> for Sys {
                             proj.tpos
                         };
                         pos.0 = hit_pos;
-                        if proj.radius > Fixed32::ONE {
+                        if proj.radius > Fixed64::ONE {
                             // 範圍攻擊：以 hit_pos 為中心掃半徑內敵人。
-                            // NOTE: Searcher uses f32 internally for instant_distance lib compat; final distance check in caller is Fixed32.
+                            // NOTE: Searcher uses f32 internally for instant_distance lib compat; final distance check in caller is Fixed64.
                             let hit_pos_vek = vek::Vec2::new(
                                 hit_pos.x.to_f32_for_render(),
                                 hit_pos.y.to_f32_for_render(),
@@ -175,7 +175,7 @@ impl<'a> System<'a> for Sys {
                         pos.0 = new_pos;
                         // 安全閥：time_left 到期仍未命中（例如 target 死掉 tpos 凍結），讓 projectile 自然消失
                         proj.time_left = proj.time_left - dt;
-                        if proj.time_left <= Fixed32::ZERO {
+                        if proj.time_left <= Fixed64::ZERO {
                             outcomes.push(Outcome::Death { pos: new_pos, ent: e.clone() });
                         }
                     }
@@ -233,7 +233,7 @@ fn create_projectile_damage(
     // single-target (radius < 1.0) with damage > 0 → predeclared = true. Server
     // skips creep/H. Client maintains pending_pred_dmg, applies on visual hit
     // (t≥1.0), and reconciles via heartbeat in_flight set when server settles.
-    let predeclared = proj.radius < Fixed32::ONE && proj.damage_phys > Fixed32::ZERO;
+    let predeclared = proj.radius < Fixed64::ONE && proj.damage_phys > Fixed64::ZERO;
     outcomes.push(Outcome::Damage {
         pos,
         phys: proj.damage_phys,
@@ -245,9 +245,9 @@ fn create_projectile_damage(
     });
 
     // Ice 塔：附加減速 debuff 到目標
-    if proj.slow_factor > Fixed32::ZERO && proj.slow_factor < Fixed32::ONE && proj.slow_duration > Fixed32::ZERO {
+    if proj.slow_factor > Fixed64::ZERO && proj.slow_factor < Fixed64::ONE && proj.slow_duration > Fixed64::ZERO {
         // factor=0.5 → bonus=-0.5 ; bonus = -(1 - factor) = factor - 1
-        let bonus = proj.slow_factor - Fixed32::ONE;
+        let bonus = proj.slow_factor - Fixed64::ONE;
         let mut payload = serde_json::Map::new();
         payload.insert(
             StatKey::MoveSpeedBonus.as_str().to_string(),
@@ -266,7 +266,7 @@ fn create_projectile_damage(
     }
 
     // matchlock_gun 等 on-hit stun：handle_projectile 擲骰後把時長寫在 proj 上
-    if proj.stun_duration > Fixed32::ZERO {
+    if proj.stun_duration > Fixed64::ZERO {
         outcomes.push(Outcome::AddBuff {
             target,
             buff_id: BuffId::Stun.as_str().to_string(),

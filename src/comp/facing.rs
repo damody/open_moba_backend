@@ -1,7 +1,7 @@
 use specs::storage::VecStorage;
 use specs::Component;
 use serde::{Deserialize, Serialize};
-use omoba_sim::{Fixed32, Angle};
+use omoba_sim::{Fixed64, Angle};
 
 /// 當前面向角度（4096-tick `Angle`，0 = +X 方向，CCW 為正）
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
@@ -50,14 +50,14 @@ impl Component for FacingBroadcast {
     type Storage = VecStorage<Self>;
 }
 
-/// 每秒可轉向的最大弧度（rad/s 為單位的 `Fixed32`；tick-rate 換算暫由消費端處理）
+/// 每秒可轉向的最大弧度（rad/s 為單位的 `Fixed64`；tick-rate 換算暫由消費端處理）
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-pub struct TurnSpeed(pub Fixed32);
+pub struct TurnSpeed(pub Fixed64);
 
 impl Default for TurnSpeed {
     fn default() -> Self {
-        // 預設 90°/秒 ≈ 1.5708 rad/s（π/2）→ Fixed32 raw = round(π/2 * 1024) = 1608
-        TurnSpeed(Fixed32::from_raw(1608))
+        // 預設 90°/秒 ≈ 1.5708 rad/s（π/2）→ Fixed64 raw = round(π/2 * 1024) = 1608
+        TurnSpeed(Fixed64::from_raw(1608))
     }
 }
 

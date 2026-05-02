@@ -663,7 +663,7 @@ impl GameProcessor {
         source: Option<Entity>,
         target: Option<Entity>
     ) -> Result<(), Error> {
-        use omoba_sim::{Fixed32, Vec2 as SimVec2};
+        use omoba_sim::{Fixed64, Vec2 as SimVec2};
         let source_entity = source.ok_or_else(|| failure::err_msg("Missing source entity"))?;
         let target_entity = target.ok_or_else(|| failure::err_msg("Missing target entity"))?;
 
@@ -690,24 +690,24 @@ impl GameProcessor {
             let tp = tproperty.get(source_entity).ok_or_else(|| failure::err_msg("Source attack properties not found"))?;
             let is_b = is_buildings.get(source_entity).is_some();
             let stats = crate::ability_runtime::UnitStats::from_refs(&*buff_store, is_b);
-            let mut final_atk: Fixed32 = stats.final_atk(tp.atk_physic.v, source_entity);
+            let mut final_atk: Fixed64 = stats.final_atk(tp.atk_physic.v, source_entity);
 
             // Accuracy 擲骰：base 命中率 1.0 + sum(accuracy_bonus) buffs；clamp [0,1]。
             // miss → damage=0（projectile 仍飛行，前端可由 0 傷害判定顯示 miss）。
             // Phase 1de.2: deterministic per-(attacker, OP_PROJECTILE_ACCURACY) stream.
             let accuracy_bonus = buff_store
                 .sum_add(source_entity, omb_script_abi::stat_keys::StatKey::AccuracyBonus);
-            let accuracy: Fixed32 = (Fixed32::ONE + accuracy_bonus).clamp(Fixed32::ZERO, Fixed32::ONE);
-            if accuracy < Fixed32::ONE {
+            let accuracy: Fixed64 = (Fixed64::ONE + accuracy_bonus).clamp(Fixed64::ZERO, Fixed64::ONE);
+            if accuracy < Fixed64::ONE {
                 let mut acc_rng = omoba_sim::SimRng::from_master_entity(
                     master_seed, tick, attacker_id, OP_PROJECTILE_ACCURACY,
                 );
-                let roll: Fixed32 = acc_rng.gen_fixed32_unit();
-                // Original semantics: miss iff roll > accuracy. With Fixed32 uniform
+                let roll: Fixed64 = acc_rng.gen_fixed64_unit();
+                // Original semantics: miss iff roll > accuracy. With Fixed64 uniform
                 // on the [0,1) grid, `roll >= accuracy` preserves the miss probability
                 // (roll == accuracy collides at one out of 1024 buckets — within game tolerance).
                 if roll >= accuracy {
-                    final_atk = Fixed32::ZERO;
+                    final_atk = Fixed64::ZERO;
                 }
             }
 
@@ -725,18 +725,18 @@ impl GameProcessor {
                 }
             }
             // Phase 1de.2: deterministic per-(attacker, OP_PROJECTILE_STUN_ROLL) stream.
-            let stun_roll: Fixed32 = if stun_chance > 0.0 && stun_duration > 0.0 {
+            let stun_roll: Fixed64 = if stun_chance > 0.0 && stun_duration > 0.0 {
                 let mut stun_rng = omoba_sim::SimRng::from_master_entity(
                     master_seed, tick, attacker_id, OP_PROJECTILE_STUN_ROLL,
                 );
-                let roll = stun_rng.gen_fixed32_unit().to_f32_for_render();
+                let roll = stun_rng.gen_fixed64_unit().to_f32_for_render();
                 if roll < stun_chance {
-                    Fixed32::from_raw((stun_duration * omoba_sim::fixed::SCALE as f32) as i32)
+                    Fixed64::from_raw((stun_duration * omoba_sim::fixed::SCALE as f32) as i64)
                 } else {
-                    Fixed32::ZERO
+                    Fixed64::ZERO
                 }
             } else {
-                Fixed32::ZERO
+                Fixed64::ZERO
             };
 
             // 多發視覺 buff：sum_add 聚合（大絕套 3 → 3 發，也支援多個 buff 相加）
@@ -751,7 +751,7 @@ impl GameProcessor {
 
         // 命中由 projectile_tick 的距離判定決定（target 接近時 step >= dist 即命中）。
         // time_left 為安全閥：flight_time_s * 3 + 3 秒，允許高速單位拖著子彈移動。
-        let initial_dist: Fixed32 = (p2 - pos).length();
+        let initial_dist: Fixed64 = (p2 - pos).length();
         // flight_time math (s) needs f32 — wire format is f32 ms, and we want
         // the .max(0.01) clamp behavior. Compute in f32 only at the wire boundary.
         let move_speed_f = msd.to_f32_for_render();
@@ -761,12 +761,12 @@ impl GameProcessor {
         } else {
             0.01
         };
-        let safety_time_left: Fixed32 = Fixed32::from_raw(((flight_time_s * 3.0 + 3.0) * omoba_sim::fixed::SCALE as f32) as i32);
+        let safety_time_left: Fixed64 = Fixed64::from_raw(((flight_time_s * 3.0 + 3.0) * omoba_sim::fixed::SCALE as f32) as i64);
 
         // Legacy path (MOBA 英雄 / 非腳本塔)：單體傷害、無 splash、無 slow
-        let splash_radius: Fixed32 = Fixed32::ZERO;
-        let slow_factor: Fixed32 = Fixed32::ZERO;
-        let slow_duration: Fixed32 = Fixed32::ZERO;
+        let splash_radius: Fixed64 = Fixed64::ZERO;
+        let slow_factor: Fixed64 = Fixed64::ZERO;
+        let slow_duration: Fixed64 = Fixed64::ZERO;
 
         let ntarget = target_entity.id();
         let flight_time_ms: u64 = (flight_time_s * 1000.0).max(1.0) as u64;
@@ -776,28 +776,28 @@ impl GameProcessor {
         // i == 0 為真實子彈（damage = atk_phys、target 追蹤、吃 stun roll）
         // i >= 1 為視覺子彈（damage = 0、target = None、到 tpos 自毀不 hit、起點左右側偏）
         let delta = p2 - pos;
-        let dir: SimVec2 = if delta.length_squared() > Fixed32::from_raw(1) {
+        let dir: SimVec2 = if delta.length_squared() > Fixed64::from_raw(1) {
             delta.normalized()
         } else {
-            SimVec2::new(Fixed32::ONE, Fixed32::ZERO)
+            SimVec2::new(Fixed64::ONE, Fixed64::ZERO)
         };
         let perp: SimVec2 = SimVec2::new(-dir.y, dir.x);
-        let lateral_step: Fixed32 = Fixed32::from_i32(24); // 槍口偏移 (pixel)
+        let lateral_step: Fixed64 = Fixed64::from_i32(24); // 槍口偏移 (pixel)
 
         for i in 0..visual_count {
             let is_real = i == 0;
-            let dmg_phys_this: Fixed32 = if is_real { atk_phys } else { Fixed32::ZERO };
-            let stun_this: Fixed32 = if is_real { stun_duration_roll } else { Fixed32::ZERO };
+            let dmg_phys_this: Fixed64 = if is_real { atk_phys } else { Fixed64::ZERO };
+            let stun_this: Fixed64 = if is_real { stun_duration_roll } else { Fixed64::ZERO };
             let target_this = if is_real { target } else { None };
-            // (i - half) * lateral_step ; computed in Fixed32: half can be 0.5
+            // (i - half) * lateral_step ; computed in Fixed64: half can be 0.5
             // → encode as raw 512.
-            let lateral: Fixed32 = if visual_count > 1 {
-                let half_raw: i32 = ((visual_count as i32 - 1) * 512) ; // (n-1)/2 * SCALE
-                let i_scaled: i32 = i as i32 * omoba_sim::fixed::SCALE; // i * SCALE
-                let diff_raw: i32 = i_scaled - half_raw;
-                Fixed32::from_raw(diff_raw) * lateral_step
+            let lateral: Fixed64 = if visual_count > 1 {
+                let half_raw: i64 = ((visual_count as i64 - 1) * 512) ; // (n-1)/2 * SCALE
+                let i_scaled: i64 = i as i64 * omoba_sim::fixed::SCALE; // i * SCALE
+                let diff_raw: i64 = i_scaled - half_raw;
+                Fixed64::from_raw(diff_raw) * lateral_step
             } else {
-                Fixed32::ZERO
+                Fixed64::ZERO
             };
             let start_pos: SimVec2 = pos + perp * lateral;
             let start_x_f = start_pos.x.to_f32_for_render();
@@ -815,11 +815,11 @@ impl GameProcessor {
                     radius: splash_radius,
                     msd,
                     damage_phys: dmg_phys_this,
-                    damage_magi: Fixed32::ZERO,
-                    damage_real: Fixed32::ZERO,
+                    damage_magi: Fixed64::ZERO,
+                    damage_real: Fixed64::ZERO,
                     slow_factor,
                     slow_duration,
-                    hit_radius: Fixed32::ZERO,
+                    hit_radius: Fixed64::ZERO,
                     stun_duration: stun_this,
                 })
                 .build();
@@ -829,7 +829,7 @@ impl GameProcessor {
             // in_flight_projectiles set tells client which predictions are
             // still un-settled vs already reflected in authoritative hp.
             // Wire format still f32 (Phase 2).
-            let predeclared_dmg: f32 = if splash_radius > Fixed32::ZERO || !is_real || ntarget == 0 {
+            let predeclared_dmg: f32 = if splash_radius > Fixed64::ZERO || !is_real || ntarget == 0 {
                 0.0
             } else {
                 dmg_phys_this.to_f32_for_render()
@@ -878,7 +878,7 @@ impl GameProcessor {
             .with(bounty)
             .with(Facing(omoba_sim::Angle::ZERO))
             .with(FacingBroadcast(None))
-            .with(TurnSpeed(omoba_sim::Fixed32::from_raw((turn_speed_rad_f * 1024.0) as i32)))
+            .with(TurnSpeed(omoba_sim::Fixed64::from_raw((turn_speed_rad_f * 1024.0) as i64)))
             .with(crate::scripting::ScriptUnitTag { unit_id: unit_id.clone() })
             .build();
         ecs.write_resource::<crate::scripting::ScriptEventQueue>()
@@ -887,12 +887,12 @@ impl GameProcessor {
         // lerp/extrap fallback 導致 creep 瞬移到下個 waypoint。
         // 用 BuffStore 寫入而非全域 clamp — 不同 creep 類型未來可以有不同下限、
         // 設計上也允許某些 buff 顯式拿掉這個下限（例如「凍結 1 秒」效果）。
-        // Phase 1c.3: BuffStore::add now takes Fixed32 — use raw i32::MAX as
+        // Phase 1c.3: BuffStore::add now takes Fixed64 — use raw i32::MAX as
         // sentinel "permanent". NOTE: i32::MAX duration is the permanent-buff convention; could be replaced with explicit None/permanent flag in Phase 2.
         ecs.write_resource::<crate::ability_runtime::BuffStore>().add(
             e,
             "creep_min_speed_floor",
-            omoba_sim::Fixed32::from_raw(i32::MAX),
+            omoba_sim::Fixed64::from_raw(i64::MAX),
             serde_json::json!({ "movespeed_absolute_min": 10.0 }),
         );
         // Pass internal template id (`creep_name`) not the display label — client
@@ -917,7 +917,7 @@ impl GameProcessor {
         ecs: &mut World,
         target: Entity,
         buff_id: String,
-        duration: omoba_sim::Fixed32,
+        duration: omoba_sim::Fixed64,
         payload: serde_json::Value,
     ) -> Result<(), Error> {
         let has_move_speed_bonus = payload.get(StatKey::MoveSpeedBonus.as_str()).and_then(|v| v.as_f64()).is_some();
@@ -929,7 +929,7 @@ impl GameProcessor {
         if has_move_speed_bonus {
             let is_creep = ecs.read_storage::<Creep>().get(target).is_some();
             if is_creep {
-                // Phase 1c.3: CProperty.msd is Fixed32 (Phase 1c.2); BuffStore::sum_add returns Fixed32.
+                // Phase 1c.3: CProperty.msd is Fixed64 (Phase 1c.2); BuffStore::sum_add returns Fixed64.
                 // Convert to f32 at the wire boundary (creep_slow proto still f32).
                 let msd_f = ecs.read_storage::<CProperty>()
                     .get(target).map(|c| c.msd.to_f32_for_render()).unwrap_or(0.0);
@@ -983,23 +983,23 @@ impl GameProcessor {
         end_pos: omoba_sim::Vec2,
     ) -> Result<(), Error> {
         use specs::{Builder, WorldExt};
-        use omoba_sim::Fixed32;
+        use omoba_sim::Fixed64;
 
         let source_entity = source.ok_or_else(|| failure::err_msg("ProjectileDirectional 缺少 source"))?;
 
         // 此 path 為 legacy（tower_tick 不再 push ProjectileDirectional；Tack 走腳本
         // spawn_projectile_ex）。保留 handle 作為備用；kind_id 留 0 (UNSPECIFIED)
-        let (msd, atk_phys, kind_id): (Fixed32, Fixed32, u16) = {
+        let (msd, atk_phys, kind_id): (Fixed64, Fixed64, u16) = {
             let tatks = ecs.read_storage::<TAttack>();
             let tp = tatks.get(source_entity).ok_or_else(|| failure::err_msg("Source attack properties not found"))?;
             (tp.bullet_speed, tp.atk_physic.v, 0)
         };
 
-        let initial_dist: Fixed32 = (end_pos - pos).length();
+        let initial_dist: Fixed64 = (end_pos - pos).length();
         let move_speed_f = msd.to_f32_for_render();
         let initial_dist_f = initial_dist.to_f32_for_render();
         let flight_time_s: f32 = if move_speed_f > 0.0 { (initial_dist_f / move_speed_f).max(0.01) } else { 0.01 };
-        let safety_time_left: Fixed32 = Fixed32::from_raw(((flight_time_s * 1.5 + 0.5) * omoba_sim::fixed::SCALE as f32) as i32);
+        let safety_time_left: Fixed64 = Fixed64::from_raw(((flight_time_s * 1.5 + 0.5) * omoba_sim::fixed::SCALE as f32) as i64);
 
         let e = ecs.create_entity()
             .with(Pos(pos))
@@ -1008,15 +1008,15 @@ impl GameProcessor {
                 owner: source_entity,
                 tpos: end_pos,
                 target: None,
-                radius: Fixed32::ZERO,
+                radius: Fixed64::ZERO,
                 msd,
                 damage_phys: atk_phys,
-                damage_magi: Fixed32::ZERO,
-                damage_real: Fixed32::ZERO,
-                slow_factor: Fixed32::ZERO,
-                slow_duration: Fixed32::ZERO,
-                hit_radius: Fixed32::ZERO,
-                stun_duration: Fixed32::ZERO,
+                damage_magi: Fixed64::ZERO,
+                damage_real: Fixed64::ZERO,
+                slow_factor: Fixed64::ZERO,
+                slow_duration: Fixed64::ZERO,
+                hit_radius: Fixed64::ZERO,
+                stun_duration: Fixed64::ZERO,
             })
             .build();
 
@@ -1074,9 +1074,9 @@ impl GameProcessor {
         ecs: &mut World,
         next_outcomes: &mut Vec<Outcome>,
         pos: omoba_sim::Vec2,
-        phys: omoba_sim::Fixed32,
-        magi: omoba_sim::Fixed32,
-        real: omoba_sim::Fixed32,
+        phys: omoba_sim::Fixed64,
+        magi: omoba_sim::Fixed64,
+        real: omoba_sim::Fixed64,
         source: Entity,
         target: Entity,
         // P7: true 當本 damage 全部來自已 pre-declared 的非 AOE projectile
@@ -1084,9 +1084,9 @@ impl GameProcessor {
         // 此時跳過 creep.H 廣播省 bytes。若死亡仍照常發 entity.D。
         predeclared: bool,
     ) -> Result<(), Error> {
-        use omoba_sim::Fixed32;
-        let mut hp_after = Fixed32::ZERO;
-        let mut max_hp = Fixed32::ZERO;
+        use omoba_sim::Fixed64;
+        let mut hp_after = Fixed64::ZERO;
+        let mut max_hp = Fixed64::ZERO;
         let mut died = false;
 
         // damage_taken_bonus 聚合（Task 14）：目標身上所有 buff 的此 key sum_add
@@ -1095,8 +1095,8 @@ impl GameProcessor {
             let bs = ecs.read_resource::<crate::ability_runtime::BuffStore>();
             bs.sum_add(target, StatKey::DamageTakenBonus)
         };
-        let raw_mul = Fixed32::ONE + dmg_taken_bonus;
-        let dmg_multiplier = if raw_mul < Fixed32::ZERO { Fixed32::ZERO } else { raw_mul };
+        let raw_mul = Fixed64::ONE + dmg_taken_bonus;
+        let dmg_multiplier = if raw_mul < Fixed64::ZERO { Fixed64::ZERO } else { raw_mul };
 
         {
             let mut properties = ecs.write_storage::<CProperty>();
@@ -1109,12 +1109,12 @@ impl GameProcessor {
 
                 let (source_name, target_name) = Self::get_entity_names(ecs, source, target);
 
-                // NOTE: log uses f32 boundary — Fixed32 has no Display.
+                // NOTE: log uses f32 boundary — Fixed64 has no Display.
                 let damage_parts = {
                     let mut parts = Vec::new();
-                    if phys > Fixed32::ZERO { parts.push(format!("Phys {:.1}", phys.to_f32_for_render())); }
-                    if magi > Fixed32::ZERO { parts.push(format!("Magi {:.1}", magi.to_f32_for_render())); }
-                    if real > Fixed32::ZERO { parts.push(format!("Pure {:.1}", real.to_f32_for_render())); }
+                    if phys > Fixed64::ZERO { parts.push(format!("Phys {:.1}", phys.to_f32_for_render())); }
+                    if magi > Fixed64::ZERO { parts.push(format!("Magi {:.1}", magi.to_f32_for_render())); }
+                    if real > Fixed64::ZERO { parts.push(format!("Pure {:.1}", real.to_f32_for_render())); }
                     if parts.is_empty() {
                         parts.push(format!("Total {:.1}", total_damage.to_f32_for_render()));
                     }
@@ -1126,13 +1126,13 @@ impl GameProcessor {
                     hp_before.to_f32_for_render(), hp_after.to_f32_for_render(), target_props.mhp.to_f32_for_render()
                 );
 
-                if target_props.hp <= Fixed32::ZERO {
-                    target_props.hp = Fixed32::ZERO;
-                    hp_after = Fixed32::ZERO;
+                if target_props.hp <= Fixed64::ZERO {
+                    target_props.hp = Fixed64::ZERO;
+                    hp_after = Fixed64::ZERO;
                     died = true;
                     // [DEBUG-STRESS] 死亡關鍵診斷：印 max_hp / hp_before / total_damage / source
                     // 篩 mhp > 100 跳過 1HP 塔本身的死亡（目前只關心 creep 怎麼死）
-                    if max_hp > Fixed32::from_i32(100) {
+                    if max_hp > Fixed64::from_i32(100) {
                         log::info!("💀 {} died | max_hp={} hp_before={} dmg={:.1} (×{:.2}) source={}",
                             target_name,
                             max_hp.to_f32_for_render(),
@@ -1167,7 +1167,7 @@ impl GameProcessor {
             let mqtx_list = ecs.read_resource::<Vec<crossbeam_channel::Sender<OutboundMsg>>>();
             if let Some(tx) = mqtx_list.get(0) {
                 let total = phys + magi + real;
-                if total <= Fixed32::ZERO {
+                if total <= Fixed64::ZERO {
                     // Miss 廣播：accuracy 擲骰失敗導致 0 傷害 → 前端顯示 "Miss"
                     let _ = tx.send(OutboundMsg::new_s_at(
                         "td/all/res",
@@ -1200,7 +1200,7 @@ impl GameProcessor {
         Ok(())
     }
 
-    fn handle_heal(ecs: &mut World, target: Entity, amount: omoba_sim::Fixed32) -> Result<(), Error> {
+    fn handle_heal(ecs: &mut World, target: Entity, amount: omoba_sim::Fixed64) -> Result<(), Error> {
         let mut properties = ecs.write_storage::<CProperty>();
         if let Some(target_props) = properties.get_mut(target) {
             let summed = target_props.hp + amount;
@@ -1209,7 +1209,7 @@ impl GameProcessor {
         Ok(())
     }
 
-    fn handle_attack_update(ecs: &mut World, target: Entity, asd_count: Option<omoba_sim::Fixed32>, cooldown_reset: bool) -> Result<(), Error> {
+    fn handle_attack_update(ecs: &mut World, target: Entity, asd_count: Option<omoba_sim::Fixed64>, cooldown_reset: bool) -> Result<(), Error> {
         let mut attacks = ecs.write_storage::<TAttack>();
         if let Some(attack) = attacks.get_mut(target) {
             if let Some(new_count) = asd_count {

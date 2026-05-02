@@ -160,7 +160,7 @@ pub fn query_inspect_player_view(world: &World, player_name: &str) -> QueryRespo
     for (ent, unit, pos) in (&entities, &units, &positions).join() {
         let mt = move_targets.get(ent);
 
-        // PHASE 2: wire format — Unit.current_hp / max_hp are i32 today; pos is Fixed32; redesign in Phase 2 KCP tag rework.
+        // PHASE 2: wire format — Unit.current_hp / max_hp are i32 today; pos is Fixed64; redesign in Phase 2 KCP tag rework.
         unit_list.push(json!({
             "entity_id": ent.id(),
             "name": unit.name,

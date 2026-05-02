@@ -14,7 +14,7 @@
 
 use omb_script_abi::stat_keys::StatKey;
 use omb_script_abi::types::DamageKind;
-use omoba_sim::Fixed32;
+use omoba_sim::Fixed64;
 use specs::Entity;
 
 use crate::ability_runtime::BuffStore;
@@ -42,16 +42,16 @@ impl<'a> UnitStats<'a> {
 
     // ================= 位移 =================
 
-    pub fn final_move_speed(&self, base: Fixed32, e: Entity) -> Fixed32 {
+    pub fn final_move_speed(&self, base: Fixed64, e: Entity) -> Fixed64 {
         if self.is_building {
-            return Fixed32::ZERO;
+            return Fixed64::ZERO;
         }
         let abs = self.buffs.sum_add(e, StatKey::MoveSpeedAbsolute);
-        let effective = if abs > Fixed32::ZERO {
+        let effective = if abs > Fixed64::ZERO {
             abs
         } else {
             let override_base = self.buffs.sum_add(e, StatKey::MoveSpeedBaseOverride);
-            let base_eff = if override_base > Fixed32::ZERO { override_base } else { base };
+            let base_eff = if override_base > Fixed64::ZERO { override_base } else { base };
             // Equipment flat（boots、靴類道具）：跟 base 一起被 percentage 縮放
             let bonus_c = self.buffs.sum_add(e, StatKey::MoveSpeedBonusEquipment);
             // Percentage（含 ice tower 用的 MoveSpeedBonus，當 -50% 寫進去）
@@ -61,61 +61,61 @@ impl<'a> UnitStats<'a> {
                 + self.buffs.sum_add(e, StatKey::MoveSpeedBonus);
             // Buff flat post-percentage：不被 slow 削弱、不疊到 base/equipment 上
             let buff_bonus = self.buffs.sum_add(e, StatKey::MoveSpeedBonusBuff);
-            (base_eff + bonus_c) * (Fixed32::ONE + pct) + buff_bonus
+            (base_eff + bonus_c) * (Fixed64::ONE + pct) + buff_bonus
         };
         self.apply_move_clamp(effective, e)
     }
 
-    fn apply_move_clamp(&self, v: Fixed32, e: Entity) -> Fixed32 {
+    fn apply_move_clamp(&self, v: Fixed64, e: Entity) -> Fixed64 {
         let min_abs = self.buffs.sum_add(e, StatKey::MoveSpeedAbsoluteMin);
         let max_abs = self.buffs.sum_add(e, StatKey::MoveSpeedMax);
         let limit = self.buffs.sum_add(e, StatKey::MoveSpeedLimit);
         let mut r = v;
-        if min_abs > Fixed32::ZERO && r < min_abs {
+        if min_abs > Fixed64::ZERO && r < min_abs {
             r = min_abs;
         }
-        if max_abs > Fixed32::ZERO && r > max_abs {
+        if max_abs > Fixed64::ZERO && r > max_abs {
             r = max_abs;
         }
-        if limit > Fixed32::ZERO && r > limit {
+        if limit > Fixed64::ZERO && r > limit {
             r = limit;
         }
-        if r < Fixed32::ZERO { Fixed32::ZERO } else { r }
+        if r < Fixed64::ZERO { Fixed64::ZERO } else { r }
     }
 
-    pub fn turn_rate_mult(&self, e: Entity) -> Fixed32 {
+    pub fn turn_rate_mult(&self, e: Entity) -> Fixed64 {
         if self.is_building {
-            return Fixed32::ONE;
+            return Fixed64::ONE;
         }
-        Fixed32::ONE + self.buffs.sum_add(e, StatKey::TurnRatePercentage)
+        Fixed64::ONE + self.buffs.sum_add(e, StatKey::TurnRatePercentage)
     }
 
     // ================= 攻擊 =================
 
-    pub fn final_atk(&self, base: Fixed32, e: Entity) -> Fixed32 {
+    pub fn final_atk(&self, base: Fixed64, e: Entity) -> Fixed64 {
         let bonus = self.buffs.sum_add(e, StatKey::PreattackBonusDamage)
             + self.buffs.sum_add(e, StatKey::BaseAttackBonusDamage);
         let pct_total = self.buffs.sum_add(e, StatKey::TotalDamageOutgoingPercentage);
         let pct_base = self.buffs.sum_add(e, StatKey::BaseDamageOutgoingPercentage)
             + self.buffs.sum_add(e, StatKey::BaseDamageOutgoingPercentageUnique);
-        let mult = Fixed32::ONE + pct_total + pct_base;
+        let mult = Fixed64::ONE + pct_total + pct_base;
         let v = (base + bonus) * mult;
-        if v < Fixed32::ZERO { Fixed32::ZERO } else { v }
+        if v < Fixed64::ZERO { Fixed64::ZERO } else { v }
     }
 
     /// 攻速倍數（乘到 base attack interval 上）。
     /// Dota: effective_attacks_per_sec = base × (1 + as_bonus / 100)
     /// 簡化：以 bonus/100 當 multiplier 加成；fixed_attack_rate 若設則覆蓋。
     /// 另疊 `ATTACK_SPEED_MULTIPLIER`（專案自訂 product_mult，tower upgrade 用）。
-    pub fn final_attack_speed_mult(&self, e: Entity) -> Fixed32 {
+    pub fn final_attack_speed_mult(&self, e: Entity) -> Fixed64 {
         let fixed = self.buffs.sum_add(e, StatKey::FixedAttackRate);
-        if fixed > Fixed32::ZERO {
+        if fixed > Fixed64::ZERO {
             return fixed;
         }
         let as_bonus = self.buffs.sum_add(e, StatKey::AttackSpeedBonusConstant);
-        let hundred = Fixed32::from_i32(100);
-        let one_tenth = Fixed32::from_raw(102); // 0.1 in Q22.10 (102/1024 ≈ 0.0996)
-        let constant_mult_raw = Fixed32::ONE + as_bonus / hundred;
+        let hundred = Fixed64::from_i32(100);
+        let one_tenth = Fixed64::from_raw(102); // 0.1 in Q22.10 (102/1024 ≈ 0.0996)
+        let constant_mult_raw = Fixed64::ONE + as_bonus / hundred;
         let constant_mult = if constant_mult_raw < one_tenth { one_tenth } else { constant_mult_raw };
         let extra_mult = self.buffs.product_mult(e, StatKey::AttackSpeedMultiplier);
         let v = constant_mult * extra_mult;
@@ -124,136 +124,136 @@ impl<'a> UnitStats<'a> {
 
     /// 射程 = base + ATTACK_RANGE_BONUS + ATTACK_RANGE_BONUS_UNIQUE，
     /// 再由 MAX_ATTACK_RANGE 上限（若設）。
-    pub fn final_attack_range(&self, base: Fixed32, e: Entity) -> Fixed32 {
+    pub fn final_attack_range(&self, base: Fixed64, e: Entity) -> Fixed64 {
         let bonus = self.buffs.sum_add(e, StatKey::AttackRangeBonus)
             + self.buffs.sum_add(e, StatKey::AttackRangeBonusUnique);
         let raw = base + bonus;
-        let r = if raw < Fixed32::ZERO { Fixed32::ZERO } else { raw };
+        let r = if raw < Fixed64::ZERO { Fixed64::ZERO } else { raw };
         let max = self.buffs.sum_add(e, StatKey::MaxAttackRange);
-        if max > Fixed32::ZERO && r > max {
+        if max > Fixed64::ZERO && r > max {
             max
         } else {
             r
         }
     }
 
-    pub fn final_cast_range(&self, base: Fixed32, e: Entity) -> Fixed32 {
+    pub fn final_cast_range(&self, base: Fixed64, e: Entity) -> Fixed64 {
         let v = base
             + self.buffs.sum_add(e, StatKey::CastRangeBonus)
             + self.buffs.sum_add(e, StatKey::CastRangeBonusStacking);
-        if v < Fixed32::ZERO { Fixed32::ZERO } else { v }
+        if v < Fixed64::ZERO { Fixed64::ZERO } else { v }
     }
 
     // ================= 防禦 =================
 
-    pub fn final_armor(&self, base: Fixed32, e: Entity) -> Fixed32 {
+    pub fn final_armor(&self, base: Fixed64, e: Entity) -> Fixed64 {
         base + self.buffs.sum_add(e, StatKey::PhysicalArmorBonus)
             + self.buffs.sum_add(e, StatKey::PhysicalArmorBonusUnique)
             + self.buffs.sum_add(e, StatKey::PhysicalArmorBonusUniqueActive)
     }
 
     /// 魔抗：0..1 = 百分比。direct_modification 若存在 → 覆蓋 base + bonus。
-    pub fn final_magic_resist(&self, base: Fixed32, e: Entity) -> Fixed32 {
+    pub fn final_magic_resist(&self, base: Fixed64, e: Entity) -> Fixed64 {
         let direct = self.buffs.sum_add(e, StatKey::MagicalResistanceDirectModification);
-        if direct > Fixed32::ZERO {
-            return clamp_fx(direct, Fixed32::ZERO, Fixed32::ONE);
+        if direct > Fixed64::ZERO {
+            return clamp_fx(direct, Fixed64::ZERO, Fixed64::ONE);
         }
         let bonus = self.buffs.sum_add(e, StatKey::MagicalResistanceBonus);
         let decrepify = self.buffs.sum_add(e, StatKey::MagicalResistanceDecrepifyUnique);
-        let hundred = Fixed32::from_i32(100);
+        let hundred = Fixed64::from_i32(100);
         // Dota 疊加公式：1 - (1-r1)(1-r2)...
-        let combined = Fixed32::ONE
-            - (Fixed32::ONE - base)
-                * (Fixed32::ONE - bonus / hundred)
-                * (Fixed32::ONE - decrepify / hundred);
-        clamp_fx(combined, Fixed32::ZERO - Fixed32::ONE, Fixed32::ONE)
+        let combined = Fixed64::ONE
+            - (Fixed64::ONE - base)
+                * (Fixed64::ONE - bonus / hundred)
+                * (Fixed64::ONE - decrepify / hundred);
+        clamp_fx(combined, Fixed64::ZERO - Fixed64::ONE, Fixed64::ONE)
     }
 
     // ================= 命中率 =================
 
-    pub fn evasion_chance(&self, e: Entity) -> Fixed32 {
+    pub fn evasion_chance(&self, e: Entity) -> Fixed64 {
         let v = self.buffs.sum_add(e, StatKey::EvasionConstant)
             - self.buffs.sum_add(e, StatKey::NegativeEvasionConstant);
-        clamp_fx(v, Fixed32::ZERO, Fixed32::ONE)
+        clamp_fx(v, Fixed64::ZERO, Fixed64::ONE)
     }
 
-    pub fn miss_chance(&self, e: Entity) -> Fixed32 {
+    pub fn miss_chance(&self, e: Entity) -> Fixed64 {
         clamp_fx(
             self.buffs.sum_add(e, StatKey::MissPercentage),
-            Fixed32::ZERO,
-            Fixed32::ONE,
+            Fixed64::ZERO,
+            Fixed64::ONE,
         )
     }
 
     /// 回 (chance, multiplier)；chance 為 0..1；multiplier 預設 1.0（無暴擊）
-    pub fn crit(&self, e: Entity) -> (Fixed32, Fixed32) {
+    pub fn crit(&self, e: Entity) -> (Fixed64, Fixed64) {
         let chance = clamp_fx(
             self.buffs.sum_add(e, StatKey::PreattackCriticalStrike),
-            Fixed32::ZERO,
-            Fixed32::ONE,
+            Fixed64::ZERO,
+            Fixed64::ONE,
         );
         let mult_raw = self.buffs.sum_add(e, StatKey::CritMultiplier);
-        let mult = if mult_raw > Fixed32::ZERO { mult_raw } else { Fixed32::ONE };
+        let mult = if mult_raw > Fixed64::ZERO { mult_raw } else { Fixed64::ONE };
         (chance, mult)
     }
 
     // ================= CD / 施法 =================
 
     /// Cooldown percentage multiplier: final_cd = base_cd × (1 + pct + stacking)
-    pub fn cooldown_mult(&self, e: Entity) -> Fixed32 {
+    pub fn cooldown_mult(&self, e: Entity) -> Fixed64 {
         let pct = self.buffs.sum_add(e, StatKey::CooldownPercentage);
         let stacking = self.buffs.sum_add(e, StatKey::CooldownPercentageStacking);
-        let one_tenth = Fixed32::from_raw(102);
-        let v = Fixed32::ONE + pct + stacking;
+        let one_tenth = Fixed64::from_raw(102);
+        let v = Fixed64::ONE + pct + stacking;
         if v < one_tenth { one_tenth } else { v }
     }
 
-    pub fn cast_time_mult(&self, e: Entity) -> Fixed32 {
-        let one_tenth = Fixed32::from_raw(102);
-        let v = Fixed32::ONE + self.buffs.sum_add(e, StatKey::CastTimePercentage);
+    pub fn cast_time_mult(&self, e: Entity) -> Fixed64 {
+        let one_tenth = Fixed64::from_raw(102);
+        let v = Fixed64::ONE + self.buffs.sum_add(e, StatKey::CastTimePercentage);
         if v < one_tenth { one_tenth } else { v }
     }
 
-    pub fn mana_cost_mult(&self, e: Entity) -> Fixed32 {
-        let v = Fixed32::ONE + self.buffs.sum_add(e, StatKey::ManaCostPercentage);
-        if v < Fixed32::ZERO { Fixed32::ZERO } else { v }
+    pub fn mana_cost_mult(&self, e: Entity) -> Fixed64 {
+        let v = Fixed64::ONE + self.buffs.sum_add(e, StatKey::ManaCostPercentage);
+        if v < Fixed64::ZERO { Fixed64::ZERO } else { v }
     }
 
     // ================= 回復 =================
 
-    pub fn hp_regen(&self, base: Fixed32, e: Entity) -> Fixed32 {
-        let half = Fixed32::from_raw(512); // 0.5 in Q22.10
+    pub fn hp_regen(&self, base: Fixed64, e: Entity) -> Fixed64 {
+        let half = Fixed64::from_raw(512); // 0.5 in Q22.10
         if self.buffs.has(e, StatKey::DisableHealing.as_str())
             || self.buffs.sum_add(e, StatKey::DisableHealing) > half
         {
-            return Fixed32::ZERO;
+            return Fixed64::ZERO;
         }
         let bonus = self.buffs.sum_add(e, StatKey::HealthRegenConstant);
         let pct = self.buffs.sum_add(e, StatKey::HealthRegenPercentage);
-        let amp = Fixed32::ONE + self.buffs.sum_add(e, StatKey::HpRegenAmplifyPercentage);
-        let v = (base + bonus) * (Fixed32::ONE + pct) * amp;
-        if v < Fixed32::ZERO { Fixed32::ZERO } else { v }
+        let amp = Fixed64::ONE + self.buffs.sum_add(e, StatKey::HpRegenAmplifyPercentage);
+        let v = (base + bonus) * (Fixed64::ONE + pct) * amp;
+        if v < Fixed64::ZERO { Fixed64::ZERO } else { v }
     }
 
-    pub fn mana_regen(&self, base: Fixed32, e: Entity) -> Fixed32 {
+    pub fn mana_regen(&self, base: Fixed64, e: Entity) -> Fixed64 {
         let base_override = self.buffs.sum_add(e, StatKey::BaseManaRegen);
-        let base_eff = if base_override > Fixed32::ZERO { base_override } else { base };
+        let base_eff = if base_override > Fixed64::ZERO { base_override } else { base };
         let bonus = self.buffs.sum_add(e, StatKey::ManaRegenConstant)
             + self.buffs.sum_add(e, StatKey::ManaRegenConstantUnique);
         let pct = self.buffs.sum_add(e, StatKey::ManaRegenPercentage);
         let total_pct = self.buffs.sum_add(e, StatKey::ManaRegenTotalPercentage);
-        let v = (((base_eff + bonus) * (Fixed32::ONE + pct)) * (Fixed32::ONE + total_pct));
-        if v < Fixed32::ZERO { Fixed32::ZERO } else { v }
+        let v = (((base_eff + bonus) * (Fixed64::ONE + pct)) * (Fixed64::ONE + total_pct));
+        if v < Fixed64::ZERO { Fixed64::ZERO } else { v }
     }
 
     // ================= HP / Mana 上限 =================
 
-    pub fn max_hp_bonus(&self, e: Entity) -> Fixed32 {
+    pub fn max_hp_bonus(&self, e: Entity) -> Fixed64 {
         self.buffs.sum_add(e, StatKey::HealthBonus)
             + self.buffs.sum_add(e, StatKey::ExtraHealthBonus)
     }
 
-    pub fn max_mp_bonus(&self, e: Entity) -> Fixed32 {
+    pub fn max_mp_bonus(&self, e: Entity) -> Fixed64 {
         self.buffs.sum_add(e, StatKey::ManaBonus)
             + self.buffs.sum_add(e, StatKey::ExtraManaBonus)
     }
@@ -262,9 +262,9 @@ impl<'a> UnitStats<'a> {
 
     /// 計算 `e`（victim）承受 `raw` damage 後的 final 值（含 block / armor / resist / prevention）。
     /// NOTE: evasion / miss 由呼叫端先 roll，此函式假設攻擊已命中。
-    /// Phase 1c.3: damage / armor / resist 仍為 f32（damage pipeline 完整 Fixed32 化是 1c.4）。
-    /// 內部 sum_add 回 Fixed32 → 在此 boundary 暫時 to_f32_for_render。
-    /// PHASE 2: rewrite in Fixed32 once outcome handlers / DamageInstance migrate — Phase 2 KCP tag rework.
+    /// Phase 1c.3: damage / armor / resist 仍為 f32（damage pipeline 完整 Fixed64 化是 1c.4）。
+    /// 內部 sum_add 回 Fixed64 → 在此 boundary 暫時 to_f32_for_render。
+    /// PHASE 2: rewrite in Fixed64 once outcome handlers / DamageInstance migrate — Phase 2 KCP tag rework.
     pub fn apply_incoming_damage(
         &self,
         raw: f32,
@@ -273,7 +273,7 @@ impl<'a> UnitStats<'a> {
         base_armor: f32,
         base_resist: f32,
     ) -> f32 {
-        let half_fx = Fixed32::from_raw(512); // 0.5 in Q22.10
+        let half_fx = Fixed64::from_raw(512); // 0.5 in Q22.10
         // 1. 絕對免疫
         match kind {
             DamageKind::Physical
@@ -302,13 +302,13 @@ impl<'a> UnitStats<'a> {
         // 3. Armor / Resist
         let after_defense = match kind {
             DamageKind::Physical => {
-                let armor = self.final_armor(Fixed32::from_raw((base_armor * 1024.0) as i32), e)
+                let armor = self.final_armor(Fixed64::from_raw((base_armor * 1024.0) as i64), e)
                     .to_f32_for_render();
                 after_unavoid * armor_to_mult(armor)
             }
             DamageKind::Magical => {
                 let resist = self.final_magic_resist(
-                    Fixed32::from_raw((base_resist * 1024.0) as i32), e)
+                    Fixed64::from_raw((base_resist * 1024.0) as i64), e)
                     .to_f32_for_render();
                 after_unavoid * (1.0 - resist)
             }
@@ -350,9 +350,9 @@ impl<'a> UnitStats<'a> {
     }
 }
 
-/// Helper: clamp a Fixed32 to [min, max] (no f32 detour).
+/// Helper: clamp a Fixed64 to [min, max] (no f32 detour).
 #[inline]
-fn clamp_fx(v: Fixed32, lo: Fixed32, hi: Fixed32) -> Fixed32 {
+fn clamp_fx(v: Fixed64, lo: Fixed64, hi: Fixed64) -> Fixed64 {
     if v < lo { lo } else if v > hi { hi } else { v }
 }
 
@@ -375,13 +375,13 @@ mod tests {
     use serde_json::json;
     use specs::{Builder, World, WorldExt};
 
-    fn fx_secs(seconds: f32) -> Fixed32 {
-        Fixed32::from_raw((seconds * 1024.0) as i32)
+    fn fx_secs(seconds: f32) -> Fixed64 {
+        Fixed64::from_raw((seconds * 1024.0) as i64)
     }
 
-    fn fx_huge() -> Fixed32 {
+    fn fx_huge() -> Fixed64 {
         // Stand-in for "infinity" — large enough that tick decay won't reach 0 in the test window.
-        Fixed32::from_i32(1_000_000)
+        Fixed64::from_i32(1_000_000)
     }
 
     // Regression: ice tower 寫入 payload key `move_speed_bonus`（StatKey::MoveSpeedBonus），
@@ -399,7 +399,7 @@ mod tests {
             json!({ StatKey::MoveSpeedBonus.as_str(): -0.5 }),
         );
         let stats = UnitStats::from_refs(&store, false);
-        let effective = stats.final_move_speed(Fixed32::from_i32(100), e).to_f32_for_render();
+        let effective = stats.final_move_speed(Fixed64::from_i32(100), e).to_f32_for_render();
         assert!(
             (effective - 50.0).abs() < 1.0,
             "expected ~50.0, got {}",
@@ -427,7 +427,7 @@ mod tests {
             json!({ StatKey::MoveSpeedBonus.as_str(): -0.5 }),
         );
         let stats = UnitStats::from_refs(&store, false);
-        let effective = stats.final_move_speed(Fixed32::from_i32(300), e).to_f32_for_render();
+        let effective = stats.final_move_speed(Fixed64::from_i32(300), e).to_f32_for_render();
         assert!(
             (effective - 195.0).abs() < 1.0,
             "expected ~195.0, got {}",
@@ -461,7 +461,7 @@ mod tests {
             json!({ StatKey::MoveSpeedBonusBuff.as_str(): 60.0 }),
         );
         let stats = UnitStats::from_refs(&store, false);
-        let effective = stats.final_move_speed(Fixed32::from_i32(300), e).to_f32_for_render();
+        let effective = stats.final_move_speed(Fixed64::from_i32(300), e).to_f32_for_render();
         assert!(
             (effective - 255.0).abs() < 1.0,
             "expected ~255.0, got {}",

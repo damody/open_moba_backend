@@ -3,12 +3,12 @@ use specs::{World, WorldExt, Builder};
 
 use crate::comp::*;
 use crate::ue4::import_campaign::CampaignData;
-use omoba_sim::Fixed32;
+use omoba_sim::Fixed64;
 
 /// NOTE: boundary helper retained — Unit hp/damage are i32 by design and CircularVision is render-side fog of war.
 #[inline]
-fn f32_to_fx(v: f32) -> Fixed32 {
-    Fixed32::from_raw((v * omoba_sim::fixed::SCALE as f32) as i32)
+fn f32_to_fx(v: f32) -> Fixed64 {
+    Fixed64::from_raw((v * omoba_sim::fixed::SCALE as f32) as i64)
 }
 
 pub struct CampaignManager;
@@ -87,7 +87,7 @@ impl CampaignManager {
             .unwrap_or_else(|| panic!("hero id '{}' not in templates.json", hero_data.id));
         let s = hero_stats(id)
             .unwrap_or_else(|| panic!("hero '{}' has no stats in templates.json", hero_data.id));
-        // Phase 1c.4: CProperty / TAttack are Fixed32 (Phase 1c.2). Pass Fixed32 直送。
+        // Phase 1c.4: CProperty / TAttack are Fixed64 (Phase 1c.2). Pass Fixed64 直送。
         let hero_properties = Self::create_hero_properties(&hero, s.base_armor);
         let hero_attack = Self::create_hero_attack(&hero, s.attack_range);
         let abilities: Vec<String> = if hero_data.abilities.is_empty() {
@@ -97,7 +97,7 @@ impl CampaignManager {
         };
 
         // NOTE: Unit.{current_hp, max_hp, base_damage} are i32 by design (integer game values);
-        // convert from Fixed32 template at this boundary.
+        // convert from Fixed64 template at this boundary.
         let max_hp_i = hero.get_max_hp().to_f32_for_render() as i32;
         let base_damage_i = hero.get_base_damage().to_f32_for_render() as i32;
         let attack_range_fx = s.attack_range;
@@ -108,16 +108,16 @@ impl CampaignManager {
             max_hp: max_hp_i,
             current_hp: max_hp_i,
             base_armor: s.base_armor,
-            magic_resistance: Fixed32::ZERO,
+            magic_resistance: Fixed64::ZERO,
             base_damage: base_damage_i,
             attack_range: attack_range_fx,
             move_speed: hero.get_move_speed(),
             attack_speed: hero.get_attack_speed_multiplier(),
             ai_type: unit::AiType::None,
-            aggro_range: attack_range_fx + Fixed32::from_i32(200),
+            aggro_range: attack_range_fx + Fixed64::from_i32(200),
             abilities: abilities.clone(),
             current_target: None,
-            last_attack_time: Fixed32::ZERO,
+            last_attack_time: Fixed64::ZERO,
             spawn_position: (0.0, 0.0),
             exp_reward: 0,
             gold_reward: 0,
@@ -129,7 +129,7 @@ impl CampaignManager {
         let hero_vel = Vel::zero();
         // NOTE: CircularVision is client-side render hint (fog of war); per-tick rebuild from authoritative Pos keeps it cross-client consistent.
         let hero_vision = CircularVision::new(
-            (attack_range_fx + Fixed32::from_i32(300)).to_f32_for_render(),
+            (attack_range_fx + Fixed64::from_i32(300)).to_f32_for_render(),
             30.0,
         ).with_precision(720);
 
@@ -148,7 +148,7 @@ impl CampaignManager {
         Self::create_hero_abilities(ecs, hero_entity, &abilities, campaign_data);
     }
 
-    fn create_hero_properties(hero: &Hero, base_armor: Fixed32) -> CProperty {
+    fn create_hero_properties(hero: &Hero, base_armor: Fixed64) -> CProperty {
         let max_hp = hero.get_max_hp();
         let move_speed = hero.get_move_speed();
 
@@ -157,22 +157,22 @@ impl CampaignManager {
             mhp: max_hp,
             msd: move_speed,
             def_physic: base_armor,
-            def_magic: Fixed32::ZERO,
+            def_magic: Fixed64::ZERO,
         }
     }
 
-    fn create_hero_attack(hero: &Hero, attack_range: Fixed32) -> TAttack {
+    fn create_hero_attack(hero: &Hero, attack_range: Fixed64) -> TAttack {
         let base_damage = hero.get_base_damage();
         let attack_speed_multiplier = hero.get_attack_speed_multiplier();
-        // 1.0 / attack_speed_multiplier — Fixed32 division.
-        let attack_interval = Fixed32::ONE / attack_speed_multiplier;
+        // 1.0 / attack_speed_multiplier — Fixed64 division.
+        let attack_interval = Fixed64::ONE / attack_speed_multiplier;
 
         TAttack {
             atk_physic: Vf32::new(base_damage),
             asd: Vf32::new(attack_interval),
             range: Vf32::new(attack_range),
-            asd_count: Fixed32::ZERO,
-            bullet_speed: Fixed32::from_i32(1000),
+            asd_count: Fixed64::ZERO,
+            bullet_speed: Fixed64::from_i32(1000),
         }
     }
     
@@ -197,27 +197,27 @@ impl CampaignManager {
                 let unit_pos = Pos::from_xy_f32(*x, *y);
                 let unit_vel = Vel::zero();
 
-                // Phase 1c.4: CProperty / TAttack 全 Fixed32；Unit.{current_hp,max_hp,base_damage}
-                // 仍 i32 (Phase 1d)。在邊界用 Fixed32::from_i32 轉。
+                // Phase 1c.4: CProperty / TAttack 全 Fixed64；Unit.{current_hp,max_hp,base_damage}
+                // 仍 i32 (Phase 1d)。在邊界用 Fixed64::from_i32 轉。
                 let unit_properties = CProperty {
-                    hp: Fixed32::from_i32(unit.current_hp),
-                    mhp: Fixed32::from_i32(unit.max_hp),
+                    hp: Fixed64::from_i32(unit.current_hp),
+                    mhp: Fixed64::from_i32(unit.max_hp),
                     msd: unit.move_speed,
                     def_physic: unit.base_armor,
                     def_magic: unit.magic_resistance,
                 };
 
                 let unit_attack = TAttack {
-                    atk_physic: Vf32::new(Fixed32::from_i32(unit.base_damage)),
-                    asd: Vf32::new(Fixed32::ONE / unit.attack_speed),
+                    atk_physic: Vf32::new(Fixed64::from_i32(unit.base_damage)),
+                    asd: Vf32::new(Fixed64::ONE / unit.attack_speed),
                     range: Vf32::new(unit.attack_range),
-                    asd_count: Fixed32::ZERO,
-                    bullet_speed: Fixed32::from_i32(800),
+                    asd_count: Fixed64::ZERO,
+                    bullet_speed: Fixed64::from_i32(800),
                 };
 
                 // NOTE: CircularVision is client-side render hint (fog of war); per-tick rebuild from authoritative Pos keeps it cross-client consistent.
                 let enemy_vision = CircularVision::new(
-                    (unit.attack_range + Fixed32::from_i32(150)).to_f32_for_render(),
+                    (unit.attack_range + Fixed64::from_i32(150)).to_f32_for_render(),
                     20.0,
                 ).with_precision(360);
 
@@ -248,22 +248,22 @@ impl CampaignManager {
                 let unit_pos = Pos::from_xy_f32(*x, *y);
                 let unit_vel = Vel::zero();
                 
-                // Phase 1c.4: CProperty / TAttack 全 Fixed32；Unit.{current_hp,max_hp,base_damage}
-                // 仍 i32 (Phase 1d)。在邊界用 Fixed32::from_i32 轉。
+                // Phase 1c.4: CProperty / TAttack 全 Fixed64；Unit.{current_hp,max_hp,base_damage}
+                // 仍 i32 (Phase 1d)。在邊界用 Fixed64::from_i32 轉。
                 let unit_properties = CProperty {
-                    hp: Fixed32::from_i32(unit.current_hp),
-                    mhp: Fixed32::from_i32(unit.max_hp),
+                    hp: Fixed64::from_i32(unit.current_hp),
+                    mhp: Fixed64::from_i32(unit.max_hp),
                     msd: unit.move_speed,
                     def_physic: unit.base_armor,
                     def_magic: unit.magic_resistance,
                 };
 
                 let unit_attack = TAttack {
-                    atk_physic: Vf32::new(Fixed32::from_i32(unit.base_damage)),
-                    asd: Vf32::new(Fixed32::ONE / unit.attack_speed),
+                    atk_physic: Vf32::new(Fixed64::from_i32(unit.base_damage)),
+                    asd: Vf32::new(Fixed64::ONE / unit.attack_speed),
                     range: Vf32::new(unit.attack_range),
-                    asd_count: Fixed32::ZERO,
-                    bullet_speed: Fixed32::from_i32(600),
+                    asd_count: Fixed64::ZERO,
+                    bullet_speed: Fixed64::from_i32(600),
                 };
                 
                 let unit_entity = ecs.create_entity()

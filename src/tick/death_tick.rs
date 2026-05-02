@@ -8,7 +8,7 @@ use std::{
     time::{Duration, Instant},
     collections::HashMap,
 };
-use omoba_sim::Fixed32;
+use omoba_sim::Fixed64;
 
 #[derive(SystemData)]
 pub struct DeathRead<'a> {
@@ -46,7 +46,7 @@ impl<'a> System<'a> for Sys {
         
         // 檢查所有有 Unit 組件和 CProperty 組件的實體
         for (entity, unit, properties, pos) in (&tr.entities, &tr.units, &tr.properties, &tr.positions).join() {
-            if properties.hp <= Fixed32::ZERO {
+            if properties.hp <= Fixed64::ZERO {
                 dead_entities.push(entity);
 
                 // 記錄死亡獎勵信息

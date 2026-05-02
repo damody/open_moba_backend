@@ -19,7 +19,7 @@ impl CreationEventHandler {
         mqtx: &Sender<OutboundMsg>,
         cd: CreepData,
     ) -> Vec<Outcome> {
-        // NOTE: log uses f32 boundary — Fixed32 has no Display.
+        // NOTE: log uses f32 boundary — Fixed64 has no Display.
         let pos_x_f = cd.pos.x.to_f32_for_render();
         let pos_y_f = cd.pos.y.to_f32_for_render();
         info!("創建小兵於位置: ({}, {})", pos_x_f, pos_y_f);
@@ -95,7 +95,7 @@ impl CreationEventHandler {
         pos: omoba_sim::Vec2,
         td: TowerData,
     ) -> Vec<Outcome> {
-        // NOTE: log uses f32 boundary — Fixed32 has no Display.
+        // NOTE: log uses f32 boundary — Fixed64 has no Display.
         let pos_x_f = pos.x.to_f32_for_render();
         let pos_y_f = pos.y.to_f32_for_render();
         info!("創建塔於位置: ({}, {})", pos_x_f, pos_y_f);
@@ -147,8 +147,8 @@ impl CreationEventHandler {
         damage_magi: Option<f32>,
         damage_real: Option<f32>,
     ) -> Vec<Outcome> {
-        use omoba_sim::{Fixed32, Vec2 as SimVec2};
-        // NOTE: log uses f32 boundary — Fixed32 has no Display.
+        use omoba_sim::{Fixed64, Vec2 as SimVec2};
+        // NOTE: log uses f32 boundary — Fixed64 has no Display.
         let pos_x_f = pos.x.to_f32_for_render();
         let pos_y_f = pos.y.to_f32_for_render();
         info!("創建彈道從實體 {} 到實體 {} 於位置 ({}, {})",
@@ -178,22 +178,22 @@ impl CreationEventHandler {
         }; // positions 在這裡被釋放
 
         // 從來源實體獲取攻擊屬性來計算傷害值。
-        // 入口參數仍是 Option<f32>（callers in legacy paths）；轉成 Fixed32 在邊界。
-        let (phys_damage, magi_damage, real_damage): (Fixed32, Fixed32, Fixed32) = {
+        // 入口參數仍是 Option<f32>（callers in legacy paths）；轉成 Fixed64 在邊界。
+        let (phys_damage, magi_damage, real_damage): (Fixed64, Fixed64, Fixed64) = {
             let attacks = world.read_storage::<TAttack>();
-            let to_fx = |v: f32| Fixed32::from_raw((v * omoba_sim::fixed::SCALE as f32) as i32);
+            let to_fx = |v: f32| Fixed64::from_raw((v * omoba_sim::fixed::SCALE as f32) as i64);
             if let Some(attack) = attacks.get(source) {
                 (
                     damage_phys.map(to_fx).unwrap_or(attack.atk_physic.v),
-                    damage_magi.map(to_fx).unwrap_or(Fixed32::ZERO),
-                    damage_real.map(to_fx).unwrap_or(Fixed32::ZERO),
+                    damage_magi.map(to_fx).unwrap_or(Fixed64::ZERO),
+                    damage_real.map(to_fx).unwrap_or(Fixed64::ZERO),
                 )
             } else {
                 // 如果沒有攻擊組件，使用傳入的數值或預設值
                 (
-                    damage_phys.map(to_fx).unwrap_or(Fixed32::from_i32(25)),
-                    damage_magi.map(to_fx).unwrap_or(Fixed32::ZERO),
-                    damage_real.map(to_fx).unwrap_or(Fixed32::ZERO),
+                    damage_phys.map(to_fx).unwrap_or(Fixed64::from_i32(25)),
+                    damage_magi.map(to_fx).unwrap_or(Fixed64::ZERO),
+                    damage_real.map(to_fx).unwrap_or(Fixed64::ZERO),
                 )
             }
         };
@@ -202,19 +202,19 @@ impl CreationEventHandler {
         let projectile_entity = world.create_entity()
             .with(Pos(source_pos))
             .with(Projectile {
-                time_left: Fixed32::from_i32(2),     // 彈道存活時間
+                time_left: Fixed64::from_i32(2),     // 彈道存活時間
                 owner: source,                       // 擁有者
                 target: Some(target),                // 目標實體
                 tpos: target_pos,                    // 目標位置
-                radius: Fixed32::from_i32(5),        // 碰撞半徑
-                msd: Fixed32::from_i32(500),         // 移動速度
+                radius: Fixed64::from_i32(5),        // 碰撞半徑
+                msd: Fixed64::from_i32(500),         // 移動速度
                 damage_phys: phys_damage,
                 damage_magi: magi_damage,
                 damage_real: real_damage,
-                slow_factor: Fixed32::ZERO,
-                slow_duration: Fixed32::ZERO,
-                hit_radius: Fixed32::ZERO,
-                stun_duration: Fixed32::ZERO,
+                slow_factor: Fixed64::ZERO,
+                slow_duration: Fixed64::ZERO,
+                hit_radius: Fixed64::ZERO,
+                stun_duration: Fixed64::ZERO,
             })
             .build();
 
@@ -295,9 +295,9 @@ impl CreationEventHandler {
         pos: omoba_sim::Vec2,
         unit: Unit,
         faction: Faction,
-        duration: Option<omoba_sim::Fixed32>,
+        duration: Option<omoba_sim::Fixed64>,
     ) -> Vec<Outcome> {
-        // NOTE: log uses f32 boundary — Fixed32 has no Display.
+        // NOTE: log uses f32 boundary — Fixed64 has no Display.
         let pos_x_f = pos.x.to_f32_for_render();
         let pos_y_f = pos.y.to_f32_for_render();
         info!("生成單位於位置 ({}, {})，陣營: {:?}", pos_x_f, pos_y_f, faction);

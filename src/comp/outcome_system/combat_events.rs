@@ -29,13 +29,13 @@ impl CombatEventHandler {
         world: &mut World,
         mqtx: &Sender<OutboundMsg>,
         pos: omoba_sim::Vec2,
-        phys: omoba_sim::Fixed32,
-        magi: omoba_sim::Fixed32,
-        real: omoba_sim::Fixed32,
+        phys: omoba_sim::Fixed64,
+        magi: omoba_sim::Fixed64,
+        real: omoba_sim::Fixed64,
         source: Entity,
         target: Entity,
     ) -> Vec<Outcome> {
-        // PHASE 2: full Fixed32 damage pipeline; UnitStats::apply_incoming_damage still takes f32 —
+        // PHASE 2: full Fixed64 damage pipeline; UnitStats::apply_incoming_damage still takes f32 —
         // convert at boundary; redesign in Phase 2 KCP tag rework.
         let phys_f = phys.to_f32_for_render();
         let magi_f = magi.to_f32_for_render();
@@ -71,7 +71,7 @@ impl CombatEventHandler {
             let mut rng = omoba_sim::SimRng::from_master_entity(
                 master_seed, tick, target.id(), OP_COMBAT_MISS_ROLL,
             );
-            let roll = rng.gen_fixed32_unit().to_f32_for_render();
+            let roll = rng.gen_fixed64_unit().to_f32_for_render();
             roll < miss_roll
         } else {
             false
@@ -89,7 +89,7 @@ impl CombatEventHandler {
 
         // ---- 套 UnitStats::apply_incoming_damage 逐類型減免 ----
         // CProperty 的 def_physic 當 armor；def_magic 當 magic_resist (0..1)。
-        // PHASE 2: apply_incoming_damage f32 boundary — full Fixed32 pipeline lands in Phase 2 KCP tag rework.
+        // PHASE 2: apply_incoming_damage f32 boundary — full Fixed64 pipeline lands in Phase 2 KCP tag rework.
         let (final_phys, final_magi, final_real) = {
             let buffs = world.read_resource::<crate::ability_runtime::BuffStore>();
             let is_bldgs = world.read_storage::<IsBuilding>();
@@ -107,8 +107,8 @@ impl CombatEventHandler {
         let final_total = final_phys + final_magi + final_real;
 
         // ---- 先發 AttackHit / AttackLanded（含 final damage 數值）----
-        // Phase 1c.3: AttackLanded.damage is Fixed32 — convert at boundary.
-        let final_total_fx = omoba_sim::Fixed32::from_raw((final_total * 1024.0) as i32);
+        // Phase 1c.3: AttackLanded.damage is Fixed64 — convert at boundary.
+        let final_total_fx = omoba_sim::Fixed64::from_raw((final_total * 1024.0) as i64);
         {
             let mut queue = world.write_resource::<crate::scripting::ScriptEventQueue>();
             queue.push(crate::scripting::ScriptEvent::AttackHit {
@@ -123,7 +123,7 @@ impl CombatEventHandler {
         }
 
         // ---- 扣 HP，套 MIN_HEALTH 下限 ----
-        // PHASE 2: BuffStore::sum_add returns Fixed32 — boundary kept at f32 for legacy compare; redesign in Phase 2.
+        // PHASE 2: BuffStore::sum_add returns Fixed64 — boundary kept at f32 for legacy compare; redesign in Phase 2.
         let min_health: f32 = {
             let buffs = world.read_resource::<crate::ability_runtime::BuffStore>();
             buffs.sum_add(target, StatKey::MinHealth).to_f32_for_render()
@@ -137,9 +137,9 @@ impl CombatEventHandler {
         {
             let mut properties = world.write_storage::<CProperty>();
             if let Some(target_props) = properties.get_mut(target) {
-                // Phase 1c.3: target_props.hp / mhp are Fixed32 (Phase 1c.2);
+                // Phase 1c.3: target_props.hp / mhp are Fixed64 (Phase 1c.2);
                 // final_total / min_health stay f32 here — boundary at the read.
-                // PHASE 2: full Fixed32 hp arithmetic — redesign in Phase 2 KCP tag rework.
+                // PHASE 2: full Fixed64 hp arithmetic — redesign in Phase 2 KCP tag rework.
                 let hp_before_f = target_props.hp.to_f32_for_render();
                 let mut hp_after_f = hp_before_f - final_total;
                 // MIN_HEALTH clamp：> 0 時 HP 不低於此值
@@ -150,7 +150,7 @@ impl CombatEventHandler {
                     hp_after_f = 0.0;
                     died = true;
                 }
-                target_props.hp = omoba_sim::Fixed32::from_raw((hp_after_f * 1024.0) as i32);
+                target_props.hp = omoba_sim::Fixed64::from_raw((hp_after_f * 1024.0) as i64);
 
                 let (source_name, target_name) = Self::get_entity_names(world, source, target);
                 let damage_info = Self::format_damage_info(final_phys, final_magi, final_real, final_total);
@@ -201,30 +201,30 @@ impl CombatEventHandler {
         _mqtx: &Sender<OutboundMsg>,
         _pos: omoba_sim::Vec2,
         target: Entity,
-        amount: omoba_sim::Fixed32,
+        amount: omoba_sim::Fixed64,
     ) -> Vec<Outcome> {
-        use omoba_sim::Fixed32;
+        use omoba_sim::Fixed64;
         // 先查 buff 套 modifier
-        let half = Fixed32::from_raw(512); // 0.5
-        let effective_amount: Fixed32 = {
+        let half = Fixed64::from_raw(512); // 0.5
+        let effective_amount: Fixed64 = {
             let buffs = world.read_resource::<crate::ability_runtime::BuffStore>();
             let disabled = buffs.has(target, StatKey::DisableHealing.as_str())
                 || buffs.sum_add(target, StatKey::DisableHealing) > half;
             if disabled {
-                Fixed32::ZERO
+                Fixed64::ZERO
             } else {
-                let mult = Fixed32::ONE + buffs.sum_add(target, StatKey::HealReceivedMultiplier);
+                let mult = Fixed64::ONE + buffs.sum_add(target, StatKey::HealReceivedMultiplier);
                 amount * mult
             }
         };
 
-        if effective_amount <= Fixed32::ZERO {
+        if effective_amount <= Fixed64::ZERO {
             let target_name = Self::get_entity_name(world, target);
             log::info!("🚫 {} 治療被阻擋（disable_healing 或倍率歸零）", target_name);
             return Vec::new();
         }
 
-        let mut actual_heal: Fixed32 = Fixed32::ZERO;
+        let mut actual_heal: Fixed64 = Fixed64::ZERO;
         {
             let mut properties = world.write_storage::<CProperty>();
             if let Some(target_props) = properties.get_mut(target) {
@@ -235,7 +235,7 @@ impl CombatEventHandler {
                 actual_heal = hp_after - hp_before;
 
                 let target_name = Self::get_entity_name(world, target);
-                // NOTE: log uses f32 boundary — Fixed32 has no Display.
+                // NOTE: log uses f32 boundary — Fixed64 has no Display.
                 log::info!("💚 {} 回復 {:.1} HP（原 {:.1} × 倍率）| HP: {:.1} → {:.1}/{:.1}",
                     target_name,
                     actual_heal.to_f32_for_render(),
@@ -247,7 +247,7 @@ impl CombatEventHandler {
             }
         }
 
-        if actual_heal > Fixed32::ZERO {
+        if actual_heal > Fixed64::ZERO {
             let mut queue = world.write_resource::<crate::scripting::ScriptEventQueue>();
             queue.push(crate::scripting::ScriptEvent::HealReceived {
                 target,
@@ -352,7 +352,7 @@ impl CombatEventHandler {
         world: &mut World,
         _mqtx: &Sender<OutboundMsg>,
         target: Entity,
-        asd_count: Option<omoba_sim::Fixed32>,
+        asd_count: Option<omoba_sim::Fixed64>,
         cooldown_reset: bool,
     ) -> Vec<Outcome> {
         let mut attacks = world.write_storage::<TAttack>();

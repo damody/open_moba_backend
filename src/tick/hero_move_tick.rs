@@ -5,7 +5,7 @@ use specs::prelude::ParallelIterator;
 use crossbeam_channel::Sender;
 use vek::*;
 use serde_json::json;
-use omoba_sim::{Fixed32, Vec2 as SimVec2, Angle};
+use omoba_sim::{Fixed64, Vec2 as SimVec2, Angle};
 use omoba_sim::trig::{angle_rotate_toward, atan2 as sim_atan2, fixed_rad_to_ticks, TAU_TICKS};
 
 use crate::comp::*;
@@ -46,13 +46,13 @@ pub struct Sys;
 /// Region 阻擋透過 blocker entities 一起走 Searcher 查詢，不再需要 polygon 測試。
 pub(crate) fn hits_any(
     new_center: SimVec2,
-    radius: Fixed32,
+    radius: Fixed64,
     searcher: &Searcher,
     radii: &ReadStorage<CollisionRadius>,
     self_entity: specs::Entity,
     _regions: &BlockedRegions,
 ) -> bool {
-    // NOTE: Searcher uses f32 internally for instant_distance lib compat; final distance check in caller is Fixed32.
+    // NOTE: Searcher uses f32 internally for instant_distance lib compat; final distance check in caller is Fixed64.
     let radius_f = radius.to_f32_for_render();
     let q_r = radius_f + MAX_COLLISION_RADIUS;
     let center_vek = vek::Vec2::new(
@@ -62,7 +62,7 @@ pub(crate) fn hits_any(
     for di in searcher.search_collidable(center_vek, q_r, 16) {
         if di.e == self_entity { continue; }
         let Some(other_r) = radii.get(di.e).map(|cr| cr.0) else { continue };
-        // touch = radius + other_r — keep in Fixed32 for consistency with caller.
+        // touch = radius + other_r — keep in Fixed64 for consistency with caller.
         let touch = radius + other_r;
         let touch_f = touch.to_f32_for_render();
         if di.dis < touch_f * touch_f {
@@ -77,8 +77,8 @@ pub(crate) fn hits_any(
 pub(crate) fn advance_with_collision(
     pos: SimVec2,
     target: SimVec2,
-    step: Fixed32,
-    radius: Fixed32,
+    step: Fixed64,
+    radius: Fixed64,
     searcher: &Searcher,
     radii: &ReadStorage<CollisionRadius>,
     self_entity: specs::Entity,
@@ -86,15 +86,15 @@ pub(crate) fn advance_with_collision(
 ) -> (SimVec2, bool) {
     let diff = target - pos;
     let distance = diff.length();
-    // 0.5 = Fixed32::from_raw(512)
-    let arrived_eps = Fixed32::from_raw(512);
+    // 0.5 = Fixed64::from_raw(512)
+    let arrived_eps = Fixed64::from_raw(512);
     if distance < arrived_eps {
         return (target, true);
     }
     // normalized() handles zero internally — but we already early-out on distance < 0.5.
     let direction = diff.normalized();
     // step.max(1.0) → if step < 1, treat threshold as 1.0
-    let one = Fixed32::ONE;
+    let one = Fixed64::ONE;
     let snap_threshold = if step > one { step } else { one };
     if distance <= snap_threshold {
         if !hits_any(target, radius, searcher, radii, self_entity, regions) {
@@ -127,11 +127,11 @@ impl<'a> System<'a> for Sys {
 
     fn run(_job: &mut Job<Self>, (tr, mut tw): Self::SystemData) {
         let dt = tr.dt.0;
-        if dt <= Fixed32::ZERO {
+        if dt <= Fixed64::ZERO {
             return;
         }
         // dt_f only kept for the legacy f32 broadcast wire format + CProperty.msd
-        // (still f32; Phase 1c will migrate). Angle math is fully Fixed32/Angle now.
+        // (still f32; Phase 1c will migrate). Angle math is fully Fixed64/Angle now.
         let dt_f = dt.to_f32_for_render();
 
         // 每 120 tick (~2s) log 一次 searcher 各 index 大小，確認 region 已載入
@@ -150,7 +150,7 @@ impl<'a> System<'a> for Sys {
         // 操作，可安全並行；&mut tw.pos / &mut tw.facings 由 specs 保證同 entity 只被一個
         // thread 寫入。collect 結果後再一次性 remove move_targets + 廣播 OutboundMsg。
         // NOTE: ParJoin is determinism-safe here — each hero writes only to its own pos/facing storage slot
-        // (specs enforces per-entity isolation), and the per-entity Fixed32/Angle math is order-independent.
+        // (specs enforces per-entity isolation), and the per-entity Fixed64/Angle math is order-independent.
         // The collected `results` Vec ordering is wire-format-only (broadcast order); lockstep state is unaffected.
         let results: Vec<(Option<specs::Entity>, (u32, f32, f32, f32))> = (
             &tr.entities,
@@ -187,23 +187,23 @@ impl<'a> System<'a> for Sys {
                         &*tr.buff_store,
                         tr.is_buildings.get(entity).is_some(),
                     );
-                    // Phase 1c.4: CProperty.msd / final_move_speed are Fixed32 (Phase 1c.2 / 1c.3).
-                    // dt is Fixed32. step = effective_msd * dt — stays in Fixed32 throughout.
-                    let effective_msd: Fixed32 = stats.final_move_speed(property.msd, entity);
-                    let step: Fixed32 = effective_msd * dt;
+                    // Phase 1c.4: CProperty.msd / final_move_speed are Fixed64 (Phase 1c.2 / 1c.3).
+                    // dt is Fixed64. step = effective_msd * dt — stays in Fixed64 throughout.
+                    let effective_msd: Fixed64 = stats.final_move_speed(property.msd, entity);
+                    let step: Fixed64 = effective_msd * dt;
 
                     let mut arrived_entity: Option<specs::Entity> = None;
 
-                    // distance > 0.5 — Fixed32 from_raw(512) = 0.5
-                    if distance > Fixed32::from_raw(512) {
-                        // Compute desired facing using deterministic Fixed32 atan2.
+                    // distance > 0.5 — Fixed64 from_raw(512) = 0.5
+                    if distance > Fixed64::from_raw(512) {
+                        // Compute desired facing using deterministic Fixed64 atan2.
                         let desired_angle: Angle = sim_atan2(diff.y, diff.x);
                         let turn_rate = tr
                             .turn_speeds
                             .get(entity)
                             .map(|t| t.0)
-                            .unwrap_or(Fixed32::from_raw(1608)); // π/2 rad/s default
-                        // Convert (rad/s × s) Fixed32 → Angle ticks via deterministic helper.
+                            .unwrap_or(Fixed64::from_raw(1608)); // π/2 rad/s default
+                        // Convert (rad/s × s) Fixed64 → Angle ticks via deterministic helper.
                         let max_step_ticks = fixed_rad_to_ticks(turn_rate * dt);
                         facing.0 = angle_rotate_toward(facing.0, desired_angle, max_step_ticks);
 
@@ -216,7 +216,7 @@ impl<'a> System<'a> for Sys {
                         };
                         if signed_diff_ticks.abs() < MOVE_ANGLE_THRESHOLD_TICKS {
                             let radius = tr.radii.get(entity).map(|r| r.0)
-                                .unwrap_or(Fixed32::from_i32(30));
+                                .unwrap_or(Fixed64::from_i32(30));
                             let (new_pos, reached) = advance_with_collision(
                                 pos.0,
                                 target,

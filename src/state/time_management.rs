@@ -62,7 +62,7 @@ impl TimeManager {
             let dt_val = dt.as_secs_f32().min(self.max_delta_time);
             let mut delta_time = world.write_resource::<DeltaTime>();
             // PHASE 2: omb tick clock still f32-seconds; redesign in Phase 2 KCP tag rework.
-            delta_time.0 = omoba_sim::Fixed32::from_raw((dt_val * 1024.0) as i32);
+            delta_time.0 = omoba_sim::Fixed64::from_raw((dt_val * 1024.0) as i64);
             self.cached_delta_time = dt_val;
         }
 
@@ -114,7 +114,7 @@ impl TimeManager {
     /// 暫停時間（設置增量時間為0）
     pub fn pause_time(&self, world: &mut World) {
         let mut delta_time = world.write_resource::<DeltaTime>();
-        delta_time.0 = omoba_sim::Fixed32::ZERO;
+        delta_time.0 = omoba_sim::Fixed64::ZERO;
         log::info!("遊戲時間已暫停");
     }
 
@@ -123,7 +123,7 @@ impl TimeManager {
         let mut delta_time = world.write_resource::<DeltaTime>();
         // PHASE 2: omb tick clock still f32-seconds; redesign in Phase 2 KCP tag rework.
         let v = dt.as_secs_f32().min(self.max_delta_time);
-        delta_time.0 = omoba_sim::Fixed32::from_raw((v * 1024.0) as i32);
+        delta_time.0 = omoba_sim::Fixed64::from_raw((v * 1024.0) as i64);
         log::info!("遊戲時間已恢復");
     }
 
@@ -184,7 +184,7 @@ impl TimeManager {
     pub fn get_time_stats(world: &World) -> TimeStats {
         let time_of_day = world.read_resource::<TimeOfDay>().0;
         let total_time = world.read_resource::<Time>().0;
-        // NOTE: TimeStats is diagnostic / log f32; sim-side reads DeltaTime.0 (Fixed32) directly.
+        // NOTE: TimeStats is diagnostic / log f32; sim-side reads DeltaTime.0 (Fixed64) directly.
         let delta_time = world.read_resource::<DeltaTime>().0.to_f32_for_render();
 
         TimeStats {

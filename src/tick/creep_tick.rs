@@ -11,7 +11,7 @@ use specs::prelude::ParallelIterator;
 use crate::transport::OutboundMsg;
 use crossbeam_channel::Sender;
 use serde_json::json;
-use omoba_sim::{Fixed32, Vec2 as SimVec2, Angle};
+use omoba_sim::{Fixed64, Vec2 as SimVec2, Angle};
 use omoba_sim::trig::{angle_rotate_toward, atan2 as sim_atan2, fixed_rad_to_ticks, TAU_TICKS};
 
 /// MOBA 鏡頭下肉眼無感的 facing 變化量（~15°）。舊值 0.05 (~3°) 造成過多 F event。
@@ -176,7 +176,7 @@ impl<'a> System<'a> for Sys {
         // record update happens serially below so we can touch mv_broadcasts
         // without fighting borrow rules inside the parallel closure.
         // PHASE 2: MoveCandidate.velocity wire format f32; CreepMoveBroadcast / make_creep_move_full
-        // take Fixed32 payloads — redesign in Phase 2 KCP tag rework.
+        // take Fixed64 payloads — redesign in Phase 2 KCP tag rework.
         struct MoveCandidate {
             entity: specs::Entity,
             target: vek::Vec2<f32>,
@@ -215,7 +215,7 @@ impl<'a> System<'a> for Sys {
                         (a.ticks() as f32 / TAU_TICKS as f32) * std::f32::consts::TAU
                     }
 
-                    if cp.hp <= Fixed32::ZERO {
+                    if cp.hp <= Fixed64::ZERO {
                         // [DEBUG-STRESS] creep_tick 看到的 hp 值（應該與 handle_damage 寫入後的 hp 一致）
                         log::info!("☠️ creep_tick sees hp<=0: name={} hp={:.1} mhp={:.1} ent={}",
                             creep.name,
@@ -237,11 +237,11 @@ impl<'a> System<'a> for Sys {
                             } else {
                                 if let Some(p) = path.check_points.get(creep.pidx) {
                                     // CheckPoint.pos is still vek::Vec2<f32> (Phase 1c will migrate
-                                    // path data to Fixed32). Bridge once per iteration.
+                                    // path data to Fixed64). Bridge once per iteration.
                                     let target_point_f: vek::Vec2<f32> = p.pos;
                                     let target_point: SimVec2 = SimVec2::new(
-                                        Fixed32::from_raw((target_point_f.x * omoba_sim::fixed::SCALE as f32) as i32),
-                                        Fixed32::from_raw((target_point_f.y * omoba_sim::fixed::SCALE as f32) as i32),
+                                        Fixed64::from_raw((target_point_f.x * omoba_sim::fixed::SCALE as f32) as i64),
+                                        Fixed64::from_raw((target_point_f.y * omoba_sim::fixed::SCALE as f32) as i64),
                                     );
                                     let mut next_status = creep.status.clone();
                                     // P4: compute effective move speed once per tick — shared
@@ -266,13 +266,13 @@ impl<'a> System<'a> for Sys {
                                             if tr.buff_store.is_rooted(e) {
                                                 return (outcomes, cands);
                                             }
-                                            // Phase 1c.3: effective_msd is Fixed32 (UnitStats migrated).
-                                            // step = effective_msd × dt (Fixed32 × Fixed32).
+                                            // Phase 1c.3: effective_msd is Fixed64 (UnitStats migrated).
+                                            // step = effective_msd × dt (Fixed64 × Fixed64).
                                             let step = effective_msd * dt;
                                             let diff = target_point - pos.0;
                                             let dist_sq = diff.length_squared();
-                                            // 0.01 in Fixed32 raw = round(0.01 * 1024) = 10
-                                            let arrived_eps_sq = Fixed32::from_raw(10);
+                                            // 0.01 in Fixed64 raw = round(0.01 * 1024) = 10
+                                            let arrived_eps_sq = Fixed64::from_raw(10);
                                             if dist_sq < arrived_eps_sq {
                                                 // 已抵達 waypoint — pidx advances, new waypoint
                                                 // triggers an M candidate (target change).
@@ -289,7 +289,7 @@ impl<'a> System<'a> for Sys {
                                                 let desired_angle: Angle = sim_atan2(diff.y, diff.x);
                                                 let turn_rate = tr.turn_speeds.get(e)
                                                     .map(|t| t.0)
-                                                    .unwrap_or(Fixed32::from_raw(1608)); // π/2 rad/s default
+                                                    .unwrap_or(Fixed64::from_raw(1608)); // π/2 rad/s default
                                                 let max_step_ticks = fixed_rad_to_ticks(turn_rate * dt);
                                                 facing.0 = angle_rotate_toward(facing.0, desired_angle, max_step_ticks);
                                                 let new_facing_rad = a_to_rad(facing.0);
@@ -312,10 +312,10 @@ impl<'a> System<'a> for Sys {
                                                     diff_ticks
                                                 };
                                                 if signed_diff_ticks.abs() < MOVE_ANGLE_THRESHOLD_TICKS {
-                                                    let radius = tr.radii.get(e).map(|r| r.0).unwrap_or(Fixed32::from_i32(20));
+                                                    let radius = tr.radii.get(e).map(|r| r.0).unwrap_or(Fixed64::from_i32(20));
                                                     let self_entity = e;
                                                     // NOTE: Searcher uses f32 internally for instant_distance lib compat.
-                                                    // Final distance check in caller is Fixed32.
+                                                    // Final distance check in caller is Fixed64.
                                                     let radius_f = radius.to_f32_for_render();
                                                     let hits = |p_sim: SimVec2| -> bool {
                                                         let q_r = radius_f + MAX_COLLISION_RADIUS;
@@ -462,12 +462,12 @@ impl<'a> System<'a> for Sys {
                 let hp_before = cp.hp;
                 let max_hp = cp.mhp;
 
-                // Phase 1c.4: cp.* / td.* / Outcome::Damage.{phys,magi,real} 全 Fixed32。
+                // Phase 1c.4: cp.* / td.* / Outcome::Damage.{phys,magi,real} 全 Fixed64。
                 let phys_raw = td.phys - cp.def_physic;
-                let phys_damage: Fixed32 = if phys_raw < Fixed32::ZERO { Fixed32::ZERO } else { phys_raw };
+                let phys_damage: Fixed64 = if phys_raw < Fixed64::ZERO { Fixed64::ZERO } else { phys_raw };
                 let magi_raw = td.magi - cp.def_magic;
-                let magi_damage: Fixed32 = if magi_raw < Fixed32::ZERO { Fixed32::ZERO } else { magi_raw };
-                let total_damage: Fixed32 = phys_damage + magi_damage;
+                let magi_damage: Fixed64 = if magi_raw < Fixed64::ZERO { Fixed64::ZERO } else { magi_raw };
+                let total_damage: Fixed64 = phys_damage + magi_damage;
 
                 // 獲取目標名稱用於日誌
                 let target_name = if let Some(creep) = tw.creeps.get(td.ent) {
@@ -477,7 +477,7 @@ impl<'a> System<'a> for Sys {
                     format!("Entity({:?})", td.ent.id())
                 };
 
-                if total_damage > Fixed32::ZERO {
+                if total_damage > Fixed64::ZERO {
                     // Phase 1c.4: Outcome::Damage.pos is SimVec2 (Phase 1c.2).
                     let target_pos = tw.pos.get(td.ent)
                         .map(|p| p.0)
@@ -488,12 +488,12 @@ impl<'a> System<'a> for Sys {
                         pos: target_pos,
                         phys: phys_damage,
                         magi: magi_damage,
-                        real: Fixed32::ZERO,
+                        real: Fixed64::ZERO,
                         source: td.source, // 使用正確的攻擊者
                         target: td.ent,
                         predeclared: false, // melee / on-touch damage — never pre-declared
                     });
-                } else if td.phys > Fixed32::ZERO || td.magi > Fixed32::ZERO {
+                } else if td.phys > Fixed64::ZERO || td.magi > Fixed64::ZERO {
                     // 只有在有原始傷害但被完全防禦時才顯示
                     log::info!("🛡️ {} | Damage BLOCKED: Phys {:.1} vs Def {:.1}, Magi {:.1} vs Def {:.1}",
                         target_name,

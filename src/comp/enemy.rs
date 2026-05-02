@@ -124,7 +124,7 @@ impl Enemy {
         };
 
         // NOTE: Enemy is a spawn template (analogous to Unit i32 design); template-ids creep_stats
-        // is Fixed32 source-of-truth, Enemy struct fields stay f32/i32 by design and convert at spawn boundary.
+        // is Fixed64 source-of-truth, Enemy struct fields stay f32/i32 by design and convert at spawn boundary.
         Enemy {
             id: enemy_data.id.clone(),
             name: creep_display(id).to_string(),

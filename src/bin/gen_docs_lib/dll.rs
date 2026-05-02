@@ -35,7 +35,7 @@ pub fn load(dll_path: &Path) -> Result<DllData> {
     for def in units_fn() {
         let id = def.unit_id.to_string();
         // gen_docs_lib::model::TowerStats is a reporting struct (f32 for HTML
-        // display); convert from ABI Fixed32 at this boundary.
+        // display); convert from ABI Fixed64 at this boundary.
         // NOTE: render-only HTML reporting struct; intentional f32 boundary at gen-docs sink.
         let tower = def.script.tower_metadata().into_option().map(|tm| TowerStats {
             atk: tm.atk.to_f32_for_render(),

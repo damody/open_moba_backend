@@ -12,7 +12,7 @@ use std::cmp::Ordering;
 use voracious_radix_sort::{Radixable, RadixSort};  // 基數排序演算法
 use crate::Tower;
 use crate::TAttack;
-use omoba_sim::{Fixed32, Vec2 as SimVec2};
+use omoba_sim::{Fixed64, Vec2 as SimVec2};
 
 /// 遊戲結果事件枚舉
 /// 用於處理遊戲中各種事件的結果，例如傷害、死亡、治療等
@@ -21,9 +21,9 @@ pub enum Outcome {
     /// 傷害事件
     Damage {
         pos: SimVec2,        // 傷害發生位置
-        phys: Fixed32,       // 物理傷害數值
-        magi: Fixed32,       // 魔法傷害數值
-        real: Fixed32,       // 真實傷害數值（無視防禦）
+        phys: Fixed64,       // 物理傷害數值
+        magi: Fixed64,       // 魔法傷害數值
+        real: Fixed64,       // 真實傷害數值（無視防禦）
         source: Entity,      // 傷害來源實體
         target: Entity,      // 傷害目標實體
         /// P7: true 表示此 damage 由非 AOE projectile 命中產生，且彈丸在
@@ -68,12 +68,12 @@ pub enum Outcome {
     Heal {
         pos: SimVec2,        // 治療發生位置
         target: Entity,      // 治療目標實體
-        amount: Fixed32,     // 治療量
+        amount: Fixed64,     // 治療量
     },
     /// 更新攻擊狀態事件
     UpdateAttack {
         target: Entity,                  // 目標實體
-        asd_count: Option<Fixed32>,      // 攻擊速度計數器（可選）
+        asd_count: Option<Fixed64>,      // 攻擊速度計數器（可選）
         cooldown_reset: bool,            // 是否重置冷卻時間
     },
     /// 獲得經驗值事件
@@ -91,7 +91,7 @@ pub enum Outcome {
         pos: SimVec2,                          // 生成位置
         unit: crate::comp::Unit,               // 單位類型
         faction: crate::comp::Faction,         // 陣營
-        duration: Option<Fixed32>,             // 持續時間（可選，用於臨時單位）
+        duration: Option<Fixed64>,             // 持續時間（可選，用於臨時單位）
     },
     /// TD 模式：小兵走到 path 終點（未被擊殺）。
     /// GameProcessor 會扣 PlayerLives 1、delete entity、並廣播 hero.stats（lives 更新）。
@@ -103,7 +103,7 @@ pub enum Outcome {
     AddBuff {
         target: Entity,
         buff_id: String,
-        duration: Fixed32,
+        duration: Fixed64,
         #[serde(default)]
         payload: serde_json::Value,
     },
@@ -111,8 +111,8 @@ pub enum Outcome {
     /// GameProcessor 收到後廣播 `game/explosion` 給前端。
     Explosion {
         pos: SimVec2,
-        radius: Fixed32,
-        duration: Fixed32,
+        radius: Fixed64,
+        duration: Fixed64,
     },
     /// Tack 塔放射針：無 target，從 `pos` 飛向 `end_pos`。
     /// projectile_tick 會每 tick 掃描沿路是否命中敵人（第一個打到就消失）。
@@ -134,15 +134,15 @@ pub struct CreepData {
     pub faction_name: String, // "Player" 或 "Enemy"；空視為 "Enemy"
     /// 轉速（度/秒）；預設 90
     #[serde(default = "default_creep_turn_speed_deg")]
-    pub turn_speed_deg: Fixed32,
+    pub turn_speed_deg: Fixed64,
     /// 碰撞半徑；預設 20
     #[serde(default = "default_creep_cr")]
-    pub collision_radius: Fixed32,
+    pub collision_radius: Fixed64,
 }
 
-fn default_creep_cr() -> Fixed32 { Fixed32::from_i32(20) }
+fn default_creep_cr() -> Fixed64 { Fixed64::from_i32(20) }
 
-fn default_creep_turn_speed_deg() -> Fixed32 { Fixed32::from_i32(90) }
+fn default_creep_turn_speed_deg() -> Fixed64 { Fixed64::from_i32(90) }
 
 /// 塔防建築資料結構
 /// 儲存塔的相關資訊

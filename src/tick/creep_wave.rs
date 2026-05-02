@@ -10,7 +10,7 @@ use vek::Vec2;
 use crossbeam_channel::{Receiver, Sender};
 use crate::transport::OutboundMsg;
 use serde_json::json;
-use omoba_sim::{Fixed32, Vec2 as SimVec2};
+use omoba_sim::{Fixed64, Vec2 as SimVec2};
 
 #[derive(SystemData)]
 pub struct CreepWaveRead<'a> {
@@ -78,19 +78,19 @@ impl<'a> System<'a> for Sys {
                         if let Some(ct) = path.check_points.first() {
                             let mut cpp = cp.root.clone();
                             cpp.path = pc.path_name.clone();
-                            // CreepData.{pos, turn_speed_deg, collision_radius} now SimVec2 / Fixed32
+                            // CreepData.{pos, turn_speed_deg, collision_radius} now SimVec2 / Fixed64
                             // (Phase 1c.2). CreepEmiter / CheckPoint still f32 (template-side migration
                             // is Phase 1d). Bridge once per spawn.
                             let cp0 = CreepData {
                                 pos: SimVec2::new(
-                                    Fixed32::from_raw((ct.pos.x * omoba_sim::fixed::SCALE as f32) as i32),
-                                    Fixed32::from_raw((ct.pos.y * omoba_sim::fixed::SCALE as f32) as i32),
+                                    Fixed64::from_raw((ct.pos.x * omoba_sim::fixed::SCALE as f32) as i64),
+                                    Fixed64::from_raw((ct.pos.y * omoba_sim::fixed::SCALE as f32) as i64),
                                 ),
                                 creep: cpp.clone(),
                                 cdata: cp.property.clone(),
                                 faction_name: cp.faction_name.clone(),
-                                turn_speed_deg: Fixed32::from_raw((cp.turn_speed_deg * omoba_sim::fixed::SCALE as f32) as i32),
-                                collision_radius: Fixed32::from_raw((cp.collision_radius * omoba_sim::fixed::SCALE as f32) as i32),
+                                turn_speed_deg: Fixed64::from_raw((cp.turn_speed_deg * omoba_sim::fixed::SCALE as f32) as i64),
+                                collision_radius: Fixed64::from_raw((cp.collision_radius * omoba_sim::fixed::SCALE as f32) as i64),
                             };
                             tw.outcomes.push(Outcome::Creep { cd: cp0 });
                         }

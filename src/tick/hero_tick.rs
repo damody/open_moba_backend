@@ -10,7 +10,7 @@ use std::{
     time::{Duration, Instant},
 };
 use specs::Entity;
-use omoba_sim::{Fixed32, Vec2 as SimVec2};
+use omoba_sim::{Fixed64, Vec2 as SimVec2};
 
 /// MOBA 鏡頭下肉眼無感的 facing 變化量（~15°）。舊值 0.05 (~3°) 造成過多 F event。
 const FACING_BROADCAST_THRESHOLD_RAD: f32 = 0.26;
@@ -83,8 +83,8 @@ impl<'a> System<'a> for Sys {
 
     fn run(_job: &mut Job<Self>, (tr, mut tw): Self::SystemData) {
         let time = tr.time.0;
-        // Phase 1c.4: dt is now Fixed32 throughout battle tick.
-        let dt: Fixed32 = tr.dt.0;
+        // Phase 1c.4: dt is now Fixed64 throughout battle tick.
+        let dt: Fixed64 = tr.dt.0;
         // Lossy projection retained ONLY for Searcher boundary + facing radians math.
         // NOTE: Searcher uses f32 internally for instant_distance lib compat; Facing radians is log-only.
         let dt_f = dt.to_f32_for_render();
@@ -132,7 +132,7 @@ impl<'a> System<'a> for Sys {
                 |_guard, (e, hero, pty, atk, pos, facing, facing_bc)| {
                     let mut outcomes: Vec<Outcome> = Vec::new();
 
-                    // NOTE: Searcher uses f32 internally for instant_distance lib compat; final distance check in caller is Fixed32.
+                    // NOTE: Searcher uses f32 internally for instant_distance lib compat; final distance check in caller is Fixed64.
                     let (pos_x_f, pos_y_f) = pos.xy_f32();
                     let pos_vek = vek::Vec2::new(pos_x_f, pos_y_f);
 
@@ -148,9 +148,9 @@ impl<'a> System<'a> for Sys {
                     );
                     // 0.01 ≈ 10/1024 raw — floor to avoid div-by-zero divergence.
                     let asd_mult_raw = stats.final_attack_speed_mult(e);
-                    let min_asd_mult = Fixed32::from_raw(10);
+                    let min_asd_mult = Fixed64::from_raw(10);
                     let asd_mult = if asd_mult_raw < min_asd_mult { min_asd_mult } else { asd_mult_raw };
-                    let effective_interval: Fixed32 = atk.asd.v / asd_mult;
+                    let effective_interval: Fixed64 = atk.asd.v / asd_mult;
 
                     // 直接更新攻擊冷卻時間
                     if atk.asd_count < effective_interval {
@@ -173,10 +173,10 @@ impl<'a> System<'a> for Sys {
                             // 搜尋攻擊範圍內的所有單位
                             let search_n = 10; // 搜尋最近的 10 個目標
                             // 攻擊範圍：UnitStats 聚合（Dota ATTACK_RANGE_BONUS + ATTACK_RANGE_BONUS_UNIQUE，MAX_ATTACK_RANGE clamp）
-                            let attack_range: Fixed32 = stats.final_attack_range(atk.range.v, e);
-                            let range_bonus: Fixed32 = attack_range - atk.range.v;
-                            let search_range: Fixed32 = attack_range + Fixed32::from_i32(50); // 稍微擴大搜尋範圍以確保不遺漏邊界目標
-                            // NOTE: Searcher uses f32 internally for instant_distance lib compat; final distance check in caller is Fixed32.
+                            let attack_range: Fixed64 = stats.final_attack_range(atk.range.v, e);
+                            let range_bonus: Fixed64 = attack_range - atk.range.v;
+                            let search_range: Fixed64 = attack_range + Fixed64::from_i32(50); // 稍微擴大搜尋範圍以確保不遺漏邊界目標
+                            // NOTE: Searcher uses f32 internally for instant_distance lib compat; final distance check in caller is Fixed64.
                             let attack_range_f = attack_range.to_f32_for_render();
                             let search_range_f = search_range.to_f32_for_render();
                             let (creep_targets, _) =
@@ -232,7 +232,7 @@ impl<'a> System<'a> for Sys {
                             if valid_targets.len() > 0 {
                                 // 攻擊最近的敵人：先轉向，角度 < 30° 才能開火
                                 let target = valid_targets[0].e;
-                                // NOTE: turn-toward log uses f32 boundary — Fixed32 has no Display.
+                                // NOTE: turn-toward log uses f32 boundary — Fixed64 has no Display.
                                 let target_pos = tr.pos.get(target)
                                     .map(|p| { let (x, y) = p.xy_f32(); vek::Vec2::new(x, y) })
                                     .unwrap_or(pos_vek);
@@ -279,8 +279,8 @@ impl<'a> System<'a> for Sys {
                                 let mut rng = omoba_sim::SimRng::from_master_entity(
                                     master_seed, tick, e.id(), OP_HERO_NO_TARGET_JITTER,
                                 );
-                                let jitter = Fixed32::from_raw((rng.next_u32() % 256) as i32);
-                                atk.asd_count = effective_interval - Fixed32::from_raw(307) - jitter;
+                                let jitter = Fixed64::from_raw((rng.next_u32() % 256) as i64);
+                                atk.asd_count = effective_interval - Fixed64::from_raw(307) - jitter;
                                 log::trace!("{} 沒有找到有效目標，減少攻擊冷卻時間: {:.3}",
                                     hero_name, atk.asd_count.to_f32_for_render());
                             }

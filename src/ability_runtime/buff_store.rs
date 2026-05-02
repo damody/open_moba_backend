@@ -16,14 +16,14 @@
 
 use omb_script_abi::buff_ids::BuffId;
 use omb_script_abi::stat_keys::StatKey;
-use omoba_sim::Fixed32;
+use omoba_sim::Fixed64;
 use serde_json::Value;
 use specs::Entity;
 use std::collections::HashMap;
 
-/// Read a numeric stat value out of a JSON payload as Fixed32.
+/// Read a numeric stat value out of a JSON payload as Fixed64.
 ///
-/// Phase 1de.2 wire encoding: raw `Fixed32::raw()` i32 stored as a JSON Number
+/// Phase 1de.2 wire encoding: raw `Fixed64::raw()` i32 stored as a JSON Number
 /// (integer). Drops the f64 → `* 1024 as i32` quantization which lost up to
 /// 14 bits of precision and risked platform-divergent IEEE-754 multiply.
 ///
@@ -32,22 +32,22 @@ use std::collections::HashMap;
 /// quantization. Once every script writer is on `.raw()` we can drop this
 /// branch (PHASE 2).
 #[inline]
-fn read_fixed_from_payload(value: &serde_json::Value) -> Fixed32 {
+fn read_fixed_from_payload(value: &serde_json::Value) -> Fixed64 {
     if let Some(i) = value.as_i64() {
-        // PHASE 1de.2 lockstep-correct form: raw Fixed32 integer.
-        Fixed32::from_raw(i as i32)
+        // PHASE 1de.2 lockstep-correct form: raw Fixed64 integer.
+        Fixed64::from_raw(i as i64)
     } else if let Some(f) = value.as_f64() {
-        // PHASE 2 legacy: f64 → Fixed32 quantization. Deprecated; remove once all
+        // PHASE 2 legacy: f64 → Fixed64 quantization. Deprecated; remove once all
         // script payload writers emit `.raw()` integers.
-        Fixed32::from_raw((f * 1024.0) as i32)
+        Fixed64::from_raw((f * 1024.0) as i64)
     } else {
-        Fixed32::ZERO
+        Fixed64::ZERO
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct BuffEntry {
-    pub remaining: Fixed32,
+    pub remaining: Fixed64,
     pub payload: Value,
 }
 
@@ -69,7 +69,7 @@ impl BuffStore {
     /// 策略決定是否覆寫——例如 slow 採單一 instance（buff_id = "slow"），
     /// 由 payload 的 `slow_factor` 欄位驅動「強蓋弱」比較（見上方 Reserved
     /// payload conventions）。
-    pub fn add(&mut self, entity: Entity, buff_id: &str, duration: Fixed32, payload: Value) {
+    pub fn add(&mut self, entity: Entity, buff_id: &str, duration: Fixed64, payload: Value) {
         let key = (entity, buff_id.to_string());
         match self.buffs.get_mut(&key) {
             Some(e) => {
@@ -213,25 +213,25 @@ impl BuffStore {
     /// 慣例：`_bonus` 後綴的 stat 用這個（例 `range_bonus`、`damage_bonus`）。
     /// Phase 1de.2: payload prefers raw i32 (lockstep-correct); legacy f64 still
     /// accepted via `read_fixed_from_payload` fallback.
-    pub fn sum_add(&self, entity: Entity, stat: StatKey) -> Fixed32 {
+    pub fn sum_add(&self, entity: Entity, stat: StatKey) -> Fixed64 {
         let key = stat.as_str();
         self.iter_for(entity)
             .filter_map(|(_, e)| e.payload.get(key))
             .map(read_fixed_from_payload)
-            .fold(Fixed32::ZERO, |acc, v| acc + v)
+            .fold(Fixed64::ZERO, |acc, v| acc + v)
     }
 
     /// 乘法聚合：對 entity 身上所有 buff，若 `payload[stat]` 是數字則連乘。
-    /// 空集合回 1.0 (Fixed32::ONE)。慣例：`_multiplier` 後綴的 stat 用這個
+    /// 空集合回 1.0 (Fixed64::ONE)。慣例：`_multiplier` 後綴的 stat 用這個
     /// （例 `attack_speed_multiplier`、`move_speed_multiplier`）。
     /// Phase 1de.2: payload prefers raw i32 (lockstep-correct); legacy f64 still
     /// accepted via `read_fixed_from_payload` fallback.
-    pub fn product_mult(&self, entity: Entity, stat: StatKey) -> Fixed32 {
+    pub fn product_mult(&self, entity: Entity, stat: StatKey) -> Fixed64 {
         let key = stat.as_str();
         self.iter_for(entity)
             .filter_map(|(_, e)| e.payload.get(key))
             .map(read_fixed_from_payload)
-            .fold(Fixed32::ONE, |acc, v| acc * v)
+            .fold(Fixed64::ONE, |acc, v| acc * v)
     }
 
     /// 控制類 buff 判定 — 這些 buff_id 出現在單位身上代表其處於特定 CC 狀態。
@@ -251,14 +251,14 @@ impl BuffStore {
     /// 倒數所有 buff 並回傳過期的 `(Entity, buff_id, payload)` 清單。
     /// 呼叫端可依 payload 內容決定是否廣播（例：payload 含 move_speed_bonus
     /// 表示這是移速影響類 buff，要發 creep/S 還原訊息）。
-    /// Phase 1c.3: dt is Fixed32 seconds.
-    pub fn tick(&mut self, dt: Fixed32) -> Vec<(Entity, String, Value)> {
+    /// Phase 1c.3: dt is Fixed64 seconds.
+    pub fn tick(&mut self, dt: Fixed64) -> Vec<(Entity, String, Value)> {
         let mut expired = Vec::new();
         // 先收集 expired，避免 retain 內動態借 self（index_dec 也要 &mut self）
         let mut to_drop: Vec<(Entity, String)> = Vec::new();
         for ((e, id), v) in self.buffs.iter_mut() {
             v.remaining -= dt;
-            if v.remaining <= Fixed32::ZERO {
+            if v.remaining <= Fixed64::ZERO {
                 to_drop.push((*e, id.clone()));
             }
         }
@@ -293,8 +293,8 @@ mod tests {
         Entity::new(id, Generation::new(gen))
     }
 
-    fn fx(seconds: f32) -> Fixed32 {
-        Fixed32::from_raw((seconds * 1024.0) as i32)
+    fn fx(seconds: f32) -> Fixed64 {
+        Fixed64::from_raw((seconds * 1024.0) as i64)
     }
 
     #[test]
@@ -376,25 +376,25 @@ mod tests {
 
     #[test]
     fn read_fixed_from_payload_prefers_raw_i64() {
-        // Phase 1de.2: integer payload → raw Fixed32 (lockstep-correct).
-        // 0.5 in Fixed32 raw = 512.
+        // Phase 1de.2: integer payload → raw Fixed64 (lockstep-correct).
+        // 0.5 in Fixed64 raw = 512.
         let v = serde_json::json!(512);
-        assert_eq!(read_fixed_from_payload(&v), Fixed32::from_raw(512));
+        assert_eq!(read_fixed_from_payload(&v), Fixed64::from_raw(512));
     }
 
     #[test]
     fn read_fixed_from_payload_legacy_f64_fallback() {
         // Backward compat: float payload still parsed via *1024 quantization.
         let v = serde_json::json!(0.5);
-        assert_eq!(read_fixed_from_payload(&v), Fixed32::from_raw(512));
+        assert_eq!(read_fixed_from_payload(&v), Fixed64::from_raw(512));
     }
 
     #[test]
     fn read_fixed_from_payload_nonnumeric_returns_zero() {
         let v = serde_json::json!("not_a_number");
-        assert_eq!(read_fixed_from_payload(&v), Fixed32::ZERO);
+        assert_eq!(read_fixed_from_payload(&v), Fixed64::ZERO);
         let v_null = serde_json::Value::Null;
-        assert_eq!(read_fixed_from_payload(&v_null), Fixed32::ZERO);
+        assert_eq!(read_fixed_from_payload(&v_null), Fixed64::ZERO);
     }
 
     #[test]
@@ -407,7 +407,7 @@ mod tests {
         s.add(e, "new_buff", fx(5.0), json!({ "move_speed_bonus": 204 }));
         let total = s.sum_add(e, StatKey::MoveSpeedBonus);
         // 307 + 204 = 511
-        assert_eq!(total, Fixed32::from_raw(511));
+        assert_eq!(total, Fixed64::from_raw(511));
     }
 
     #[test]

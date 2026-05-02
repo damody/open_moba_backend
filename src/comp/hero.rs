@@ -2,7 +2,7 @@ use specs::storage::VecStorage;
 use specs::{Component, Entity};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use omoba_sim::Fixed32;
+use omoba_sim::Fixed64;
 
 /// 英雄組件 - 包含英雄的基礎屬性和成長數據
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -30,7 +30,7 @@ pub struct Hero {
     /// 技能剩餘冷卻秒數；key = ability_id。>0 表示仍在 CD 中，host 會拒絕 SkillCast。
     /// 不寫進 serde 預設值時自動補空 map，相容舊 savegame。
     #[serde(default)]
-    pub ability_cooldowns: HashMap<String, Fixed32>,
+    pub ability_cooldowns: HashMap<String, Fixed64>,
     
     // 升級數據
     pub level_growth: LevelGrowth,
@@ -45,12 +45,12 @@ pub enum AttributeType {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct LevelGrowth {
-    pub strength_per_level: Fixed32,
-    pub agility_per_level: Fixed32,
-    pub intelligence_per_level: Fixed32,
-    pub damage_per_level: Fixed32,
-    pub hp_per_level: Fixed32,
-    pub mana_per_level: Fixed32,
+    pub strength_per_level: Fixed64,
+    pub agility_per_level: Fixed64,
+    pub intelligence_per_level: Fixed64,
+    pub damage_per_level: Fixed64,
+    pub hp_per_level: Fixed64,
+    pub mana_per_level: Fixed64,
 }
 
 impl Component for Hero {
@@ -136,20 +136,20 @@ impl Hero {
     }
     
     /// 獲取當前總屬性值（基礎 + 等級成長）
-    pub fn get_total_strength(&self) -> Fixed32 {
-        Fixed32::from_i32(self.strength) + self.level_growth.strength_per_level * (self.level - 1)
+    pub fn get_total_strength(&self) -> Fixed64 {
+        Fixed64::from_i32(self.strength) + self.level_growth.strength_per_level * (self.level - 1)
     }
 
-    pub fn get_total_agility(&self) -> Fixed32 {
-        Fixed32::from_i32(self.agility) + self.level_growth.agility_per_level * (self.level - 1)
+    pub fn get_total_agility(&self) -> Fixed64 {
+        Fixed64::from_i32(self.agility) + self.level_growth.agility_per_level * (self.level - 1)
     }
 
-    pub fn get_total_intelligence(&self) -> Fixed32 {
-        Fixed32::from_i32(self.intelligence) + self.level_growth.intelligence_per_level * (self.level - 1)
+    pub fn get_total_intelligence(&self) -> Fixed64 {
+        Fixed64::from_i32(self.intelligence) + self.level_growth.intelligence_per_level * (self.level - 1)
     }
 
     /// 獲取主屬性值
-    pub fn get_primary_attribute_value(&self) -> Fixed32 {
+    pub fn get_primary_attribute_value(&self) -> Fixed64 {
         match self.primary_attribute {
             AttributeType::Strength => self.get_total_strength(),
             AttributeType::Agility => self.get_total_agility(),
@@ -158,60 +158,60 @@ impl Hero {
     }
 
     /// 計算基礎攻擊力
-    pub fn get_base_damage(&self) -> Fixed32 {
+    pub fn get_base_damage(&self) -> Fixed64 {
         let base = self.get_primary_attribute_value();
         let level_bonus = self.level_growth.damage_per_level * (self.level - 1);
         base + level_bonus
     }
 
     /// 計算最大生命值
-    pub fn get_max_hp(&self) -> Fixed32 {
-        let str_bonus = self.get_total_strength() * Fixed32::from_i32(22); // 每點力量 +22 HP
+    pub fn get_max_hp(&self) -> Fixed64 {
+        let str_bonus = self.get_total_strength() * Fixed64::from_i32(22); // 每點力量 +22 HP
         let level_bonus = self.level_growth.hp_per_level * (self.level - 1);
-        Fixed32::from_i32(200) + str_bonus + level_bonus // 基礎 200 HP
+        Fixed64::from_i32(200) + str_bonus + level_bonus // 基礎 200 HP
     }
 
     /// 計算最大法力值
-    pub fn get_max_mana(&self) -> Fixed32 {
-        let int_bonus = self.get_total_intelligence() * Fixed32::from_i32(13); // 每點智力 +13 MP
+    pub fn get_max_mana(&self) -> Fixed64 {
+        let int_bonus = self.get_total_intelligence() * Fixed64::from_i32(13); // 每點智力 +13 MP
         let level_bonus = self.level_growth.mana_per_level * (self.level - 1);
-        Fixed32::from_i32(75) + int_bonus + level_bonus // 基礎 75 MP
+        Fixed64::from_i32(75) + int_bonus + level_bonus // 基礎 75 MP
     }
 
     /// 計算攻擊速度倍數
-    pub fn get_attack_speed_multiplier(&self) -> Fixed32 {
+    pub fn get_attack_speed_multiplier(&self) -> Fixed64 {
         // agi_bonus = total_agility * 0.01；每點敏捷 +1% 攻速
-        let agi_bonus = self.get_total_agility() / Fixed32::from_i32(100);
-        Fixed32::ONE + agi_bonus
+        let agi_bonus = self.get_total_agility() / Fixed64::from_i32(100);
+        Fixed64::ONE + agi_bonus
     }
 
     /// 計算移動速度
-    pub fn get_move_speed(&self) -> Fixed32 {
+    pub fn get_move_speed(&self) -> Fixed64 {
         // agi_bonus_pct = total_agility * 0.05；移速 = 300 * (1 + agi_bonus_pct / 100)
-        let agi_bonus_pct = self.get_total_agility() * Fixed32::from_raw(51); // 0.05 ≈ 51/1024
-        let mult = Fixed32::ONE + agi_bonus_pct / Fixed32::from_i32(100);
-        Fixed32::from_i32(300) * mult
+        let agi_bonus_pct = self.get_total_agility() * Fixed64::from_raw(51); // 0.05 ≈ 51/1024
+        let mult = Fixed64::ONE + agi_bonus_pct / Fixed64::from_i32(100);
+        Fixed64::from_i32(300) * mult
     }
 
     /// 計算暴擊率
-    pub fn get_crit_chance(&self) -> Fixed32 {
+    pub fn get_crit_chance(&self) -> Fixed64 {
         // 雜賀孫市作為敏捷英雄，敏捷提供暴擊率
         // agi_crit = total_agility * 0.001；每點敏捷 +0.1% 暴擊率
-        let agi_crit = self.get_total_agility() / Fixed32::from_i32(1000);
-        let base_crit = Fixed32::from_raw(51); // ≈ 0.05 (5%)
-        let cap = Fixed32::from_raw(768); // 0.75
+        let agi_crit = self.get_total_agility() / Fixed64::from_i32(1000);
+        let base_crit = Fixed64::from_raw(51); // ≈ 0.05 (5%)
+        let cap = Fixed64::from_raw(768); // 0.75
         let total = base_crit + agi_crit;
         if total > cap { cap } else { total }
     }
 
     /// 計算閃避率
-    pub fn get_dodge_chance(&self) -> Fixed32 {
+    pub fn get_dodge_chance(&self) -> Fixed64 {
         // 高敏捷英雄有少量閃避率：超過20敏捷後每點 +0.05% 閃避
         let agi = self.get_total_agility();
-        let threshold = Fixed32::from_i32(20);
-        let excess = if agi > threshold { agi - threshold } else { Fixed32::ZERO };
-        let agi_dodge = excess * Fixed32::from_raw(1); // ≈ 0.001 (about 0.0005 raw=1; using raw=1 ≈ 0.000976)
-        let cap = Fixed32::from_raw(256); // 0.25 (25%)
+        let threshold = Fixed64::from_i32(20);
+        let excess = if agi > threshold { agi - threshold } else { Fixed64::ZERO };
+        let agi_dodge = excess * Fixed64::from_raw(1); // ≈ 0.001 (about 0.0005 raw=1; using raw=1 ≈ 0.000976)
+        let cap = Fixed64::from_raw(256); // 0.25 (25%)
         if agi_dodge > cap { cap } else { agi_dodge }
     }
     
@@ -280,22 +280,22 @@ impl Hero {
         self.ability_cooldowns
             .get(ability_id)
             .copied()
-            .unwrap_or(Fixed32::ZERO)
-            > Fixed32::ZERO
+            .unwrap_or(Fixed64::ZERO)
+            > Fixed64::ZERO
     }
 
     /// 取該技能剩餘冷卻秒；0 代表可施放。
-    pub fn get_cooldown(&self, ability_id: &str) -> Fixed32 {
+    pub fn get_cooldown(&self, ability_id: &str) -> Fixed64 {
         let v = self.ability_cooldowns
             .get(ability_id)
             .copied()
-            .unwrap_or(Fixed32::ZERO);
-        if v < Fixed32::ZERO { Fixed32::ZERO } else { v }
+            .unwrap_or(Fixed64::ZERO);
+        if v < Fixed64::ZERO { Fixed64::ZERO } else { v }
     }
 
     /// 啟動技能冷卻。duration <= 0 視為無 CD（直接清除）。
-    pub fn start_cooldown(&mut self, ability_id: &str, duration: Fixed32) {
-        if duration > Fixed32::ZERO {
+    pub fn start_cooldown(&mut self, ability_id: &str, duration: Fixed64) {
+        if duration > Fixed64::ZERO {
             self.ability_cooldowns
                 .insert(ability_id.to_string(), duration);
         } else {
@@ -304,10 +304,10 @@ impl Hero {
     }
 
     /// 每個 tick 扣 dt；遞減到 0 以下的 entry 自動清除。
-    pub fn tick_cooldowns(&mut self, dt: Fixed32) {
+    pub fn tick_cooldowns(&mut self, dt: Fixed64) {
         self.ability_cooldowns.retain(|_, remaining| {
             *remaining -= dt;
-            *remaining > Fixed32::ZERO
+            *remaining > Fixed64::ZERO
         });
     }
 }
@@ -315,12 +315,12 @@ impl Hero {
 impl Default for LevelGrowth {
     fn default() -> Self {
         LevelGrowth {
-            strength_per_level: Fixed32::from_raw(2867),  // 2.8  (2.8 * 1024 ≈ 2867)
-            agility_per_level: Fixed32::from_raw(2458),   // 2.4
-            intelligence_per_level: Fixed32::from_i32(2), // 2.0
-            damage_per_level: Fixed32::from_raw(2560),    // 2.5
-            hp_per_level: Fixed32::from_i32(60),
-            mana_per_level: Fixed32::from_i32(26),
+            strength_per_level: Fixed64::from_raw(2867),  // 2.8  (2.8 * 1024 ≈ 2867)
+            agility_per_level: Fixed64::from_raw(2458),   // 2.4
+            intelligence_per_level: Fixed64::from_i32(2), // 2.0
+            damage_per_level: Fixed64::from_raw(2560),    // 2.5
+            hp_per_level: Fixed64::from_i32(60),
+            mana_per_level: Fixed64::from_i32(26),
         }
     }
 }

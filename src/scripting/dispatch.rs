@@ -11,7 +11,7 @@ use abi_stable::{
 };
 use crossbeam_channel::Sender;
 use omb_script_abi::{
-    types::{DamageInfo, DamageKind, EntityHandle, Fixed32, Target, Vec2},
+    types::{DamageInfo, DamageKind, EntityHandle, Fixed64, Target, Vec2},
     world::{GameWorld, GameWorldDyn, GameWorld_TO},
 };
 use specs::{Entity, Join, World, WorldExt};
@@ -34,7 +34,7 @@ pub fn run_script_dispatch(
     world: &mut World,
     registry: &ScriptRegistry,
     rng_seed: u64,
-    dt: Fixed32,
+    dt: Fixed64,
     mqtx: Sender<OutboundMsg>,
 ) {
     // 先收集所有帶 tag 的 entity（避免 adapter 建立後又要 read_storage 借用衝突）
@@ -133,7 +133,7 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
                     Some(h) => RSome(h),
                     None => RNone,
                 },
-                // Phase 1c.3: amount is already Fixed32 (ScriptEvent::Damage migrated 1c.2).
+                // Phase 1c.3: amount is already Fixed64 (ScriptEvent::Damage migrated 1c.2).
                 amount,
                 kind,
             };
@@ -167,7 +167,7 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
             }
 
             // 3) host applies final amount
-            // PHASE 2: apply_damage helper still takes f32 — full Fixed32 damage pipeline lands with
+            // PHASE 2: apply_damage helper still takes f32 — full Fixed64 damage pipeline lands with
             // Outcome::Damage redesign in Phase 2 KCP tag rework.
             apply_damage(adapter, victim, info.amount.to_f32_for_render(), info.kind);
         }
@@ -188,7 +188,7 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
             // - Active / Toggle / Ultimate：若仍在 CD 中直接拒絕
             if let Some(hero) = adapter.cache.hero.get(caster) {
                 if hero.is_on_cooldown(&skill_id) {
-                    // NOTE: log uses f32 boundary — Fixed32 has no Display.
+                    // NOTE: log uses f32 boundary — Fixed64 has no Display.
                     log::info!(
                         "[scripting] skill '{}' blocked — on cooldown ({:.1}s remaining)",
                         skill_id,
@@ -210,7 +210,7 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
             let caster_handle = WorldAdapter::entity_to_handle(caster);
             let target_abi = match target {
                 SkillTarget::Entity(e) => Target::Entity(WorldAdapter::entity_to_handle(e)),
-                // Phase 1c.3: SkillTarget::Point now { x: Fixed32, y: Fixed32 } (Phase 1c.2).
+                // Phase 1c.3: SkillTarget::Point now { x: Fixed64, y: Fixed64 } (Phase 1c.2).
                 SkillTarget::Point { x, y } => Target::Point(Vec2 { x, y }),
                 SkillTarget::None => Target::None,
             };
@@ -279,9 +279,9 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
                 // 執行成功後啟動 CD；失敗不扣 CD（讓玩家重試）
                 if exec_ok && cd_seconds > 0.0 {
                     if let Some(hero) = adapter.cache.hero.get_mut(caster) {
-                        // PHASE 2: AbilityLevelData.cooldown still f32 — convert at boundary; full Fixed32
+                        // PHASE 2: AbilityLevelData.cooldown still f32 — convert at boundary; full Fixed64
                         // ability metadata redesign in Phase 2 KCP tag rework.
-                        hero.start_cooldown(&skill_id, Fixed32::from_raw((cd_seconds * 1024.0) as i32));
+                        hero.start_cooldown(&skill_id, Fixed64::from_raw((cd_seconds * 1024.0) as i64));
                     }
                 }
             } else {
@@ -376,7 +376,7 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
 
         ScriptEvent::AttackLanded { attacker, victim, damage } => {
             let victim_handle = WorldAdapter::entity_to_handle(victim);
-            // Phase 1c.3: damage already Fixed32 (ScriptEvent migrated 1c.2).
+            // Phase 1c.3: damage already Fixed64 (ScriptEvent migrated 1c.2).
             with_script(adapter, registry, attacker, |script, handle, world_dyn| {
                 script.on_attack_landed(handle, victim_handle, damage, world_dyn);
             });
@@ -397,14 +397,14 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
         }
 
         ScriptEvent::HealthGained { e, amount } => {
-            // Phase 1c.3: amount already Fixed32.
+            // Phase 1c.3: amount already Fixed64.
             with_script(adapter, registry, e, |script, handle, world_dyn| {
                 script.on_health_gained(handle, amount, world_dyn);
             });
         }
 
         ScriptEvent::ManaGained { e, amount } => {
-            // Phase 1c.3: amount already Fixed32.
+            // Phase 1c.3: amount already Fixed64.
             with_script(adapter, registry, e, |script, handle, world_dyn| {
                 script.on_mana_gained(handle, amount, world_dyn);
             });
@@ -412,7 +412,7 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
 
         ScriptEvent::SpentMana { caster, cost, ability_id } => {
             let id_clone = ability_id.clone();
-            // Phase 1c.3: cost already Fixed32.
+            // Phase 1c.3: cost already Fixed64.
             with_script(adapter, registry, caster, move |script, handle, world_dyn| {
                 script.on_spent_mana(handle, cost, (&*id_clone).into(), world_dyn);
             });
@@ -423,7 +423,7 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
                 Some(h) => RSome(h),
                 None => RNone,
             };
-            // Phase 1c.3: amount already Fixed32.
+            // Phase 1c.3: amount already Fixed64.
             with_script(adapter, registry, target, move |script, handle, world_dyn| {
                 script.on_heal_received(handle, amount, source_opt, world_dyn);
             });
@@ -454,7 +454,7 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
             let kind_clone = order_kind.clone();
             let target_abi = match target {
                 SkillTarget::Entity(t) => Target::Entity(WorldAdapter::entity_to_handle(t)),
-                // Phase 1c.3: SkillTarget::Point now { x: Fixed32, y: Fixed32 } (Phase 1c.2).
+                // Phase 1c.3: SkillTarget::Point now { x: Fixed64, y: Fixed64 } (Phase 1c.2).
                 SkillTarget::Point { x, y } => Target::Point(Vec2 { x, y }),
                 SkillTarget::None => Target::None,
             };
@@ -508,12 +508,12 @@ fn world_dyn_of<'a>(adapter: &'a mut WorldAdapter<'_>) -> GameWorldDyn<'a> {
 /// `ScriptEvent::Damage` is not currently enqueued, so this helper only
 /// exists for future use when we wire scripts into the damage pipeline.
 fn apply_damage(adapter: &mut WorldAdapter<'_>, victim: Entity, amount: f32, _kind: DamageKind) {
-    // Phase 1c.3: CProperty.hp is Fixed32 (Phase 1c.2); convert at boundary from f32 amount.
-    // PHASE 2: amount stays f32 — full Fixed32 damage pipeline lands with Outcome::Damage redesign in Phase 2.
-    let amount_fx = Fixed32::from_raw((amount * 1024.0) as i32);
+    // Phase 1c.3: CProperty.hp is Fixed64 (Phase 1c.2); convert at boundary from f32 amount.
+    // PHASE 2: amount stays f32 — full Fixed64 damage pipeline lands with Outcome::Damage redesign in Phase 2.
+    let amount_fx = Fixed64::from_raw((amount * 1024.0) as i64);
     if let Some(p) = adapter.cache.cprop.get_mut(victim) {
         let new_hp = p.hp - amount_fx;
-        p.hp = if new_hp < Fixed32::ZERO { Fixed32::ZERO } else { new_hp };
+        p.hp = if new_hp < Fixed64::ZERO { Fixed64::ZERO } else { new_hp };
         return;
     }
     if let Some(u) = adapter.cache.unit.get_mut(victim) {

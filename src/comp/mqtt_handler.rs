@@ -9,7 +9,7 @@ use specs::{World, WorldExt};
 use crate::comp::*;
 use crate::transport::{OutboundMsg, InboundMsg};
 use omoba_template_ids::{HERO_SAIKA_MAGOICHI, hero_abilities};
-use omoba_sim::{Fixed32, Vec2 as SimVec2};
+use omoba_sim::{Fixed64, Vec2 as SimVec2};
 
 pub struct MqttHandler;
 
@@ -160,8 +160,8 @@ impl MqttHandler {
                 if let Some(t) = t {
                     // PHASE 2: wire format — inbound JSON x/y are f32; redesign in Phase 2 KCP tag rework.
                     let pos = SimVec2::new(
-                        Fixed32::from_raw((v.x * 1024.0) as i32),
-                        Fixed32::from_raw((v.y * 1024.0) as i32),
+                        Fixed64::from_raw((v.x * 1024.0) as i64),
+                        Fixed64::from_raw((v.y * 1024.0) as i64),
                     );
                     ocs.push(Outcome::Tower { pos, td: TowerData { tpty: t.tpty, tatk: t.tatk } });
                     mqtx.try_send(OutboundMsg::new_s("td/all/res", "tower", "C", json!({"msg":"ok"})))?;
@@ -181,12 +181,12 @@ impl MqttHandler {
                 let mut p = Player { name: pd.name.clone(), cost: 100., towers: vec![] };
                 // PHASE 2: hard-coded test stats; should come from omoba_template_ids — Phase 2 KCP tag rework.
                 p.towers.push(TowerData {
-                    tpty: TProperty::new(Fixed32::from_i32(10), 1, Fixed32::from_i32(100)),
+                    tpty: TProperty::new(Fixed64::from_i32(10), 1, Fixed64::from_i32(100)),
                     tatk: TAttack::new(
-                        Fixed32::from_i32(3),
-                        Fixed32::from_raw(307), // ≈ 0.3
-                        Fixed32::from_i32(300),
-                        Fixed32::from_i32(100),
+                        Fixed64::from_i32(3),
+                        Fixed64::from_raw(307), // ≈ 0.3
+                        Fixed64::from_i32(300),
+                        Fixed64::from_i32(100),
                     ),
                 });
                 pmap.insert(pd.name.clone(), p);
@@ -296,8 +296,8 @@ impl MqttHandler {
             }
             (None, Some((x, y))) => SkillTarget::Point {
                 // PHASE 2: wire format — inbound JSON x/y are f32; redesign in Phase 2 KCP tag rework.
-                x: Fixed32::from_raw((x * 1024.0) as i32),
-                y: Fixed32::from_raw((y * 1024.0) as i32),
+                x: Fixed64::from_raw((x * 1024.0) as i64),
+                y: Fixed64::from_raw((y * 1024.0) as i64),
             },
             (None, None) => SkillTarget::None,
         };

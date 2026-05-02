@@ -13,7 +13,7 @@ use std::{
     time::{Duration, Instant},
 };
 use specs::Entity;
-use omoba_sim::{Fixed32, Vec2 as SimVec2};
+use omoba_sim::{Fixed64, Vec2 as SimVec2};
 
 /// MOBA 鏡頭下肉眼無感的 facing 變化量（~15°）。舊值 0.05 (~3°) 造成過多 F event。
 const FACING_BROADCAST_THRESHOLD_RAD: f32 = 0.26;
@@ -84,8 +84,8 @@ impl<'a> System<'a> for Sys {
 
     fn run(_job: &mut Job<Self>, (tr, mut tw): Self::SystemData) {
         let time = tr.time.0;
-        // Phase 1c.4: dt is Fixed32 throughout battle tick.
-        let dt: Fixed32 = tr.dt.0;
+        // Phase 1c.4: dt is Fixed64 throughout battle tick.
+        let dt: Fixed64 = tr.dt.0;
         // Lossy projection retained ONLY for facing-radian arithmetic + Searcher boundary.
         // NOTE: Searcher uses f32 internally for instant_distance lib compat; Facing radians is log-only.
         let dt_f = dt.to_f32_for_render();
@@ -111,7 +111,7 @@ impl<'a> System<'a> for Sys {
                 },
                 |_guard, (e, tower, pty, atk, pos, facing, facing_bc)| {
                     let mut outcomes:Vec<Outcome> = Vec::new();
-                    // NOTE: Searcher uses f32 internally for instant_distance lib compat; final distance check in caller is Fixed32.
+                    // NOTE: Searcher uses f32 internally for instant_distance lib compat; final distance check in caller is Fixed64.
                     let (pos_x_f, pos_y_f) = pos.xy_f32();
                     let pos_vek = vek::Vec2::new(pos_x_f, pos_y_f);
 
@@ -136,13 +136,13 @@ impl<'a> System<'a> for Sys {
                     }
                     if pty.mblock > pty.block {
                         // 試試看會不會阻檔
-                        let size_sq: Fixed32 = pty.size * pty.size;
+                        let size_sq: Fixed64 = pty.size * pty.size;
                         for nc in tower.nearby_creeps.iter() {
                             if tower.block_creeps.contains(&nc.ent) {
                                 // 已經阻檔了
                             } else {
                                 if let Some(p) = tr.pos.get(nc.ent) {
-                                    // 距離平方 in Fixed32 — 與 size_sq (Fixed32) 直接比較。
+                                    // 距離平方 in Fixed64 — 與 size_sq (Fixed64) 直接比較。
                                     let diff = p.0 - pos.0;
                                     if diff.length_squared() < size_sq {
                                         tower.block_creeps.push(nc.ent);
@@ -161,7 +161,7 @@ impl<'a> System<'a> for Sys {
                         let elpsed = time2.duration_since(time1);
                         if elpsed.as_secs_f32() < 0.05 {
                             let search_n = 1.max(pty.mblock).max(6) as usize;
-                            // NOTE: Searcher uses f32 internally for instant_distance lib compat; final distance check in caller is Fixed32.
+                            // NOTE: Searcher uses f32 internally for instant_distance lib compat; final distance check in caller is Fixed64.
                             let range_f = atk.range.val().to_f32_for_render();
                             let (creeps, near_creeps) =
                                 tr.searcher.creep.search_nn_two_radii(pos_vek, range_f, range_f + 30., search_n);
@@ -183,8 +183,8 @@ impl<'a> System<'a> for Sys {
                                 if pty.mblock > 0 {
                                     tower.nearby_creeps.clear();
                                     for c in hostile_creeps.iter() {
-                                        // NOTE: DisIndex.dis is f32 squared distance (Searcher boundary); convert to Fixed32 for sim arithmetic.
-                                        let dis_fx = Fixed32::from_raw((c.dis * 1024.0) as i32);
+                                        // NOTE: DisIndex.dis is f32 squared distance (Searcher boundary); convert to Fixed64 for sim arithmetic.
+                                        let dis_fx = Fixed64::from_raw((c.dis * 1024.0) as i64);
                                         tower.nearby_creeps.push(NearbyEnt { ent: c.e, dis: dis_fx });
                                     }
                                 }
@@ -239,8 +239,8 @@ impl<'a> System<'a> for Sys {
                                     let mut rng = omoba_sim::SimRng::from_master_entity(
                                         master_seed, tick, e.id(), OP_TOWER_NO_TARGET_JITTER,
                                     );
-                                    let jitter = Fixed32::from_raw((rng.next_u32() % 256) as i32);
-                                    atk.asd_count = atk.asd.val() - Fixed32::from_raw(307) - jitter;
+                                    let jitter = Fixed64::from_raw((rng.next_u32() % 256) as i64);
+                                    atk.asd_count = atk.asd.val() - Fixed64::from_raw(307) - jitter;
                                 }
                             }
                         }

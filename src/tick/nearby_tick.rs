@@ -112,7 +112,7 @@ impl<'a> System<'a> for Sys {
             // 合併所有實體到 creep 索引中（向後兼容）— 走 CollisionIndex::rebuild_from
             // NOTE: Searcher / spatial index uses f32 internally for instant_distance lib compat.
             // Cache rebuilt per tick from authoritative Pos; entries sorted by Entity id below
-            // for deterministic insertion order across par_join. Final distance check in caller is Fixed32.
+            // for deterministic insertion order across par_join. Final distance check in caller is Fixed64.
             let mut combined: Vec<(Entity, vek::Vec2<f32>)> = unit_ents.iter().zip(unit_pos.iter())
                 .map(|(e, p)| { let (x, y) = p.xy_f32(); (*e, vek::Vec2::new(x, y)) })
                 .chain(creep_ents.iter().zip(creep_pos.iter()).map(|(e, p)| { let (x, y) = p.xy_f32(); (*e, vek::Vec2::new(x, y)) }))
@@ -159,7 +159,7 @@ impl<'a> System<'a> for Sys {
 
             // NOTE: Searcher / spatial index uses f32 internally for instant_distance lib compat.
             // Cache rebuilt per tick from authoritative Pos; entries sorted by Entity id below
-            // for deterministic insertion order across par_join. Final distance check in caller is Fixed32.
+            // for deterministic insertion order across par_join. Final distance check in caller is Fixed64.
             let mut hero_items: Vec<(Entity, vek::Vec2<f32>)> = hero_ents.iter().zip(hero_pos.iter())
                 .map(|(e, p)| { let (x, y) = p.xy_f32(); (*e, vek::Vec2::new(x, y)) })
                 .collect();
@@ -203,7 +203,7 @@ impl<'a> System<'a> for Sys {
                 let time1 = Instant::now();
                 // NOTE: Searcher / spatial index uses f32 internally for instant_distance lib compat.
             // Cache rebuilt per tick from authoritative Pos; entries sorted by Entity id below
-            // for deterministic insertion order across par_join. Final distance check in caller is Fixed32.
+            // for deterministic insertion order across par_join. Final distance check in caller is Fixed64.
                 let mut tower_items: Vec<(Entity, vek::Vec2<f32>)> = ents.iter().zip(pos.iter())
                     .map(|(e, p)| { let (x, y) = p.xy_f32(); (*e, vek::Vec2::new(x, y)) })
                     .collect();

@@ -178,13 +178,13 @@ impl ResourceManager {
         if !is_td {
             // 舊 MOBA / debug 路徑：直接放一座預設塔（保留向後相容）
             // PHASE 2: hard-coded test stats; should come from omoba_template_ids — addressed in Phase 2 KCP tag rework.
-            use omoba_sim::Fixed32;
-            let tower_property = TProperty::new(Fixed32::from_i32(100), 1, Fixed32::from_i32(200));
+            use omoba_sim::Fixed64;
+            let tower_property = TProperty::new(Fixed64::from_i32(100), 1, Fixed64::from_i32(200));
             let tower_attack = TAttack::new(
-                Fixed32::from_i32(50),
-                Fixed32::from_raw(1536), // 1.5
-                Fixed32::from_i32(300),
-                Fixed32::from_i32(800),
+                Fixed64::from_i32(50),
+                Fixed64::from_raw(1536), // 1.5
+                Fixed64::from_i32(300),
+                Fixed64::from_i32(800),
             );
             let _ = world.create_entity()
                 .with(Pos::from_xy_f32(pos.x, pos.y))
@@ -196,8 +196,8 @@ impl ResourceManager {
             let mut outcomes = world.write_resource::<Vec<Outcome>>();
             // PHASE 2: wire format — inbound JSON x/y are f32; redesign in Phase 2 KCP tag rework.
             let pos_sim = omoba_sim::Vec2::new(
-                Fixed32::from_raw((pos.x * 1024.0) as i32),
-                Fixed32::from_raw((pos.y * 1024.0) as i32),
+                Fixed64::from_raw((pos.x * 1024.0) as i64),
+                Fixed64::from_raw((pos.y * 1024.0) as i64),
             );
             outcomes.push(Outcome::Tower {
                 pos: pos_sim,
@@ -635,8 +635,8 @@ impl ResourceManager {
         }
         for (buff_id, payload) in stat_mods {
             let mut store = world.write_resource::<crate::ability_runtime::BuffStore>();
-            // Phase 1c.3: BuffStore::add takes Fixed32 — sentinel "permanent" via raw i32::MAX.
-            store.add(tower_entity, &buff_id, omoba_sim::Fixed32::from_raw(i32::MAX), payload);
+            // Phase 1c.3: BuffStore::add takes Fixed64 — sentinel "permanent" via raw i64::MAX.
+            store.add(tower_entity, &buff_id, omoba_sim::Fixed64::from_raw(i64::MAX), payload);
         }
         let new_levels = {
             let mut towers = world.write_storage::<Tower>();
@@ -926,10 +926,10 @@ impl ResourceManager {
             if arr.len() == 2 {
                 let x = arr[0].as_f64().unwrap_or(0.0) as f32;
                 let y = arr[1].as_f64().unwrap_or(0.0) as f32;
-                use omoba_sim::Fixed32;
+                use omoba_sim::Fixed64;
                 SkillTarget::Point {
-                    x: Fixed32::from_raw((x * 1024.0) as i32),
-                    y: Fixed32::from_raw((y * 1024.0) as i32),
+                    x: Fixed64::from_raw((x * 1024.0) as i64),
+                    y: Fixed64::from_raw((y * 1024.0) as i64),
                 }
             } else {
                 SkillTarget::None
@@ -1298,7 +1298,7 @@ impl ResourceManager {
                 match &active {
                     crate::item::ActiveEffect::Shield { amount, .. } => {
                         // PHASE 2: ActiveEffect.amount still f32 (item schema); redesign in Phase 2 KCP tag rework.
-                        let amt_fx = omoba_sim::Fixed32::from_raw((*amount * 1024.0) as i32);
+                        let amt_fx = omoba_sim::Fixed64::from_raw((*amount * 1024.0) as i64);
                         let summed = p.hp + amt_fx;
                         p.hp = if summed > p.mhp { p.mhp } else { summed };
                         log::info!("🛡️ 護盾主動 +{} HP", amount);
@@ -1309,7 +1309,7 @@ impl ResourceManager {
                     }
                     crate::item::ActiveEffect::SprintBuff { ms_bonus, duration } => {
                         // PHASE 2: ActiveEffect.ms_bonus still f32 (item schema); redesign in Phase 2 KCP tag rework.
-                        let bonus_fx = omoba_sim::Fixed32::from_raw((*ms_bonus * 1024.0) as i32);
+                        let bonus_fx = omoba_sim::Fixed64::from_raw((*ms_bonus * 1024.0) as i64);
                         p.msd += bonus_fx;
                         log::info!("💨 疾跑 +{} ms，持續 {}s (MVP 無 buff 結束回收)", ms_bonus, duration);
                     }
@@ -1814,14 +1814,14 @@ pub(crate) mod proto_build {
         buff_store: &crate::ability_runtime::BuffStore,
     ) -> HeroHot {
         // 與 build_hero_stats_payload 一致的聚合路徑（讓前端看到實際生效值）
-        // Phase 1c.3: UnitStats final_* now returns Fixed32; wire format remains f32.
+        // Phase 1c.3: UnitStats final_* now returns Fixed64; wire format remains f32.
         // PHASE 2: HeroHot prost schema migrate to deterministic encoding — Phase 2 KCP tag rework.
         let stats = crate::ability_runtime::UnitStats::from_refs(buff_store, false);
-        let attack_damage_base_fx = omoba_sim::Fixed32::from_raw((attack_damage_base * 1024.0) as i32);
-        let attack_range_base_fx = omoba_sim::Fixed32::from_raw((attack_range_base * 1024.0) as i32);
-        let move_speed_base_fx = omoba_sim::Fixed32::from_raw((move_speed_base * 1024.0) as i32);
-        let armor_base_fx = omoba_sim::Fixed32::from_raw((armor_base * 1024.0) as i32);
-        let magic_resist_base_fx = omoba_sim::Fixed32::from_raw((magic_resist_base * 1024.0) as i32);
+        let attack_damage_base_fx = omoba_sim::Fixed64::from_raw((attack_damage_base * 1024.0) as i64);
+        let attack_range_base_fx = omoba_sim::Fixed64::from_raw((attack_range_base * 1024.0) as i64);
+        let move_speed_base_fx = omoba_sim::Fixed64::from_raw((move_speed_base * 1024.0) as i64);
+        let armor_base_fx = omoba_sim::Fixed64::from_raw((armor_base * 1024.0) as i64);
+        let magic_resist_base_fx = omoba_sim::Fixed64::from_raw((magic_resist_base * 1024.0) as i64);
         let atk_dmg_eff = stats.final_atk(attack_damage_base_fx, hero_entity).to_f32_for_render();
         let atk_rng_eff = stats.final_attack_range(attack_range_base_fx, hero_entity).to_f32_for_render();
         let asd_mult = stats.final_attack_speed_mult(hero_entity).to_f32_for_render();
@@ -1833,8 +1833,8 @@ pub(crate) mod proto_build {
         let buffs: Vec<BuffSnapshot> = buff_store
             .iter_for(hero_entity)
             .map(|(id, entry)| {
-                // Phase 1c.3: BuffEntry.remaining is Fixed32 — wire as ms u32 sentinel.
-                // PHASE 2: BuffSnapshot.remaining_ms wire migrate to Fixed32 — Phase 2 KCP tag rework.
+                // Phase 1c.3: BuffEntry.remaining is Fixed64 — wire as ms u32 sentinel.
+                // PHASE 2: BuffSnapshot.remaining_ms wire migrate to Fixed64 — Phase 2 KCP tag rework.
                 let remaining_f = entry.remaining.to_f32_for_render();
                 let remaining_ms = if remaining_f.is_infinite() || remaining_f > 65.535 {
                     0xFFFF
@@ -1888,13 +1888,13 @@ pub(crate) fn build_hero_stats_payload(
     buff_store: &crate::ability_runtime::BuffStore,
 ) -> serde_json::Value {
     use serde_json::json;
-    // Phase 1c.3: UnitStats final_* now Fixed32; wire format remains f32.
+    // Phase 1c.3: UnitStats final_* now Fixed64; wire format remains f32.
     let stats = crate::ability_runtime::UnitStats::from_refs(buff_store, false);
-    let attack_damage_base_fx = omoba_sim::Fixed32::from_raw((attack_damage_base * 1024.0) as i32);
-    let attack_range_base_fx = omoba_sim::Fixed32::from_raw((attack_range_base * 1024.0) as i32);
-    let move_speed_base_fx = omoba_sim::Fixed32::from_raw((move_speed_base * 1024.0) as i32);
-    let armor_base_fx = omoba_sim::Fixed32::from_raw((armor_base * 1024.0) as i32);
-    let magic_resist_base_fx = omoba_sim::Fixed32::from_raw((magic_resist_base * 1024.0) as i32);
+    let attack_damage_base_fx = omoba_sim::Fixed64::from_raw((attack_damage_base * 1024.0) as i64);
+    let attack_range_base_fx = omoba_sim::Fixed64::from_raw((attack_range_base * 1024.0) as i64);
+    let move_speed_base_fx = omoba_sim::Fixed64::from_raw((move_speed_base * 1024.0) as i64);
+    let armor_base_fx = omoba_sim::Fixed64::from_raw((armor_base * 1024.0) as i64);
+    let magic_resist_base_fx = omoba_sim::Fixed64::from_raw((magic_resist_base * 1024.0) as i64);
     let atk_dmg_eff = stats.final_atk(attack_damage_base_fx, hero_entity).to_f32_for_render();
     let atk_rng_eff = stats.final_attack_range(attack_range_base_fx, hero_entity).to_f32_for_render();
     let asd_mult = stats.final_attack_speed_mult(hero_entity).to_f32_for_render();
@@ -1906,7 +1906,7 @@ pub(crate) fn build_hero_stats_payload(
     let buffs: Vec<serde_json::Value> = buff_store
         .iter_for(hero_entity)
         .map(|(id, entry)| {
-            // Phase 1c.3: BuffEntry.remaining is Fixed32; treat raw i32::MAX as infinite.
+            // Phase 1c.3: BuffEntry.remaining is Fixed64; treat raw i32::MAX as infinite.
             let remaining = if entry.remaining.raw() == i32::MAX {
                 -1.0_f32
             } else {

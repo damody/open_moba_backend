@@ -1,11 +1,11 @@
 use specs::{shred, Entities, Join, Read, ReadExpect, ReadStorage, SystemData, Write, WriteStorage};
 use crate::comp::*;
-use omoba_sim::Fixed32;
+use omoba_sim::Fixed64;
 
 /// PHASE 2: Inventory / ItemBonus / ItemEffects schema still f32; redesign in Phase 2 KCP tag rework.
 #[inline]
-fn f32_to_fx(v: f32) -> Fixed32 {
-    Fixed32::from_raw((v * omoba_sim::fixed::SCALE as f32) as i32)
+fn f32_to_fx(v: f32) -> Fixed64 {
+    Fixed64::from_raw((v * omoba_sim::fixed::SCALE as f32) as i64)
 }
 
 #[derive(SystemData)]
@@ -85,7 +85,7 @@ impl<'a> System<'a> for Sys {
                 }
             };
 
-            // CProperty / TAttack 全 Fixed32（Phase 1c.2）；ItemEffects / ItemBonus 仍 f32（Phase 1d）。
+            // CProperty / TAttack 全 Fixed64（Phase 1c.2）；ItemEffects / ItemBonus 仍 f32（Phase 1d）。
             // 在 apply 邊界做一次轉換 — 邏輯不變。
             let applied_hp_fx = f32_to_fx(applied_hp);
             let sum_hp_fx = f32_to_fx(sum_hp);
@@ -98,7 +98,7 @@ impl<'a> System<'a> for Sys {
 
             if let Some(prop) = tw.properties.get_mut(e) {
                 prop.mhp = prop.mhp - applied_hp_fx + sum_hp_fx;
-                let one = Fixed32::ONE;
+                let one = Fixed64::ONE;
                 let hp_clamped_max = if prop.hp < prop.mhp { prop.hp } else { prop.mhp };
                 prop.hp = if hp_clamped_max < one { one } else { hp_clamped_max };
                 prop.msd = prop.msd - applied_ms_fx + sum_ms_fx;

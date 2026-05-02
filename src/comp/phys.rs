@@ -5,7 +5,7 @@ use std::sync::Arc;
 use vek::*;
 use specs::storage::VecStorage;
 use instant_distance::{Builder, Search};
-use omoba_sim::{Vec2 as SimVec2, Fixed32};
+use omoba_sim::{Vec2 as SimVec2, Fixed64};
 
 /// Position
 #[derive(Copy, Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
@@ -13,13 +13,13 @@ pub struct Pos(pub SimVec2);
 
 impl Pos {
     /// Boundary helper: construct from two `f32` (typically world coords from
-    /// config / spawn data). Routes through `Fixed32::from_raw` quantization.
+    /// config / spawn data). Routes through `Fixed64::from_raw` quantization.
     /// NOTE: legacy f32 helper retained as transition utility for wire-format / config read boundary.
     #[inline]
     pub fn from_xy_f32(x: f32, y: f32) -> Self {
         Pos(SimVec2 {
-            x: Fixed32::from_raw((x * 1024.0) as i32),
-            y: Fixed32::from_raw((y * 1024.0) as i32),
+            x: Fixed64::from_raw((x * 1024.0) as i64),
+            y: Fixed64::from_raw((y * 1024.0) as i64),
         })
     }
 
@@ -41,7 +41,7 @@ impl instant_distance::Point for Pos {
         // Euclidean distance metric
         // NOTE: instant_distance::Point trait requires f32. Searcher / spatial index uses f32 internally for
         // instant_distance lib compat. Cache rebuilt per tick from authoritative Pos with deterministic
-        // entity-id ordering; final distance check in caller is Fixed32. Boundary lossy is acceptable.
+        // entity-id ordering; final distance check in caller is Fixed64. Boundary lossy is acceptable.
         let dx = (self.0.x - other.0.x).to_f32_for_render();
         let dy = (self.0.y - other.0.y).to_f32_for_render();
         dx * dx + dy * dy
@@ -75,8 +75,8 @@ impl Vel {
     #[inline]
     pub fn from_xy_f32(x: f32, y: f32) -> Self {
         Vel(SimVec2 {
-            x: Fixed32::from_raw((x * 1024.0) as i32),
-            y: Fixed32::from_raw((y * 1024.0) as i32),
+            x: Fixed64::from_raw((x * 1024.0) as i64),
+            y: Fixed64::from_raw((y * 1024.0) as i64),
         })
     }
 }
@@ -94,8 +94,8 @@ impl MoveTarget {
     #[inline]
     pub fn from_xy_f32(x: f32, y: f32) -> Self {
         MoveTarget(SimVec2 {
-            x: Fixed32::from_raw((x * 1024.0) as i32),
-            y: Fixed32::from_raw((y * 1024.0) as i32),
+            x: Fixed64::from_raw((x * 1024.0) as i64),
+            y: Fixed64::from_raw((y * 1024.0) as i64),
         })
     }
 }
@@ -142,7 +142,7 @@ impl Component for PreviousPhysCache {
 
 // Scale
 #[derive(Copy, Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Scale(pub Fixed32);
+pub struct Scale(pub Fixed64);
 
 impl Component for Scale {
     type Storage = FlaggedStorage<Self, VecStorage<Self>>;
@@ -150,10 +150,10 @@ impl Component for Scale {
 
 // Mass
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Mass(pub Fixed32);
+pub struct Mass(pub Fixed64);
 
 impl Default for Mass {
-    fn default() -> Mass { Mass(Fixed32::ONE) }
+    fn default() -> Mass { Mass(Fixed64::ONE) }
 }
 
 impl Component for Mass {
@@ -186,10 +186,10 @@ impl Component for ForceUpdate {
 
 /// 單位的碰撞半徑。用於 BlockedRegions 阻擋判定。
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct CollisionRadius(pub Fixed32);
+pub struct CollisionRadius(pub Fixed64);
 
 impl Default for CollisionRadius {
-    fn default() -> Self { CollisionRadius(Fixed32::from_i32(20)) }
+    fn default() -> Self { CollisionRadius(Fixed64::from_i32(20)) }
 }
 
 impl Component for CollisionRadius {

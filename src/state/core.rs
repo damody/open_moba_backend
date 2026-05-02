@@ -215,7 +215,7 @@ impl State {
                 _ => continue,
             };
             // PHASE 2: TowerTemplateRegistry runtime template still f32 — Phase 2 KCP tag rework.
-            // TowerMetadata is the script-side ABI surface (Fixed32); host runtime template is still f32.
+            // TowerMetadata is the script-side ABI surface (Fixed64); host runtime template is still f32.
             reg.insert(RuntimeTpl {
                 unit_id: uid.to_string(),
                 label: meta.label.to_string(),
@@ -318,8 +318,8 @@ impl State {
         // 放在並行系統之後、其他序列處理之前，確保腳本能看到本 tick 的
         // 完整戰鬥結果，也能修改狀態讓下游處理看見。
         let t_dispatch = Instant::now();
-        // PHASE 2: omb tick clock still f32-seconds; replace with Fixed32 dt directly in Phase 2 KCP tag rework.
-        let dt_fx = omoba_template_ids::Fixed32::from_raw((dt.as_secs_f32() * 1024.0) as i32);
+        // PHASE 2: omb tick clock still f32-seconds; replace with Fixed64 dt directly in Phase 2 KCP tag rework.
+        let dt_fx = omoba_template_ids::Fixed64::from_raw((dt.as_secs_f32() * 1024.0) as i64);
         scripting::run_script_dispatch(
             &mut self.ecs,
             &self.script_registry,
@@ -763,8 +763,8 @@ impl State {
             let mut v: Vec<(u32, f32, f32)> = Vec::new();
             for (e, p) in (&entities, &projs).join() {
                 if p.target.is_none() { continue; }
-                if p.radius >= omoba_sim::Fixed32::ONE { continue; }
-                if p.damage_phys <= omoba_sim::Fixed32::ZERO { continue; }
+                if p.radius >= omoba_sim::Fixed64::ONE { continue; }
+                if p.damage_phys <= omoba_sim::Fixed64::ZERO { continue; }
                 let tgt = p.target.unwrap();
                 if let Some(tp) = positions.get(tgt) {
                     let (x, y) = tp.xy_f32();
