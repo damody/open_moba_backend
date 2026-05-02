@@ -16,15 +16,35 @@
 //!  - The legacy 30Hz simulation dispatcher continues to run unchanged.
 //!  - `server_events` is always empty in Phase 2; Phase 5 will inject
 //!    player_join / wave_start / etc. server-authoritative events.
+//!
+//! Phase 3.4 status:
+//!  - Optional `state_hash_rx` channel is fed by the dispatcher tick loop in
+//!    `state::core::State::tick`, which calls `compute_state_hash(&world)`
+//!    every `state_hash_interval` ticks (using its own dispatcher tick number).
+//!    Broadcaster `try_recv`s the latest pending value when its 60Hz state-
+//!    hash interval fires.
+//!  - The dispatcher (30Hz) and broadcaster (60Hz) are not aligned; this is
+//!    intentional. The hash is timestamped with the dispatcher's tick at
+//!    compute time; the broadcaster forwards `(tick, hash)` verbatim. Lag is
+//!    bounded to one dispatcher tick (~33ms at 30Hz) which is well under any
+//!    reasonable desync detection window.
+//!  - When `state_hash_rx` is `None` (legacy / test setups) the broadcaster
+//!    falls back to `placeholder_state_hash` so existing tests keep passing.
 
 use std::sync::{Arc, Mutex};
 use tokio::time::{interval, Duration};
-use crossbeam_channel::Sender;
+use crossbeam_channel::{Receiver, Sender};
 
 use crate::lockstep::{
     InputBuffer, InputForPlayer, LockstepFrame, LockstepState, StateHash, TickBatch,
 };
 use crate::transport::OutboundMsg;
+
+/// Phase 3.4: payload published by the dispatcher tick loop after computing
+/// `compute_state_hash(&world)`. The broadcaster forwards verbatim — `tick`
+/// here is the dispatcher's tick (30Hz cadence), distinct from the
+/// broadcaster's own 60Hz `LockstepState.current_tick`.
+pub type StateHashSample = (u32, u64);
 
 #[derive(Clone, Copy, Debug)]
 pub struct TickBroadcasterConfig {
@@ -48,6 +68,11 @@ pub struct TickBroadcaster {
     input_buffer: Arc<Mutex<InputBuffer>>,
     state: Arc<Mutex<LockstepState>>,
     out_tx: Sender<OutboundMsg>,
+    /// Phase 3.4: optional source of dispatcher-computed state hashes. When
+    /// `Some`, broadcaster `try_recv`s on every state-hash tick and forwards
+    /// the latest pending sample (logging a warn + emitting hash=0 if the
+    /// channel is empty). `None` falls back to `placeholder_state_hash`.
+    state_hash_rx: Option<Receiver<StateHashSample>>,
 }
 
 impl TickBroadcaster {
@@ -62,7 +87,15 @@ impl TickBroadcaster {
             input_buffer,
             state,
             out_tx,
+            state_hash_rx: None,
         }
+    }
+
+    /// Phase 3.4: attach a dispatcher-side state-hash source. Builder-style
+    /// so existing call sites (incl. tests) don't break.
+    pub fn with_state_hash_rx(mut self, rx: Receiver<StateHashSample>) -> Self {
+        self.state_hash_rx = Some(rx);
+        self
     }
 
     /// Spawn the 60Hz tick loop. Runs until `out_tx` is closed (channel
@@ -115,10 +148,12 @@ impl TickBroadcaster {
             return false;
         }
 
-        // Periodic state hash.
+        // Periodic state hash. Phase 3.4 sources the hash from
+        // `state_hash_rx` (dispatcher) when available; otherwise falls back
+        // to `placeholder_state_hash`.
         if tick % self.config.state_hash_interval == 0 {
-            let hash = self.placeholder_state_hash(tick);
-            let sh = StateHash { tick, hash };
+            let (hash_tick, hash) = self.latest_state_hash(tick);
+            let sh = StateHash { tick: hash_tick, hash };
             let msg = OutboundMsg::lockstep_frame(LockstepFrame::StateHash(sh));
             if let Err(e) = self.out_tx.send(msg) {
                 log::warn!("TickBroadcaster failed to send StateHash: {e}");
@@ -144,6 +179,36 @@ impl TickBroadcaster {
     /// so the wire path can be exercised in Phase 2 integration tests.
     fn placeholder_state_hash(&self, tick: u32) -> u64 {
         (tick as u64).wrapping_mul(0x9E3779B97F4A7C15)
+    }
+
+    /// Phase 3.4: returns `(tick_to_broadcast, hash)`.
+    ///
+    /// - If `state_hash_rx` is wired: drain the channel and forward the
+    ///   newest pending sample (newer dispatcher samples discard older ones).
+    ///   The returned tick is the dispatcher's tick at compute time, which
+    ///   may lag the broadcaster's `tick` by up to one dispatcher tick (~33ms
+    ///   at 30Hz). Empty channel → log warn + return `(tick, 0)`.
+    /// - If `state_hash_rx` is None: fall back to `placeholder_state_hash`.
+    fn latest_state_hash(&self, broadcaster_tick: u32) -> (u32, u64) {
+        match &self.state_hash_rx {
+            Some(rx) => {
+                let mut latest: Option<StateHashSample> = None;
+                while let Ok(sample) = rx.try_recv() {
+                    latest = Some(sample);
+                }
+                match latest {
+                    Some((t, h)) => (t, h),
+                    None => {
+                        log::warn!(
+                            "TickBroadcaster: no fresh state_hash sample at tick {}, broadcasting hash=0",
+                            broadcaster_tick
+                        );
+                        (broadcaster_tick, 0)
+                    }
+                }
+            }
+            None => (broadcaster_tick, self.placeholder_state_hash(broadcaster_tick)),
+        }
     }
 }
 

@@ -11,10 +11,12 @@
 pub mod input_buffer;
 pub mod tick_broadcaster;
 pub mod state;
+pub mod state_hash_producer;
 
 pub use self::input_buffer::InputBuffer;
 pub use self::tick_broadcaster::{TickBroadcaster, TickBroadcasterConfig};
 pub use self::state::{LockstepState, PlayerSession, JoinRoleEnum};
+pub use self::state_hash_producer::compute_state_hash;
 
 // Re-export proto types used by this module so callers don't need
 // to know the prost-generated path. Proto types live under

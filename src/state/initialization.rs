@@ -313,6 +313,13 @@ impl StateInitializer {
         // overwrite this from the GameStart message; for now use a fixed default.
         ecs.insert(crate::comp::MasterSeed::default());
 
+        // Phase 3.4: pending lockstep player inputs. Filled by the omfx
+        // sim_runner from each TickBatch (or by host-side test code) and
+        // drained by `tick::player_input_tick::Sys` every dispatcher tick.
+        // Inserted unconditionally so the consumer system's `Write<>` always
+        // resolves; non-kcp builds use the empty unit-struct variant.
+        ecs.insert(crate::comp::PendingPlayerInputs::default());
+
         // 初始化集合資源
         ecs.insert(BTreeMap::<String, CheckPoint>::new());
         ecs.insert(BTreeMap::<String, Path>::new());

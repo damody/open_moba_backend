@@ -1,0 +1,147 @@
+//! Phase 3.4: drain `PendingPlayerInputs` each dispatcher tick.
+//!
+//! The lockstep wire (or omfx sim_runner) writes a fresh map of
+//! `player_id → PlayerInput` into the resource on every TickBatch. This
+//! system consumes them (clearing the resource so stale inputs don't
+//! accumulate) and routes each variant to the appropriate game-side
+//! handler.
+//!
+//! Phase 3.4 routing is intentionally a stub: every variant is logged at
+//! `trace` and otherwise dropped. Phase 4 will:
+//!   - `MoveTo`         → write `MoveTarget` on the player's hero entity.
+//!   - `CastAbility`    → enqueue an ability-script invocation through the
+//!                        existing `scripting::dispatch` boundary.
+//!   - `TowerPlace` /
+//!     `TowerUpgrade*` /
+//!     `TowerSell`      → route through `comp::game_processor::GameProcessor`
+//!                        which already implements every TD command.
+//!   - `ItemUse`        → route through the inventory effect pipeline.
+//!
+//! The point of doing the consumer in Phase 3.4 (with a stub body) is that
+//! the dispatcher always drains the resource so the kcp lockstep wire test
+//! in Phase 3.5 doesn't see a leak.
+
+use specs::Write;
+
+use crate::comp::ecs::{Job, System};
+use crate::comp::PendingPlayerInputs;
+
+#[derive(Default)]
+pub struct Sys;
+
+#[cfg(feature = "kcp")]
+impl<'a> System<'a> for Sys {
+    type SystemData = Write<'a, PendingPlayerInputs>;
+
+    const NAME: &'static str = "player_input";
+
+    fn run(_job: &mut Job<Self>, mut pending: Self::SystemData) {
+        if pending.by_player.is_empty() {
+            return;
+        }
+        let target_tick = pending.tick;
+        let drained: Vec<_> = pending.by_player.drain().collect();
+        log::trace!(
+            "player_input_tick: draining {} inputs for tick {}",
+            drained.len(),
+            target_tick
+        );
+        for (player_id, input) in drained {
+            route_input(player_id, target_tick, input);
+        }
+    }
+}
+
+#[cfg(not(feature = "kcp"))]
+impl<'a> System<'a> for Sys {
+    // Non-kcp builds have an empty marker resource; nothing to drain.
+    type SystemData = specs::Read<'a, PendingPlayerInputs>;
+
+    const NAME: &'static str = "player_input";
+
+    fn run(_job: &mut Job<Self>, _: Self::SystemData) {}
+}
+
+#[cfg(feature = "kcp")]
+fn route_input(player_id: u32, tick: u32, input: crate::lockstep::PlayerInput) {
+    use crate::lockstep::PlayerInputEnum;
+
+    match input.action {
+        Some(PlayerInputEnum::NoOp(_)) => {
+            // Ack-only — keepalive heartbeat with no side effects.
+        }
+        Some(PlayerInputEnum::MoveTo(m)) => {
+            let (x, y) = m.target.map(|v| (v.x, v.y)).unwrap_or((0, 0));
+            log::trace!(
+                "player_input_tick: pid={} tick={} MoveTo target_raw=({}, {})",
+                player_id,
+                tick,
+                x,
+                y
+            );
+            // Phase 4: lookup hero entity by player_id and write MoveTarget.
+        }
+        Some(PlayerInputEnum::AttackTarget(a)) => {
+            log::trace!(
+                "player_input_tick: pid={} tick={} AttackTarget target_id={}",
+                player_id,
+                tick,
+                a.target_id
+            );
+        }
+        Some(PlayerInputEnum::CastAbility(c)) => {
+            log::trace!(
+                "player_input_tick: pid={} tick={} CastAbility ability_index={} target_entity={:?}",
+                player_id,
+                tick,
+                c.ability_index,
+                c.target_entity
+            );
+            // Phase 4: route to scripting::dispatch with the player's hero
+            // entity as the caster.
+        }
+        Some(PlayerInputEnum::TowerPlace(t)) => {
+            log::trace!(
+                "player_input_tick: pid={} tick={} TowerPlace kind_id={} pos={:?}",
+                player_id,
+                tick,
+                t.tower_kind_id,
+                t.pos
+            );
+            // Phase 4: GameProcessor::place_tower.
+        }
+        Some(PlayerInputEnum::TowerUpgrade(u)) => {
+            log::trace!(
+                "player_input_tick: pid={} tick={} TowerUpgrade tower_entity_id={} path={} level={}",
+                player_id,
+                tick,
+                u.tower_entity_id,
+                u.path,
+                u.level
+            );
+        }
+        Some(PlayerInputEnum::TowerSell(s)) => {
+            log::trace!(
+                "player_input_tick: pid={} tick={} TowerSell tower_entity_id={}",
+                player_id,
+                tick,
+                s.tower_entity_id
+            );
+        }
+        Some(PlayerInputEnum::ItemUse(i)) => {
+            log::trace!(
+                "player_input_tick: pid={} tick={} ItemUse item_slot={}",
+                player_id,
+                tick,
+                i.item_slot
+            );
+        }
+        None => {
+            log::warn!(
+                "player_input_tick: pid={} tick={} input action is None (malformed proto?)",
+                player_id,
+                tick
+            );
+        }
+    }
+}

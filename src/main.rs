@@ -206,15 +206,23 @@ async fn main() -> std::result::Result<(), Error> {
     //
     // InputBuffer / LockstepState were created above (before transport.start)
     // and shared with the kcp transport's JoinRequest / InputSubmit handlers.
+    //
+    // Phase 3.4: also create the dispatcher → broadcaster `state_hash`
+    // channel and wire both ends. Sender side is registered with the State
+    // (called from `tick()` every STATE_HASH_INTERVAL_TICKS); receiver side
+    // is attached to the broadcaster via `with_state_hash_rx`.
     #[cfg(feature = "kcp")]
     {
         use crate::lockstep::{TickBroadcaster, TickBroadcasterConfig};
+        let (state_hash_tx, state_hash_rx) = crossbeam_channel::unbounded();
+        state.set_state_hash_tx(state_hash_tx);
         let broadcaster = TickBroadcaster::new(
             TickBroadcasterConfig::default(),
             input_buffer_handle.clone(),
             lockstep_state_handle.clone(),
             handle.tx.clone(),
-        );
+        )
+        .with_state_hash_rx(state_hash_rx);
         tokio::spawn(broadcaster.run());
         log::info!(
             "Lockstep TickBroadcaster spawned at 60Hz (period {}us, state_hash every {} ticks)",

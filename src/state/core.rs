@@ -88,6 +88,13 @@ pub struct State {
     /// `None` for non-kcp builds (mqtt/grpc don't drive AOI broadphase).
     #[cfg(feature = "kcp")]
     aoi_grid: Option<std::sync::Arc<std::sync::Mutex<crate::aoi::AoiGrid>>>,
+    /// Phase 3.4: optional outbound channel that publishes a freshly computed
+    /// ECS state hash every `STATE_HASH_INTERVAL_TICKS` dispatcher ticks. The
+    /// `lockstep::TickBroadcaster` (60Hz) `try_recv`s on this on its own
+    /// state-hash interval. `None` when running without lockstep enabled
+    /// (mqtt/grpc builds, or kcp builds where main.rs hasn't wired it).
+    #[cfg(feature = "kcp")]
+    state_hash_tx: Option<crossbeam_channel::Sender<crate::lockstep::tick_broadcaster::StateHashSample>>,
 }
 
 /// Per-player visible entity sets, split by type so that specs `Entity::id()`
@@ -110,6 +117,13 @@ const VISIBILITY_DIFF_INTERVAL_TICKS: u64 = 6;
 /// heartbeats compress to ~50 bytes after prost+LZ4 — cheap keepalive.
 #[cfg(any(feature = "grpc", feature = "kcp"))]
 const HEARTBEAT_FORCE_SEND_INTERVAL: f64 = 5.0;
+
+/// Phase 3.4: emit one state-hash sample every N dispatcher ticks. Dispatcher
+/// runs at 30Hz so 300 = 10s — broadcaster's `state_hash_interval` default
+/// is 600 (10s @ 60Hz), so the channel always has a fresh sample by the time
+/// the broadcaster's interval fires (with at most one tick of staleness).
+#[cfg(feature = "kcp")]
+const STATE_HASH_INTERVAL_TICKS: u64 = 300;
 
 impl State {
     /// 創建新的遊戲狀態（標準模式）
@@ -160,6 +174,8 @@ impl State {
             script_registry: ScriptRegistry::new(),
             #[cfg(feature = "kcp")]
             aoi_grid: None,
+            #[cfg(feature = "kcp")]
+            state_hash_tx: None,
         };
 
         state.initialize_standard_game();
@@ -237,6 +253,8 @@ impl State {
             script_registry: ScriptRegistry::new(),
             #[cfg(feature = "kcp")]
             aoi_grid: None,
+            #[cfg(feature = "kcp")]
+            state_hash_tx: None,
         };
 
         // 先載 scripts，才能讓 initialize_campaign_game 內的 send_tower_templates 拿到 registry
@@ -318,6 +336,24 @@ impl State {
 
         // 維護 ECS
         self.ecs.maintain();
+
+        // Phase 3.4: publish a deterministic ECS state hash every
+        // STATE_HASH_INTERVAL_TICKS dispatcher ticks (30Hz cadence). The
+        // 60Hz lockstep TickBroadcaster pulls the latest sample on its
+        // own state-hash interval (default 10s @ 60Hz), so a fresh sample
+        // is always pending. Skipped when state_hash_tx is None (legacy /
+        // non-lockstep builds).
+        #[cfg(feature = "kcp")]
+        if self.local_tick % STATE_HASH_INTERVAL_TICKS == 0 {
+            if let Some(tx) = &self.state_hash_tx {
+                let hash = crate::lockstep::compute_state_hash(&self.ecs);
+                // u32 wrap matches the proto StateHash.tick field.
+                let tick_u32 = self.local_tick as u32;
+                if let Err(e) = tx.send((tick_u32, hash)) {
+                    log::warn!("State: failed to publish state hash: {e}");
+                }
+            }
+        }
 
         Ok(())
     }
@@ -983,6 +1019,18 @@ impl State {
     #[cfg(feature = "kcp")]
     pub fn attach_aoi_grid(&mut self, grid: std::sync::Arc<std::sync::Mutex<crate::aoi::AoiGrid>>) {
         self.aoi_grid = Some(grid);
+    }
+
+    /// Phase 3.4: register the dispatcher → broadcaster state-hash channel.
+    /// Called from `main.rs` after creating both the State and the
+    /// `TickBroadcaster`'s receiver. If never called, hash publishing is a
+    /// no-op and the broadcaster falls back to its placeholder.
+    #[cfg(feature = "kcp")]
+    pub fn set_state_hash_tx(
+        &mut self,
+        tx: crossbeam_channel::Sender<crate::lockstep::tick_broadcaster::StateHashSample>,
+    ) {
+        self.state_hash_tx = Some(tx);
     }
 
     /// 獲取 ECS 世界引用

@@ -76,6 +76,11 @@ impl SystemDispatcher {
 
     // 私有方法：構建系統依賴關係
     fn build_system_dependencies(&self, dispatch_builder: &mut DispatcherBuilder<'_, '_>) {
+        // Phase 3.4: drain PendingPlayerInputs first so any per-tick input
+        // routing happens before the rest of the dispatcher reads game
+        // state. No data dependencies on later systems → parallel-safe.
+        dispatch::<player_input_tick::Sys>(dispatch_builder, &[]);
+
         // 第一階段：不需要 Vec<Outcome> 的系統，可以並行執行
         dispatch::<nearby_tick::Sys>(dispatch_builder, &[]);
         dispatch::<player_tick::Sys>(dispatch_builder, &[]);
@@ -214,6 +219,10 @@ pub fn build_phase3_dispatcher() -> Result<Dispatcher<'static, 'static>, Error> 
     );
 
     let mut builder = DispatcherBuilder::new().with_pool(pool);
+
+    // Phase 3.4: PendingPlayerInputs drainer. Runs first so input-driven
+    // state changes (Phase 4 wiring) land before everything else reads.
+    dispatch::<player_input_tick::Sys>(&mut builder, &[]);
 
     // Phase 1 — no Vec<Outcome> dependency, parallelizable.
     dispatch::<nearby_tick::Sys>(&mut builder, &[]);
