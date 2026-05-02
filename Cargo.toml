@@ -88,7 +88,5 @@ mqtt = ["rumqttc"]
 grpc = ["tonic", "prost", "async-stream", "tokio-stream/sync", "tonic-build", "tokio/sync", "tokio/time"]
 kcp = ["tokio_kcp", "prost", "prost-build", "tokio/sync", "tokio/time", "tokio/net", "tokio/io-util", "dep:lz4_flex"]
 gen-docs = ["maud", "syn", "clap", "anyhow", "quote", "proc-macro2"]
-# Phase 4.5: legacy 0x02 GameEvent broadcast pipeline default OFF. Opt-in
-# only for diagnostic re-enable. The gated code blocks remain in-tree for
-# this phase; Phase 5+ removes them entirely once omfx NetworkBridge cut.
-legacy_broadcast = []
+# legacy_broadcast removed (Phase 5.2) — was used Phase 4.4-4.5 to gate the
+# 0x02 GameEvent producer sites; Phase 5.2 deleted the gated code outright.

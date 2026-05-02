@@ -406,85 +406,14 @@ impl ResourceManager {
     }
 
     /// 主動廣播指定英雄的 hot 狀態（hp/gold/damage/armor/msd/range/interval/buffs）。
-    /// 供扣錢、賣塔、升級塔、漏怪等即時事件使用。
-    /// P3: kcp path 走 prost `HeroHot`；非 kcp path 還是走 legacy `hero.stats` JSON（全欄位）。
-    /// Phase 4.4: gated behind `legacy_broadcast` feature — body no-ops when
-    /// the legacy 0x02 GameEvent producer pipeline is cut.
+    /// Phase 5.2: legacy 0x02 GameEvent producer cut — body no-ops. Lockstep
+    /// TickBatch (0x10) carries authoritative hero state.
     pub(crate) fn push_hero_stats(&self, world: &mut World, hero_entity: specs::Entity) {
-        #[cfg(feature = "legacy_broadcast")]
-        self.push_hero_hot(world, hero_entity);
-        #[cfg(not(feature = "legacy_broadcast"))]
         let _ = (world, hero_entity);
     }
 
-    /// P3: 推 `HeroHot` 熱資料（0.3s tick + 狀態變化事件共用）。
-    #[cfg(feature = "legacy_broadcast")]
-    pub(crate) fn push_hero_hot(&self, world: &mut World, hero_entity: specs::Entity) {
-        let heroes = world.read_storage::<Hero>();
-        let golds = world.read_storage::<Gold>();
-        let props = world.read_storage::<CProperty>();
-        let atks = world.read_storage::<crate::comp::TAttack>();
-        let positions = world.read_storage::<Pos>();
-        let buff_store = world.read_resource::<crate::ability_runtime::BuffStore>();
-        let Some(h) = heroes.get(hero_entity) else { return };
-        let g = golds.get(hero_entity).map(|g| g.0).unwrap_or(0);
-        let prop = props.get(hero_entity);
-        let (hp, mhp) = prop.map(|p| (p.hp.to_f32_for_render(), p.mhp.to_f32_for_render())).unwrap_or((0.0, 0.0));
-        let (armor_b, mres_b, msd_b) = prop
-            .map(|p| (p.def_physic.to_f32_for_render(), p.def_magic.to_f32_for_render(), p.msd.to_f32_for_render()))
-            .unwrap_or((0.0, 0.0, 0.0));
-        let atk = atks.get(hero_entity);
-        #[cfg(feature = "kcp")]
-        let (atk_dmg_b, atk_int_b, atk_rng_b) = atk
-            .map(|a| (a.atk_physic.v.to_f32_for_render(), a.asd.v.to_f32_for_render(), a.range.v.to_f32_for_render()))
-            .unwrap_or((0.0, 0.0, 0.0));
-        #[cfg(not(feature = "kcp"))]
-        let (atk_dmg_b, atk_int_b, atk_rng_b, bullet_spd) = atk
-            .map(|a| (a.atk_physic.v.to_f32_for_render(), a.asd.v.to_f32_for_render(), a.range.v.to_f32_for_render(), a.bullet_speed.to_f32_for_render()))
-            .unwrap_or((0.0, 0.0, 0.0, 0.0));
-        let (pos_x_f, pos_y_f) = positions.get(hero_entity).map(|p| p.xy_f32()).unwrap_or((0.0, 0.0));
-        let pos_vek = vek::Vec2::new(pos_x_f, pos_y_f);
-
-        #[cfg(feature = "kcp")]
-        {
-            let msg = build_hero_hot_msg(
-                hero_entity, h, g, hp, mhp, armor_b, mres_b, msd_b,
-                atk_dmg_b, atk_int_b, atk_rng_b, &buff_store, pos_vek,
-            );
-            let _ = self.mqtx.send(msg);
-        }
-        #[cfg(not(feature = "kcp"))]
-        {
-            let lives = world.read_resource::<PlayerLives>().0;
-            let payload = build_hero_stats_payload(
-                hero_entity, h, g, hp, mhp, armor_b, mres_b, msd_b,
-                atk_dmg_b, atk_int_b, atk_rng_b, bullet_spd, lives, &buff_store,
-            );
-            let _ = self.mqtx.send(OutboundMsg::new_s_at(
-                "td/all/res", "hero", "stats", payload, pos_x_f, pos_y_f,
-            ));
-        }
-    }
-
-    /// P3: 推 `HeroStatic` 冷資料（create / level up / ability learn）。
-    /// 非 kcp build：fallback 成推一次完整 legacy `hero.stats`（含 static + hot）。
-    /// Phase 4.4: gated behind `legacy_broadcast` feature.
+    /// Phase 5.2: legacy 0x02 GameEvent producer cut — body no-ops.
     pub(crate) fn push_hero_static(&self, world: &mut World, hero_entity: specs::Entity) {
-        #[cfg(all(feature = "kcp", feature = "legacy_broadcast"))]
-        {
-            let heroes = world.read_storage::<Hero>();
-            let positions = world.read_storage::<Pos>();
-            let Some(h) = heroes.get(hero_entity) else { return };
-            let (px, py) = positions.get(hero_entity).map(|p| p.xy_f32()).unwrap_or((0.0, 0.0));
-            let msg = build_hero_static_msg(hero_entity, h, vek::Vec2::new(px, py));
-            let _ = self.mqtx.send(msg);
-        }
-        #[cfg(all(not(feature = "kcp"), feature = "legacy_broadcast"))]
-        {
-            // 非 kcp: 用 legacy hero.stats（全欄位）
-            self.push_hero_hot(world, hero_entity);
-        }
-        #[cfg(not(feature = "legacy_broadcast"))]
         let _ = (world, hero_entity);
     }
 

@@ -17,65 +17,6 @@ use omoba_sim::trig::{angle_rotate_toward, atan2 as sim_atan2, fixed_rad_to_tick
 /// MOBA 鏡頭下肉眼無感的 facing 變化量（~15°）。舊值 0.05 (~3°) 造成過多 F event。
 const FACING_BROADCAST_THRESHOLD_RAD: f32 = 0.26;
 
-/// Server ticks per second — keep in sync with `omb/src/main.rs` TPS const.
-/// Used by creep.M to compute `arrival_tick` for client extrapolation.
-const TICK_DT: f32 = 1.0 / 30.0;
-
-/// P4 full builder: emits a creep.M with velocity + arrival_tick + start_pos +
-/// start_tick so the client can extrapolate between events (see plan P4.3).
-/// Non-kcp builds fall back to the same 4-field legacy JSON as before.
-#[inline]
-fn make_creep_move_full(
-    id: u32,
-    target_x: f32,
-    target_y: f32,
-    facing: f32,
-    velocity: f32,
-    start_x: f32,
-    start_y: f32,
-    start_tick: u64,
-) -> OutboundMsg {
-    #[cfg(feature = "kcp")]
-    {
-        use crate::state::resource_management::proto_build;
-        use crate::transport::TypedOutbound;
-        // arrival_tick is computed inside proto_build::creep_move_full; keep
-        // the JSON shadow small — omfx reads extrapolation fields only when
-        // `velocity` is present. Legacy omfx ignores unknown keys.
-        let dx = target_x - start_x;
-        let dy = target_y - start_y;
-        let dist = (dx * dx + dy * dy).sqrt();
-        let arrival_tick = if velocity > f32::EPSILON && dist > f32::EPSILON {
-            start_tick + ((dist / velocity / TICK_DT).ceil() as u64)
-        } else {
-            start_tick
-        };
-        OutboundMsg::new_typed_at(
-            "td/all/res", "creep", "M",
-            TypedOutbound::CreepMove(proto_build::creep_move_full(
-                id, target_x, target_y, facing, velocity,
-                start_x, start_y, start_tick, TICK_DT,
-            )),
-            json!({
-                "id": id,
-                "x": target_x, "y": target_y,
-                "facing": facing,
-                "velocity": velocity,
-                "start_pos": { "x": start_x, "y": start_y },
-                "start_tick": start_tick,
-                "arrival_tick": arrival_tick,
-            }),
-            start_x, start_y,
-        )
-    }
-    #[cfg(not(feature = "kcp"))]
-    {
-        let _ = (velocity, start_x, start_y, start_tick);
-        OutboundMsg::new_s("td/all/res", "creep", "M",
-            json!({ "id": id, "x": target_x, "y": target_y, "facing": facing }))
-    }
-}
-
 /// Build a creep.stall OutboundMsg (prost CreepStall under kcp).
 #[inline]
 fn make_creep_stall(id: u32, x: f32, y: f32, facing: f32) -> OutboundMsg {
@@ -440,18 +381,8 @@ impl<'a> System<'a> for Sys {
             };
             if !need_emit { continue; }
 
-            // Fire the event with full extrapolation fields.
-            // Phase 4.4: gated behind `legacy_broadcast` feature — the 0x02
-            // GameEvent producer pipeline is cut for the lockstep path.
-            #[cfg(feature = "legacy_broadcast")]
-            let _ = tx.try_send(make_creep_move_full(
-                cand.entity.id(),
-                cand.target.x, cand.target.y,
-                cand.facing,
-                cand.velocity,
-                cand.start_pos.x, cand.start_pos.y,
-                server_tick,
-            ));
+            // Phase 5.2: legacy 0x02 GameEvent producer cut. Lockstep TickBatch
+            // (0x10) carries authoritative pos; client renders from sim.
 
             // Update (or insert) the broadcast snapshot so subsequent ticks
             // compare against fresh baseline. specs::WriteStorage::insert

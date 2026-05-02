@@ -145,28 +145,6 @@ fn make_entity_death(msg_type: &str, id: u32) -> OutboundMsg {
     }
 }
 
-/// creep.M
-#[inline]
-fn make_creep_move_ev(id: u32, tx_x: f32, tx_y: f32, facing: f32, ent_x: f32, ent_y: f32) -> OutboundMsg {
-    #[cfg(feature = "kcp")]
-    {
-        use crate::state::resource_management::proto_build;
-        use crate::transport::TypedOutbound;
-        OutboundMsg::new_typed_at(
-            "td/all/res", "creep", "M",
-            TypedOutbound::CreepMove(proto_build::creep_move(id, tx_x, tx_y, facing)),
-            json!({ "id": id, "x": tx_x, "y": tx_y }),
-            ent_x, ent_y,
-        )
-    }
-    #[cfg(not(feature = "kcp"))]
-    {
-        let _ = (ent_x, ent_y);
-        OutboundMsg::new_s("td/all/res", "creep", "M",
-            json!({ "id": id, "x": tx_x, "y": tx_y }))
-    }
-}
-
 /// creep.S
 #[inline]
 fn make_creep_slow(id: u32, move_speed: f32) -> OutboundMsg {
@@ -1052,12 +1030,10 @@ impl GameProcessor {
         let positions = ecs.read_storage::<Pos>();
         let pos = positions.get(target).ok_or_else(|| failure::err_msg("Creep position not found"))?;
 
-        // Phase 4.4: gated behind `legacy_broadcast` feature.
-        let (px, py) = pos.xy_f32();
-        #[cfg(feature = "legacy_broadcast")]
-        let _ = mqtx.try_send(make_creep_move_ev(target.id(), px, py, 0.0, px, py));
-        #[cfg(not(feature = "legacy_broadcast"))]
-        let _ = (mqtx, target, px, py);
+        // Phase 5.2: legacy 0x02 GameEvent broadcast cut. Lockstep TickBatch
+        // (0x10) carries authoritative state; client renders from sim.
+        let (_px, _py) = pos.xy_f32();
+        let _ = (mqtx, target);
         Ok(())
     }
 

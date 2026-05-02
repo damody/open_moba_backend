@@ -61,32 +61,8 @@ impl CreationEventHandler {
             "collision_radius": radius_f,
         });
 
-        // Phase 4.4: gated behind `legacy_broadcast` feature — the 0x02
-        // GameEvent producer pipeline is cut for the lockstep path. ECS spawn
-        // above is authoritative; lockstep clients hydrate via render_bridge.
-        #[cfg(feature = "legacy_broadcast")]
-        {
-            #[cfg(feature = "kcp")]
-            let msg = {
-                use crate::state::resource_management::proto_build;
-                use crate::transport::TypedOutbound;
-                OutboundMsg::new_typed_at(
-                    "td/all/res", "creep", "C",
-                    TypedOutbound::CreepCreate(proto_build::creep_create(
-                        entity.id(), pos_x_f, pos_y_f, hp_f, mhp_f, msd_f, &creep_name,
-                    )),
-                    payload, pos_x_f, pos_y_f,
-                )
-            };
-            #[cfg(not(feature = "kcp"))]
-            let msg = OutboundMsg::new_s_at("td/all/res", "creep", "C", payload, pos_x_f, pos_y_f);
-
-            // 發送 MQTT 消息通知前端
-            if let Err(e) = mqtx.try_send(msg) {
-                error!("發送小兵創建消息失敗: {}", e);
-            }
-        }
-        #[cfg(not(feature = "legacy_broadcast"))]
+        // Phase 5.2: legacy 0x02 GameEvent producer cut. ECS spawn above is
+        // authoritative; lockstep clients hydrate via render_bridge.
         let _ = (mqtx, payload, hp_f, mhp_f, msd_f, radius_f, creep_name);
 
         // 小兵創建成功，無需產生額外事件
@@ -123,15 +99,10 @@ impl CreationEventHandler {
             obj.insert("pos".to_owned(), json!({"x": pos_x_f, "y": pos_y_f}));
         }
 
-        // 發送 MQTT 消息通知前端
-        // Phase 4.4: gated behind `legacy_broadcast` feature.
-        #[cfg(feature = "legacy_broadcast")]
-        if let Err(e) = mqtx.try_send(OutboundMsg::new_s("td/all/res", "tower", "C", cjs)) {
-            error!("發送塔創建消息失敗: {}", e);
-        }
-        #[cfg(not(feature = "legacy_broadcast"))]
+        // Phase 5.2: legacy 0x02 GameEvent producer cut.
         let _ = (mqtx, cjs);
-        
+
+
         // 標記塔搜尋索引需要重新排序
         if let Some(mut searcher) = world.try_fetch_mut::<Searcher>() {
             searcher.tower.mark_dirty();
@@ -270,32 +241,7 @@ impl CreationEventHandler {
             obj.insert("directional".into(), json!(false));
             obj.insert("kind".into(), json!(""));
         }
-        // Phase 4.4: gated behind `legacy_broadcast` feature.
-        #[cfg(feature = "legacy_broadcast")]
-        {
-            #[cfg(feature = "kcp")]
-            let msg = {
-                use crate::state::resource_management::proto_build;
-                use crate::transport::TypedOutbound;
-                OutboundMsg::new_typed_at(
-                    "td/all/res", "projectile", "C",
-                    TypedOutbound::ProjectileCreate(proto_build::projectile_create(
-                        projectile_entity.id(), target.id(),
-                        source_x_f, source_y_f, target_x_f, target_y_f,
-                        flight_time_ms, false, 0.0, 0.0, 0u16,
-                        predeclared_dmg,
-                    )),
-                    projectile_data_with_dmg, source_x_f, source_y_f,
-                )
-            };
-            #[cfg(not(feature = "kcp"))]
-            let msg = OutboundMsg::new_s("td/all/res", "projectile", "C", projectile_data_with_dmg);
-
-            if let Err(e) = mqtx.try_send(msg) {
-                error!("發送彈道創建消息失敗: {}", e);
-            }
-        }
-        #[cfg(not(feature = "legacy_broadcast"))]
+        // Phase 5.2: legacy 0x02 GameEvent producer cut.
         let _ = (mqtx, projectile_data_with_dmg, source_x_f, source_y_f, target_x_f, target_y_f, flight_time_ms, predeclared_dmg, target);
 
         // 彈道創建成功，無需產生額外事件
@@ -333,26 +279,7 @@ impl CreationEventHandler {
 
         let entity = entity_builder.build();
 
-        // 發送單位創建消息
-        // Phase 4.4: gated behind `legacy_broadcast` feature.
-        #[cfg(feature = "legacy_broadcast")]
-        {
-            let duration_f = duration.map(|d| d.to_f32_for_render());
-            let unit_data = json!({
-                "id": entity.id(),
-                "pos": {
-                    "x": pos_x_f,
-                    "y": pos_y_f
-                },
-                "faction": faction_clone,
-                "duration": duration_f
-            });
-
-            if let Err(e) = mqtx.try_send(OutboundMsg::new_s("td/all/res", "unit", "C", unit_data)) {
-                error!("發送單位創建消息失敗: {}", e);
-            }
-        }
-        #[cfg(not(feature = "legacy_broadcast"))]
+        // Phase 5.2: legacy 0x02 GameEvent producer cut.
         let _ = (mqtx, entity, duration, faction_clone, pos_x_f, pos_y_f);
 
         Vec::new()
