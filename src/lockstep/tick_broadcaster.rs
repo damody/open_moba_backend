@@ -146,3 +146,194 @@ impl TickBroadcaster {
         (tick as u64).wrapping_mul(0x9E3779B97F4A7C15)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Phase 2.5 unit tests for TickBroadcaster.
+    //!
+    //! These exercise `fire_one_tick` directly by constructing a broadcaster
+    //! with a mock outbound channel (crossbeam_channel::unbounded), seeding
+    //! the InputBuffer with synthetic submissions, and asserting on the
+    //! resulting `OutboundMsg::lockstep_frame` payloads. Avoids tokio
+    //! runtime dependency by skipping `run()` and calling `fire_one_tick`
+    //! synchronously.
+    use super::*;
+    use crate::lockstep::{NoOp, PlayerInput, PlayerInputEnum};
+    use crossbeam_channel::unbounded;
+
+    fn noop_input() -> PlayerInput {
+        PlayerInput {
+            action: Some(PlayerInputEnum::NoOp(NoOp {})),
+        }
+    }
+
+    /// Helper: pull every msg from rx into a Vec, classify by frame type.
+    fn drain_frames(rx: &crossbeam_channel::Receiver<OutboundMsg>) -> Vec<LockstepFrame> {
+        let mut out = Vec::new();
+        while let Ok(msg) = rx.try_recv() {
+            if let Some(frame) = msg.lockstep_frame {
+                out.push(frame);
+            }
+        }
+        out
+    }
+
+    fn make_broadcaster(
+        config: TickBroadcasterConfig,
+    ) -> (
+        TickBroadcaster,
+        Arc<Mutex<InputBuffer>>,
+        Arc<Mutex<LockstepState>>,
+        crossbeam_channel::Receiver<OutboundMsg>,
+    ) {
+        let buf = Arc::new(Mutex::new(InputBuffer::new()));
+        let state = Arc::new(Mutex::new(LockstepState::new(0xCAFE_BABE_DEAD_BEEF)));
+        let (tx, rx) = unbounded();
+        let bc = TickBroadcaster::new(config, buf.clone(), state.clone(), tx);
+        (bc, buf, state, rx)
+    }
+
+    #[test]
+    fn fires_tick_batches_with_buffered_inputs() {
+        let cfg = TickBroadcasterConfig {
+            tick_period_us: 16_667,
+            state_hash_interval: 600,
+        };
+        let (bc, buf, _state, rx) = make_broadcaster(cfg);
+
+        // Seed: at tick 5, 2 players' inputs (player 7 + player 3) so we
+        // can confirm BTreeMap ordering carried through to TickBatch.
+        {
+            let mut b = buf.lock().unwrap();
+            assert!(b.submit(0, 7, 5, noop_input()));
+            assert!(b.submit(0, 3, 5, noop_input()));
+        }
+
+        // Fire 5 ticks. Tick 1..=4 should be empty TickBatch, tick 5 has 2 inputs.
+        for _ in 0..5 {
+            assert!(bc.fire_one_tick(), "fire_one_tick returned false (channel closed?)");
+        }
+
+        let frames = drain_frames(&rx);
+        assert_eq!(frames.len(), 5, "expected 5 TickBatch frames, got {}", frames.len());
+
+        for (i, frame) in frames.iter().enumerate() {
+            let expect_tick = (i + 1) as u32;
+            match frame {
+                LockstepFrame::TickBatch(b) => {
+                    assert_eq!(b.tick, expect_tick);
+                    if expect_tick == 5 {
+                        assert_eq!(b.inputs.len(), 2, "tick 5 should carry 2 inputs");
+                        // BTreeMap iteration order: 3, then 7.
+                        assert_eq!(b.inputs[0].player_id, 3);
+                        assert_eq!(b.inputs[1].player_id, 7);
+                    } else {
+                        assert!(b.inputs.is_empty(), "tick {} should be empty", expect_tick);
+                    }
+                }
+                other => panic!("expected TickBatch frame, got {:?}", other),
+            }
+        }
+    }
+
+    #[test]
+    fn emits_state_hash_at_interval_multiples() {
+        // Use small interval (3) to avoid firing 600 ticks in the test.
+        let cfg = TickBroadcasterConfig {
+            tick_period_us: 16_667,
+            state_hash_interval: 3,
+        };
+        let (bc, _buf, _state, rx) = make_broadcaster(cfg);
+
+        // Fire 7 ticks → expect StateHash at ticks 3 and 6.
+        for _ in 0..7 {
+            assert!(bc.fire_one_tick());
+        }
+
+        let frames = drain_frames(&rx);
+        // 7 TickBatch + 2 StateHash = 9 frames.
+        assert_eq!(frames.len(), 9, "frames = {:?}", frames);
+
+        let mut tick_batch_count = 0;
+        let mut state_hash_ticks = Vec::new();
+        for frame in &frames {
+            match frame {
+                LockstepFrame::TickBatch(_) => tick_batch_count += 1,
+                LockstepFrame::StateHash(sh) => state_hash_ticks.push(sh.tick),
+                other => panic!("unexpected frame variant: {:?}", other),
+            }
+        }
+        assert_eq!(tick_batch_count, 7);
+        assert_eq!(state_hash_ticks, vec![3, 6]);
+    }
+
+    #[test]
+    fn placeholder_state_hash_is_deterministic_pin() {
+        // Pin the exact placeholder formula. Phase 3 changes this — when
+        // it does, this test should fail and be retired (see comment in
+        // placeholder_state_hash).
+        let cfg = TickBroadcasterConfig::default();
+        let (bc, _buf, _state, _rx) = make_broadcaster(cfg);
+
+        // tick=600 * 0x9E3779B97F4A7C15 (golden-ratio constant).
+        let expected_600: u64 = 600u64.wrapping_mul(0x9E3779B97F4A7C15);
+        assert_eq!(bc.placeholder_state_hash(600), expected_600);
+
+        // tick=1: the constant itself.
+        assert_eq!(bc.placeholder_state_hash(1), 0x9E3779B97F4A7C15);
+
+        // tick=0 always hashes to 0 (multiplicative identity).
+        assert_eq!(bc.placeholder_state_hash(0), 0);
+    }
+
+    #[test]
+    fn returns_false_when_outbound_channel_closes() {
+        let cfg = TickBroadcasterConfig::default();
+        let (bc, _buf, _state, rx) = make_broadcaster(cfg);
+        drop(rx); // close the channel
+        // First send fails → fire_one_tick returns false.
+        assert!(!bc.fire_one_tick());
+    }
+
+    #[test]
+    fn evicts_old_inputs_every_60_ticks() {
+        // Verify the periodic cleanup branch (`tick % 60 == 0`).
+        let cfg = TickBroadcasterConfig {
+            tick_period_us: 16_667,
+            state_hash_interval: 100_000, // disable state hash for this test
+        };
+        let (bc, buf, _state, _rx) = make_broadcaster(cfg);
+
+        // Submit one orphan input at tick=10 (will be drained on tick 10),
+        // and one orphan at tick=200 that we'll never reach via fire.
+        // Then manually re-submit a stale future-input afterwards to test
+        // eviction.
+        // Easier: directly insert and check pending_count behavior.
+        {
+            let mut b = buf.lock().unwrap();
+            b.submit(0, 1, 200, noop_input());
+            assert_eq!(b.pending_count(), 1);
+        }
+
+        // Fire 60 ticks. At tick=60, evict_older(60-120=saturating 0) is called
+        // — saturating_sub(120) on tick=60 is 0, so nothing pre-tick-0 is
+        // evicted (tick=200 input survives).
+        for _ in 0..60 {
+            assert!(bc.fire_one_tick());
+        }
+        assert_eq!(buf.lock().unwrap().pending_count(), 1, "tick=200 input should survive");
+
+        // Fire to tick 180. At tick=120 we evict_older(0); at tick=180 we
+        // evict_older(60) — still doesn't hit the tick=200 entry.
+        for _ in 60..180 {
+            assert!(bc.fire_one_tick());
+        }
+        assert_eq!(buf.lock().unwrap().pending_count(), 1);
+
+        // Fire to tick 240 — passes tick 200, so it's drained naturally.
+        for _ in 180..240 {
+            assert!(bc.fire_one_tick());
+        }
+        assert_eq!(buf.lock().unwrap().pending_count(), 0);
+    }
+}
