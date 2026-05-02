@@ -177,7 +177,6 @@ impl ResourceManager {
         let is_td = world.read_resource::<GameMode>().is_td();
         if !is_td {
             // 舊 MOBA / debug 路徑：直接放一座預設塔（保留向後相容）
-            // PHASE 2: hard-coded test stats; should come from omoba_template_ids — addressed in Phase 2 KCP tag rework.
             use omoba_sim::Fixed64;
             let tower_property = TProperty::new(Fixed64::from_i32(100), 1, Fixed64::from_i32(200));
             let tower_attack = TAttack::new(
@@ -1299,7 +1298,6 @@ impl ResourceManager {
             if let Some(p) = props.get_mut(hero_e) {
                 match &active {
                     crate::item::ActiveEffect::Shield { amount, .. } => {
-                        // PHASE 2: ActiveEffect.amount still f32 (item schema); redesign in Phase 2 KCP tag rework.
                         let amt_fx = omoba_sim::Fixed64::from_raw((*amount * 1024.0) as i64);
                         let summed = p.hp + amt_fx;
                         p.hp = if summed > p.mhp { p.mhp } else { summed };
@@ -1310,7 +1308,6 @@ impl ResourceManager {
                         log::info!("💙 回魔主動 +{} MP (MVP 暫未串接 mp)", amount);
                     }
                     crate::item::ActiveEffect::SprintBuff { ms_bonus, duration } => {
-                        // PHASE 2: ActiveEffect.ms_bonus still f32 (item schema); redesign in Phase 2 KCP tag rework.
                         let bonus_fx = omoba_sim::Fixed64::from_raw((*ms_bonus * 1024.0) as i64);
                         p.msd += bonus_fx;
                         log::info!("💨 疾跑 +{} ms，持續 {}s (MVP 無 buff 結束回收)", ms_bonus, duration);
@@ -1817,7 +1814,6 @@ pub(crate) mod proto_build {
     ) -> HeroHot {
         // 與 build_hero_stats_payload 一致的聚合路徑（讓前端看到實際生效值）
         // Phase 1c.3: UnitStats final_* now returns Fixed64; wire format remains f32.
-        // PHASE 2: HeroHot prost schema migrate to deterministic encoding — Phase 2 KCP tag rework.
         let stats = crate::ability_runtime::UnitStats::from_refs(buff_store, false);
         let attack_damage_base_fx = omoba_sim::Fixed64::from_raw((attack_damage_base * 1024.0) as i64);
         let attack_range_base_fx = omoba_sim::Fixed64::from_raw((attack_range_base * 1024.0) as i64);
@@ -1836,7 +1832,6 @@ pub(crate) mod proto_build {
             .iter_for(hero_entity)
             .map(|(id, entry)| {
                 // Phase 1c.3: BuffEntry.remaining is Fixed64 — wire as ms u32 sentinel.
-                // PHASE 2: BuffSnapshot.remaining_ms wire migrate to Fixed64 — Phase 2 KCP tag rework.
                 let remaining_f = entry.remaining.to_f32_for_render();
                 let remaining_ms = if remaining_f.is_infinite() || remaining_f > 65.535 {
                     0xFFFF

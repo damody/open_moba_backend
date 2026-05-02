@@ -61,7 +61,6 @@ impl TimeManager {
         {
             let dt_val = dt.as_secs_f32().min(self.max_delta_time);
             let mut delta_time = world.write_resource::<DeltaTime>();
-            // PHASE 2: omb tick clock still f32-seconds; redesign in Phase 2 KCP tag rework.
             delta_time.0 = omoba_sim::Fixed64::from_raw((dt_val * 1024.0) as i64);
             self.cached_delta_time = dt_val;
         }
@@ -121,7 +120,6 @@ impl TimeManager {
     /// 恢復時間
     pub fn resume_time(&self, world: &mut World, dt: Duration) {
         let mut delta_time = world.write_resource::<DeltaTime>();
-        // PHASE 2: omb tick clock still f32-seconds; redesign in Phase 2 KCP tag rework.
         let v = dt.as_secs_f32().min(self.max_delta_time);
         delta_time.0 = omoba_sim::Fixed64::from_raw((v * 1024.0) as i64);
         log::info!("遊戲時間已恢復");

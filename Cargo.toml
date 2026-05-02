@@ -83,14 +83,12 @@ tonic-build = { version = "0.12", optional = true }
 prost-build = { version = "0.13", optional = true }
 
 [features]
-default = ["kcp", "legacy_broadcast"]
+default = ["kcp"]
 mqtt = ["rumqttc"]
 grpc = ["tonic", "prost", "async-stream", "tokio-stream/sync", "tonic-build", "tokio/sync", "tokio/time"]
 kcp = ["tokio_kcp", "prost", "prost-build", "tokio/sync", "tokio/time", "tokio/net", "tokio/io-util", "dep:lz4_flex"]
 gen-docs = ["maud", "syn", "clap", "anyhow", "quote", "proc-macro2"]
-# Phase 4.4: gate the legacy 0x02 GameEvent broadcast producer pipeline
-# (heartbeat / hero stats / visibility diff / creep move broadcast) so it
-# can be cut without disturbing lockstep (0x10-0x16) or omb-mcp (0x05/0x06).
-# Default ON in this phase to keep test suite green; Phase 4.5 will flip
-# default OFF after omfx NetworkBridge is removed.
+# Phase 4.5: legacy 0x02 GameEvent broadcast pipeline default OFF. Opt-in
+# only for diagnostic re-enable. The gated code blocks remain in-tree for
+# this phase; Phase 5+ removes them entirely once omfx NetworkBridge cut.
 legacy_broadcast = []

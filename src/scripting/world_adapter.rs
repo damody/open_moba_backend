@@ -207,8 +207,7 @@ impl<'a> WorldAdapter<'a> {
 // ============================================================
 // Phase 1d/1e final cleanup: battle / ability layer is fully Fixed64 / Vec2 / Angle now.
 // Remaining f32 boundaries are non-battle: Unit i32 hp (intentional), VFX bus,
-// log formatters, wire format. Each is tagged `// NOTE:` (intentional) or
-// `// PHASE 2:` (wire protocol redesign in lockstep KCP tag rework).
+// log formatters, and omb-mcp query wire format (Phase 5+ migration).
 // ============================================================
 
 impl<'a> GameWorld for WorldAdapter<'a> {
@@ -428,7 +427,6 @@ impl<'a> GameWorld for WorldAdapter<'a> {
             .cloned()
             .unwrap_or_else(|| Faction::new(FactionType::Player, 0));
 
-        // PHASE 2: spawn helper protocol takes f32; convert at boundary — wire protocol redesign in Phase 2 KCP tag rework.
         let pos_x_f = pos.x.to_f32_for_render();
         let pos_y_f = pos.y.to_f32_for_render();
         let duration_f = duration.to_f32_for_render();
@@ -588,7 +586,6 @@ impl<'a> GameWorld for WorldAdapter<'a> {
     }
 
     fn emit_explosion(&mut self, pos: Vec2, radius: Fixed64, duration: Fixed64) {
-        // PHASE 2: VFX bus takes f32; convert at boundary — wire protocol redesign in Phase 2 KCP tag rework.
         let _ = self.mqtx.try_send(make_game_explosion_script(
             pos.x.to_f32_for_render(),
             pos.y.to_f32_for_render(),

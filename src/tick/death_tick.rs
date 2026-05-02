@@ -50,7 +50,6 @@ impl<'a> System<'a> for Sys {
                 dead_entities.push(entity);
 
                 // 記錄死亡獎勵信息
-                // PHASE 2: Outcome / DeathReward wire format f32; redesign in Phase 2 KCP tag rework.
                 let (px, py) = pos.xy_f32();
                 death_rewards.push(DeathReward {
                     dead_entity: entity,
@@ -107,7 +106,6 @@ fn distribute_death_rewards(
     
     // 找到範圍內的友方英雄
     for (hero_entity, hero, hero_pos, hero_faction) in (&tr.entities, &tr.heroes, &tr.positions, &tr.factions).join() {
-        // PHASE 2: DeathReward wire format f32; redesign in Phase 2 KCP tag rework.
         let (hx, hy) = hero_pos.xy_f32();
         let dx = hx - reward.position.x;
         let dy = hy - reward.position.y;

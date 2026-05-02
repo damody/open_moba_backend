@@ -77,7 +77,6 @@ impl<'a> System<'a> for Sys {
                 cp.hp = if new_hp < omoba_sim::Fixed64::ZERO { omoba_sim::Fixed64::ZERO } else { new_hp };
                 if let Some(t) = tx.as_ref() {
                     let msg_type = if data.creeps.get(entity).is_some() { "creep" } else { "entity" };
-                    // PHASE 2: wire format f32 — proto schemas migrate in Phase 2 KCP tag rework.
                     let _ = t.try_send(make_hp_update(
                         msg_type,
                         entity.id(),
@@ -110,7 +109,6 @@ impl<'a> System<'a> for Sys {
                             data.is_buildings.get(entity).is_some(),
                         );
                         let effective = stats.final_move_speed(cp.msd, entity);
-                        // PHASE 2: wire format f32 — proto migrates in Phase 2 KCP tag rework.
                         let _ = t.try_send(make_creep_slow(entity.id(), effective.to_f32_for_render()));
                     }
                 }

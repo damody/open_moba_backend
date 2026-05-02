@@ -187,7 +187,6 @@ impl StateInitializer {
                     status: CreepStatus::Walk
                 },
                 property: CProperty {
-                    // PHASE 2: campaign JSON CreepData fields are still f32; redesign in Phase 2 KCP tag rework.
                     hp: omoba_sim::Fixed64::from_raw((cp.HP * 1024.0) as i64),
                     mhp: omoba_sim::Fixed64::from_raw((cp.HP * 1024.0) as i64),
                     msd: omoba_sim::Fixed64::from_raw((cp.MoveSpeed * 1024.0) as i64),
@@ -327,7 +326,6 @@ impl StateInitializer {
         let mut player_map = BTreeMap::<String, Player>::new();
         let player_name = crate::config::server_config::CONFIG.PLAYER_NAME.clone();
         let mut p = Player { name: player_name.clone(), cost: 100., towers: vec![] };
-        // PHASE 2: hard-coded test stats; should come from omoba_template_ids — Phase 2 KCP tag rework.
         p.towers.push(TowerData {
             tpty: TProperty::new(omoba_sim::Fixed64::from_i32(10), 1, omoba_sim::Fixed64::from_i32(100)),
             tatk: TAttack::new(
@@ -410,7 +408,6 @@ impl StateInitializer {
             let hero_vel = Vel::zero();
 
             // 創建英雄的戰鬥屬性 (基於英雄等級和屬性計算)
-            // PHASE 2: hero spawn defaults still f32 literals; promote to Fixed64 templates in Phase 2 KCP tag rework.
             use omoba_sim::Fixed64;
             let base_hp = Fixed64::from_i32(500) + Fixed64::from_i32(hero.level) * hero.level_growth.hp_per_level;
             let base_damage = Fixed64::from_i32(50) + Fixed64::from_i32(hero.level) * hero.level_growth.damage_per_level;
@@ -443,7 +440,6 @@ impl StateInitializer {
                 180.0   // 英雄高度
             ).with_precision(720); // 高精度視野
 
-            // PHASE 2: TurnSpeed source uses degrees, omb internal uses radians; redesign in Phase 2 KCP tag rework.
             // hero_template_stats.turn_speed is Fixed64 in degrees; convert to radians (f32) for omb internal.
             let hero_turn_rad = hero_template_stats.turn_speed.to_f32_for_render() * std::f32::consts::PI / 180.0;
             // Hero collision_radius 暫定 30（之前由 entity.json optional override，
@@ -465,7 +461,6 @@ impl StateInitializer {
                 .with(ItemEffects::default())
                 .with(Facing(omoba_sim::Angle::ZERO))
                 .with(FacingBroadcast(None))
-                // PHASE 2: TurnSpeed source still f32 radians; redesign in Phase 2 KCP tag rework.
                 .with(TurnSpeed(omoba_sim::Fixed64::from_raw((hero_turn_rad * 1024.0) as i64)))
                 .with(CollisionRadius(omoba_sim::Fixed64::from_raw((hero_radius * 1024.0) as i64)))
                 .with(crate::scripting::ScriptUnitTag { unit_id: unit_id.clone() })
@@ -571,7 +566,6 @@ impl StateInitializer {
         turn_speed_deg: f32,
         collision_radius: f32,
     ) {
-        // PHASE 2: spawn_tower API still f32; redesign in Phase 2 KCP tag rework.
         use omoba_sim::Fixed64;
         let hp_fx = Fixed64::from_raw((hp * 1024.0) as i64);
         let range_fx = Fixed64::from_raw((range * 1024.0) as i64);
@@ -613,7 +607,6 @@ impl StateInitializer {
             .with(bounty)
             .with(Facing(omoba_sim::Angle::ZERO))
             .with(FacingBroadcast(None))
-            // PHASE 2: tower config still uses f32 turn_speed_deg; redesign in Phase 2 KCP tag rework.
             .with(TurnSpeed(omoba_sim::Fixed64::from_raw((turn_speed_deg.to_radians() * 1024.0) as i64)))
             .with(CollisionRadius(omoba_sim::Fixed64::from_raw((collision_radius * 1024.0) as i64)));
 

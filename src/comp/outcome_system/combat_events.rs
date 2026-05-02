@@ -35,7 +35,6 @@ impl CombatEventHandler {
         source: Entity,
         target: Entity,
     ) -> Vec<Outcome> {
-        // PHASE 2: full Fixed64 damage pipeline; UnitStats::apply_incoming_damage still takes f32 —
         // convert at boundary; redesign in Phase 2 KCP tag rework.
         let phys_f = phys.to_f32_for_render();
         let magi_f = magi.to_f32_for_render();
@@ -89,7 +88,6 @@ impl CombatEventHandler {
 
         // ---- 套 UnitStats::apply_incoming_damage 逐類型減免 ----
         // CProperty 的 def_physic 當 armor；def_magic 當 magic_resist (0..1)。
-        // PHASE 2: apply_incoming_damage f32 boundary — full Fixed64 pipeline lands in Phase 2 KCP tag rework.
         let (final_phys, final_magi, final_real) = {
             let buffs = world.read_resource::<crate::ability_runtime::BuffStore>();
             let is_bldgs = world.read_storage::<IsBuilding>();
@@ -123,7 +121,6 @@ impl CombatEventHandler {
         }
 
         // ---- 扣 HP，套 MIN_HEALTH 下限 ----
-        // PHASE 2: BuffStore::sum_add returns Fixed64 — boundary kept at f32 for legacy compare; redesign in Phase 2.
         let min_health: f32 = {
             let buffs = world.read_resource::<crate::ability_runtime::BuffStore>();
             buffs.sum_add(target, StatKey::MinHealth).to_f32_for_render()
@@ -139,7 +136,6 @@ impl CombatEventHandler {
             if let Some(target_props) = properties.get_mut(target) {
                 // Phase 1c.3: target_props.hp / mhp are Fixed64 (Phase 1c.2);
                 // final_total / min_health stay f32 here — boundary at the read.
-                // PHASE 2: full Fixed64 hp arithmetic — redesign in Phase 2 KCP tag rework.
                 let hp_before_f = target_props.hp.to_f32_for_render();
                 let mut hp_after_f = hp_before_f - final_total;
                 // MIN_HEALTH clamp：> 0 時 HP 不低於此值

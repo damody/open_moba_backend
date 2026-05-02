@@ -43,7 +43,7 @@ pub fn query_list_players(world: &World) -> QueryResponse {
                     "hero_name": hero.name,
                     "title": hero.title,
                     "level": hero.level,
-                    // PHASE 2: wire format — JSON outbound query, kept f32 for compat; redesign in Phase 2 KCP tag rework.
+                    // NOTE: omb-mcp query wire format f32 — Phase 5+ migration.
                     "hp": prop.map(|p| p.hp.to_f32_for_render()).unwrap_or(0.0),
                     "max_hp": prop.map(|p| p.mhp.to_f32_for_render()).unwrap_or(0.0),
                     "pos_x": pos.0.x.to_f32_for_render(),
@@ -145,7 +145,7 @@ pub fn query_inspect_player_view(world: &World, player_name: &str) -> QueryRespo
             "name": hero.name,
             "title": hero.title,
             "level": hero.level,
-            // PHASE 2: wire format — JSON outbound query, kept f32 for compat; redesign in Phase 2 KCP tag rework.
+            // NOTE: omb-mcp query wire format f32 — Phase 5+ migration.
             "hp": prop.map(|p| p.hp.to_f32_for_render()).unwrap_or(0.0),
             "max_hp": prop.map(|p| p.mhp.to_f32_for_render()).unwrap_or(0.0),
             "x": pos.0.x.to_f32_for_render(),
@@ -160,7 +160,7 @@ pub fn query_inspect_player_view(world: &World, player_name: &str) -> QueryRespo
     for (ent, unit, pos) in (&entities, &units, &positions).join() {
         let mt = move_targets.get(ent);
 
-        // PHASE 2: wire format — Unit.current_hp / max_hp are i32 today; pos is Fixed64; redesign in Phase 2 KCP tag rework.
+        // NOTE: omb-mcp query wire format — Unit hp i32 / pos Fixed64 boundary; Phase 5+ migration.
         unit_list.push(json!({
             "entity_id": ent.id(),
             "name": unit.name,
@@ -184,7 +184,7 @@ pub fn query_inspect_player_view(world: &World, player_name: &str) -> QueryRespo
             "name": creep.name,
             "path": creep.path,
             "status": format!("{:?}", creep.status),
-            // PHASE 2: wire format — JSON outbound query, kept f32 for compat; redesign in Phase 2 KCP tag rework.
+            // NOTE: omb-mcp query wire format f32 — Phase 5+ migration.
             "hp": prop.map(|p| p.hp.to_f32_for_render()).unwrap_or(0.0),
             "max_hp": prop.map(|p| p.mhp.to_f32_for_render()).unwrap_or(0.0),
             "x": pos.0.x.to_f32_for_render(),
@@ -199,7 +199,7 @@ pub fn query_inspect_player_view(world: &World, player_name: &str) -> QueryRespo
         let tatk = tattacks.get(ent);
         let tprop = tproperties.get(ent);
 
-        // PHASE 2: wire format — JSON outbound query, kept f32 for compat; redesign in Phase 2 KCP tag rework.
+        // NOTE: omb-mcp query wire format f32 — Phase 5+ migration.
         tower_list.push(json!({
             "entity_id": ent.id(),
             "x": pos.0.x.to_f32_for_render(),

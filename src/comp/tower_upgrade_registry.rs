@@ -57,7 +57,6 @@ fn upgrade_effect_from_const(c: &UpgradeEffectConst) -> UpgradeEffect {
     match c.kind {
         UpgradeEffectKindC::StatMod => UpgradeEffect::StatMod {
             key: c.key.into(),
-            // PHASE 2: UpgradeEffect::StatMod.value still f32 (omoba-template-ids schema); redesign in Phase 2 KCP tag rework.
             value: c.value.to_f32_for_render(),
             op: match c.op {
                 StatOpC::Add => StatOp::Add,

@@ -180,7 +180,6 @@ impl<'a> System<'a> for Sys {
         // Carries current (target, velocity, start_pos, facing) — the gating +
         // record update happens serially below so we can touch mv_broadcasts
         // without fighting borrow rules inside the parallel closure.
-        // PHASE 2: MoveCandidate.velocity wire format f32; CreepMoveBroadcast / make_creep_move_full
         // take Fixed64 payloads — redesign in Phase 2 KCP tag rework.
         struct MoveCandidate {
             entity: specs::Entity,

@@ -181,8 +181,8 @@ impl State {
         state.initialize_standard_game();
         state.load_scripts();
 
-        // 立即發送初始心跳，讓前端知道後端已啟動
-        // Phase 4.4: gated behind `legacy_broadcast` feature.
+        // Phase 4.5: legacy 0x02 heartbeat broadcast cut. Lockstep TickBatch
+        // (0x10) handles client liveness via per-tick state_hash.
         #[cfg(feature = "legacy_broadcast")]
         {
             state.send_heartbeat();
@@ -296,7 +296,6 @@ impl State {
         // 放在並行系統之後、其他序列處理之前，確保腳本能看到本 tick 的
         // 完整戰鬥結果，也能修改狀態讓下游處理看見。
         let t_dispatch = Instant::now();
-        // PHASE 2: omb tick clock still f32-seconds; replace with Fixed64 dt directly in Phase 2 KCP tag rework.
         let dt_fx = omoba_template_ids::Fixed64::from_raw((dt.as_secs_f32() * 1024.0) as i64);
         scripting::run_script_dispatch(
             &mut self.ecs,

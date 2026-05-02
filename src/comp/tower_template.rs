@@ -60,7 +60,6 @@ pub fn spawn_td_tower(world: &mut World, pos: Vec2<f32>, unit_id: &str) -> Optio
         .with(vision)
         .with(Facing(omoba_sim::Angle::ZERO))
         .with(crate::comp::FacingBroadcast(None))
-        // PHASE 2: tower template metadata still uses turn_speed_deg f32; redesign in Phase 2 KCP tag rework.
         .with(TurnSpeed(omoba_sim::Fixed64::from_raw((tpl.turn_speed_deg.to_radians() * 1024.0) as i64)))
         .with(CollisionRadius(omoba_sim::Fixed64::from_raw((tpl.footprint * 1024.0) as i64)))
         .with(crate::scripting::ScriptUnitTag { unit_id: unit_id.to_string() })

@@ -2,7 +2,6 @@ use specs::{shred, Entities, Join, Read, ReadExpect, ReadStorage, SystemData, Wr
 use crate::comp::*;
 use omoba_sim::Fixed64;
 
-/// PHASE 2: Inventory / ItemBonus / ItemEffects schema still f32; redesign in Phase 2 KCP tag rework.
 #[inline]
 fn f32_to_fx(v: f32) -> Fixed64 {
     Fixed64::from_raw((v * omoba_sim::fixed::SCALE as f32) as i64)
@@ -32,7 +31,6 @@ impl<'a> System<'a> for Sys {
     const NAME: &'static str = "item";
 
     fn run(_job: &mut Job<Self>, (tr, mut tw): Self::SystemData) {
-        // PHASE 2: item cooldown schema still f32; redesign in Phase 2 KCP tag rework.
         let dt = tr.dt.0.to_f32_for_render();
 
         // 1) 遞減所有 inventory CD

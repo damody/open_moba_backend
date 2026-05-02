@@ -167,7 +167,6 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
             }
 
             // 3) host applies final amount
-            // PHASE 2: apply_damage helper still takes f32 — full Fixed64 damage pipeline lands with
             // Outcome::Damage redesign in Phase 2 KCP tag rework.
             apply_damage(adapter, victim, info.amount.to_f32_for_render(), info.kind);
         }
@@ -279,7 +278,6 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
                 // 執行成功後啟動 CD；失敗不扣 CD（讓玩家重試）
                 if exec_ok && cd_seconds > 0.0 {
                     if let Some(hero) = adapter.cache.hero.get_mut(caster) {
-                        // PHASE 2: AbilityLevelData.cooldown still f32 — convert at boundary; full Fixed64
                         // ability metadata redesign in Phase 2 KCP tag rework.
                         hero.start_cooldown(&skill_id, Fixed64::from_raw((cd_seconds * 1024.0) as i64));
                     }
@@ -509,7 +507,6 @@ fn world_dyn_of<'a>(adapter: &'a mut WorldAdapter<'_>) -> GameWorldDyn<'a> {
 /// exists for future use when we wire scripts into the damage pipeline.
 fn apply_damage(adapter: &mut WorldAdapter<'_>, victim: Entity, amount: f32, _kind: DamageKind) {
     // Phase 1c.3: CProperty.hp is Fixed64 (Phase 1c.2); convert at boundary from f32 amount.
-    // PHASE 2: amount stays f32 — full Fixed64 damage pipeline lands with Outcome::Damage redesign in Phase 2.
     let amount_fx = Fixed64::from_raw((amount * 1024.0) as i64);
     if let Some(p) = adapter.cache.cprop.get_mut(victim) {
         let new_hp = p.hp - amount_fx;
