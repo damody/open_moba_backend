@@ -38,8 +38,13 @@ struct Setting {
 
 impl Default for ServerSetting {
     fn default() -> Self {
-        let file_path = "game.toml";
-        let mut file = match File::open(file_path) {
+        // omobab.exe runs with cwd=omb so finds "game.toml" by relative path.
+        // omfx sim_runner runs in omfx process cwd, where the relative path
+        // misses; OMB_GAME_TOML env var lets the caller point at the right
+        // absolute path (omfx sets it to D:/omoba/omb/game.toml).
+        let file_path = std::env::var("OMB_GAME_TOML")
+            .unwrap_or_else(|_| "game.toml".to_string());
+        let mut file = match File::open(&file_path) {
             Ok(f) => f,
             Err(e) => panic!("no such file {} exception:{}", file_path, e),
         };
