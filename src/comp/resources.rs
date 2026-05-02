@@ -6,14 +6,16 @@ use std::{
 };
 use serde::{Deserialize, Serialize};
 use specs::Entity;
+use omoba_sim::Fixed32;
 
 /// A resource that stores the tick (i.e: physics) time.
 #[derive(Copy, Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct Time(pub f64);
 
 /// A resource that stores the time since the previous tick.
+/// Phase 1b: switched to `Fixed32` (seconds). Tick-rate conversion stays consumer-side.
 #[derive(Copy, Clone, Debug, Default)]
-pub struct DeltaTime(pub f32);
+pub struct DeltaTime(pub Fixed32);
 
 // Start of Tick, used for metrics
 #[derive(Copy, Clone)]

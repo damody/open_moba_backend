@@ -5,10 +5,11 @@ use std::sync::Arc;
 use vek::*;
 use specs::storage::VecStorage;
 use instant_distance::{Builder, Search};
+use omoba_sim::{Vec2 as SimVec2, Fixed32};
 
 /// Position
 #[derive(Copy, Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Pos(pub Vec2<f32>);
+pub struct Pos(pub SimVec2);
 
 impl Component for Pos {
     type Storage = VecStorage<Self>;
@@ -17,8 +18,12 @@ impl Component for Pos {
 impl instant_distance::Point for Pos {
     fn distance(&self, other: &Self) -> f32 {
         // Euclidean distance metric
-        let r = self.0 - other.0;
-        r.magnitude_squared()
+        // TODO Phase 1b: instant_distance::Point trait requires f32 — this is the
+        // sim→render boundary for k-NN queries. The lossy conversion is intentional
+        // here (k-NN ordering is determinism-tolerant; not used for state mutation).
+        let dx = (self.0.x - other.0.x).to_f32_for_render();
+        let dy = (self.0.y - other.0.y).to_f32_for_render();
+        dx * dx + dy * dy
     }
 }
 
@@ -40,10 +45,10 @@ impl Rot {
 
 /// Velocity
 #[derive(Copy, Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Vel(pub Vec2<f32>);
+pub struct Vel(pub SimVec2);
 
 impl Vel {
-    pub fn zero() -> Self { Vel(Vec2::zero()) }
+    pub fn zero() -> Self { Vel(SimVec2::ZERO) }
 }
 
 impl Component for Vel {
@@ -52,7 +57,7 @@ impl Component for Vel {
 
 /// 移動目標 — 實體每 tick 向此位置移動
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct MoveTarget(pub Vec2<f32>);
+pub struct MoveTarget(pub SimVec2);
 
 impl Component for MoveTarget {
     type Storage = VecStorage<Self>;
@@ -96,7 +101,7 @@ impl Component for PreviousPhysCache {
 
 // Scale
 #[derive(Copy, Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Scale(pub f32);
+pub struct Scale(pub Fixed32);
 
 impl Component for Scale {
     type Storage = FlaggedStorage<Self, VecStorage<Self>>;
@@ -104,10 +109,10 @@ impl Component for Scale {
 
 // Mass
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Mass(pub f32);
+pub struct Mass(pub Fixed32);
 
 impl Default for Mass {
-    fn default() -> Mass { Mass(1.0) }
+    fn default() -> Mass { Mass(Fixed32::ONE) }
 }
 
 impl Component for Mass {
@@ -140,10 +145,10 @@ impl Component for ForceUpdate {
 
 /// 單位的碰撞半徑。用於 BlockedRegions 阻擋判定。
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct CollisionRadius(pub f32);
+pub struct CollisionRadius(pub Fixed32);
 
 impl Default for CollisionRadius {
-    fn default() -> Self { CollisionRadius(20.0) }
+    fn default() -> Self { CollisionRadius(Fixed32::from_i32(20)) }
 }
 
 impl Component for CollisionRadius {
