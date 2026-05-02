@@ -442,6 +442,9 @@ impl<'a> System<'a> for Sys {
             if !need_emit { continue; }
 
             // Fire the event with full extrapolation fields.
+            // Phase 4.4: gated behind `legacy_broadcast` feature — the 0x02
+            // GameEvent producer pipeline is cut for the lockstep path.
+            #[cfg(feature = "legacy_broadcast")]
             let _ = tx.try_send(make_creep_move_full(
                 cand.entity.id(),
                 cand.target.x, cand.target.y,

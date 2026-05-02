@@ -182,8 +182,12 @@ impl State {
         state.load_scripts();
 
         // 立即發送初始心跳，讓前端知道後端已啟動
-        state.send_heartbeat();
-        log::info!("📡 初始心跳已發送，後端準備就緒");
+        // Phase 4.4: gated behind `legacy_broadcast` feature.
+        #[cfg(feature = "legacy_broadcast")]
+        {
+            state.send_heartbeat();
+            log::info!("📡 初始心跳已發送，後端準備就緒");
+        }
 
         state
     }
@@ -262,8 +266,12 @@ impl State {
         state.initialize_campaign_game(&campaign_data);
 
         // 立即發送初始心跳，讓前端知道後端已啟動
-        state.send_heartbeat();
-        log::info!("📡 初始心跳已發送，後端準備就緒");
+        // Phase 4.4: gated behind `legacy_broadcast` feature.
+        #[cfg(feature = "legacy_broadcast")]
+        {
+            state.send_heartbeat();
+            log::info!("📡 初始心跳已發送，後端準備就緒");
+        }
 
         state
     }
@@ -324,14 +332,20 @@ impl State {
         self.process_queries();
 
         // 發送心跳（每 2 秒一次，只有 counter）
+        // Phase 4.4: gated behind `legacy_broadcast` feature — the 0x02
+        // TAG_GAME_EVENT broadcast producer side is cut for the lockstep path.
+        #[cfg(feature = "legacy_broadcast")]
         self.send_heartbeat_if_needed();
 
         // 每 0.3 秒推一次 hero.stats，讓前端面板 buff 倒數連續更新
+        // Phase 4.4: gated behind `legacy_broadcast` feature.
+        #[cfg(feature = "legacy_broadcast")]
         self.push_hero_stats_if_needed();
 
         // 依視野對每個 session 送 C/D diff。必須在 ecs.maintain() 前，
         // 這樣本 tick 死亡的實體還在 storage 裡，diff 才能正確判斷「離開」。
-        #[cfg(any(feature = "grpc", feature = "kcp"))]
+        // Phase 4.4: gated behind `legacy_broadcast` feature.
+        #[cfg(all(any(feature = "grpc", feature = "kcp"), feature = "legacy_broadcast"))]
         self.compute_and_send_visibility_diffs();
 
         // 維護 ECS
@@ -389,7 +403,7 @@ impl State {
     /// The first diff for a freshly-subscribed client naturally produces a full
     /// snapshot (old set is empty → everything currently visible is "entered").
     /// Players that haven't sent a viewport yet are skipped entirely (anti-cheat).
-    #[cfg(any(feature = "grpc", feature = "kcp"))]
+    #[cfg(all(any(feature = "grpc", feature = "kcp"), feature = "legacy_broadcast"))]
     fn compute_and_send_visibility_diffs(&mut self) {
         use specs::Join;
 
@@ -592,6 +606,7 @@ impl State {
     }
 
     /// 檢查並發送心跳
+    #[cfg(feature = "legacy_broadcast")]
     fn send_heartbeat_if_needed(&mut self) {
         let current_time = self.time_manager.get_time();
 
@@ -603,6 +618,7 @@ impl State {
 
     /// 每 hero_stats_interval 秒，對所有英雄廣播 hero.stats snapshot（含 buffs）。
     /// 讓前端左下角屬性面板能顯示 buff 的剩餘時間與即時屬性變化。
+    #[cfg(feature = "legacy_broadcast")]
     fn push_hero_stats_if_needed(&mut self) {
         let current_time = self.time_manager.get_time();
         if current_time - self.last_hero_stats_time < self.hero_stats_interval {
@@ -631,7 +647,7 @@ impl State {
             let Some(h) = heroes.get(e) else { continue };
             let gold = golds.get(e).map(|g| g.0).unwrap_or(0);
             let prop = props.get(e);
-            // PHASE 2: wire format — wire-format builders take f32; redesign in Phase 2 KCP tag rework.
+            // Phase 4.4: wire emission gated behind `legacy_broadcast`; f32 boundary only used for legacy 0x02 path.
             let (hp, mhp) = prop.map(|p| (p.hp.to_f32_for_render(), p.mhp.to_f32_for_render())).unwrap_or((0.0, 0.0));
             let (armor_b, mres_b, msd_b) = prop
                 .map(|p| (p.def_physic.to_f32_for_render(), p.def_magic.to_f32_for_render(), p.msd.to_f32_for_render()))
@@ -683,6 +699,7 @@ impl State {
     /// `tick`/`game_time`/`render_delay_ms` flowing for client clock sync &
     /// liveness. Under `mqtt` (no viewport infrastructure) the path is
     /// unchanged — full snapshot every tick.
+    #[cfg(feature = "legacy_broadcast")]
     fn send_heartbeat(&mut self) {
         use specs::Join;
         use serde_json::json;
@@ -709,7 +726,7 @@ impl State {
         // 這個小 Vec 做 viewport 過濾，免得對每個 player 重 join ECS storage。
         // P5 會換成 spatial broadphase；P1 單玩家 linear scan 足夠。
         let mut all_entity_hp: Vec<(u32, f32, f32, f32)> = Vec::new();
-        // PHASE 2: wire format — heartbeat HP snapshot kept f32 for compat; redesign in Phase 2 KCP tag rework.
+        // Phase 4.4: send_heartbeat is gated behind `legacy_broadcast`; this f32 collect only runs when legacy producer is active.
         for (e, _, p, pos) in (&entities, &heroes, &properties, &positions).join() {
             let (x, y) = pos.xy_f32();
             all_entity_hp.push((e.id(), x, y, p.hp.to_f32_for_render()));
@@ -1102,6 +1119,8 @@ impl State {
         StateInitializer::create_test_scene(&mut self.ecs);
         // 動態實體建完後再填 Region blockers（Searcher 索引一次性完成）
         StateInitializer::populate_region_blockers(&mut self.ecs);
+        // Phase 4.4: gated behind `legacy_broadcast` feature.
+        #[cfg(feature = "legacy_broadcast")]
         self.send_initial_game_state();
     }
 
@@ -1112,10 +1131,13 @@ impl State {
         StateInitializer::populate_region_blockers(&mut self.ecs);
 
         // 發送初始化資料到 MQTT
+        // Phase 4.4: gated behind `legacy_broadcast` feature.
+        #[cfg(feature = "legacy_broadcast")]
         self.send_initial_game_state();
     }
     
     /// 發送初始遊戲狀態到 MQTT
+    #[cfg(feature = "legacy_broadcast")]
     fn send_initial_game_state(&mut self) {
         use specs::Join;
         use serde_json::json;
@@ -1132,7 +1154,6 @@ impl State {
             let golds = self.ecs.read_storage::<Gold>();
             for (entity, hero, pos) in (&entities, &heroes, &positions).join() {
                 let payload = build_hero_payload(entity, hero, pos, properties.get(entity), collision_radii.get(entity));
-                // PHASE 2: wire format — wire-format builders take f32; redesign in Phase 2 KCP tag rework.
                 let (pos_x_f, pos_y_f) = pos.xy_f32();
                 let pos_vek = vek::Vec2::new(pos_x_f, pos_y_f);
                 if let Err(e) = self.mqtx.send(OutboundMsg::new_s_at(
@@ -1143,7 +1164,6 @@ impl State {
                 // P3: 初始推 HeroStatic（冷資料）+ HeroHot（熱資料）；非 kcp fallback 到 legacy hero.stats
                 let gold = golds.get(entity).map(|g| g.0).unwrap_or(0);
                 let prop = properties.get(entity);
-                // PHASE 2: wire format — wire-format builders take f32; redesign in Phase 2 KCP tag rework.
                 let (hp, mhp) = prop.map(|p| (p.hp.to_f32_for_render(), p.mhp.to_f32_for_render())).unwrap_or((0.0, 0.0));
                 let (armor_b, mres_b, msd_b) = prop
                     .map(|p| (p.def_physic.to_f32_for_render(), p.def_magic.to_f32_for_render(), p.msd.to_f32_for_render()))
@@ -1219,7 +1239,6 @@ impl State {
 
             for (entity, unit, pos) in (&entities, &units, &positions).join() {
                 let payload = build_unit_payload(entity, unit, pos, properties.get(entity), collision_radii.get(entity));
-                // PHASE 2: wire format — wire-format builders take f32; redesign in Phase 2 KCP tag rework.
                 let (pos_x_f, pos_y_f) = pos.xy_f32();
                 if let Err(e) = self.mqtx.send(OutboundMsg::new_s_at(
                     "td/all/res", "unit", "create", payload, pos_x_f, pos_y_f,
@@ -1266,7 +1285,6 @@ impl State {
             let collision_radii = self.ecs.read_storage::<CollisionRadius>();
             use specs::Join;
             for (entity, _, pos) in (&entities, &towers, &positions).join() {
-                // PHASE 2: wire format — JSON outbound, kept f32 for compat; redesign in Phase 2 KCP tag rework.
                 let hp = props.get(entity).map(|p| p.hp.v.to_f32_for_render()).unwrap_or(0.0);
                 let is_base = is_bases.get(entity).is_some();
                 let is_enemy = factions.get(entity)
@@ -1278,9 +1296,7 @@ impl State {
                     (false, true)  => "我方基地",
                     (false, false) => "我方塔",
                 };
-                // PHASE 2: wire format — JSON outbound, kept f32 for compat; redesign in Phase 2 KCP tag rework.
                 let radius = collision_radii.get(entity).map(|c| c.0.to_f32_for_render()).unwrap_or(50.0);
-                // PHASE 2: wire format — JSON outbound, kept f32 for compat; redesign in Phase 2 KCP tag rework.
                 let (pos_x_f, pos_y_f) = pos.xy_f32();
                 let payload = json!({
                     "id": entity.id(),
@@ -1322,7 +1338,6 @@ impl State {
             let blockers = self.ecs.read_storage::<RegionBlocker>();
             let mut list: Vec<serde_json::Value> = Vec::new();
             for (_e, p, r, _) in (&entities, &positions, &radii, &blockers).join() {
-                // PHASE 2: wire format — JSON outbound, kept f32 for compat; redesign in Phase 2 KCP tag rework.
                 list.push(json!({
                     "x": p.0.x.to_f32_for_render(),
                     "y": p.0.y.to_f32_for_render(),
@@ -1410,7 +1425,9 @@ impl State {
 }
 
 // ---- Entity payload builders (shared by initial-state and visibility-diff) ----
+// Phase 4.4: gated behind `legacy_broadcast` feature — only used by the legacy 0x02 GameEvent producer pipeline.
 
+#[cfg(feature = "legacy_broadcast")]
 fn build_hero_payload(
     entity: specs::Entity,
     hero: &Hero,
@@ -1418,7 +1435,6 @@ fn build_hero_payload(
     prop: Option<&CProperty>,
     cr: Option<&CollisionRadius>,
 ) -> serde_json::Value {
-    // PHASE 2: wire format — JSON outbound, kept f32 for compat; redesign in Phase 2 KCP tag rework.
     let (hp, mhp, msd) = prop
         .map(|p| (p.hp.to_f32_for_render(), p.mhp.to_f32_for_render(), p.msd.to_f32_for_render()))
         .unwrap_or((100.0, 100.0, 0.0));
@@ -1438,6 +1454,7 @@ fn build_hero_payload(
     })
 }
 
+#[cfg(feature = "legacy_broadcast")]
 fn build_unit_payload(
     entity: specs::Entity,
     unit: &Unit,
@@ -1445,7 +1462,7 @@ fn build_unit_payload(
     prop: Option<&CProperty>,
     cr: Option<&CollisionRadius>,
 ) -> serde_json::Value {
-    // PHASE 2: wire format — JSON outbound, kept f32 for compat; redesign in Phase 2 KCP tag rework.
+    // Phase 4.4: wire format f32 only used by legacy 0x02 GameEvent broadcast.
     let (hp, mhp, msd) = prop
         .map(|p| (p.hp.to_f32_for_render(), p.mhp.to_f32_for_render(), p.msd.to_f32_for_render()))
         .unwrap_or((unit.current_hp as f32, unit.max_hp as f32, unit.move_speed.to_f32_for_render()));
@@ -1464,6 +1481,7 @@ fn build_unit_payload(
     })
 }
 
+#[cfg(feature = "legacy_broadcast")]
 fn build_creep_payload(
     entity: specs::Entity,
     creep: &Creep,
@@ -1472,7 +1490,7 @@ fn build_creep_payload(
     cr: Option<&CollisionRadius>,
     paths: Option<&BTreeMap<String, Path>>,
 ) -> serde_json::Value {
-    // PHASE 2: wire format — JSON outbound, kept f32 for compat; redesign in Phase 2 KCP tag rework.
+    // Phase 4.4: wire format f32 only used by legacy 0x02 GameEvent broadcast.
     let (hp, mhp, msd) = prop
         .map(|p| (p.hp.to_f32_for_render(), p.mhp.to_f32_for_render(), p.msd.to_f32_for_render()))
         .unwrap_or((0.0, 0.0, 0.0));
@@ -1504,6 +1522,7 @@ fn build_creep_payload(
     })
 }
 
+#[cfg(feature = "legacy_broadcast")]
 fn build_tower_payload(
     entity: specs::Entity,
     _tower: &Tower,
@@ -1513,7 +1532,7 @@ fn build_tower_payload(
     faction: Option<&Faction>,
     is_base: bool,
 ) -> serde_json::Value {
-    // PHASE 2: wire format — JSON outbound, kept f32 for compat; redesign in Phase 2 KCP tag rework.
+    // Phase 4.4: wire format f32 only used by legacy 0x02 GameEvent broadcast.
     let (hp, mhp) = prop.map(|p| (p.hp.to_f32_for_render(), p.mhp.to_f32_for_render())).unwrap_or((100.0, 100.0));
     let radius = cr.map(|c| c.0.to_f32_for_render()).unwrap_or(50.0);
     let is_enemy = faction.map(|f| f.faction_id == FactionType::Enemy).unwrap_or(false);

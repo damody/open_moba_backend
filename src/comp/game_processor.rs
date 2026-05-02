@@ -1058,11 +1058,15 @@ impl GameProcessor {
         let pos = positions.get(target).ok_or_else(|| failure::err_msg("Creep position not found"))?;
 
         // PHASE 2: wire format — proto helper takes f32; redesign in Phase 2 KCP tag rework.
+        // Phase 4.4: gated behind `legacy_broadcast` feature.
         let (px, py) = pos.xy_f32();
+        #[cfg(feature = "legacy_broadcast")]
         let _ = mqtx.try_send(make_creep_move_ev(target.id(), px, py, 0.0, px, py));
+        #[cfg(not(feature = "legacy_broadcast"))]
+        let _ = (mqtx, target, px, py);
         Ok(())
     }
-    
+
     fn handle_creep_walk(ecs: &mut World, target: Entity) -> Result<(), Error> {
         let mut creeps = ecs.write_storage::<Creep>();
         let creep = creeps.get_mut(target).ok_or_else(|| failure::err_msg("Creep not found"))?;

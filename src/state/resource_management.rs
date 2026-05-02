@@ -194,7 +194,6 @@ impl ResourceManager {
                 .with(tower_attack)
                 .build();
             let mut outcomes = world.write_resource::<Vec<Outcome>>();
-            // PHASE 2: wire format — inbound JSON x/y are f32; redesign in Phase 2 KCP tag rework.
             let pos_sim = omoba_sim::Vec2::new(
                 Fixed64::from_raw((pos.x * 1024.0) as i64),
                 Fixed64::from_raw((pos.y * 1024.0) as i64),
@@ -323,7 +322,6 @@ impl ResourceManager {
             let positions = world.read_storage::<Pos>();
             let properties = world.read_storage::<CProperty>();
             let radii = world.read_storage::<CollisionRadius>();
-            // PHASE 2: wire format — proto helper takes f32; redesign in Phase 2 KCP tag rework.
             let hp = properties.get(tower_entity).map(|p| p.hp.to_f32_for_render()).unwrap_or(tpl.hp);
             let mhp = properties.get(tower_entity).map(|p| p.mhp.to_f32_for_render()).unwrap_or(tpl.hp);
             let radius = radii.get(tower_entity).map(|r| r.0.to_f32_for_render()).unwrap_or(tpl.footprint);
@@ -411,11 +409,17 @@ impl ResourceManager {
     /// 主動廣播指定英雄的 hot 狀態（hp/gold/damage/armor/msd/range/interval/buffs）。
     /// 供扣錢、賣塔、升級塔、漏怪等即時事件使用。
     /// P3: kcp path 走 prost `HeroHot`；非 kcp path 還是走 legacy `hero.stats` JSON（全欄位）。
+    /// Phase 4.4: gated behind `legacy_broadcast` feature — body no-ops when
+    /// the legacy 0x02 GameEvent producer pipeline is cut.
     pub(crate) fn push_hero_stats(&self, world: &mut World, hero_entity: specs::Entity) {
+        #[cfg(feature = "legacy_broadcast")]
         self.push_hero_hot(world, hero_entity);
+        #[cfg(not(feature = "legacy_broadcast"))]
+        let _ = (world, hero_entity);
     }
 
     /// P3: 推 `HeroHot` 熱資料（0.3s tick + 狀態變化事件共用）。
+    #[cfg(feature = "legacy_broadcast")]
     pub(crate) fn push_hero_hot(&self, world: &mut World, hero_entity: specs::Entity) {
         let heroes = world.read_storage::<Hero>();
         let golds = world.read_storage::<Gold>();
@@ -426,7 +430,6 @@ impl ResourceManager {
         let Some(h) = heroes.get(hero_entity) else { return };
         let g = golds.get(hero_entity).map(|g| g.0).unwrap_or(0);
         let prop = props.get(hero_entity);
-        // PHASE 2: wire format — wire-format builders take f32; redesign in Phase 2 KCP tag rework.
         let (hp, mhp) = prop.map(|p| (p.hp.to_f32_for_render(), p.mhp.to_f32_for_render())).unwrap_or((0.0, 0.0));
         let (armor_b, mres_b, msd_b) = prop
             .map(|p| (p.def_physic.to_f32_for_render(), p.def_magic.to_f32_for_render(), p.msd.to_f32_for_render()))
@@ -466,22 +469,24 @@ impl ResourceManager {
 
     /// P3: 推 `HeroStatic` 冷資料（create / level up / ability learn）。
     /// 非 kcp build：fallback 成推一次完整 legacy `hero.stats`（含 static + hot）。
+    /// Phase 4.4: gated behind `legacy_broadcast` feature.
     pub(crate) fn push_hero_static(&self, world: &mut World, hero_entity: specs::Entity) {
-        #[cfg(feature = "kcp")]
+        #[cfg(all(feature = "kcp", feature = "legacy_broadcast"))]
         {
             let heroes = world.read_storage::<Hero>();
             let positions = world.read_storage::<Pos>();
             let Some(h) = heroes.get(hero_entity) else { return };
-            // PHASE 2: wire format — wire-format builders take f32; redesign in Phase 2 KCP tag rework.
             let (px, py) = positions.get(hero_entity).map(|p| p.xy_f32()).unwrap_or((0.0, 0.0));
             let msg = build_hero_static_msg(hero_entity, h, vek::Vec2::new(px, py));
             let _ = self.mqtx.send(msg);
         }
-        #[cfg(not(feature = "kcp"))]
+        #[cfg(all(not(feature = "kcp"), feature = "legacy_broadcast"))]
         {
             // 非 kcp: 用 legacy hero.stats（全欄位）
             self.push_hero_hot(world, hero_entity);
         }
+        #[cfg(not(feature = "legacy_broadcast"))]
+        let _ = (world, hero_entity);
     }
 
     fn upgrade_tower(&self, world: &mut World, pd: &InboundMsg) -> Result<(), Error> {
@@ -652,7 +657,6 @@ impl ResourceManager {
         };
 
         // 10. 廣播 tower/upgrade
-        // PHASE 2: wire format — JSON outbound, kept f32 for compat; redesign in Phase 2 KCP tag rework.
         let (tower_x_f, tower_y_f) = world.read_storage::<Pos>()
             .get(tower_entity).map(|p| p.xy_f32()).unwrap_or((0.0, 0.0));
         let payload = json!({
@@ -921,7 +925,6 @@ impl ResourceManager {
         }
 
         // 解析 target_pos [x,y] 或 target_entity (u64)
-        // PHASE 2: wire format — inbound JSON x/y are f32; redesign in Phase 2 KCP tag rework.
         let target = if let Some(arr) = pd.d.get("target_pos").and_then(|v| v.as_array()) {
             if arr.len() == 2 {
                 let x = arr[0].as_f64().unwrap_or(0.0) as f32;
@@ -1002,7 +1005,6 @@ impl ResourceManager {
 
         let hero = heroes.get(hero_entity);
         let gold = golds.get(hero_entity).map(|g| g.0).unwrap_or(0);
-        // PHASE 2: wire format — wire-format builders take f32; redesign in Phase 2 KCP tag rework.
         let (pos_x_f, pos_y_f) = positions.get(hero_entity).map(|p| p.xy_f32()).unwrap_or((0.0, 0.0));
         let pos_vek = vek::Vec2::new(pos_x_f, pos_y_f);
         #[cfg(not(feature = "kcp"))]
