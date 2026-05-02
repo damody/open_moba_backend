@@ -39,8 +39,8 @@ impl Component for Pos {
 impl instant_distance::Point for Pos {
     fn distance(&self, other: &Self) -> f32 {
         // Euclidean distance metric
-        // TODO Phase 1b: instant_distance::Point trait requires f32 — this is the
-        // sim→render boundary for k-NN queries. The lossy conversion is intentional
+        // TODO Phase 1e: instant_distance::Point trait requires f32; resolve when Searcher migrates to Fixed32 —
+        // this is the sim→render boundary for k-NN queries. The lossy conversion is intentional
         // here (k-NN ordering is determinism-tolerant; not used for state mutation).
         let dx = (self.0.x - other.0.x).to_f32_for_render();
         let dy = (self.0.y - other.0.y).to_f32_for_render();

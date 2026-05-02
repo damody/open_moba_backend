@@ -12,7 +12,7 @@ use crate::transport::OutboundMsg;
 use crossbeam_channel::Sender;
 use serde_json::json;
 use omoba_sim::{Fixed32, Vec2 as SimVec2, Angle};
-use omoba_sim::trig::{angle_rotate_toward, atan2 as sim_atan2, TAU_TICKS};
+use omoba_sim::trig::{angle_rotate_toward, atan2 as sim_atan2, fixed_rad_to_ticks, TAU_TICKS};
 
 /// MOBA 鏡頭下肉眼無感的 facing 變化量（~15°）。舊值 0.05 (~3°) 造成過多 F event。
 const FACING_BROADCAST_THRESHOLD_RAD: f32 = 0.26;
@@ -286,9 +286,7 @@ impl<'a> System<'a> for Sys {
                                                 let turn_rate = tr.turn_speeds.get(e)
                                                     .map(|t| t.0)
                                                     .unwrap_or(Fixed32::from_raw(1608)); // π/2 rad/s default
-                                                // ticks = rad * TAU_TICKS / 2π; 2π raw ≈ 6434.
-                                                let max_step_ticks: i32 =
-                                                    ((turn_rate * dt).raw() as i64 * TAU_TICKS as i64 / 6434) as i32;
+                                                let max_step_ticks = fixed_rad_to_ticks(turn_rate * dt);
                                                 facing.0 = angle_rotate_toward(facing.0, desired_angle, max_step_ticks);
                                                 let new_facing_rad = a_to_rad(facing.0);
                                                 // 廣播 facing 變化：和「上次廣播」差 > 15° 才送。
