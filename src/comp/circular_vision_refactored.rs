@@ -61,7 +61,7 @@ impl VisionSystemManager {
             if self.result_manager.needs_vision_update(entity, current_time) || 
                vision.needs_recalculation(current_time) {
                 
-                // TODO Phase 1[d]: drop f32 boundary projection when vision goes Fixed32-native.
+                // NOTE: vision is client-side render hint (fog of war); per-tick rebuild from authoritative Pos keeps it cross-client consistent.
                 let (px, py) = pos.xy_f32();
                 let result = self.calculator.calculate_circular_vision(vek::Vec2::new(px, py), &*vision);
                 vision.vision_result = Some(result.clone());
@@ -114,7 +114,7 @@ impl VisionSystemManager {
         let entities = world.entities();
         let positions = world.read_storage::<Pos>();
         
-        // TODO Phase 1[d]: drop f32 boundary projection when vision goes Fixed32-native.
+        // NOTE: vision is client-side render hint (fog of war); per-tick rebuild from authoritative Pos keeps it cross-client consistent.
         let entity_positions: Vec<(Entity, vek::Vec2<f32>)> = (&entities, &positions)
             .join()
             .map(|(e, pos)| { let (x, y) = pos.xy_f32(); (e, vek::Vec2::new(x, y)) })

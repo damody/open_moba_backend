@@ -28,7 +28,7 @@ pub struct Unit {
     // 狀態追蹤
     pub current_target: Option<Entity>,
     pub last_attack_time: Fixed32,
-    // TODO Phase 1[d]: read from cleaner deterministic source
+    // NOTE: spawn_position is f32 by design (initial pos, never mutated); sim-side reads Pos (Fixed32) directly.
     pub spawn_position: (f32, f32),
     
     // 獎勵和掉落
@@ -145,7 +145,7 @@ impl Unit {
         };
 
         // template-ids creep_stats already Fixed32; we keep i32 for hp/damage by converting via render boundary.
-        // TODO Phase 1[d]: when Unit.{max_hp,base_damage} migrate to Fixed32 too, drop the int conversions.
+        // NOTE: Unit.{max_hp, base_damage} are i32 by design (integer game values); convert from Fixed32 at this boundary.
         let attack_range = if s.attack_range.raw() > 0 { s.attack_range } else { Fixed32::from_i32(150) };
         Unit {
             id: creep_data.id.clone(),
@@ -194,7 +194,7 @@ impl Unit {
             _ => AiType::Aggressive,
         };
 
-        // TODO Phase 1[d]: drop hp/damage int conversions when Unit migrates fully.
+        // NOTE: Unit.{current_hp, max_hp, base_damage} are i32 by design (integer game values).
         Unit {
             id: enemy_data.id.clone(),
             name: creep_display(cid).to_string(),

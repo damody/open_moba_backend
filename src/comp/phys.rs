@@ -14,7 +14,7 @@ pub struct Pos(pub SimVec2);
 impl Pos {
     /// Boundary helper: construct from two `f32` (typically world coords from
     /// config / spawn data). Routes through `Fixed32::from_raw` quantization.
-    /// TODO Phase 1[d]: drop when callers feed `Fixed32` natively.
+    /// NOTE: legacy f32 helper retained as transition utility for wire-format / config read boundary.
     #[inline]
     pub fn from_xy_f32(x: f32, y: f32) -> Self {
         Pos(SimVec2 {
@@ -25,7 +25,7 @@ impl Pos {
 
     /// Boundary helper: lossy `f32` projection of underlying coords. Used at
     /// wire-format / VFX / non-determinism-tolerant query sites.
-    /// TODO Phase 1[d]: drop when consumers go native.
+    /// NOTE: legacy f32 projection retained for wire-format / VFX / determinism-tolerant query sites; sim-side reads SimVec2 directly.
     #[inline]
     pub fn xy_f32(&self) -> (f32, f32) {
         (self.0.x.to_f32_for_render(), self.0.y.to_f32_for_render())
@@ -39,9 +39,9 @@ impl Component for Pos {
 impl instant_distance::Point for Pos {
     fn distance(&self, other: &Self) -> f32 {
         // Euclidean distance metric
-        // TODO Phase 1e: instant_distance::Point trait requires f32; resolve when Searcher migrates to Fixed32 —
-        // this is the sim→render boundary for k-NN queries. The lossy conversion is intentional
-        // here (k-NN ordering is determinism-tolerant; not used for state mutation).
+        // NOTE: instant_distance::Point trait requires f32. Searcher / spatial index uses f32 internally for
+        // instant_distance lib compat. Cache rebuilt per tick from authoritative Pos with deterministic
+        // entity-id ordering; final distance check in caller is Fixed32. Boundary lossy is acceptable.
         let dx = (self.0.x - other.0.x).to_f32_for_render();
         let dy = (self.0.y - other.0.y).to_f32_for_render();
         dx * dx + dy * dy
@@ -71,7 +71,7 @@ pub struct Vel(pub SimVec2);
 impl Vel {
     pub fn zero() -> Self { Vel(SimVec2::ZERO) }
 
-    /// Boundary helper: construct from two `f32`. TODO Phase 1[d]: drop on full migration.
+    /// NOTE: legacy f32 helper retained as transition utility for wire-format / config read boundary.
     #[inline]
     pub fn from_xy_f32(x: f32, y: f32) -> Self {
         Vel(SimVec2 {
@@ -90,7 +90,7 @@ impl Component for Vel {
 pub struct MoveTarget(pub SimVec2);
 
 impl MoveTarget {
-    /// Boundary helper: construct from two `f32`. TODO Phase 1[d]: drop on full migration.
+    /// NOTE: legacy f32 helper retained as transition utility for wire-format / config read boundary.
     #[inline]
     pub fn from_xy_f32(x: f32, y: f32) -> Self {
         MoveTarget(SimVec2 {

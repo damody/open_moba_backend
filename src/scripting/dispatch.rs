@@ -167,7 +167,8 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
             }
 
             // 3) host applies final amount
-            // TODO Phase 1[d]: drop conversion when apply_damage / CProperty.hp migrate to Fixed32.
+            // PHASE 2: apply_damage helper still takes f32 — full Fixed32 damage pipeline lands with
+            // Outcome::Damage redesign in Phase 2 KCP tag rework.
             apply_damage(adapter, victim, info.amount.to_f32_for_render(), info.kind);
         }
 
@@ -187,7 +188,7 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
             // - Active / Toggle / Ultimate：若仍在 CD 中直接拒絕
             if let Some(hero) = adapter.cache.hero.get(caster) {
                 if hero.is_on_cooldown(&skill_id) {
-                    // TODO Phase 1[d]: Hero cooldown remaining in Fixed32 — log f32 for human readability.
+                    // NOTE: log uses f32 boundary — Fixed32 has no Display.
                     log::info!(
                         "[scripting] skill '{}' blocked — on cooldown ({:.1}s remaining)",
                         skill_id,
@@ -278,7 +279,8 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
                 // 執行成功後啟動 CD；失敗不扣 CD（讓玩家重試）
                 if exec_ok && cd_seconds > 0.0 {
                     if let Some(hero) = adapter.cache.hero.get_mut(caster) {
-                        // TODO Phase 1[d]: AbilityLevelData.cooldown still f32 — boundary at start_cooldown.
+                        // PHASE 2: AbilityLevelData.cooldown still f32 — convert at boundary; full Fixed32
+                        // ability metadata redesign in Phase 2 KCP tag rework.
                         hero.start_cooldown(&skill_id, Fixed32::from_raw((cd_seconds * 1024.0) as i32));
                     }
                 }
@@ -507,7 +509,7 @@ fn world_dyn_of<'a>(adapter: &'a mut WorldAdapter<'_>) -> GameWorldDyn<'a> {
 /// exists for future use when we wire scripts into the damage pipeline.
 fn apply_damage(adapter: &mut WorldAdapter<'_>, victim: Entity, amount: f32, _kind: DamageKind) {
     // Phase 1c.3: CProperty.hp is Fixed32 (Phase 1c.2); convert at boundary from f32 amount.
-    // TODO Phase 1[d]: amount Fixed32 once full damage pipeline migrated.
+    // PHASE 2: amount stays f32 — full Fixed32 damage pipeline lands with Outcome::Damage redesign in Phase 2.
     let amount_fx = Fixed32::from_raw((amount * 1024.0) as i32);
     if let Some(p) = adapter.cache.cprop.get_mut(victim) {
         let new_hp = p.hp - amount_fx;

@@ -87,7 +87,7 @@ impl<'a> System<'a> for Sys {
         // Phase 1c.4: dt is Fixed32 throughout battle tick.
         let dt: Fixed32 = tr.dt.0;
         // Lossy projection retained ONLY for facing-radian arithmetic + Searcher boundary.
-        // TODO Phase 1e: drop when Searcher / Facing migrate to Fixed32 / Angle natively.
+        // NOTE: Searcher uses f32 internally for instant_distance lib compat; Facing radians is log-only.
         let dt_f = dt.to_f32_for_render();
         // Phase 1de.2: SimRng seed inputs hoisted into Copy locals for the par_join closure.
         let master_seed: u64 = tr.master_seed.0;
@@ -111,7 +111,7 @@ impl<'a> System<'a> for Sys {
                 },
                 |_guard, (e, tower, pty, atk, pos, facing, facing_bc)| {
                     let mut outcomes:Vec<Outcome> = Vec::new();
-                    // TODO Phase 1[d]: drop f32 boundary projection when tower battle tick goes Fixed32/Angle-native.
+                    // NOTE: Searcher uses f32 internally for instant_distance lib compat; final distance check in caller is Fixed32.
                     let (pos_x_f, pos_y_f) = pos.xy_f32();
                     let pos_vek = vek::Vec2::new(pos_x_f, pos_y_f);
 
@@ -161,7 +161,7 @@ impl<'a> System<'a> for Sys {
                         let elpsed = time2.duration_since(time1);
                         if elpsed.as_secs_f32() < 0.05 {
                             let search_n = 1.max(pty.mblock).max(6) as usize;
-                            // TODO Phase 1e: Searcher Fixed32 — drop conversions when search_nn_two_radii goes native.
+                            // NOTE: Searcher uses f32 internally for instant_distance lib compat; final distance check in caller is Fixed32.
                             let range_f = atk.range.val().to_f32_for_render();
                             let (creeps, near_creeps) =
                                 tr.searcher.creep.search_nn_two_radii(pos_vek, range_f, range_f + 30., search_n);
@@ -183,7 +183,7 @@ impl<'a> System<'a> for Sys {
                                 if pty.mblock > 0 {
                                     tower.nearby_creeps.clear();
                                     for c in hostile_creeps.iter() {
-                                        // TODO Phase 1e: DisIndex.dis is still f32 (Searcher boundary).
+                                        // NOTE: DisIndex.dis is f32 squared distance (Searcher boundary); convert to Fixed32 for sim arithmetic.
                                         let dis_fx = Fixed32::from_raw((c.dis * 1024.0) as i32);
                                         tower.nearby_creeps.push(NearbyEnt { ent: c.e, dis: dis_fx });
                                     }

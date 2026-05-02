@@ -19,7 +19,7 @@ impl CreationEventHandler {
         mqtx: &Sender<OutboundMsg>,
         cd: CreepData,
     ) -> Vec<Outcome> {
-        // TODO Phase 1[d]: log uses f32 boundary — Fixed32 has no Display.
+        // NOTE: log uses f32 boundary — Fixed32 has no Display.
         let pos_x_f = cd.pos.x.to_f32_for_render();
         let pos_y_f = cd.pos.y.to_f32_for_render();
         info!("創建小兵於位置: ({}, {})", pos_x_f, pos_y_f);
@@ -45,7 +45,7 @@ impl CreationEventHandler {
         world.write_resource::<crate::scripting::ScriptEventQueue>()
             .push(crate::scripting::ScriptEvent::Spawn { e: entity });
 
-        // TODO Phase 1[d]: wire format — JSON / proto outbound, kept f32 for compat.
+        // PHASE 2: wire format — JSON / proto outbound, kept f32 for compat; redesign in Phase 2 KCP tag rework.
         let hp_f = hp.to_f32_for_render();
         let mhp_f = mhp.to_f32_for_render();
         let msd_f = msd.to_f32_for_render();
@@ -95,7 +95,7 @@ impl CreationEventHandler {
         pos: omoba_sim::Vec2,
         td: TowerData,
     ) -> Vec<Outcome> {
-        // TODO Phase 1[d]: log uses f32 boundary — Fixed32 has no Display.
+        // NOTE: log uses f32 boundary — Fixed32 has no Display.
         let pos_x_f = pos.x.to_f32_for_render();
         let pos_y_f = pos.y.to_f32_for_render();
         info!("創建塔於位置: ({}, {})", pos_x_f, pos_y_f);
@@ -112,7 +112,7 @@ impl CreationEventHandler {
             .build();
 
         // 在 JSON 中添加實體 ID 和位置
-        // TODO Phase 1[d]: wire format — JSON outbound, kept f32 for compat.
+        // PHASE 2: wire format — JSON outbound, kept f32 for compat; redesign in Phase 2 KCP tag rework.
         if let Some(obj) = cjs.as_object_mut() {
             obj.insert("id".to_owned(), json!(entity.id()));
             obj.insert("pos".to_owned(), json!({"x": pos_x_f, "y": pos_y_f}));
@@ -148,7 +148,7 @@ impl CreationEventHandler {
         damage_real: Option<f32>,
     ) -> Vec<Outcome> {
         use omoba_sim::{Fixed32, Vec2 as SimVec2};
-        // TODO Phase 1[d]: log uses f32 boundary — Fixed32 has no Display.
+        // NOTE: log uses f32 boundary — Fixed32 has no Display.
         let pos_x_f = pos.x.to_f32_for_render();
         let pos_y_f = pos.y.to_f32_for_render();
         info!("創建彈道從實體 {} 到實體 {} 於位置 ({}, {})",
@@ -297,7 +297,7 @@ impl CreationEventHandler {
         faction: Faction,
         duration: Option<omoba_sim::Fixed32>,
     ) -> Vec<Outcome> {
-        // TODO Phase 1[d]: log uses f32 boundary — Fixed32 has no Display.
+        // NOTE: log uses f32 boundary — Fixed32 has no Display.
         let pos_x_f = pos.x.to_f32_for_render();
         let pos_y_f = pos.y.to_f32_for_render();
         info!("生成單位於位置 ({}, {})，陣營: {:?}", pos_x_f, pos_y_f, faction);
@@ -319,7 +319,7 @@ impl CreationEventHandler {
         let entity = entity_builder.build();
 
         // 發送單位創建消息
-        // TODO Phase 1[d]: wire format — JSON outbound, kept f32 for compat.
+        // PHASE 2: wire format — JSON outbound, kept f32 for compat; redesign in Phase 2 KCP tag rework.
         let duration_f = duration.map(|d| d.to_f32_for_render());
         let unit_data = json!({
             "id": entity.id(),

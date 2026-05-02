@@ -138,7 +138,7 @@ impl StateInitializer {
         }
         log::warn!("▶▶ populate_region_blockers DONE: {} blockers created (polygons={})", n, polys.len());
         for (idx, (e, p)) in created.iter().take(3).enumerate() {
-            // TODO Phase 1[d]: drop f32 projection when CollisionRadius consumers go native.
+            // NOTE: log uses f32 boundary — Fixed32 has no Display.
             let r = ecs.read_storage::<CollisionRadius>().get(*e).map(|c| c.0.to_f32_for_render()).unwrap_or(0.0);
             log::warn!("▶▶   blocker[{}] entity={:?} pos=({:.1},{:.1}) r={:.1}",
                 idx, e, p.x, p.y, r);
@@ -187,7 +187,7 @@ impl StateInitializer {
                     status: CreepStatus::Walk
                 },
                 property: CProperty {
-                    // TODO Phase 1[d]: campaign JSON CreepData fields are still f32; convert at ingress.
+                    // PHASE 2: campaign JSON CreepData fields are still f32; redesign in Phase 2 KCP tag rework.
                     hp: omoba_sim::Fixed32::from_raw((cp.HP * 1024.0) as i32),
                     mhp: omoba_sim::Fixed32::from_raw((cp.HP * 1024.0) as i32),
                     msd: omoba_sim::Fixed32::from_raw((cp.MoveSpeed * 1024.0) as i32),
@@ -320,7 +320,7 @@ impl StateInitializer {
         let mut player_map = BTreeMap::<String, Player>::new();
         let player_name = crate::config::server_config::CONFIG.PLAYER_NAME.clone();
         let mut p = Player { name: player_name.clone(), cost: 100., towers: vec![] };
-        // TODO Phase 1[d]: hard-coded test stats; should come from omoba_template_ids.
+        // PHASE 2: hard-coded test stats; should come from omoba_template_ids — Phase 2 KCP tag rework.
         p.towers.push(TowerData {
             tpty: TProperty::new(omoba_sim::Fixed32::from_i32(10), 1, omoba_sim::Fixed32::from_i32(100)),
             tatk: TAttack::new(
@@ -403,7 +403,7 @@ impl StateInitializer {
             let hero_vel = Vel::zero();
 
             // 創建英雄的戰鬥屬性 (基於英雄等級和屬性計算)
-            // TODO Phase 1[d]: hero spawn defaults still f32 literals; promote to Fixed32 templates.
+            // PHASE 2: hero spawn defaults still f32 literals; promote to Fixed32 templates in Phase 2 KCP tag rework.
             use omoba_sim::Fixed32;
             let base_hp = Fixed32::from_i32(500) + Fixed32::from_i32(hero.level) * hero.level_growth.hp_per_level;
             let base_damage = Fixed32::from_i32(50) + Fixed32::from_i32(hero.level) * hero.level_growth.damage_per_level;
@@ -436,7 +436,7 @@ impl StateInitializer {
                 180.0   // 英雄高度
             ).with_precision(720); // 高精度視野
 
-            // TODO Phase 1[d]: drop conversion when TurnSpeed migrates to Angle/Fixed32.
+            // PHASE 2: TurnSpeed source uses degrees, omb internal uses radians; redesign in Phase 2 KCP tag rework.
             // hero_template_stats.turn_speed is Fixed32 in degrees; convert to radians (f32) for omb internal.
             let hero_turn_rad = hero_template_stats.turn_speed.to_f32_for_render() * std::f32::consts::PI / 180.0;
             // Hero collision_radius 暫定 30（之前由 entity.json optional override，
@@ -458,7 +458,7 @@ impl StateInitializer {
                 .with(ItemEffects::default())
                 .with(Facing(omoba_sim::Angle::ZERO))
                 .with(FacingBroadcast(None))
-                // TODO Phase 1[d]: drop conversion when TurnSpeed source is Fixed32 natively.
+                // PHASE 2: TurnSpeed source still f32 radians; redesign in Phase 2 KCP tag rework.
                 .with(TurnSpeed(omoba_sim::Fixed32::from_raw((hero_turn_rad * 1024.0) as i32)))
                 .with(CollisionRadius(omoba_sim::Fixed32::from_raw((hero_radius * 1024.0) as i32)))
                 .with(crate::scripting::ScriptUnitTag { unit_id: unit_id.clone() })
@@ -564,7 +564,7 @@ impl StateInitializer {
         turn_speed_deg: f32,
         collision_radius: f32,
     ) {
-        // TODO Phase 1[d]: spawn_tower API still f32; convert at boundary into Fixed32 components.
+        // PHASE 2: spawn_tower API still f32; redesign in Phase 2 KCP tag rework.
         use omoba_sim::Fixed32;
         let hp_fx = Fixed32::from_raw((hp * 1024.0) as i32);
         let range_fx = Fixed32::from_raw((range * 1024.0) as i32);
@@ -606,7 +606,7 @@ impl StateInitializer {
             .with(bounty)
             .with(Facing(omoba_sim::Angle::ZERO))
             .with(FacingBroadcast(None))
-            // TODO Phase 1[d]: drop conversions when tower config feeds Fixed32 natively.
+            // PHASE 2: tower config still uses f32 turn_speed_deg; redesign in Phase 2 KCP tag rework.
             .with(TurnSpeed(omoba_sim::Fixed32::from_raw((turn_speed_deg.to_radians() * 1024.0) as i32)))
             .with(CollisionRadius(omoba_sim::Fixed32::from_raw((collision_radius * 1024.0) as i32)));
 
@@ -637,7 +637,7 @@ impl StateInitializer {
                 let unit_vel = Vel::zero();
 
                 let unit_properties = CProperty {
-                    // TODO Phase 1[d]: Unit.current_hp / max_hp / base_damage are still i32; promote.
+                    // NOTE: Unit.{current_hp, max_hp, base_damage} are i32 by design (integer game values).
                     hp: omoba_sim::Fixed32::from_i32(unit.current_hp),
                     mhp: omoba_sim::Fixed32::from_i32(unit.max_hp),
                     msd: unit.move_speed,
@@ -647,7 +647,7 @@ impl StateInitializer {
 
                 let unit_attack = TAttack {
                     atk_physic: Vf32::new(omoba_sim::Fixed32::from_i32(unit.base_damage)),
-                    // TODO Phase 1[d]: 1/attack_speed needs Fixed32 reciprocal; until then convert.
+                    // NOTE: Fixed32::ONE / attack_speed exercises Fixed32 division at spawn boundary; sim-side reads asd.v directly.
                     asd: Vf32::new(omoba_sim::Fixed32::ONE / unit.attack_speed),
                     range: Vf32::new(unit.attack_range),
                     asd_count: omoba_sim::Fixed32::ZERO,
@@ -655,7 +655,7 @@ impl StateInitializer {
                 };
 
                 let enemy_vision = CircularVision::new(
-                    // TODO Phase 1[d]: CircularVision::new still f32; convert at boundary.
+                    // NOTE: CircularVision is client-side render hint (fog of war); per-tick rebuild from authoritative Pos keeps it cross-client consistent.
                     unit.attack_range.to_f32_for_render() + 150.0,
                     20.0
                 ).with_precision(360);

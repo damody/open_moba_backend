@@ -5,7 +5,7 @@ use crate::comp::*;
 use crate::ue4::import_campaign::CampaignData;
 use omoba_sim::Fixed32;
 
-/// TODO Phase 1d: drop when Unit / CircularVision migrate to Fixed32 fully.
+/// NOTE: boundary helper retained — Unit hp/damage are i32 by design and CircularVision is render-side fog of war.
 #[inline]
 fn f32_to_fx(v: f32) -> Fixed32 {
     Fixed32::from_raw((v * omoba_sim::fixed::SCALE as f32) as i32)
@@ -96,8 +96,8 @@ impl CampaignManager {
             hero_data.abilities.clone()
         };
 
-        // TODO Phase 1[d]: max_hp / current_hp / base_damage 仍 i32 (Unit struct)；
-        // 透過 to_f32_for_render() as i32 在邊界轉。
+        // NOTE: Unit.{current_hp, max_hp, base_damage} are i32 by design (integer game values);
+        // convert from Fixed32 template at this boundary.
         let max_hp_i = hero.get_max_hp().to_f32_for_render() as i32;
         let base_damage_i = hero.get_base_damage().to_f32_for_render() as i32;
         let attack_range_fx = s.attack_range;
@@ -127,7 +127,7 @@ impl CampaignManager {
         let hero_faction = Faction::new(FactionType::Player, 0);
         let hero_pos = Pos::from_xy_f32(0.0, 0.0);
         let hero_vel = Vel::zero();
-        // TODO Phase 1d: CircularVision::new still takes f32; drop on full migration.
+        // NOTE: CircularVision is client-side render hint (fog of war); per-tick rebuild from authoritative Pos keeps it cross-client consistent.
         let hero_vision = CircularVision::new(
             (attack_range_fx + Fixed32::from_i32(300)).to_f32_for_render(),
             30.0,
@@ -215,7 +215,7 @@ impl CampaignManager {
                     bullet_speed: Fixed32::from_i32(800),
                 };
 
-                // TODO Phase 1d: CircularVision::new still takes f32.
+                // NOTE: CircularVision is client-side render hint (fog of war); per-tick rebuild from authoritative Pos keeps it cross-client consistent.
                 let enemy_vision = CircularVision::new(
                     (unit.attack_range + Fixed32::from_i32(150)).to_f32_for_render(),
                     20.0,

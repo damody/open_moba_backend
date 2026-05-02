@@ -110,11 +110,16 @@ impl<'a> System<'a> for Sys {
                 );
                 
             // 合併所有實體到 creep 索引中（向後兼容）— 走 CollisionIndex::rebuild_from
-            // TODO Phase 1[e]: drop f32 boundary projection when Searcher / instant_distance go Fixed32-native.
-            let combined: Vec<(Entity, vek::Vec2<f32>)> = unit_ents.iter().zip(unit_pos.iter())
+            // NOTE: Searcher / spatial index uses f32 internally for instant_distance lib compat.
+            // Cache rebuilt per tick from authoritative Pos; entries sorted by Entity id below
+            // for deterministic insertion order across par_join. Final distance check in caller is Fixed32.
+            let mut combined: Vec<(Entity, vek::Vec2<f32>)> = unit_ents.iter().zip(unit_pos.iter())
                 .map(|(e, p)| { let (x, y) = p.xy_f32(); (*e, vek::Vec2::new(x, y)) })
                 .chain(creep_ents.iter().zip(creep_pos.iter()).map(|(e, p)| { let (x, y) = p.xy_f32(); (*e, vek::Vec2::new(x, y)) }))
                 .collect();
+            // Determinism: par_join collect order is non-deterministic; sort by Entity id to
+            // ensure cross-host insertion order into the spatial index is identical.
+            combined.sort_by_key(|(e, _)| (e.id(), e.gen().id()));
             tw.searcher.creep.rebuild_from(combined);
 
             log::debug!("Updated searcher index: {} units, {} creeps", unit_ents.len(), creep_ents.len());
@@ -152,10 +157,14 @@ impl<'a> System<'a> for Sys {
                     },
                 );
 
-            // TODO Phase 1[e]: drop f32 boundary projection when Searcher / instant_distance go Fixed32-native.
-            let hero_items: Vec<(Entity, vek::Vec2<f32>)> = hero_ents.iter().zip(hero_pos.iter())
+            // NOTE: Searcher / spatial index uses f32 internally for instant_distance lib compat.
+            // Cache rebuilt per tick from authoritative Pos; entries sorted by Entity id below
+            // for deterministic insertion order across par_join. Final distance check in caller is Fixed32.
+            let mut hero_items: Vec<(Entity, vek::Vec2<f32>)> = hero_ents.iter().zip(hero_pos.iter())
                 .map(|(e, p)| { let (x, y) = p.xy_f32(); (*e, vek::Vec2::new(x, y)) })
                 .collect();
+            // Determinism: par_join collect order is non-deterministic; sort by Entity id.
+            hero_items.sort_by_key(|(e, _)| (e.id(), e.gen().id()));
             tw.searcher.hero.rebuild_from(hero_items);
         }
         if tw.searcher.tower.is_dirty() {
@@ -192,10 +201,14 @@ impl<'a> System<'a> for Sys {
                 );
             if tw.searcher.tower.is_dirty() {
                 let time1 = Instant::now();
-                // TODO Phase 1[e]: drop f32 boundary projection when Searcher / instant_distance go Fixed32-native.
-                let tower_items: Vec<(Entity, vek::Vec2<f32>)> = ents.iter().zip(pos.iter())
+                // NOTE: Searcher / spatial index uses f32 internally for instant_distance lib compat.
+            // Cache rebuilt per tick from authoritative Pos; entries sorted by Entity id below
+            // for deterministic insertion order across par_join. Final distance check in caller is Fixed32.
+                let mut tower_items: Vec<(Entity, vek::Vec2<f32>)> = ents.iter().zip(pos.iter())
                     .map(|(e, p)| { let (x, y) = p.xy_f32(); (*e, vek::Vec2::new(x, y)) })
                     .collect();
+                // Determinism: par_join collect order is non-deterministic; sort by Entity id.
+                tower_items.sort_by_key(|(e, _)| (e.id(), e.gen().id()));
                 tw.searcher.tower.rebuild_from(tower_items);
                 let time2 = Instant::now();
                 let elpsed = time2.duration_since(time1);

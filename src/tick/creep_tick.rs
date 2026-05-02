@@ -175,8 +175,8 @@ impl<'a> System<'a> for Sys {
         // Carries current (target, velocity, start_pos, facing) — the gating +
         // record update happens serially below so we can touch mv_broadcasts
         // without fighting borrow rules inside the parallel closure.
-        // TODO Phase 1[d]: migrate MoveCandidate.velocity to Fixed32 once
-        // CreepMoveBroadcast / make_creep_move_full take Fixed32 payloads.
+        // PHASE 2: MoveCandidate.velocity wire format f32; CreepMoveBroadcast / make_creep_move_full
+        // take Fixed32 payloads — redesign in Phase 2 KCP tag rework.
         struct MoveCandidate {
             entity: specs::Entity,
             target: vek::Vec2<f32>,
@@ -314,8 +314,8 @@ impl<'a> System<'a> for Sys {
                                                 if signed_diff_ticks.abs() < MOVE_ANGLE_THRESHOLD_TICKS {
                                                     let radius = tr.radii.get(e).map(|r| r.0).unwrap_or(Fixed32::from_i32(20));
                                                     let self_entity = e;
-                                                    // TODO Phase 1e: Searcher Fixed32 — drop conversion
-                                                    // when search_collidable accepts SimVec2.
+                                                    // NOTE: Searcher uses f32 internally for instant_distance lib compat.
+                                                    // Final distance check in caller is Fixed32.
                                                     let radius_f = radius.to_f32_for_render();
                                                     let hits = |p_sim: SimVec2| -> bool {
                                                         let q_r = radius_f + MAX_COLLISION_RADIUS;

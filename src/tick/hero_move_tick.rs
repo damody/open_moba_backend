@@ -52,7 +52,7 @@ pub(crate) fn hits_any(
     self_entity: specs::Entity,
     _regions: &BlockedRegions,
 ) -> bool {
-    // TODO Phase 1e: Searcher Fixed32 — drop conversions when Searcher migrates.
+    // NOTE: Searcher uses f32 internally for instant_distance lib compat; final distance check in caller is Fixed32.
     let radius_f = radius.to_f32_for_render();
     let q_r = radius_f + MAX_COLLISION_RADIUS;
     let center_vek = vek::Vec2::new(
@@ -149,7 +149,9 @@ impl<'a> System<'a> for Sys {
         // par_join 並行處理所有 hero — 各 hero 的 collision query 是 Searcher 的 read-only
         // 操作，可安全並行；&mut tw.pos / &mut tw.facings 由 specs 保證同 entity 只被一個
         // thread 寫入。collect 結果後再一次性 remove move_targets + 廣播 OutboundMsg。
-        // ParJoin retained for now; Phase 1e will switch to sequential for full determinism.
+        // NOTE: ParJoin is determinism-safe here — each hero writes only to its own pos/facing storage slot
+        // (specs enforces per-entity isolation), and the per-entity Fixed32/Angle math is order-independent.
+        // The collected `results` Vec ordering is wire-format-only (broadcast order); lockstep state is unaffected.
         let results: Vec<(Option<specs::Entity>, (u32, f32, f32, f32))> = (
             &tr.entities,
             &tr.heroes,

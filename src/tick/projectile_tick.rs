@@ -98,8 +98,8 @@ impl<'a> System<'a> for Sys {
                         let b: SimVec2 = if dist > Fixed32::ZERO {
                             a + delta.normalized() * step
                         } else { a };
-                        // mid + half_len computed in f32 only at the search-call boundary
-                        // (Searcher takes vek::Vec2<f32>; Phase 1e migrates).
+                        // NOTE: mid + half_len computed in f32 only at the search-call boundary
+                        // (Searcher uses f32 internally for instant_distance lib compat; final distance check in caller is Fixed32).
                         let a_xf = a.x.to_f32_for_render();
                         let a_yf = a.y.to_f32_for_render();
                         let b_xf = b.x.to_f32_for_render();
@@ -149,7 +149,7 @@ impl<'a> System<'a> for Sys {
                         pos.0 = hit_pos;
                         if proj.radius > Fixed32::ONE {
                             // 範圍攻擊：以 hit_pos 為中心掃半徑內敵人。
-                            // Searcher still takes f32 (Phase 1e); convert at boundary.
+                            // NOTE: Searcher uses f32 internally for instant_distance lib compat; final distance check in caller is Fixed32.
                             let hit_pos_vek = vek::Vec2::new(
                                 hit_pos.x.to_f32_for_render(),
                                 hit_pos.y.to_f32_for_render(),

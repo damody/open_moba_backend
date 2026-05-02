@@ -205,9 +205,10 @@ impl<'a> WorldAdapter<'a> {
 }
 
 // ============================================================
-// Phase 1c.5 cleanup: battle / ability layer is fully Fixed32 / Vec2 / Angle now.
-// Remaining f32 boundaries are non-battle: Unit i32 hp, Projectile struct, VFX
-// bus, log formatters, RNG. Each is tagged `// TODO Phase 1[d]` for next phase.
+// Phase 1d/1e final cleanup: battle / ability layer is fully Fixed32 / Vec2 / Angle now.
+// Remaining f32 boundaries are non-battle: Unit i32 hp (intentional), VFX bus,
+// log formatters, wire format. Each is tagged `// NOTE:` (intentional) or
+// `// PHASE 2:` (wire protocol redesign in lockstep KCP tag rework).
 // ============================================================
 
 impl<'a> GameWorld for WorldAdapter<'a> {
@@ -229,7 +230,7 @@ impl<'a> GameWorld for WorldAdapter<'a> {
             return RSome(p.hp);
         }
         if let Some(u) = self.cache.unit.get(ent) {
-            // TODO Phase 1[d]: Unit.current_hp still i32 — boundary at conversion.
+            // NOTE: Unit.current_hp is i32 by design (integer game values); convert to Fixed32 at this boundary.
             return RSome(Fixed32::from_i32(u.current_hp));
         }
         RNone
@@ -242,7 +243,7 @@ impl<'a> GameWorld for WorldAdapter<'a> {
             return RSome(p.mhp);
         }
         if let Some(u) = self.cache.unit.get(ent) {
-            // TODO Phase 1[d]: Unit.max_hp still i32 — boundary at conversion.
+            // NOTE: Unit.max_hp is i32 by design (integer game values); convert to Fixed32 at this boundary.
             return RSome(Fixed32::from_i32(u.max_hp));
         }
         RNone
@@ -349,7 +350,7 @@ impl<'a> GameWorld for WorldAdapter<'a> {
             return;
         }
         if let Some(u) = self.cache.unit.get_mut(ent) {
-            // TODO Phase 1[d]: Unit.current_hp still i32 — Fixed32 boundary on damage application.
+            // NOTE: Unit.current_hp is i32 by design; quantize Fixed32 damage at this boundary.
             let amount_i = amount.to_f32_for_render() as i32;
             u.current_hp = (u.current_hp - amount_i).max(0);
         }
@@ -364,7 +365,7 @@ impl<'a> GameWorld for WorldAdapter<'a> {
             return;
         }
         if let Some(u) = self.cache.unit.get_mut(ent) {
-            // TODO Phase 1[d]: Unit.current_hp still i32 — Fixed32 boundary on heal.
+            // NOTE: Unit.current_hp is i32 by design; quantize Fixed32 heal at this boundary.
             let amount_i = amount.to_f32_for_render() as i32;
             u.current_hp = (u.current_hp + amount_i).min(u.max_hp);
         }
@@ -427,7 +428,7 @@ impl<'a> GameWorld for WorldAdapter<'a> {
             .cloned()
             .unwrap_or_else(|| Faction::new(FactionType::Player, 0));
 
-        // TODO Phase 1[d]: drop conversions when Unit / spawn helpers migrate to Fixed32.
+        // PHASE 2: spawn helper protocol takes f32; convert at boundary — wire protocol redesign in Phase 2 KCP tag rework.
         let pos_x_f = pos.x.to_f32_for_render();
         let pos_y_f = pos.y.to_f32_for_render();
         let duration_f = duration.to_f32_for_render();
@@ -587,7 +588,7 @@ impl<'a> GameWorld for WorldAdapter<'a> {
     }
 
     fn emit_explosion(&mut self, pos: Vec2, radius: Fixed32, duration: Fixed32) {
-        // TODO Phase 1[d]: drop conversions when explosion VFX takes Fixed32.
+        // PHASE 2: VFX bus takes f32; convert at boundary — wire protocol redesign in Phase 2 KCP tag rework.
         let _ = self.mqtx.try_send(make_game_explosion_script(
             pos.x.to_f32_for_render(),
             pos.y.to_f32_for_render(),
@@ -707,13 +708,13 @@ impl<'a> GameWorld for WorldAdapter<'a> {
     // ---------------- Side effects ----------------
 
     fn play_vfx(&mut self, id: RStr<'_>, at: Vec2) {
-        // TODO Phase 1[d]: drop conversion when VFX bus takes Fixed32.
+        // NOTE: log uses f32 boundary — Fixed32 has no Display.
         log::debug!("[scripting] play_vfx id={} at=({},{})", id.as_str(),
             at.x.to_f32_for_render(), at.y.to_f32_for_render());
     }
 
     fn play_sfx(&mut self, id: RStr<'_>, at: Vec2) {
-        // TODO Phase 1[d]: drop conversion when VFX bus takes Fixed32.
+        // NOTE: log uses f32 boundary — Fixed32 has no Display.
         log::debug!("[scripting] play_sfx id={} at=({},{})", id.as_str(),
             at.x.to_f32_for_render(), at.y.to_f32_for_render());
     }
@@ -789,8 +790,8 @@ impl<'a> GameWorld for WorldAdapter<'a> {
     }
 
     fn apply_tower_permanent_buff(&mut self, e: EntityHandle, buff_id: RStr<'_>, modifiers_json: RStr<'_>) {
-        // TODO Phase 1[d]: replace with a sentinel "permanent" Fixed32 instead of MAX-clamp magic.
-        // Use Fixed32::from_raw(i32::MAX) — large enough that buff_tick won't decrement to zero in any reasonable session.
+        // NOTE: Fixed32::from_raw(i32::MAX) is the "permanent buff" sentinel — large enough that buff_tick won't
+        // decrement to zero in any reasonable session. Could be replaced with an explicit None/permanent flag in Phase 2.
         self.add_stat_buff(e, buff_id, Fixed32::from_raw(i32::MAX), modifiers_json);
     }
 

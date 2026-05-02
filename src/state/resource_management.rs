@@ -177,7 +177,7 @@ impl ResourceManager {
         let is_td = world.read_resource::<GameMode>().is_td();
         if !is_td {
             // 舊 MOBA / debug 路徑：直接放一座預設塔（保留向後相容）
-            // TODO Phase 1[d]: hard-coded test stats; should come from omoba_template_ids.
+            // PHASE 2: hard-coded test stats; should come from omoba_template_ids — addressed in Phase 2 KCP tag rework.
             use omoba_sim::Fixed32;
             let tower_property = TProperty::new(Fixed32::from_i32(100), 1, Fixed32::from_i32(200));
             let tower_attack = TAttack::new(
@@ -194,7 +194,7 @@ impl ResourceManager {
                 .with(tower_attack)
                 .build();
             let mut outcomes = world.write_resource::<Vec<Outcome>>();
-            // TODO Phase 1[d]: wire format — inbound JSON x/y are f32; convert at ingress.
+            // PHASE 2: wire format — inbound JSON x/y are f32; redesign in Phase 2 KCP tag rework.
             let pos_sim = omoba_sim::Vec2::new(
                 Fixed32::from_raw((pos.x * 1024.0) as i32),
                 Fixed32::from_raw((pos.y * 1024.0) as i32),
@@ -285,7 +285,7 @@ impl ResourceManager {
             let positions = world.read_storage::<Pos>();
             let radii = world.read_storage::<CollisionRadius>();
             for (_e, _t, p, r) in (&entities, &towers, &positions, &radii).join() {
-                // TODO Phase 1[d]: drop f32 boundary projection when collision check goes Fixed32-native.
+                // NOTE: Searcher / spatial index uses f32 internally for instant_distance lib compat.
                 let (px, py) = p.xy_f32();
                 let dx = px - pos.x;
                 let dy = py - pos.y;
@@ -323,7 +323,7 @@ impl ResourceManager {
             let positions = world.read_storage::<Pos>();
             let properties = world.read_storage::<CProperty>();
             let radii = world.read_storage::<CollisionRadius>();
-            // TODO Phase 1[d]: wire format — proto helper takes f32; convert at boundary.
+            // PHASE 2: wire format — proto helper takes f32; redesign in Phase 2 KCP tag rework.
             let hp = properties.get(tower_entity).map(|p| p.hp.to_f32_for_render()).unwrap_or(tpl.hp);
             let mhp = properties.get(tower_entity).map(|p| p.mhp.to_f32_for_render()).unwrap_or(tpl.hp);
             let radius = radii.get(tower_entity).map(|r| r.0.to_f32_for_render()).unwrap_or(tpl.footprint);
@@ -426,7 +426,7 @@ impl ResourceManager {
         let Some(h) = heroes.get(hero_entity) else { return };
         let g = golds.get(hero_entity).map(|g| g.0).unwrap_or(0);
         let prop = props.get(hero_entity);
-        // TODO Phase 1[d]: wire format — wire-format builders take f32; convert at boundary.
+        // PHASE 2: wire format — wire-format builders take f32; redesign in Phase 2 KCP tag rework.
         let (hp, mhp) = prop.map(|p| (p.hp.to_f32_for_render(), p.mhp.to_f32_for_render())).unwrap_or((0.0, 0.0));
         let (armor_b, mres_b, msd_b) = prop
             .map(|p| (p.def_physic.to_f32_for_render(), p.def_magic.to_f32_for_render(), p.msd.to_f32_for_render()))
@@ -472,7 +472,7 @@ impl ResourceManager {
             let heroes = world.read_storage::<Hero>();
             let positions = world.read_storage::<Pos>();
             let Some(h) = heroes.get(hero_entity) else { return };
-            // TODO Phase 1[d]: drop f32 boundary projection when wire-format builders take Fixed32.
+            // PHASE 2: wire format — wire-format builders take f32; redesign in Phase 2 KCP tag rework.
             let (px, py) = positions.get(hero_entity).map(|p| p.xy_f32()).unwrap_or((0.0, 0.0));
             let msg = build_hero_static_msg(hero_entity, h, vek::Vec2::new(px, py));
             let _ = self.mqtx.send(msg);
@@ -652,7 +652,7 @@ impl ResourceManager {
         };
 
         // 10. 廣播 tower/upgrade
-        // TODO Phase 1[d]: drop f32 boundary projection when wire-format takes Fixed32.
+        // PHASE 2: wire format — JSON outbound, kept f32 for compat; redesign in Phase 2 KCP tag rework.
         let (tower_x_f, tower_y_f) = world.read_storage::<Pos>()
             .get(tower_entity).map(|p| p.xy_f32()).unwrap_or((0.0, 0.0));
         let payload = json!({
@@ -921,7 +921,7 @@ impl ResourceManager {
         }
 
         // 解析 target_pos [x,y] 或 target_entity (u64)
-        // TODO Phase 1[d]: wire format — inbound JSON x/y are f32; convert at ingress.
+        // PHASE 2: wire format — inbound JSON x/y are f32; redesign in Phase 2 KCP tag rework.
         let target = if let Some(arr) = pd.d.get("target_pos").and_then(|v| v.as_array()) {
             if arr.len() == 2 {
                 let x = arr[0].as_f64().unwrap_or(0.0) as f32;
@@ -1002,7 +1002,7 @@ impl ResourceManager {
 
         let hero = heroes.get(hero_entity);
         let gold = golds.get(hero_entity).map(|g| g.0).unwrap_or(0);
-        // TODO Phase 1[d]: wire format — wire-format builders take f32; convert at boundary.
+        // PHASE 2: wire format — wire-format builders take f32; redesign in Phase 2 KCP tag rework.
         let (pos_x_f, pos_y_f) = positions.get(hero_entity).map(|p| p.xy_f32()).unwrap_or((0.0, 0.0));
         let pos_vek = vek::Vec2::new(pos_x_f, pos_y_f);
         #[cfg(not(feature = "kcp"))]
@@ -1147,7 +1147,7 @@ impl ResourceManager {
         {
             let positions = world.read_storage::<Pos>();
             if let Some(p) = positions.get(hero_e) {
-                // TODO Phase 1[d]: drop f32 boundary projection when this check goes Fixed32-native.
+                // NOTE: distance check at non-sim path (UI proximity); lossy f32 acceptable.
                 let (px, py) = p.xy_f32();
                 if px * px + py * py > 800.0 * 800.0 {
                     log::info!("buy_item: 不在基地範圍內");
@@ -1297,7 +1297,7 @@ impl ResourceManager {
             if let Some(p) = props.get_mut(hero_e) {
                 match &active {
                     crate::item::ActiveEffect::Shield { amount, .. } => {
-                        // TODO Phase 1[d]: ActiveEffect.amount still f32; convert at boundary.
+                        // PHASE 2: ActiveEffect.amount still f32 (item schema); redesign in Phase 2 KCP tag rework.
                         let amt_fx = omoba_sim::Fixed32::from_raw((*amount * 1024.0) as i32);
                         let summed = p.hp + amt_fx;
                         p.hp = if summed > p.mhp { p.mhp } else { summed };
@@ -1308,7 +1308,7 @@ impl ResourceManager {
                         log::info!("💙 回魔主動 +{} MP (MVP 暫未串接 mp)", amount);
                     }
                     crate::item::ActiveEffect::SprintBuff { ms_bonus, duration } => {
-                        // TODO Phase 1[d]: ActiveEffect.ms_bonus still f32; convert at boundary.
+                        // PHASE 2: ActiveEffect.ms_bonus still f32 (item schema); redesign in Phase 2 KCP tag rework.
                         let bonus_fx = omoba_sim::Fixed32::from_raw((*ms_bonus * 1024.0) as i32);
                         p.msd += bonus_fx;
                         log::info!("💨 疾跑 +{} ms，持續 {}s (MVP 無 buff 結束回收)", ms_bonus, duration);
@@ -1815,7 +1815,7 @@ pub(crate) mod proto_build {
     ) -> HeroHot {
         // 與 build_hero_stats_payload 一致的聚合路徑（讓前端看到實際生效值）
         // Phase 1c.3: UnitStats final_* now returns Fixed32; wire format remains f32.
-        // TODO Phase 1[d]: HeroHot prost schema migrate to deterministic encoding.
+        // PHASE 2: HeroHot prost schema migrate to deterministic encoding — Phase 2 KCP tag rework.
         let stats = crate::ability_runtime::UnitStats::from_refs(buff_store, false);
         let attack_damage_base_fx = omoba_sim::Fixed32::from_raw((attack_damage_base * 1024.0) as i32);
         let attack_range_base_fx = omoba_sim::Fixed32::from_raw((attack_range_base * 1024.0) as i32);
@@ -1834,7 +1834,7 @@ pub(crate) mod proto_build {
             .iter_for(hero_entity)
             .map(|(id, entry)| {
                 // Phase 1c.3: BuffEntry.remaining is Fixed32 — wire as ms u32 sentinel.
-                // TODO Phase 1[d]: BuffSnapshot.remaining_ms wire migrate to Fixed32.
+                // PHASE 2: BuffSnapshot.remaining_ms wire migrate to Fixed32 — Phase 2 KCP tag rework.
                 let remaining_f = entry.remaining.to_f32_for_render();
                 let remaining_ms = if remaining_f.is_infinite() || remaining_f > 65.535 {
                     0xFFFF

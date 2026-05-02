@@ -156,7 +156,7 @@ impl MqttHandler {
                 };
                 let mut ocs = ecs.get_mut::<Vec<Outcome>>().unwrap();
                 if let Some(t) = t {
-                    // TODO Phase 1[d]: wire format — inbound JSON x/y are f32 today; convert at ingress.
+                    // PHASE 2: wire format — inbound JSON x/y are f32; redesign in Phase 2 KCP tag rework.
                     let pos = SimVec2::new(
                         Fixed32::from_raw((v.x * 1024.0) as i32),
                         Fixed32::from_raw((v.y * 1024.0) as i32),
@@ -177,7 +177,7 @@ impl MqttHandler {
         match pd.a.as_str() {
             "C" => {
                 let mut p = Player { name: pd.name.clone(), cost: 100., towers: vec![] };
-                // TODO Phase 1[d]: hard-coded test stats; should come from omoba_template_ids when wire format migrates.
+                // PHASE 2: hard-coded test stats; should come from omoba_template_ids — Phase 2 KCP tag rework.
                 p.towers.push(TowerData {
                     tpty: TProperty::new(Fixed32::from_i32(10), 1, Fixed32::from_i32(100)),
                     tatk: TAttack::new(
@@ -293,7 +293,7 @@ impl MqttHandler {
                 }
             }
             (None, Some((x, y))) => SkillTarget::Point {
-                // TODO Phase 1[d]: wire format — inbound JSON x/y are f32 today.
+                // PHASE 2: wire format — inbound JSON x/y are f32; redesign in Phase 2 KCP tag rework.
                 x: Fixed32::from_raw((x * 1024.0) as i32),
                 y: Fixed32::from_raw((y * 1024.0) as i32),
             },

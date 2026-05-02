@@ -432,7 +432,7 @@ impl GameProcessor {
                         Self::handle_add_buff(ecs, target, buff_id, duration, payload)?;
                     }
                     Outcome::Explosion { pos, radius, duration } => {
-                        // TODO Phase 1[d]: wire format — proto helper takes f32; convert at boundary.
+                        // PHASE 2: wire format — proto helper takes f32; redesign in Phase 2 KCP tag rework.
                         let _ = mqtx.try_send(make_game_explosion(
                             pos.x.to_f32_for_render(),
                             pos.y.to_f32_for_render(),
@@ -558,7 +558,7 @@ impl GameProcessor {
                         continue; // 同隊死亡不給賞金
                     }
                 }
-                // TODO Phase 1[d]: drop f32 boundary projection when bounty proximity check goes Fixed32-native.
+                // NOTE: bounty proximity is non-deterministic UI hint (faction-scoped); lossy f32 acceptable.
                 let (px, py) = p.xy_f32();
                 let dpx = dead_pos.x.to_f32_for_render();
                 let dpy = dead_pos.y.to_f32_for_render();
@@ -611,7 +611,7 @@ impl GameProcessor {
             if let Some(h) = heroes.get(hero_e) {
                 let g = golds.get(hero_e).map(|g| g.0).unwrap_or(0);
                 let prop = props.get(hero_e);
-                // TODO Phase 1[d]: wire format — wire-format builders take f32; convert here at boundary.
+                // PHASE 2: wire format — wire-format builders take f32; redesign in Phase 2 KCP tag rework.
                 let (hp, mhp) = prop
                     .map(|p| (p.hp.to_f32_for_render(), p.mhp.to_f32_for_render()))
                     .unwrap_or((0.0, 0.0));
@@ -866,7 +866,7 @@ impl GameProcessor {
             "Player" | "player" => Faction::new(FactionType::Player, 0),
             _ => Faction::new(FactionType::Enemy, 1),
         };
-        // TODO Phase 1[d]: turn_speed_deg → rad still through f32; pure-i32 trig planned.
+        // PHASE 2: turn_speed_deg → rad still through f32; pure-i32 trig planned in Phase 2 KCP tag rework.
         let turn_speed_rad_f = cd.turn_speed_deg.to_f32_for_render().to_radians();
         // Creep 統一掛 ScriptUnitTag（預設全單位腳本化）；unit_id = "creep_{name}"
         let unit_id = format!("creep_{}", creep_name);
@@ -888,7 +888,7 @@ impl GameProcessor {
         // 用 BuffStore 寫入而非全域 clamp — 不同 creep 類型未來可以有不同下限、
         // 設計上也允許某些 buff 顯式拿掉這個下限（例如「凍結 1 秒」效果）。
         // Phase 1c.3: BuffStore::add now takes Fixed32 — use raw i32::MAX as
-        // sentinel "permanent". TODO Phase 1[d]: introduce explicit sentinel.
+        // sentinel "permanent". NOTE: i32::MAX duration is the permanent-buff convention; could be replaced with explicit None/permanent flag in Phase 2.
         ecs.write_resource::<crate::ability_runtime::BuffStore>().add(
             e,
             "creep_min_speed_floor",
@@ -897,7 +897,7 @@ impl GameProcessor {
         );
         // Pass internal template id (`creep_name`) not the display label — client
         // looks up display via omoba-template-ids reverse table.
-        // TODO Phase 1[d]: wire format — proto helpers take f32; convert at boundary.
+        // PHASE 2: wire format — proto helpers take f32; redesign in Phase 2 KCP tag rework.
         let _ = mqtx.try_send(make_creep_create(
             e.id(),
             pos.x.to_f32_for_render(),
@@ -1039,7 +1039,7 @@ impl GameProcessor {
         let mut cjs = json!(td);
         let e = ecs.create_entity().with(Pos(pos)).with(Tower::new()).with(td.tpty).with(td.tatk).build();
         cjs.as_object_mut().unwrap().insert("id".to_owned(), json!(e.id()));
-        // TODO Phase 1[d]: wire format — JSON outbound, kept f32 for compat.
+        // PHASE 2: wire format — JSON outbound, kept f32 for compat; redesign in Phase 2 KCP tag rework.
         let pos_x_f = pos.x.to_f32_for_render();
         let pos_y_f = pos.y.to_f32_for_render();
         cjs.as_object_mut().unwrap().insert("pos".to_owned(), json!({"x": pos_x_f, "y": pos_y_f}));
@@ -1057,7 +1057,7 @@ impl GameProcessor {
         let positions = ecs.read_storage::<Pos>();
         let pos = positions.get(target).ok_or_else(|| failure::err_msg("Creep position not found"))?;
 
-        // TODO Phase 1[d]: wire format — proto helper takes f32; convert at boundary.
+        // PHASE 2: wire format — proto helper takes f32; redesign in Phase 2 KCP tag rework.
         let (px, py) = pos.xy_f32();
         let _ = mqtx.try_send(make_creep_move_ev(target.id(), px, py, 0.0, px, py));
         Ok(())
@@ -1109,7 +1109,7 @@ impl GameProcessor {
 
                 let (source_name, target_name) = Self::get_entity_names(ecs, source, target);
 
-                // TODO Phase 1[d]: log uses f32 boundary — Fixed32 has no Display.
+                // NOTE: log uses f32 boundary — Fixed32 has no Display.
                 let damage_parts = {
                     let mut parts = Vec::new();
                     if phys > Fixed32::ZERO { parts.push(format!("Phys {:.1}", phys.to_f32_for_render())); }
@@ -1151,7 +1151,7 @@ impl GameProcessor {
         // ProjectileCreate.damage 先發過的 non-AOE 單體彈；client 已於 impact
         // tick 自行扣血。跳過 creep.H 省 bytes。偏差由每 500ms 的 heartbeat
         // hp_snapshot 校正。Miss（total <= 0）與死亡仍需照常廣播。
-        // TODO Phase 1[d]: wire format — proto helpers take f32; convert at boundary.
+        // PHASE 2: wire format — proto helpers take f32; redesign in Phase 2 KCP tag rework.
         let target_pos_xy = ecs.read_storage::<Pos>().get(target).map(|p| p.xy_f32());
         if let Some((tp_x, tp_y)) = target_pos_xy {
             // Determine entity type for the broadcast

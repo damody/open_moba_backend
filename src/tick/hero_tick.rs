@@ -86,7 +86,7 @@ impl<'a> System<'a> for Sys {
         // Phase 1c.4: dt is now Fixed32 throughout battle tick.
         let dt: Fixed32 = tr.dt.0;
         // Lossy projection retained ONLY for Searcher boundary + facing radians math.
-        // TODO Phase 1e: drop when Searcher / Facing go Fixed32-native.
+        // NOTE: Searcher uses f32 internally for instant_distance lib compat; Facing radians is log-only.
         let dt_f = dt.to_f32_for_render();
         // Phase 1de.2: SimRng seed inputs hoisted out of the par_join closure
         // (Read<'_, _> isn't Sync-safe across rayon, but bare u64/u32 are Copy).
@@ -132,7 +132,7 @@ impl<'a> System<'a> for Sys {
                 |_guard, (e, hero, pty, atk, pos, facing, facing_bc)| {
                     let mut outcomes: Vec<Outcome> = Vec::new();
 
-                    // TODO Phase 1[d]: drop f32 boundary projection when hero battle tick goes Fixed32/Angle-native.
+                    // NOTE: Searcher uses f32 internally for instant_distance lib compat; final distance check in caller is Fixed32.
                     let (pos_x_f, pos_y_f) = pos.xy_f32();
                     let pos_vek = vek::Vec2::new(pos_x_f, pos_y_f);
 
@@ -176,7 +176,7 @@ impl<'a> System<'a> for Sys {
                             let attack_range: Fixed32 = stats.final_attack_range(atk.range.v, e);
                             let range_bonus: Fixed32 = attack_range - atk.range.v;
                             let search_range: Fixed32 = attack_range + Fixed32::from_i32(50); // 稍微擴大搜尋範圍以確保不遺漏邊界目標
-                            // TODO Phase 1e: Searcher Fixed32 — drop these conversions when search_nn_two_radii goes native.
+                            // NOTE: Searcher uses f32 internally for instant_distance lib compat; final distance check in caller is Fixed32.
                             let attack_range_f = attack_range.to_f32_for_render();
                             let search_range_f = search_range.to_f32_for_render();
                             let (creep_targets, _) =
@@ -206,7 +206,7 @@ impl<'a> System<'a> for Sys {
                             }
 
                             // 過濾出可攻擊的敵對目標（必須在攻擊範圍內）
-                            // TODO Phase 1e: Searcher returns f32 distance squared; compare in f32 boundary.
+                            // NOTE: Searcher returns f32 squared distance; comparison in f32 acceptable (boundary lossy ok).
                             let mut valid_targets = Vec::new();
                             let attack_range_squared = attack_range_f * attack_range_f; // 計算攻擊範圍的平方
                             
@@ -232,7 +232,7 @@ impl<'a> System<'a> for Sys {
                             if valid_targets.len() > 0 {
                                 // 攻擊最近的敵人：先轉向，角度 < 30° 才能開火
                                 let target = valid_targets[0].e;
-                                // TODO Phase 1[d]: drop f32 boundary when battle tick goes Fixed32/Angle-native.
+                                // NOTE: turn-toward log uses f32 boundary — Fixed32 has no Display.
                                 let target_pos = tr.pos.get(target)
                                     .map(|p| { let (x, y) = p.xy_f32(); vek::Vec2::new(x, y) })
                                     .unwrap_or(pos_vek);

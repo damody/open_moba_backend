@@ -264,7 +264,7 @@ impl<'a> UnitStats<'a> {
     /// NOTE: evasion / miss 由呼叫端先 roll，此函式假設攻擊已命中。
     /// Phase 1c.3: damage / armor / resist 仍為 f32（damage pipeline 完整 Fixed32 化是 1c.4）。
     /// 內部 sum_add 回 Fixed32 → 在此 boundary 暫時 to_f32_for_render。
-    /// TODO Phase 1[d]: rewrite this in Fixed32 once outcome handlers / DamageInstance migrate.
+    /// PHASE 2: rewrite in Fixed32 once outcome handlers / DamageInstance migrate — Phase 2 KCP tag rework.
     pub fn apply_incoming_damage(
         &self,
         raw: f32,
