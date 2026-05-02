@@ -40,7 +40,7 @@ pub fn spawn_td_tower(world: &mut World, pos: Vec2<f32>, unit_id: &str) -> Optio
 
     let entity = world
         .create_entity()
-        .with(Pos(pos))
+        .with(Pos::from_xy_f32(pos.x, pos.y))
         .with(Tower::new())
         .with(IsBuilding)
         .with(tprop)
@@ -48,10 +48,11 @@ pub fn spawn_td_tower(world: &mut World, pos: Vec2<f32>, unit_id: &str) -> Optio
         .with(tatk)
         .with(faction)
         .with(vision)
-        .with(Facing(0.0))
+        .with(Facing(omoba_sim::Angle::ZERO))
         .with(crate::comp::FacingBroadcast(None))
-        .with(TurnSpeed(tpl.turn_speed_deg.to_radians()))
-        .with(CollisionRadius(tpl.footprint))
+        // TODO Phase 1[cd]: drop conversion when tower template metadata feeds Fixed32 natively.
+        .with(TurnSpeed(omoba_sim::Fixed32::from_raw((tpl.turn_speed_deg.to_radians() * 1024.0) as i32)))
+        .with(CollisionRadius(omoba_sim::Fixed32::from_raw((tpl.footprint * 1024.0) as i32)))
         .with(crate::scripting::ScriptUnitTag { unit_id: unit_id.to_string() })
         .build();
 

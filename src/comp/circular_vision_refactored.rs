@@ -61,7 +61,9 @@ impl VisionSystemManager {
             if self.result_manager.needs_vision_update(entity, current_time) || 
                vision.needs_recalculation(current_time) {
                 
-                let result = self.calculator.calculate_circular_vision(pos.0, &*vision);
+                // TODO Phase 1[d]: drop f32 boundary projection when vision goes Fixed32-native.
+                let (px, py) = pos.xy_f32();
+                let result = self.calculator.calculate_circular_vision(vek::Vec2::new(px, py), &*vision);
                 vision.vision_result = Some(result.clone());
                 self.result_manager.update_entity_vision(entity, result);
             }
@@ -112,9 +114,10 @@ impl VisionSystemManager {
         let entities = world.entities();
         let positions = world.read_storage::<Pos>();
         
-        let entity_positions: Vec<_> = (&entities, &positions)
+        // TODO Phase 1[d]: drop f32 boundary projection when vision goes Fixed32-native.
+        let entity_positions: Vec<(Entity, vek::Vec2<f32>)> = (&entities, &positions)
             .join()
-            .map(|(e, pos)| (e, pos.0))
+            .map(|(e, pos)| { let (x, y) = pos.xy_f32(); (e, vek::Vec2::new(x, y)) })
             .collect();
 
         self.result_manager.get_entities_in_vision(observer, &entity_positions)

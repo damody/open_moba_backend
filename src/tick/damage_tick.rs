@@ -77,8 +77,9 @@ impl<'a> System<'a> for Sys {
             // 生成傷害事件而不是直接修改組件
             if !result.is_dodged && result.total_damage > 0.0 {
                 // 獲取目標位置
+                // TODO Phase 1[c]: drop f32 boundary projection when Outcome variants take Fixed32.
                 let target_pos = tr.positions.get(damage_inst.target)
-                    .map(|pos| pos.0)
+                    .map(|p| { let (x, y) = p.xy_f32(); vek::Vec2::new(x, y) })
                     .unwrap_or(vek::Vec2::new(0.0, 0.0));
 
                 // 生成傷害事件
@@ -100,11 +101,12 @@ impl<'a> System<'a> for Sys {
             // 生命偷取 / 法術吸血：calculate_damage 已聚合到 result.healing，這裡 emit Heal 給來源
             if !result.is_dodged && result.healing > 0.0 {
                 let source_entity = damage_inst.source.source_entity;
+                // TODO Phase 1[c]: drop f32 boundary projection when Outcome variants take Fixed32.
                 let source_pos = tr.positions.get(source_entity)
-                    .map(|pos| pos.0)
+                    .map(|p| { let (x, y) = p.xy_f32(); vek::Vec2::new(x, y) })
                     .unwrap_or_else(|| {
                         tr.positions.get(damage_inst.target)
-                            .map(|pos| pos.0)
+                            .map(|p| { let (x, y) = p.xy_f32(); vek::Vec2::new(x, y) })
                             .unwrap_or(vek::Vec2::new(0.0, 0.0))
                     });
                 outcomes.push(Outcome::Heal {

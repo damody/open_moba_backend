@@ -122,8 +122,8 @@ impl StateInitializer {
             log::warn!("▶▶ poly 產生 {} 個 blocker circles", circles.len());
             for (p, r) in circles {
                 let e = ecs.create_entity()
-                    .with(Pos(p))
-                    .with(CollisionRadius(r))
+                    .with(Pos::from_xy_f32(p.x, p.y))
+                    .with(CollisionRadius(omoba_sim::Fixed32::from_raw((r * 1024.0) as i32)))
                     .with(RegionBlocker)
                     .build();
                 created.push((e, p));
@@ -138,7 +138,8 @@ impl StateInitializer {
         }
         log::warn!("▶▶ populate_region_blockers DONE: {} blockers created (polygons={})", n, polys.len());
         for (idx, (e, p)) in created.iter().take(3).enumerate() {
-            let r = ecs.read_storage::<CollisionRadius>().get(*e).map(|c| c.0).unwrap_or(0.0);
+            // TODO Phase 1[cd]: drop f32 projection when CollisionRadius consumers go native.
+            let r = ecs.read_storage::<CollisionRadius>().get(*e).map(|c| c.0.to_f32_for_render()).unwrap_or(0.0);
             log::warn!("▶▶   blocker[{}] entity={:?} pos=({:.1},{:.1}) r={:.1}",
                 idx, e, p.x, p.y, r);
         }
@@ -306,7 +307,7 @@ impl StateInitializer {
         ecs.insert(TickStart(Instant::now()));
         ecs.insert(TimeOfDay(0.0));
         ecs.insert(Time(0.0));
-        ecs.insert(DeltaTime(0.0));
+        ecs.insert(DeltaTime(omoba_sim::Fixed32::ZERO));
 
         // 初始化集合資源
         ecs.insert(BTreeMap::<String, CheckPoint>::new());
@@ -385,8 +386,8 @@ impl StateInitializer {
         if let Some(hero_data) = campaign_data.entity.heroes.first() {
             let hero = Hero::from_campaign_data(hero_data);
             let hero_faction = Faction::new(FactionType::Player, 0);
-            let hero_pos = Pos(Vec2::new(0.0, 0.0));
-            let hero_vel = Vel(Vec2::new(0.0, 0.0));
+            let hero_pos = Pos::from_xy_f32(0.0, 0.0);
+            let hero_vel = Vel::zero();
 
             // 創建英雄的戰鬥屬性 (基於英雄等級和屬性計算)
             let base_hp = 500.0 + (hero.level as f32 * hero.level_growth.hp_per_level);
@@ -409,7 +410,7 @@ impl StateInitializer {
             let hero_attack = TAttack {
                 atk_physic: Vf32::new(base_damage),
                 asd: Vf32::new(1.0 / 1.7), // 攻擊間隔（攻擊速度的倒數）
-                // TODO Phase 1[bcd]: drop conversion when TAttack migrates to Fixed32.
+                // TODO Phase 1[cd]: drop conversion when TAttack migrates to Fixed32.
                 range: Vf32::new(hero_template_stats.attack_range.to_f32_for_render()),
                 asd_count: 0.0,
                 bullet_speed: 1000.0,
@@ -421,7 +422,7 @@ impl StateInitializer {
                 180.0   // 英雄高度
             ).with_precision(720); // 高精度視野
 
-            // TODO Phase 1[bcd]: drop conversion when TurnSpeed migrates to Angle/Fixed32.
+            // TODO Phase 1[cd]: drop conversion when TurnSpeed migrates to Angle/Fixed32.
             // hero_template_stats.turn_speed is Fixed32 in degrees; convert to radians (f32) for omb internal.
             let hero_turn_rad = hero_template_stats.turn_speed.to_f32_for_render() * std::f32::consts::PI / 180.0;
             // Hero collision_radius 暫定 30（之前由 entity.json optional override，
@@ -441,10 +442,11 @@ impl StateInitializer {
                 .with(Gold(10000))
                 .with(Inventory::new())
                 .with(ItemEffects::default())
-                .with(Facing(0.0))
+                .with(Facing(omoba_sim::Angle::ZERO))
                 .with(FacingBroadcast(None))
-                .with(TurnSpeed(hero_turn_rad))
-                .with(CollisionRadius(hero_radius))
+                // TODO Phase 1[cd]: drop conversion when TurnSpeed source is Fixed32 natively.
+                .with(TurnSpeed(omoba_sim::Fixed32::from_raw((hero_turn_rad * 1024.0) as i32)))
+                .with(CollisionRadius(omoba_sim::Fixed32::from_raw((hero_radius * 1024.0) as i32)))
                 .with(crate::scripting::ScriptUnitTag { unit_id: unit_id.clone() })
                 .build();
 
@@ -574,7 +576,7 @@ impl StateInitializer {
 
         let mut builder = ecs
             .create_entity()
-            .with(Pos(pos))
+            .with(Pos::from_xy_f32(pos.x, pos.y))
             .with(Tower::new())
             .with(prop)
             .with(cprop)
@@ -582,10 +584,11 @@ impl StateInitializer {
             .with(faction)
             .with(vision)
             .with(bounty)
-            .with(Facing(0.0))
+            .with(Facing(omoba_sim::Angle::ZERO))
             .with(FacingBroadcast(None))
-            .with(TurnSpeed(turn_speed_deg.to_radians()))
-            .with(CollisionRadius(collision_radius));
+            // TODO Phase 1[cd]: drop conversions when tower config feeds Fixed32 natively.
+            .with(TurnSpeed(omoba_sim::Fixed32::from_raw((turn_speed_deg.to_radians() * 1024.0) as i32)))
+            .with(CollisionRadius(omoba_sim::Fixed32::from_raw((collision_radius * 1024.0) as i32)));
 
         // 雙方基地都標記 IsBase（前端依此顯示「基地」名稱）；
         // 勝負判定在 handle_death 裡還要檢查 faction，只有敵方基地死亡才觸發玩家勝
@@ -610,8 +613,8 @@ impl StateInitializer {
             if let Some(enemy_data) = campaign_data.entity.enemies.get(i % campaign_data.entity.enemies.len()) {
                 let unit = Unit::from_enemy_data(enemy_data);
                 let enemy_faction = Faction::new(FactionType::Enemy, 1);
-                let unit_pos = Pos(Vec2::new(*x, *y));
-                let unit_vel = Vel(Vec2::new(0.0, 0.0));
+                let unit_pos = Pos::from_xy_f32(*x, *y);
+                let unit_vel = Vel::zero();
 
                 let unit_properties = CProperty {
                     hp: unit.current_hp as f32,
@@ -644,7 +647,7 @@ impl StateInitializer {
                     .with(unit_properties)
                     .with(unit_attack)
                     .with(enemy_vision)
-                    .with(CollisionRadius(20.0))
+                    .with(CollisionRadius(omoba_sim::Fixed32::from_i32(20)))
                     .with(crate::scripting::ScriptUnitTag { unit_id: unit_uid.clone() })
                     .build();
                 ecs.write_resource::<crate::scripting::ScriptEventQueue>()

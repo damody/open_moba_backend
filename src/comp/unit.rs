@@ -142,7 +142,7 @@ impl Unit {
             _ => AiType::Defensive,
         };
 
-        // TODO Phase 1[bcd]: drop conversions when Unit migrates to Fixed32.
+        // TODO Phase 1[cd]: drop conversions when Unit migrates to Fixed32.
         // template-ids creep_stats is Fixed32; Unit ECS component is f32 / i32.
         let attack_range_f32 = s.attack_range.to_f32_for_render();
         Unit {
@@ -192,7 +192,7 @@ impl Unit {
             _ => AiType::Aggressive,
         };
 
-        // TODO Phase 1[bcd]: drop conversions when Unit migrates to Fixed32.
+        // TODO Phase 1[cd]: drop conversions when Unit migrates to Fixed32.
         Unit {
             id: enemy_data.id.clone(),
             name: creep_display(cid).to_string(),

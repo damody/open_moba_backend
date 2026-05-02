@@ -47,33 +47,36 @@ impl<'a> System<'a> for Sys {
         for (entity, unit, properties, pos) in (&tr.entities, &tr.units, &tr.properties, &tr.positions).join() {
             if properties.hp <= 0.0 {
                 dead_entities.push(entity);
-                
+
                 // 記錄死亡獎勵信息
+                // TODO Phase 1[c]: drop f32 boundary projection when Outcome / DeathReward go Fixed32-native.
+                let (px, py) = pos.xy_f32();
                 death_rewards.push(DeathReward {
                     dead_entity: entity,
                     dead_unit: unit.clone(),
-                    position: pos.0,
+                    position: vek::Vec2::new(px, py),
                     exp_reward: unit.exp_reward,
                     gold_reward: unit.gold_reward,
                     bounty_type: unit.bounty_type.clone(),
                 });
-                
-                log::info!("Unit '{}' died at position ({:.1}, {:.1})", 
-                          unit.name, pos.0.x, pos.0.y);
+
+                log::info!("Unit '{}' died at position ({:.1}, {:.1})",
+                          unit.name, px, py);
             }
         }
-        
+
         // 處理死亡獎勵 - 分配給附近的友方英雄
         for reward in death_rewards {
             distribute_death_rewards(&reward, &tr, &mut tw);
         }
-        
+
         // 生成死亡事件
         for dead_entity in dead_entities {
             if let Some(pos) = tr.positions.get(dead_entity) {
-                tw.outcomes.push(Outcome::Death { 
-                    pos: pos.0, 
-                    ent: dead_entity 
+                let (px, py) = pos.xy_f32();
+                tw.outcomes.push(Outcome::Death {
+                    pos: vek::Vec2::new(px, py),
+                    ent: dead_entity
                 });
             }
         }
@@ -104,7 +107,11 @@ fn distribute_death_rewards(
     
     // 找到範圍內的友方英雄
     for (hero_entity, hero, hero_pos, hero_faction) in (&tr.entities, &tr.heroes, &tr.positions, &tr.factions).join() {
-        let distance_sq = (hero_pos.0 - reward.position).magnitude_squared();
+        // TODO Phase 1[c]: drop f32 boundary projection when DeathReward goes Fixed32-native.
+        let (hx, hy) = hero_pos.xy_f32();
+        let dx = hx - reward.position.x;
+        let dy = hy - reward.position.y;
+        let distance_sq = dx * dx + dy * dy;
         
         // 檢查是否在範圍內且為敵對陣營（可以獲得獎勵）
         if let Some(dead_faction) = tr.factions.get(reward.dead_entity) {

@@ -42,7 +42,8 @@ impl<'a> System<'a> for Sys {
     const NAME: &'static str = "regen";
 
     fn run(job: &mut Job<Self>, mut data: Self::SystemData) {
-        job.own.dt_acc += data.dt.0;
+        // TODO Phase 1[c]: drop conversion when regen tick goes Fixed32-native.
+        job.own.dt_acc += data.dt.0.to_f32_for_render();
         if job.own.dt_acc < REGEN_INTERVAL {
             return;
         }

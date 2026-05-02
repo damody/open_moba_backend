@@ -123,7 +123,7 @@ impl Enemy {
             _ => AiType::Aggressive,
         };
 
-        // TODO Phase 1[bcd]: drop conversions when Enemy migrates to Fixed32.
+        // TODO Phase 1[cd]: drop conversions when Enemy migrates to Fixed32.
         // template-ids creep_stats is Fixed32; Enemy ECS component is f32 / i32.
         Enemy {
             id: enemy_data.id.clone(),

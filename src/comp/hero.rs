@@ -123,7 +123,7 @@ impl Hero {
             ability_levels,
             skill_points: 8, // 初始技能點（playtest 方便把所有 ability 點起來）
             ability_cooldowns: HashMap::new(),
-            // TODO Phase 1[bcd]: drop conversions when LevelGrowth migrates to Fixed32.
+            // TODO Phase 1[cd]: drop conversions when LevelGrowth migrates to Fixed32.
             // template-ids LevelGrowth is Fixed32; omb internal Hero.level_growth is f32.
             level_growth: LevelGrowth {
                 strength_per_level: s.level_growth.strength_per_level.to_f32_for_render(),

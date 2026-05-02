@@ -128,8 +128,10 @@ impl<'a> System<'a> for VisionUpdateSystem {
             }
 
             // 計算新的視野
+            // TODO Phase 1[d]: drop f32 boundary projection when vision goes Fixed32-native.
+            let (px, py) = position.xy_f32();
             let vision_result = self.shadow_calculator.calculate_optimized_vision(
-                position.0,
+                vek::Vec2::new(px, py),
                 vision.height,
                 vision.range,
             );
@@ -274,7 +276,9 @@ impl VisionEventFilter {
         let mut visible_entities = Vec::new();
 
         for (entity, position) in (entities, positions).join() {
-            if self.is_entity_visible_to_player(player_name, entity, position.0, cache) {
+            // TODO Phase 1[d]: drop f32 boundary projection when vision goes Fixed32-native.
+            let (px, py) = position.xy_f32();
+            if self.is_entity_visible_to_player(player_name, entity, vek::Vec2::new(px, py), cache) {
                 visible_entities.push(entity);
             }
         }

@@ -180,8 +180,8 @@ impl ResourceManager {
             let tower_property = TProperty::new(100.0, 1, 200.0);
             let tower_attack = TAttack::new(50.0, 1.5, 300.0, 800.0);
             let _ = world.create_entity()
-                .with(Pos(pos))
-                .with(Vel(Vec2::new(0.0, 0.0)))
+                .with(Pos::from_xy_f32(pos.x, pos.y))
+                .with(Vel::zero())
                 .with(Tower::new())
                 .with(tower_property)
                 .with(tower_attack)
@@ -273,8 +273,12 @@ impl ResourceManager {
             let positions = world.read_storage::<Pos>();
             let radii = world.read_storage::<CollisionRadius>();
             for (_e, _t, p, r) in (&entities, &towers, &positions, &radii).join() {
-                let d_sq = (p.0 - pos).magnitude_squared();
-                let min_d = tpl.footprint + r.0;
+                // TODO Phase 1[cd]: drop f32 boundary projection when collision check goes Fixed32-native.
+                let (px, py) = p.xy_f32();
+                let dx = px - pos.x;
+                let dy = py - pos.y;
+                let d_sq = dx * dx + dy * dy;
+                let min_d = tpl.footprint + r.0.to_f32_for_render();
                 if d_sq < min_d * min_d {
                     log::info!("TD 蓋塔：位置 ({:.0},{:.0}) 與其他塔重疊", pos.x, pos.y);
                     return Ok(());
@@ -309,7 +313,8 @@ impl ResourceManager {
             let radii = world.read_storage::<CollisionRadius>();
             let hp = properties.get(tower_entity).map(|p| p.hp).unwrap_or(tpl.hp);
             let mhp = properties.get(tower_entity).map(|p| p.mhp).unwrap_or(tpl.hp);
-            let radius = radii.get(tower_entity).map(|r| r.0).unwrap_or(tpl.footprint);
+            // TODO Phase 1[cd]: drop f32 boundary projection when wire-format takes Fixed32.
+            let radius = radii.get(tower_entity).map(|r| r.0.to_f32_for_render()).unwrap_or(tpl.footprint);
             let json_fallback = serde_json::json!({
                 "id": tower_entity.id(),
                 "entity_id": tower_entity.id(),
@@ -420,13 +425,15 @@ impl ResourceManager {
         let (atk_dmg_b, atk_int_b, atk_rng_b, bullet_spd) = atk
             .map(|a| (a.atk_physic.v, a.asd.v, a.range.v, a.bullet_speed))
             .unwrap_or((0.0, 0.0, 0.0, 0.0));
-        let pos = positions.get(hero_entity).map(|p| p.0).unwrap_or(vek::Vec2::zero());
+        // TODO Phase 1[cd]: drop f32 boundary projection when wire-format builders take Fixed32.
+        let (pos_x_f, pos_y_f) = positions.get(hero_entity).map(|p| p.xy_f32()).unwrap_or((0.0, 0.0));
+        let pos_vek = vek::Vec2::new(pos_x_f, pos_y_f);
 
         #[cfg(feature = "kcp")]
         {
             let msg = build_hero_hot_msg(
                 hero_entity, h, g, hp, mhp, armor_b, mres_b, msd_b,
-                atk_dmg_b, atk_int_b, atk_rng_b, &buff_store, pos,
+                atk_dmg_b, atk_int_b, atk_rng_b, &buff_store, pos_vek,
             );
             let _ = self.mqtx.send(msg);
         }
@@ -438,7 +445,7 @@ impl ResourceManager {
                 atk_dmg_b, atk_int_b, atk_rng_b, bullet_spd, lives, &buff_store,
             );
             let _ = self.mqtx.send(OutboundMsg::new_s_at(
-                "td/all/res", "hero", "stats", payload, pos.x, pos.y,
+                "td/all/res", "hero", "stats", payload, pos_x_f, pos_y_f,
             ));
         }
     }
@@ -451,8 +458,9 @@ impl ResourceManager {
             let heroes = world.read_storage::<Hero>();
             let positions = world.read_storage::<Pos>();
             let Some(h) = heroes.get(hero_entity) else { return };
-            let pos = positions.get(hero_entity).map(|p| p.0).unwrap_or(vek::Vec2::zero());
-            let msg = build_hero_static_msg(hero_entity, h, pos);
+            // TODO Phase 1[cd]: drop f32 boundary projection when wire-format builders take Fixed32.
+            let (px, py) = positions.get(hero_entity).map(|p| p.xy_f32()).unwrap_or((0.0, 0.0));
+            let msg = build_hero_static_msg(hero_entity, h, vek::Vec2::new(px, py));
             let _ = self.mqtx.send(msg);
         }
         #[cfg(not(feature = "kcp"))]
@@ -629,8 +637,9 @@ impl ResourceManager {
         };
 
         // 10. 廣播 tower/upgrade
-        let tower_pos = world.read_storage::<Pos>().get(tower_entity).map(|p| p.0)
-            .unwrap_or(vek::Vec2::zero());
+        // TODO Phase 1[cd]: drop f32 boundary projection when wire-format takes Fixed32.
+        let (tower_x_f, tower_y_f) = world.read_storage::<Pos>()
+            .get(tower_entity).map(|p| p.xy_f32()).unwrap_or((0.0, 0.0));
         let payload = json!({
             "tower_id": tower_id_u32,
             "levels": [new_levels[0], new_levels[1], new_levels[2]],
@@ -639,11 +648,11 @@ impl ResourceManager {
         let msg = OutboundMsg::new_typed_at(
             "td/all/res", "tower", "upgrade",
             crate::transport::TypedOutbound::TowerUpgrade(proto_build::tower_upgrade(tower_id_u32, new_levels)),
-            payload, tower_pos.x, tower_pos.y,
+            payload, tower_x_f, tower_y_f,
         );
         #[cfg(not(feature = "kcp"))]
         let msg = OutboundMsg::new_s_at(
-            "td/all/res", "tower", "upgrade", payload, tower_pos.x, tower_pos.y,
+            "td/all/res", "tower", "upgrade", payload, tower_x_f, tower_y_f,
         );
         let _ = self.mqtx.send(msg);
 
@@ -819,7 +828,7 @@ impl ResourceManager {
         // 設定 MoveTarget
         if let Some(entity) = target_entity {
             let mut move_targets = world.write_storage::<MoveTarget>();
-            let _ = move_targets.insert(entity, MoveTarget(Vec2::new(x, y)));
+            let _ = move_targets.insert(entity, MoveTarget::from_xy_f32(x, y));
             if let Some(eid) = explicit_id {
                 log::info!("設定 entity {} 移動目標: ({}, {})", eid, x, y);
             } else {
@@ -973,7 +982,9 @@ impl ResourceManager {
 
         let hero = heroes.get(hero_entity);
         let gold = golds.get(hero_entity).map(|g| g.0).unwrap_or(0);
-        let pos = positions.get(hero_entity).map(|p| p.0).unwrap_or(vek::Vec2::zero());
+        // TODO Phase 1[cd]: drop f32 boundary projection when wire-format builders take Fixed32.
+        let (pos_x_f, pos_y_f) = positions.get(hero_entity).map(|p| p.xy_f32()).unwrap_or((0.0, 0.0));
+        let pos_vek = vek::Vec2::new(pos_x_f, pos_y_f);
         #[cfg(not(feature = "kcp"))]
         let lives = world.read_resource::<PlayerLives>().0;
         if let Some(h) = hero {
@@ -987,11 +998,11 @@ impl ResourceManager {
                     .unwrap_or((0.0, 0.0, 0.0));
                 // P3: inventory/ability 變化時同時 push static（可能 abilities/points 改了）
                 // + hot（gold 可能改了）。shim 會緩存 static 並跟後續 hot 合併。
-                let static_msg = build_hero_static_msg(hero_entity, h, pos);
+                let static_msg = build_hero_static_msg(hero_entity, h, pos_vek);
                 let _ = self.mqtx.send(static_msg);
                 let hot_msg = build_hero_hot_msg(
                     hero_entity, h, gold, hp, mhp, armor_b, mres_b, msd_b,
-                    atk_dmg_b, atk_int_b, atk_rng_b, &buff_store, pos,
+                    atk_dmg_b, atk_int_b, atk_rng_b, &buff_store, pos_vek,
                 );
                 let _ = self.mqtx.send(hot_msg);
             }
@@ -1005,7 +1016,7 @@ impl ResourceManager {
                     atk_dmg_b, atk_int_b, atk_rng_b, bullet_spd, lives, &buff_store,
                 );
                 let _ = self.mqtx.send(OutboundMsg::new_s_at(
-                    "td/all/res", "hero", "stats", payload, pos.x, pos.y,
+                    "td/all/res", "hero", "stats", payload, pos_x_f, pos_y_f,
                 ));
             }
         }
@@ -1023,7 +1034,7 @@ impl ResourceManager {
                 "hero",
                 "inventory",
                 serde_json::json!({"id": hero_entity.id(), "slots": slots}),
-                pos.x, pos.y,
+                pos_x_f, pos_y_f,
             ));
         }
     }
@@ -1114,7 +1125,9 @@ impl ResourceManager {
         {
             let positions = world.read_storage::<Pos>();
             if let Some(p) = positions.get(hero_e) {
-                if p.0.distance_squared(vek::Vec2::new(0.0, 0.0)) > 800.0 * 800.0 {
+                // TODO Phase 1[cd]: drop f32 boundary projection when this check goes Fixed32-native.
+                let (px, py) = p.xy_f32();
+                if px * px + py * py > 800.0 * 800.0 {
                     log::info!("buy_item: 不在基地範圍內");
                     return Ok(());
                 }

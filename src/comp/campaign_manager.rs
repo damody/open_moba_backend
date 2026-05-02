@@ -80,7 +80,7 @@ impl CampaignManager {
             .unwrap_or_else(|| panic!("hero id '{}' not in templates.json", hero_data.id));
         let s = hero_stats(id)
             .unwrap_or_else(|| panic!("hero '{}' has no stats in templates.json", hero_data.id));
-        // TODO Phase 1[bcd]: drop these conversions when CProperty / TAttack migrate to Fixed32.
+        // TODO Phase 1[cd]: drop these conversions when CProperty / TAttack migrate to Fixed32.
         let hero_properties = Self::create_hero_properties(&hero, s.base_armor.to_f32_for_render());
         let hero_attack = Self::create_hero_attack(&hero, s.attack_range.to_f32_for_render());
         let abilities: Vec<String> = if hero_data.abilities.is_empty() {
@@ -89,7 +89,7 @@ impl CampaignManager {
             hero_data.abilities.clone()
         };
 
-        // TODO Phase 1[bcd]: drop conversions when Unit migrates to Fixed32.
+        // TODO Phase 1[cd]: drop conversions when Unit migrates to Fixed32.
         let s_attack_range_f32 = s.attack_range.to_f32_for_render();
         let hero_unit = Unit {
             id: hero.id.clone(),
@@ -115,9 +115,9 @@ impl CampaignManager {
         };
 
         let hero_faction = Faction::new(FactionType::Player, 0);
-        let hero_pos = Pos(vek::Vec2::new(0.0, 0.0));
-        let hero_vel = Vel(vek::Vec2::new(0.0, 0.0));
-        // TODO Phase 1[bcd]: drop conversion when CircularVision migrates to Fixed32.
+        let hero_pos = Pos::from_xy_f32(0.0, 0.0);
+        let hero_vel = Vel::zero();
+        // TODO Phase 1[cd]: drop conversion when CircularVision migrates to Fixed32.
         let hero_vision = CircularVision::new(s_attack_range_f32 + 300.0, 30.0).with_precision(720);
 
         let hero_entity = ecs.create_entity()
@@ -180,9 +180,9 @@ impl CampaignManager {
             if let Some(enemy_data) = campaign_data.entity.enemies.get(i % campaign_data.entity.enemies.len()) {
                 let unit = Unit::from_enemy_data(enemy_data);
                 let enemy_faction = Faction::new(FactionType::Enemy, 1);
-                let unit_pos = Pos(vek::Vec2::new(*x, *y));
-                let unit_vel = Vel(vek::Vec2::new(0.0, 0.0));
-                
+                let unit_pos = Pos::from_xy_f32(*x, *y);
+                let unit_vel = Vel::zero();
+
                 let unit_properties = CProperty {
                     hp: unit.current_hp as f32,
                     mhp: unit.max_hp as f32,
@@ -190,7 +190,7 @@ impl CampaignManager {
                     def_physic: unit.base_armor,
                     def_magic: unit.magic_resistance,
                 };
-                
+
                 let unit_attack = TAttack {
                     atk_physic: Vf32::new(unit.base_damage as f32),
                     asd: Vf32::new(1.0 / unit.attack_speed),
@@ -198,7 +198,7 @@ impl CampaignManager {
                     asd_count: 0.0,
                     bullet_speed: 800.0,
                 };
-                
+
                 let enemy_vision = CircularVision::new(unit.attack_range + 150.0, 20.0).with_precision(360);
 
                 let unit_entity = ecs.create_entity()
@@ -225,8 +225,8 @@ impl CampaignManager {
             if let Some(creep_data) = campaign_data.entity.creeps.get(i % campaign_data.entity.creeps.len()) {
                 let unit = Unit::from_creep_data(creep_data);
                 let creep_faction = Faction::new(FactionType::Enemy, 2);
-                let unit_pos = Pos(vek::Vec2::new(*x, *y));
-                let unit_vel = Vel(vek::Vec2::new(0.0, 0.0));
+                let unit_pos = Pos::from_xy_f32(*x, *y);
+                let unit_vel = Vel::zero();
                 
                 let unit_properties = CProperty {
                     hp: unit.current_hp as f32,

@@ -55,7 +55,8 @@ impl<'a> System<'a> for Sys {
     const NAME: &'static str = "buff";
 
     fn run(_job: &mut Job<Self>, mut data: Self::SystemData) {
-        let dt = data.dt.0;
+        // TODO Phase 1[c]: drop conversion when BuffStore goes Fixed32-native.
+        let dt = data.dt.0.to_f32_for_render();
         let expired = data.buffs.tick(dt);
         let tx = data.mqtx.get(0).cloned();
 

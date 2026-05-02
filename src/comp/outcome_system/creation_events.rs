@@ -33,10 +33,11 @@ impl CreationEventHandler {
         let unit_id = format!("creep_{}", creep_name);
         // 創建小兵實體
         let entity = world.create_entity()
-            .with(Pos(cd.pos))
+            .with(Pos::from_xy_f32(cd.pos.x, cd.pos.y))
             .with(cd.creep)
             .with(cd.cdata)
-            .with(CollisionRadius(radius))
+            // TODO Phase 1[cd]: drop conversion when CreepData carries Fixed32 collision radius natively.
+            .with(CollisionRadius(omoba_sim::Fixed32::from_raw((radius * 1024.0) as i32)))
             .with(crate::scripting::ScriptUnitTag { unit_id: unit_id.clone() })
             .build();
         world.write_resource::<crate::scripting::ScriptEventQueue>()
@@ -93,7 +94,7 @@ impl CreationEventHandler {
         
         // 創建塔實體
         let entity = world.create_entity()
-            .with(Pos(pos))
+            .with(Pos::from_xy_f32(pos.x, pos.y))
             .with(Tower::new())
             .with(td.tpty)
             .with(td.tatk)
@@ -138,25 +139,26 @@ impl CreationEventHandler {
               source.id(), target.id(), pos.x, pos.y);
         
         // 獲取來源和目標的位置資訊
+        // TODO Phase 1[cd]: drop f32 boundary projection when projectile spawn goes Fixed32-native.
         let (source_pos, target_pos) = {
             let positions = world.read_storage::<Pos>();
-            
-            let source_pos = match positions.get(source) {
-                Some(pos) => pos.0,
+
+            let source_pos: vek::Vec2<f32> = match positions.get(source) {
+                Some(p) => { let (x, y) = p.xy_f32(); vek::Vec2::new(x, y) }
                 None => {
                     warn!("無法找到來源實體 {} 的位置，使用預設位置", source.id());
                     pos
                 }
             };
-            
-            let target_pos = match positions.get(target) {
-                Some(pos) => pos.0,
+
+            let target_pos: vek::Vec2<f32> = match positions.get(target) {
+                Some(p) => { let (x, y) = p.xy_f32(); vek::Vec2::new(x, y) }
                 None => {
                     warn!("無法找到目標實體 {} 的位置，使用預設位置", target.id());
                     pos
                 }
             };
-            
+
             (source_pos, target_pos)
         }; // positions 在這裡被釋放
         
@@ -181,7 +183,7 @@ impl CreationEventHandler {
 
         // 創建投射物實體（用於視覺效果和傷害處理）
         let projectile_entity = world.create_entity()
-            .with(Pos(source_pos))
+            .with(Pos::from_xy_f32(source_pos.x, source_pos.y))
             .with(Projectile {
                 time_left: 2.0,     // 彈道存活時間
                 owner: source,      // 擁有者
@@ -276,7 +278,7 @@ impl CreationEventHandler {
         let faction_clone = faction.clone(); // 克隆供後續使用
         
         let mut entity_builder = world.create_entity()
-            .with(Pos(pos))
+            .with(Pos::from_xy_f32(pos.x, pos.y))
             .with(unit)
             .with(faction);
         

@@ -110,9 +110,10 @@ impl<'a> System<'a> for Sys {
                 );
                 
             // 合併所有實體到 creep 索引中（向後兼容）— 走 CollisionIndex::rebuild_from
+            // TODO Phase 1[e]: drop f32 boundary projection when Searcher / instant_distance go Fixed32-native.
             let combined: Vec<(Entity, vek::Vec2<f32>)> = unit_ents.iter().zip(unit_pos.iter())
-                .map(|(e, p)| (*e, p.0))
-                .chain(creep_ents.iter().zip(creep_pos.iter()).map(|(e, p)| (*e, p.0)))
+                .map(|(e, p)| { let (x, y) = p.xy_f32(); (*e, vek::Vec2::new(x, y)) })
+                .chain(creep_ents.iter().zip(creep_pos.iter()).map(|(e, p)| { let (x, y) = p.xy_f32(); (*e, vek::Vec2::new(x, y)) }))
                 .collect();
             tw.searcher.creep.rebuild_from(combined);
 
@@ -151,8 +152,9 @@ impl<'a> System<'a> for Sys {
                     },
                 );
 
+            // TODO Phase 1[e]: drop f32 boundary projection when Searcher / instant_distance go Fixed32-native.
             let hero_items: Vec<(Entity, vek::Vec2<f32>)> = hero_ents.iter().zip(hero_pos.iter())
-                .map(|(e, p)| (*e, p.0))
+                .map(|(e, p)| { let (x, y) = p.xy_f32(); (*e, vek::Vec2::new(x, y)) })
                 .collect();
             tw.searcher.hero.rebuild_from(hero_items);
         }
@@ -190,8 +192,9 @@ impl<'a> System<'a> for Sys {
                 );
             if tw.searcher.tower.is_dirty() {
                 let time1 = Instant::now();
+                // TODO Phase 1[e]: drop f32 boundary projection when Searcher / instant_distance go Fixed32-native.
                 let tower_items: Vec<(Entity, vek::Vec2<f32>)> = ents.iter().zip(pos.iter())
-                    .map(|(e, p)| (*e, p.0))
+                    .map(|(e, p)| { let (x, y) = p.xy_f32(); (*e, vek::Vec2::new(x, y)) })
                     .collect();
                 tw.searcher.tower.rebuild_from(tower_items);
                 let time2 = Instant::now();

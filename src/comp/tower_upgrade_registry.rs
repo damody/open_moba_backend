@@ -57,7 +57,7 @@ fn upgrade_effect_from_const(c: &UpgradeEffectConst) -> UpgradeEffect {
     match c.kind {
         UpgradeEffectKindC::StatMod => UpgradeEffect::StatMod {
             key: c.key.into(),
-            // TODO Phase 1[bcd]: drop conversion when UpgradeEffect::StatMod.value migrates to Fixed32
+            // TODO Phase 1[cd]: drop conversion when UpgradeEffect::StatMod.value migrates to Fixed32
             value: c.value.to_f32_for_render(),
             op: match c.op {
                 StatOpC::Add => StatOp::Add,

@@ -76,7 +76,8 @@ impl<'a> System<'a> for Sys {
 
     fn run(_job: &mut Job<Self>, (tr, mut tw): Self::SystemData) {
         let time = tr.time.0;
-        let dt = tr.dt.0;
+        // TODO Phase 1[c]: drop conversion when battle tick goes Fixed32-native.
+        let dt = tr.dt.0.to_f32_for_render();
         let time1 = Instant::now();
         let tx = tw.mqtx.get(0).cloned();
         let mut outcomes = (
@@ -96,6 +97,10 @@ impl<'a> System<'a> for Sys {
                 },
                 |_guard, (e, tower, pty, atk, pos, facing, facing_bc)| {
                     let mut outcomes:Vec<Outcome> = Vec::new();
+                    // TODO Phase 1[c]: drop f32 boundary projection when tower battle tick goes Fixed32/Angle-native.
+                    let (pos_x_f, pos_y_f) = pos.xy_f32();
+                    let pos_vek = vek::Vec2::new(pos_x_f, pos_y_f);
+
                     // 腳本塔：開火/asd_count 由 on_tick 自管；但「找目標 + 轉向」仍由 host 做。
                     // 非腳本塔：host 管全部（累計 asd、找目標、轉向、開火）。
                     let is_scripted = tr.script_tags.get(e).is_some();
@@ -123,7 +128,11 @@ impl<'a> System<'a> for Sys {
                                 // 已經阻檔了
                             } else {
                                 if let Some(p) = tr.pos.get(nc.ent) {
-                                    if p.0.distance_squared(pos.0) < size {
+                                    // distance_squared returns Fixed32; convert size (f32) for compare.
+                                    let (npx, npy) = p.xy_f32();
+                                    let dx = npx - pos_x_f;
+                                    let dy = npy - pos_y_f;
+                                    if dx * dx + dy * dy < size {
                                         tower.block_creeps.push(nc.ent);
                                         outcomes.push(Outcome::CreepStop { source: e, target: nc.ent });
                                     }
@@ -141,7 +150,7 @@ impl<'a> System<'a> for Sys {
                         if elpsed.as_secs_f32() < 0.05 {
                             let search_n = 1.max(pty.mblock).max(6) as usize;
                             let (creeps, near_creeps) =
-                                tr.searcher.creep.search_nn_two_radii(pos.0, atk.range.val(), atk.range.val()+30., search_n);
+                                tr.searcher.creep.search_nn_two_radii(pos_vek, atk.range.val(), atk.range.val()+30., search_n);
 
                             // faction filter：若本塔有 Faction，則只攻擊敵對 creep
                             let my_faction = tr.factions.get(e);
@@ -165,25 +174,29 @@ impl<'a> System<'a> for Sys {
                                 }
                                 // 轉向目標：算出 desired angle，旋轉 facing
                                 let target_entity = hostile_creeps[0].e;
-                                let target_pos = tr.pos.get(target_entity).map(|p| p.0).unwrap_or(pos.0);
-                                let diff = target_pos - pos.0;
+                                let target_pos = tr.pos.get(target_entity)
+                                    .map(|p| { let (x, y) = p.xy_f32(); vek::Vec2::new(x, y) })
+                                    .unwrap_or(pos_vek);
+                                let diff = target_pos - pos_vek;
                                 if diff.magnitude_squared() > 0.01 {
                                     let desired = diff.y.atan2(diff.x);
-                                    let turn = tr.turn_speeds.get(e).map(|t| t.0)
+                                    let turn = tr.turn_speeds.get(e).map(|t| t.0.to_f32_for_render())
                                         .unwrap_or(std::f32::consts::FRAC_PI_2);
-                                    facing.0 = rotate_toward(facing.0, desired, turn * dt);
+                                    let cur_rad = facing.rad_f32();
+                                    let new_rad = rotate_toward(cur_rad, desired, turn * dt);
+                                    *facing = Facing::from_rad_f32(new_rad);
 
                                     // 廣播 facing 變化：和「上次廣播」差 > 15° 才送。
                                     // 必須比較 last_broadcast 而不是 per-tick old_facing —
                                     // 否則每 tick 旋轉量 (~3°) 永遠 < 15° 永遠不發。
                                     let needs_emit = match facing_bc.0 {
                                         None => true,  // 第一次必發（client 原預設 0 → 校正）
-                                        Some(last) => (facing.0 - last).abs() > FACING_BROADCAST_THRESHOLD_RAD,
+                                        Some(last) => (new_rad - last).abs() > FACING_BROADCAST_THRESHOLD_RAD,
                                     };
                                     if needs_emit {
-                                        facing_bc.0 = Some(facing.0);
+                                        facing_bc.0 = Some(new_rad);
                                         if let Some(ref t) = tx {
-                                            let _ = t.try_send(make_entity_facing(e.id(), facing.0, pos.0.x, pos.0.y));
+                                            let _ = t.try_send(make_entity_facing(e.id(), new_rad, pos_x_f, pos_y_f));
                                         }
                                     }
 
@@ -193,10 +206,10 @@ impl<'a> System<'a> for Sys {
                                     }
 
                                     // MOBA 塔：角度對齊就發單體 homing 彈
-                                    if normalize_angle(desired - facing.0).abs() < MOVE_ANGLE_THRESHOLD {
+                                    if normalize_angle(desired - new_rad).abs() < MOVE_ANGLE_THRESHOLD {
                                         atk.asd_count -= atk.asd.val();
                                         outcomes.push(Outcome::ProjectileLine2 {
-                                            pos: pos.0.clone(),
+                                            pos: pos_vek,
                                             source: Some(e.clone()),
                                             target: Some(target_entity),
                                         });

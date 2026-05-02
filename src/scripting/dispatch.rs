@@ -133,7 +133,7 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
                     Some(h) => RSome(h),
                     None => RNone,
                 },
-                // TODO Phase 1[bcd]: drop conversion when ScriptEvent::Damage.amount migrates to Fixed32.
+                // TODO Phase 1[cd]: drop conversion when ScriptEvent::Damage.amount migrates to Fixed32.
                 amount: Fixed32::from_raw((amount * 1024.0) as i32),
                 kind,
             };
@@ -167,7 +167,7 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
             }
 
             // 3) host applies final amount
-            // TODO Phase 1[bcd]: drop conversion when apply_damage / CProperty.hp migrate to Fixed32.
+            // TODO Phase 1[cd]: drop conversion when apply_damage / CProperty.hp migrate to Fixed32.
             apply_damage(adapter, victim, info.amount.to_f32_for_render(), info.kind);
         }
 
@@ -208,7 +208,7 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
             let caster_handle = WorldAdapter::entity_to_handle(caster);
             let target_abi = match target {
                 SkillTarget::Entity(e) => Target::Entity(WorldAdapter::entity_to_handle(e)),
-                // TODO Phase 1[bcd]: drop conversion when SkillTarget::Point migrates to Fixed32.
+                // TODO Phase 1[cd]: drop conversion when SkillTarget::Point migrates to Fixed32.
                 SkillTarget::Point(x, y) => Target::Point(Vec2 {
                     x: Fixed32::from_raw((x * 1024.0) as i32),
                     y: Fixed32::from_raw((y * 1024.0) as i32),
@@ -375,7 +375,7 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
 
         ScriptEvent::AttackLanded { attacker, victim, damage } => {
             let victim_handle = WorldAdapter::entity_to_handle(victim);
-            // TODO Phase 1[bcd]: drop conversion when ScriptEvent::AttackLanded.damage migrates to Fixed32.
+            // TODO Phase 1[cd]: drop conversion when ScriptEvent::AttackLanded.damage migrates to Fixed32.
             let damage_fx = Fixed32::from_raw((damage * 1024.0) as i32);
             with_script(adapter, registry, attacker, |script, handle, world_dyn| {
                 script.on_attack_landed(handle, victim_handle, damage_fx, world_dyn);
@@ -397,7 +397,7 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
         }
 
         ScriptEvent::HealthGained { e, amount } => {
-            // TODO Phase 1[bcd]: drop conversion when ScriptEvent::HealthGained.amount migrates to Fixed32.
+            // TODO Phase 1[cd]: drop conversion when ScriptEvent::HealthGained.amount migrates to Fixed32.
             let amount_fx = Fixed32::from_raw((amount * 1024.0) as i32);
             with_script(adapter, registry, e, |script, handle, world_dyn| {
                 script.on_health_gained(handle, amount_fx, world_dyn);
@@ -405,7 +405,7 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
         }
 
         ScriptEvent::ManaGained { e, amount } => {
-            // TODO Phase 1[bcd]: drop conversion when ScriptEvent::ManaGained.amount migrates to Fixed32.
+            // TODO Phase 1[cd]: drop conversion when ScriptEvent::ManaGained.amount migrates to Fixed32.
             let amount_fx = Fixed32::from_raw((amount * 1024.0) as i32);
             with_script(adapter, registry, e, |script, handle, world_dyn| {
                 script.on_mana_gained(handle, amount_fx, world_dyn);
@@ -414,7 +414,7 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
 
         ScriptEvent::SpentMana { caster, cost, ability_id } => {
             let id_clone = ability_id.clone();
-            // TODO Phase 1[bcd]: drop conversion when ScriptEvent::SpentMana.cost migrates to Fixed32.
+            // TODO Phase 1[cd]: drop conversion when ScriptEvent::SpentMana.cost migrates to Fixed32.
             let cost_fx = Fixed32::from_raw((cost * 1024.0) as i32);
             with_script(adapter, registry, caster, move |script, handle, world_dyn| {
                 script.on_spent_mana(handle, cost_fx, (&*id_clone).into(), world_dyn);
@@ -426,7 +426,7 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
                 Some(h) => RSome(h),
                 None => RNone,
             };
-            // TODO Phase 1[bcd]: drop conversion when ScriptEvent::HealReceived.amount migrates to Fixed32.
+            // TODO Phase 1[cd]: drop conversion when ScriptEvent::HealReceived.amount migrates to Fixed32.
             let amount_fx = Fixed32::from_raw((amount * 1024.0) as i32);
             with_script(adapter, registry, target, move |script, handle, world_dyn| {
                 script.on_heal_received(handle, amount_fx, source_opt, world_dyn);
@@ -458,7 +458,7 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
             let kind_clone = order_kind.clone();
             let target_abi = match target {
                 SkillTarget::Entity(t) => Target::Entity(WorldAdapter::entity_to_handle(t)),
-                // TODO Phase 1[bcd]: drop conversion when SkillTarget::Point migrates to Fixed32.
+                // TODO Phase 1[cd]: drop conversion when SkillTarget::Point migrates to Fixed32.
                 SkillTarget::Point(x, y) => Target::Point(Vec2 {
                     x: Fixed32::from_raw((x * 1024.0) as i32),
                     y: Fixed32::from_raw((y * 1024.0) as i32),

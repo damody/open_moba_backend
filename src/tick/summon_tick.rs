@@ -35,7 +35,8 @@ impl<'a> System<'a> for Sys {
     const NAME: &'static str = "summon";
 
     fn run(_job: &mut Job<Self>, mut data: Self::SystemData) {
-        let dt = data.dt.0;
+        // TODO Phase 1[c]: drop conversion when summon tick goes Fixed32-native.
+        let dt = data.dt.0.to_f32_for_render();
 
         // 1) MoveTarget 處理：先收集每個有 SummonedUnit + MoveTarget 的 entity 要改到哪個 pos /
         //    是否 arrive。arrive 之後額外在下一輪刷 MoveTarget.remove()。
@@ -49,8 +50,10 @@ impl<'a> System<'a> for Sys {
         )
             .join()
         {
-            let dx = mt.0.x - pos.0.x;
-            let dy = mt.0.y - pos.0.y;
+            let (px, py) = pos.xy_f32();
+            let (mx, my) = (mt.0.x.to_f32_for_render(), mt.0.y.to_f32_for_render());
+            let dx = mx - px;
+            let dy = my - py;
             let dist_sq = dx * dx + dy * dy;
             if dist_sq < 0.0001 {
                 arrived.push(e);
@@ -60,13 +63,14 @@ impl<'a> System<'a> for Sys {
             let dist = dist_sq.sqrt();
             if dist <= step {
                 pos.0 = mt.0;
-                facing.0 = dy.atan2(dx);
+                *facing = Facing::from_rad_f32(dy.atan2(dx));
                 arrived.push(e);
             } else {
                 let inv = 1.0 / dist;
-                pos.0.x += dx * inv * step;
-                pos.0.y += dy * inv * step;
-                facing.0 = dy.atan2(dx);
+                let new_x = px + dx * inv * step;
+                let new_y = py + dy * inv * step;
+                *pos = Pos::from_xy_f32(new_x, new_y);
+                *facing = Facing::from_rad_f32(dy.atan2(dx));
             }
         }
         for e in arrived {

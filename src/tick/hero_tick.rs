@@ -75,7 +75,8 @@ impl<'a> System<'a> for Sys {
 
     fn run(_job: &mut Job<Self>, (tr, mut tw): Self::SystemData) {
         let time = tr.time.0;
-        let dt = tr.dt.0;
+        // TODO Phase 1[c]: drop conversion when battle tick goes Fixed32-native.
+        let dt = tr.dt.0.to_f32_for_render();
         let time1 = Instant::now();
         
         // 獲取英雄的陣營信息和名稱用於敵友判斷和日誌記錄
@@ -116,6 +117,10 @@ impl<'a> System<'a> for Sys {
                 |_guard, (e, hero, pty, atk, pos, facing, facing_bc)| {
                     let mut outcomes: Vec<Outcome> = Vec::new();
 
+                    // TODO Phase 1[c]: drop f32 boundary projection when hero battle tick goes Fixed32/Angle-native.
+                    let (pos_x_f, pos_y_f) = pos.xy_f32();
+                    let pos_vek = vek::Vec2::new(pos_x_f, pos_y_f);
+
                     // Stun 狀態：暈眩中不攻擊、不累積冷卻（asd_count 凍結）
                     if tr.buff_store.is_stunned(e) {
                         return outcomes;
@@ -154,9 +159,9 @@ impl<'a> System<'a> for Sys {
                             let range_bonus = attack_range - atk.range.v;
                             let search_range = attack_range + 50.0; // 稍微擴大搜尋範圍以確保不遺漏邊界目標
                             let (creep_targets, _) =
-                                tr.searcher.creep.search_nn_two_radii(pos.0, attack_range, search_range, search_n);
+                                tr.searcher.creep.search_nn_two_radii(pos_vek, attack_range, search_range, search_n);
                             let (tower_targets, _) =
-                                tr.searcher.tower.search_nn_two_radii(pos.0, attack_range, search_range, search_n);
+                                tr.searcher.tower.search_nn_two_radii(pos_vek, attack_range, search_range, search_n);
                             // 合併 creep + tower 候選，一起走敵友判斷
                             let mut potential_targets = Vec::with_capacity(creep_targets.len() + tower_targets.len());
                             potential_targets.extend(creep_targets);
@@ -171,7 +176,7 @@ impl<'a> System<'a> for Sys {
                             
                             if potential_targets.len() > 0 {
                                 log::trace!("{} 在位置 ({:.0}, {:.0}) 搜尋到 {} 個潛在目標，攻擊範圍: {} (基礎 {} + buff {})",
-                                    hero_name, pos.0.x, pos.0.y, potential_targets.len(), attack_range, atk.range.v, range_bonus);
+                                    hero_name, pos_x_f, pos_y_f, potential_targets.len(), attack_range, atk.range.v, range_bonus);
                             } else {
                                 log::trace!("{} 沒有找到目標", hero_name);
                             }
@@ -202,31 +207,36 @@ impl<'a> System<'a> for Sys {
                             if valid_targets.len() > 0 {
                                 // 攻擊最近的敵人：先轉向，角度 < 30° 才能開火
                                 let target = valid_targets[0].e;
-                                let target_pos = tr.pos.get(target).map(|p| p.0).unwrap_or(pos.0);
-                                let diff = target_pos - pos.0;
+                                // TODO Phase 1[c]: drop f32 boundary when battle tick goes Fixed32/Angle-native.
+                                let target_pos = tr.pos.get(target)
+                                    .map(|p| { let (x, y) = p.xy_f32(); vek::Vec2::new(x, y) })
+                                    .unwrap_or(pos_vek);
+                                let diff = target_pos - pos_vek;
                                 if diff.magnitude_squared() > 0.01 {
                                     let desired = diff.y.atan2(diff.x);
-                                    let turn = tr.turn_speeds.get(e).map(|t| t.0)
+                                    let turn = tr.turn_speeds.get(e).map(|t| t.0.to_f32_for_render())
                                         .unwrap_or(std::f32::consts::FRAC_PI_2);
-                                    facing.0 = rotate_toward(facing.0, desired, turn * dt);
+                                    let cur_rad = facing.rad_f32();
+                                    let new_rad = rotate_toward(cur_rad, desired, turn * dt);
+                                    *facing = Facing::from_rad_f32(new_rad);
 
                                     // 廣播 facing 變化：和「上次廣播」差 > 15° 才送。
                                     let needs_emit = match facing_bc.0 {
                                         None => true,
-                                        Some(last) => (facing.0 - last).abs() > FACING_BROADCAST_THRESHOLD_RAD,
+                                        Some(last) => (new_rad - last).abs() > FACING_BROADCAST_THRESHOLD_RAD,
                                     };
                                     if needs_emit {
-                                        facing_bc.0 = Some(facing.0);
+                                        facing_bc.0 = Some(new_rad);
                                         if let Some(ref t) = tx {
-                                            let _ = t.try_send(make_entity_facing(e.id(), facing.0, pos.0.x, pos.0.y));
+                                            let _ = t.try_send(make_entity_facing(e.id(), new_rad, pos_x_f, pos_y_f));
                                         }
                                     }
 
-                                    let angle_diff = normalize_angle(desired - facing.0).abs();
+                                    let angle_diff = normalize_angle(desired - new_rad).abs();
                                     if angle_diff < MOVE_ANGLE_THRESHOLD {
                                         atk.asd_count -= effective_interval;
                                         outcomes.push(Outcome::ProjectileLine2 {
-                                            pos: pos.0.clone(),
+                                            pos: pos_vek,
                                             source: Some(e.clone()),
                                             target: Some(target)
                                         });

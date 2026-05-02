@@ -546,7 +546,13 @@ impl GameProcessor {
                         continue; // 同隊死亡不給賞金
                     }
                 }
-                let d2 = (p.0 - dead_pos).magnitude_squared();
+                // TODO Phase 1[cd]: drop f32 boundary projection when bounty proximity check goes Fixed32-native.
+                let (px, py) = p.xy_f32();
+                let dpx = dead_pos.x.to_f32_for_render();
+                let dpy = dead_pos.y.to_f32_for_render();
+                let dx = px - dpx;
+                let dy = py - dpy;
+                let d2 = dx * dx + dy * dy;
                 if d2 > 1200.0 * 1200.0 {
                     continue;
                 }
@@ -595,19 +601,21 @@ impl GameProcessor {
                 let prop = props.get(hero_e);
                 let (hp, mhp) = prop.map(|p| (p.hp, p.mhp)).unwrap_or((0.0, 0.0));
                 let (armor_b, mres_b, msd_b) = prop.map(|p| (p.def_physic, p.def_magic, p.msd)).unwrap_or((0.0, 0.0, 0.0));
-                let p = positions.get(hero_e).map(|p| p.0).unwrap_or(vek::Vec2::zero());
+                // TODO Phase 1[cd]: drop f32 boundary projection when wire-format builders take Fixed32.
+                let (px, py) = positions.get(hero_e).map(|p| p.xy_f32()).unwrap_or((0.0, 0.0));
+                let p_vek = vek::Vec2::new(px, py);
                 #[cfg(feature = "kcp")]
                 {
                     let (atk_dmg_b, atk_int_b, atk_rng_b) = atks.get(hero_e)
                         .map(|a| (a.atk_physic.v, a.asd.v, a.range.v))
                         .unwrap_or((0.0, 0.0, 0.0));
-                    let static_msg = crate::state::resource_management::build_hero_static_msg(hero_e, h, p);
+                    let static_msg = crate::state::resource_management::build_hero_static_msg(hero_e, h, p_vek);
                     let _ = mqtx.send(static_msg);
                     // 升級時還是 push 一次 hot，讓前端立刻看到 level/skill_points
                     // 變化對應的 xp_next / hp(mhp 可能上調) — 不等 0.3s tick。
                     let hot_msg = crate::state::resource_management::build_hero_hot_msg(
                         hero_e, h, g, hp, mhp, armor_b, mres_b, msd_b,
-                        atk_dmg_b, atk_int_b, atk_rng_b, &buff_store, p,
+                        atk_dmg_b, atk_int_b, atk_rng_b, &buff_store, p_vek,
                     );
                     let _ = mqtx.send(hot_msg);
                 }
@@ -622,7 +630,7 @@ impl GameProcessor {
                         atk_dmg_b, atk_int_b, atk_rng_b, bullet_spd, lives, &buff_store,
                     );
                     let _ = mqtx.send(OutboundMsg::new_s_at(
-                        "td/all/res", "hero", "stats", payload, p.x, p.y,
+                        "td/all/res", "hero", "stats", payload, px, py,
                     ));
                 }
             }
@@ -689,7 +697,9 @@ impl GameProcessor {
             let vc = buff_store.sum_add(source_entity, StatKey::MultiShotVisual);
             let visual_count = if vc >= 2.0 { vc.round().max(1.0) as u32 } else { 1 };
 
-            (tp.bullet_speed, p2.0, final_atk, stun_roll, visual_count)
+            // TODO Phase 1[cd]: drop f32 boundary projection when projectile spawn goes Fixed32-native.
+            let (p2_x, p2_y) = p2.xy_f32();
+            (tp.bullet_speed, vek::Vec2::new(p2_x, p2_y), final_atk, stun_roll, visual_count)
         };
 
         // 命中由 projectile_tick 的距離判定決定（target 接近時 step >= dist 即命中）。
@@ -735,7 +745,7 @@ impl GameProcessor {
             let start_pos = pos + perp * lateral;
 
             let e = ecs.create_entity()
-                .with(Pos(start_pos))
+                .with(Pos::from_xy_f32(start_pos.x, start_pos.y))
                 .with(Projectile {
                     time_left: safety_time_left,
                     owner: source_entity.clone(),
@@ -798,14 +808,15 @@ impl GameProcessor {
         // Creep 統一掛 ScriptUnitTag（預設全單位腳本化）；unit_id = "creep_{name}"
         let unit_id = format!("creep_{}", creep_name);
         let e = ecs.create_entity()
-            .with(Pos(cd.pos))
+            .with(Pos::from_xy_f32(cd.pos.x, cd.pos.y))
             .with(cd.creep)
             .with(cd.cdata)
             .with(faction)
             .with(bounty)
-            .with(Facing(0.0))
+            .with(Facing(omoba_sim::Angle::ZERO))
             .with(FacingBroadcast(None))
-            .with(TurnSpeed(turn_speed_rad))
+            // TODO Phase 1[cd]: drop conversion when CreepData carries Fixed32 turn speed natively.
+            .with(TurnSpeed(omoba_sim::Fixed32::from_raw((turn_speed_rad * 1024.0) as i32)))
             .with(crate::scripting::ScriptUnitTag { unit_id: unit_id.clone() })
             .build();
         ecs.write_resource::<crate::scripting::ScriptEventQueue>()
@@ -913,7 +924,7 @@ impl GameProcessor {
         let safety_time_left = flight_time_s * 1.5 + 0.5;
 
         let e = ecs.create_entity()
-            .with(Pos(pos))
+            .with(Pos::from_xy_f32(pos.x, pos.y))
             .with(Projectile {
                 time_left: safety_time_left,
                 owner: source_entity,
@@ -947,7 +958,7 @@ impl GameProcessor {
 
     fn handle_tower_spawn(ecs: &mut World, mqtx: &crossbeam_channel::Sender<OutboundMsg>, pos: vek::Vec2<f32>, td: TowerData) -> Result<(), Error> {
         let mut cjs = json!(td);
-        let e = ecs.create_entity().with(Pos(pos)).with(Tower::new()).with(td.tpty).with(td.tatk).build();
+        let e = ecs.create_entity().with(Pos::from_xy_f32(pos.x, pos.y)).with(Tower::new()).with(td.tpty).with(td.tatk).build();
         cjs.as_object_mut().unwrap().insert("id".to_owned(), json!(e.id()));
         cjs.as_object_mut().unwrap().insert("pos".to_owned(), json!(pos));
         mqtx.try_send(OutboundMsg::new_s_at("td/all/res", "tower", "C", cjs, pos.x, pos.y));
@@ -964,7 +975,9 @@ impl GameProcessor {
         let positions = ecs.read_storage::<Pos>();
         let pos = positions.get(target).ok_or_else(|| failure::err_msg("Creep position not found"))?;
 
-        let _ = mqtx.try_send(make_creep_move_ev(target.id(), pos.0.x, pos.0.y, 0.0, pos.0.x, pos.0.y));
+        // TODO Phase 1[cd]: drop f32 boundary projection when wire-format takes Fixed32.
+        let (px, py) = pos.xy_f32();
+        let _ = mqtx.try_send(make_creep_move_ev(target.id(), px, py, 0.0, px, py));
         Ok(())
     }
     
@@ -1047,8 +1060,9 @@ impl GameProcessor {
         // ProjectileCreate.damage 先發過的 non-AOE 單體彈；client 已於 impact
         // tick 自行扣血。跳過 creep.H 省 bytes。偏差由每 500ms 的 heartbeat
         // hp_snapshot 校正。Miss（total <= 0）與死亡仍需照常廣播。
-        let target_pos = ecs.read_storage::<Pos>().get(target).map(|p| p.0);
-        if let Some(tp) = target_pos {
+        // TODO Phase 1[cd]: drop f32 boundary projection when wire-format takes Fixed32.
+        let target_pos_xy = ecs.read_storage::<Pos>().get(target).map(|p| p.xy_f32());
+        if let Some((tp_x, tp_y)) = target_pos_xy {
             // Determine entity type for the broadcast
             let entity_type = {
                 let heroes = ecs.read_storage::<Hero>();
@@ -1069,12 +1083,12 @@ impl GameProcessor {
                         entity_type,
                         "Miss",
                         json!({ "id": target.id() }),
-                        tp.x, tp.y,
+                        tp_x, tp_y,
                     ));
                 } else if !predeclared {
                     // HP-only update. Action "H" keeps this separate from real move events;
                     // the position in `new_s_at` is only used for viewport filtering (not the payload).
-                    let _ = tx.send(make_hp_update_at(entity_type, target.id(), hp_after, max_hp, tp.x, tp.y));
+                    let _ = tx.send(make_hp_update_at(entity_type, target.id(), hp_after, max_hp, tp_x, tp_y));
                 }
                 // predeclared && total > 0 → skip H. Client already applied HP.
             }

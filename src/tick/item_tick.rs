@@ -25,7 +25,8 @@ impl<'a> System<'a> for Sys {
     const NAME: &'static str = "item";
 
     fn run(_job: &mut Job<Self>, (tr, mut tw): Self::SystemData) {
-        let dt = tr.dt.0;
+        // TODO Phase 1[c]: drop conversion when item cooldowns go Fixed32-native.
+        let dt = tr.dt.0.to_f32_for_render();
 
         // 1) 遞減所有 inventory CD
         for inv in (&mut tw.inventories).join() {
