@@ -43,10 +43,11 @@ pub fn query_list_players(world: &World) -> QueryResponse {
                     "hero_name": hero.name,
                     "title": hero.title,
                     "level": hero.level,
-                    "hp": prop.map(|p| p.hp).unwrap_or(0.0),
-                    "max_hp": prop.map(|p| p.mhp).unwrap_or(0.0),
-                    "pos_x": pos.0.x,
-                    "pos_y": pos.0.y,
+                    // TODO Phase 1[d]: wire format — JSON outbound query, kept f32 for compat.
+                    "hp": prop.map(|p| p.hp.to_f32_for_render()).unwrap_or(0.0),
+                    "max_hp": prop.map(|p| p.mhp.to_f32_for_render()).unwrap_or(0.0),
+                    "pos_x": pos.0.x.to_f32_for_render(),
+                    "pos_y": pos.0.y.to_f32_for_render(),
                 })
             });
 
@@ -144,11 +145,12 @@ pub fn query_inspect_player_view(world: &World, player_name: &str) -> QueryRespo
             "name": hero.name,
             "title": hero.title,
             "level": hero.level,
-            "hp": prop.map(|p| p.hp).unwrap_or(0.0),
-            "max_hp": prop.map(|p| p.mhp).unwrap_or(0.0),
-            "x": pos.0.x,
-            "y": pos.0.y,
-            "move_target": mt.map(|m| json!({"x": m.0.x, "y": m.0.y})),
+            // TODO Phase 1[d]: wire format — JSON outbound query, kept f32 for compat.
+            "hp": prop.map(|p| p.hp.to_f32_for_render()).unwrap_or(0.0),
+            "max_hp": prop.map(|p| p.mhp.to_f32_for_render()).unwrap_or(0.0),
+            "x": pos.0.x.to_f32_for_render(),
+            "y": pos.0.y.to_f32_for_render(),
+            "move_target": mt.map(|m| json!({"x": m.0.x.to_f32_for_render(), "y": m.0.y.to_f32_for_render()})),
             "abilities": abilities_json,
         }));
     }
@@ -158,16 +160,17 @@ pub fn query_inspect_player_view(world: &World, player_name: &str) -> QueryRespo
     for (ent, unit, pos) in (&entities, &units, &positions).join() {
         let mt = move_targets.get(ent);
 
+        // TODO Phase 1[d]: wire format — Unit.current_hp / max_hp are i32 today; pos is Fixed32.
         unit_list.push(json!({
             "entity_id": ent.id(),
             "name": unit.name,
             "type": format!("{:?}", unit.unit_type),
             "hp": unit.current_hp,
             "max_hp": unit.max_hp,
-            "x": pos.0.x,
-            "y": pos.0.y,
+            "x": pos.0.x.to_f32_for_render(),
+            "y": pos.0.y.to_f32_for_render(),
             "atk_target": unit.current_target.map(|t| t.id()),
-            "move_target": mt.map(|m| json!({"x": m.0.x, "y": m.0.y})),
+            "move_target": mt.map(|m| json!({"x": m.0.x.to_f32_for_render(), "y": m.0.y.to_f32_for_render()})),
         }));
     }
 
@@ -181,10 +184,11 @@ pub fn query_inspect_player_view(world: &World, player_name: &str) -> QueryRespo
             "name": creep.name,
             "path": creep.path,
             "status": format!("{:?}", creep.status),
-            "hp": prop.map(|p| p.hp).unwrap_or(0.0),
-            "max_hp": prop.map(|p| p.mhp).unwrap_or(0.0),
-            "x": pos.0.x,
-            "y": pos.0.y,
+            // TODO Phase 1[d]: wire format — JSON outbound query, kept f32 for compat.
+            "hp": prop.map(|p| p.hp.to_f32_for_render()).unwrap_or(0.0),
+            "max_hp": prop.map(|p| p.mhp.to_f32_for_render()).unwrap_or(0.0),
+            "x": pos.0.x.to_f32_for_render(),
+            "y": pos.0.y.to_f32_for_render(),
             "block_tower": creep.block_tower.map(|t| t.id()),
         }));
     }
@@ -198,8 +202,8 @@ pub fn query_inspect_player_view(world: &World, player_name: &str) -> QueryRespo
         // TODO Phase 1[d]: wire format — JSON outbound query, kept f32 for compat.
         tower_list.push(json!({
             "entity_id": ent.id(),
-            "x": pos.0.x,
-            "y": pos.0.y,
+            "x": pos.0.x.to_f32_for_render(),
+            "y": pos.0.y.to_f32_for_render(),
             "hp": tprop.map(|p| p.hp.v.to_f32_for_render()).unwrap_or(0.0),
             "block": tprop.map(|p| p.block).unwrap_or(0),
             "max_block": tprop.map(|p| p.mblock).unwrap_or(0),

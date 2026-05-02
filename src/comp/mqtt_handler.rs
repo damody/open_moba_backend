@@ -9,6 +9,7 @@ use specs::{World, WorldExt};
 use crate::comp::*;
 use crate::transport::{OutboundMsg, InboundMsg};
 use omoba_template_ids::{HERO_SAIKA_MAGOICHI, hero_abilities};
+use omoba_sim::{Fixed32, Vec2 as SimVec2};
 
 pub struct MqttHandler;
 
@@ -155,7 +156,12 @@ impl MqttHandler {
                 };
                 let mut ocs = ecs.get_mut::<Vec<Outcome>>().unwrap();
                 if let Some(t) = t {
-                    ocs.push(Outcome::Tower { pos: vek::Vec2::new(v.x,v.y), td: TowerData { tpty: t.tpty, tatk: t.tatk } });
+                    // TODO Phase 1[d]: wire format — inbound JSON x/y are f32 today; convert at ingress.
+                    let pos = SimVec2::new(
+                        Fixed32::from_raw((v.x * 1024.0) as i32),
+                        Fixed32::from_raw((v.y * 1024.0) as i32),
+                    );
+                    ocs.push(Outcome::Tower { pos, td: TowerData { tpty: t.tpty, tatk: t.tatk } });
                     mqtx.try_send(OutboundMsg::new_s("td/all/res", "tower", "C", json!({"msg":"ok"})))?;
                 } else {
                     mqtx.try_send(OutboundMsg::new_s("td/all/res", "tower", "C", json!({"msg":"fail"})))?;
@@ -171,7 +177,16 @@ impl MqttHandler {
         match pd.a.as_str() {
             "C" => {
                 let mut p = Player { name: pd.name.clone(), cost: 100., towers: vec![] };
-                p.towers.push(TowerData { tpty: TProperty::new(10., 1, 100.), tatk: TAttack::new(3., 0.3, 300., 100.) });
+                // TODO Phase 1[d]: hard-coded test stats; should come from omoba_template_ids when wire format migrates.
+                p.towers.push(TowerData {
+                    tpty: TProperty::new(Fixed32::from_i32(10), 1, Fixed32::from_i32(100)),
+                    tatk: TAttack::new(
+                        Fixed32::from_i32(3),
+                        Fixed32::from_raw(307), // ≈ 0.3
+                        Fixed32::from_i32(300),
+                        Fixed32::from_i32(100),
+                    ),
+                });
                 pmap.insert(pd.name.clone(), p);
                 mqtx.try_send(OutboundMsg::new_s("td/all/res", "player", "C", json!({"msg":"ok"})))?;
             }
@@ -277,7 +292,11 @@ impl MqttHandler {
                     None => SkillTarget::None,
                 }
             }
-            (None, Some((x, y))) => SkillTarget::Point(x, y),
+            (None, Some((x, y))) => SkillTarget::Point {
+                // TODO Phase 1[d]: wire format — inbound JSON x/y are f32 today.
+                x: Fixed32::from_raw((x * 1024.0) as i32),
+                y: Fixed32::from_raw((y * 1024.0) as i32),
+            },
             (None, None) => SkillTarget::None,
         };
 

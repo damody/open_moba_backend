@@ -19,7 +19,10 @@ impl CreationEventHandler {
         mqtx: &Sender<OutboundMsg>,
         cd: CreepData,
     ) -> Vec<Outcome> {
-        info!("創建小兵於位置: ({}, {})", cd.pos.x, cd.pos.y);
+        // TODO Phase 1[d]: log uses f32 boundary — Fixed32 has no Display.
+        let pos_x_f = cd.pos.x.to_f32_for_render();
+        let pos_y_f = cd.pos.y.to_f32_for_render();
+        info!("創建小兵於位置: ({}, {})", pos_x_f, pos_y_f);
 
         let display_name = cd.creep.label.clone().unwrap_or_else(|| cd.creep.name.clone());
         let creep_name = cd.creep.name.clone();
@@ -33,26 +36,31 @@ impl CreationEventHandler {
         let unit_id = format!("creep_{}", creep_name);
         // 創建小兵實體
         let entity = world.create_entity()
-            .with(Pos::from_xy_f32(cd.pos.x, cd.pos.y))
+            .with(Pos(pos)) // SimVec2 直接內嵌
             .with(cd.creep)
             .with(cd.cdata)
-            // TODO Phase 1[cd]: drop conversion when CreepData carries Fixed32 collision radius natively.
-            .with(CollisionRadius(omoba_sim::Fixed32::from_raw((radius * 1024.0) as i32)))
+            .with(CollisionRadius(radius))
             .with(crate::scripting::ScriptUnitTag { unit_id: unit_id.clone() })
             .build();
         world.write_resource::<crate::scripting::ScriptEventQueue>()
             .push(crate::scripting::ScriptEvent::Spawn { e: entity });
+
+        // TODO Phase 1[d]: wire format — JSON / proto outbound, kept f32 for compat.
+        let hp_f = hp.to_f32_for_render();
+        let mhp_f = mhp.to_f32_for_render();
+        let msd_f = msd.to_f32_for_render();
+        let radius_f = radius.to_f32_for_render();
 
         // Payload shape matches client expectations (top-level position/hp/max_hp/name)
         let payload = json!({
             "entity_id": entity.id(),
             "id": entity.id(),
             "name": display_name,
-            "position": { "x": pos.x, "y": pos.y },
-            "hp": hp,
-            "max_hp": mhp,
-            "move_speed": msd,
-            "collision_radius": radius,
+            "position": { "x": pos_x_f, "y": pos_y_f },
+            "hp": hp_f,
+            "max_hp": mhp_f,
+            "move_speed": msd_f,
+            "collision_radius": radius_f,
         });
 
         #[cfg(feature = "kcp")]
@@ -62,13 +70,13 @@ impl CreationEventHandler {
             OutboundMsg::new_typed_at(
                 "td/all/res", "creep", "C",
                 TypedOutbound::CreepCreate(proto_build::creep_create(
-                    entity.id(), pos.x, pos.y, hp, mhp, msd, &creep_name,
+                    entity.id(), pos_x_f, pos_y_f, hp_f, mhp_f, msd_f, &creep_name,
                 )),
-                payload, pos.x, pos.y,
+                payload, pos_x_f, pos_y_f,
             )
         };
         #[cfg(not(feature = "kcp"))]
-        let msg = OutboundMsg::new_s_at("td/all/res", "creep", "C", payload, pos.x, pos.y);
+        let msg = OutboundMsg::new_s_at("td/all/res", "creep", "C", payload, pos_x_f, pos_y_f);
 
         // 發送 MQTT 消息通知前端
         if let Err(e) = mqtx.try_send(msg) {
@@ -84,26 +92,30 @@ impl CreationEventHandler {
     pub fn handle_tower_creation(
         world: &mut World,
         mqtx: &Sender<OutboundMsg>,
-        pos: Vec2<f32>,
+        pos: omoba_sim::Vec2,
         td: TowerData,
     ) -> Vec<Outcome> {
-        info!("創建塔於位置: ({}, {})", pos.x, pos.y);
-        
+        // TODO Phase 1[d]: log uses f32 boundary — Fixed32 has no Display.
+        let pos_x_f = pos.x.to_f32_for_render();
+        let pos_y_f = pos.y.to_f32_for_render();
+        info!("創建塔於位置: ({}, {})", pos_x_f, pos_y_f);
+
         // 序列化塔資料為 JSON
         let mut cjs = json!(td);
-        
+
         // 創建塔實體
         let entity = world.create_entity()
-            .with(Pos::from_xy_f32(pos.x, pos.y))
+            .with(Pos(pos))
             .with(Tower::new())
             .with(td.tpty)
             .with(td.tatk)
             .build();
-        
+
         // 在 JSON 中添加實體 ID 和位置
+        // TODO Phase 1[d]: wire format — JSON outbound, kept f32 for compat.
         if let Some(obj) = cjs.as_object_mut() {
             obj.insert("id".to_owned(), json!(entity.id()));
-            obj.insert("pos".to_owned(), json!(pos));
+            obj.insert("pos".to_owned(), json!({"x": pos_x_f, "y": pos_y_f}));
         }
         
         // 發送 MQTT 消息通知前端
@@ -128,18 +140,21 @@ impl CreationEventHandler {
     pub fn handle_projectile_creation(
         world: &mut World,
         mqtx: &Sender<OutboundMsg>,
-        pos: Vec2<f32>,
+        pos: omoba_sim::Vec2,
         source: Entity,
         target: Entity,
         damage_phys: Option<f32>,
         damage_magi: Option<f32>,
         damage_real: Option<f32>,
     ) -> Vec<Outcome> {
-        info!("創建彈道從實體 {} 到實體 {} 於位置 ({}, {})", 
-              source.id(), target.id(), pos.x, pos.y);
+        // TODO Phase 1[d]: pos boundary — Projectile struct still uses vek::Vec2<f32>.
+        let pos_v: vek::Vec2<f32> = vek::Vec2::new(pos.x.to_f32_for_render(), pos.y.to_f32_for_render());
+        info!("創建彈道從實體 {} 到實體 {} 於位置 ({}, {})",
+              source.id(), target.id(), pos_v.x, pos_v.y);
+        let pos = pos_v; // shadow as f32 vek for downstream
         
         // 獲取來源和目標的位置資訊
-        // TODO Phase 1[cd]: drop f32 boundary projection when projectile spawn goes Fixed32-native.
+        // TODO Phase 1[d]: drop f32 boundary projection when projectile spawn goes Fixed32-native.
         let (source_pos, target_pos) = {
             let positions = world.read_storage::<Pos>();
 
@@ -163,11 +178,12 @@ impl CreationEventHandler {
         }; // positions 在這裡被釋放
         
         // 從來源實體獲取攻擊屬性來計算傷害值
+        // TODO Phase 1[d]: Projectile damage_* fields still f32; convert at boundary.
         let (phys_damage, magi_damage, real_damage) = {
             let attacks = world.read_storage::<TAttack>();
             if let Some(attack) = attacks.get(source) {
                 (
-                    damage_phys.unwrap_or(attack.atk_physic.v),
+                    damage_phys.unwrap_or_else(|| attack.atk_physic.v.to_f32_for_render()),
                     damage_magi.unwrap_or(0.0),
                     damage_real.unwrap_or(0.0)
                 )
@@ -268,38 +284,43 @@ impl CreationEventHandler {
     pub fn handle_unit_spawn(
         world: &mut World,
         mqtx: &Sender<OutboundMsg>,
-        pos: Vec2<f32>,
+        pos: omoba_sim::Vec2,
         unit: Unit,
         faction: Faction,
-        duration: Option<f32>,
+        duration: Option<omoba_sim::Fixed32>,
     ) -> Vec<Outcome> {
-        info!("生成單位於位置 ({}, {})，陣營: {:?}", pos.x, pos.y, faction);
-        
+        // TODO Phase 1[d]: log uses f32 boundary — Fixed32 has no Display.
+        let pos_x_f = pos.x.to_f32_for_render();
+        let pos_y_f = pos.y.to_f32_for_render();
+        info!("生成單位於位置 ({}, {})，陣營: {:?}", pos_x_f, pos_y_f, faction);
+
         let faction_clone = faction.clone(); // 克隆供後續使用
-        
-        let mut entity_builder = world.create_entity()
-            .with(Pos::from_xy_f32(pos.x, pos.y))
+
+        let entity_builder = world.create_entity()
+            .with(Pos(pos))
             .with(unit)
             .with(faction);
-        
+
         // 如果有持續時間，添加臨時單位組件
         if let Some(duration) = duration {
             // 這裡需要一個 TemporaryUnit 組件來處理有時間限制的單位
-            info!("單位將在 {:.1} 秒後消失", duration);
+            info!("單位將在 {:.1} 秒後消失", duration.to_f32_for_render());
             // entity_builder = entity_builder.with(TemporaryUnit { remaining_time: duration });
         }
-        
+
         let entity = entity_builder.build();
-        
+
         // 發送單位創建消息
+        // TODO Phase 1[d]: wire format — JSON outbound, kept f32 for compat.
+        let duration_f = duration.map(|d| d.to_f32_for_render());
         let unit_data = json!({
             "id": entity.id(),
             "pos": {
-                "x": pos.x,
-                "y": pos.y
+                "x": pos_x_f,
+                "y": pos_y_f
             },
             "faction": faction_clone,
-            "duration": duration
+            "duration": duration_f
         });
         
         if let Err(e) = mqtx.try_send(OutboundMsg::new_s("td/all/res", "unit", "C", unit_data)) {

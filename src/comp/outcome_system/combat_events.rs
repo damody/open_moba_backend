@@ -23,13 +23,18 @@ impl CombatEventHandler {
     pub fn handle_damage(
         world: &mut World,
         mqtx: &Sender<OutboundMsg>,
-        pos: vek::Vec2<f32>,
-        phys: f32,
-        magi: f32,
-        real: f32,
+        pos: omoba_sim::Vec2,
+        phys: omoba_sim::Fixed32,
+        magi: omoba_sim::Fixed32,
+        real: omoba_sim::Fixed32,
         source: Entity,
         target: Entity,
     ) -> Vec<Outcome> {
+        // TODO Phase 1[d]: full Fixed32 damage pipeline; UnitStats::apply_incoming_damage
+        // still takes f32 — convert at boundary.
+        let phys_f = phys.to_f32_for_render();
+        let magi_f = magi.to_f32_for_render();
+        let real_f = real.to_f32_for_render();
         let mut next_outcomes = Vec::new();
 
         // ---- 先發 Attacked 給 victim 側（命中與否都發）----
@@ -75,9 +80,9 @@ impl CombatEventHandler {
                 .map(|cp| (cp.def_physic.to_f32_for_render(), cp.def_magic.to_f32_for_render()))
                 .unwrap_or((0.0, 0.0));
             (
-                tgt_stats.apply_incoming_damage(phys, DamageKind::Physical, target, base_armor, base_resist),
-                tgt_stats.apply_incoming_damage(magi, DamageKind::Magical, target, base_armor, base_resist),
-                tgt_stats.apply_incoming_damage(real, DamageKind::Pure, target, base_armor, base_resist),
+                tgt_stats.apply_incoming_damage(phys_f, DamageKind::Physical, target, base_armor, base_resist),
+                tgt_stats.apply_incoming_damage(magi_f, DamageKind::Magical, target, base_armor, base_resist),
+                tgt_stats.apply_incoming_damage(real_f, DamageKind::Pure, target, base_armor, base_resist),
             )
         };
         let final_total = final_phys + final_magi + final_real;
@@ -159,7 +164,7 @@ impl CombatEventHandler {
             } else {
                 let target_name = Self::get_entity_name(world, target);
                 log::info!("💀 {} 死亡！", target_name);
-                next_outcomes.push(Outcome::Death { pos, ent: target });
+                next_outcomes.push(Outcome::Death { pos, ent: target });  // pos is SimVec2 (post Phase 1c.2)
                 world.write_resource::<crate::scripting::ScriptEventQueue>()
                     .push(crate::scripting::ScriptEvent::Death {
                         victim: target,
@@ -175,46 +180,55 @@ impl CombatEventHandler {
     pub fn handle_heal(
         world: &mut World,
         _mqtx: &Sender<OutboundMsg>,
-        _pos: vek::Vec2<f32>,
+        _pos: omoba_sim::Vec2,
         target: Entity,
-        amount: f32,
+        amount: omoba_sim::Fixed32,
     ) -> Vec<Outcome> {
+        use omoba_sim::Fixed32;
         // 先查 buff 套 modifier
-        let effective_amount = {
+        let half = Fixed32::from_raw(512); // 0.5
+        let effective_amount: Fixed32 = {
             let buffs = world.read_resource::<crate::ability_runtime::BuffStore>();
             let disabled = buffs.has(target, StatKey::DisableHealing.as_str())
-                || buffs.sum_add(target, StatKey::DisableHealing) > 0.5;
+                || buffs.sum_add(target, StatKey::DisableHealing) > half;
             if disabled {
-                0.0
+                Fixed32::ZERO
             } else {
-                let mult = 1.0 + buffs.sum_add(target, StatKey::HealReceivedMultiplier);
+                let mult = Fixed32::ONE + buffs.sum_add(target, StatKey::HealReceivedMultiplier);
                 amount * mult
             }
         };
 
-        if effective_amount <= 0.0 {
+        if effective_amount <= Fixed32::ZERO {
             let target_name = Self::get_entity_name(world, target);
             log::info!("🚫 {} 治療被阻擋（disable_healing 或倍率歸零）", target_name);
             return Vec::new();
         }
 
-        let mut actual_heal: f32 = 0.0;
+        let mut actual_heal: Fixed32 = Fixed32::ZERO;
         {
             let mut properties = world.write_storage::<CProperty>();
             if let Some(target_props) = properties.get_mut(target) {
                 let hp_before = target_props.hp;
-                target_props.hp = (target_props.hp + effective_amount).min(target_props.mhp);
+                let summed = target_props.hp + effective_amount;
+                target_props.hp = if summed > target_props.mhp { target_props.mhp } else { summed };
                 let hp_after = target_props.hp;
                 actual_heal = hp_after - hp_before;
 
                 let target_name = Self::get_entity_name(world, target);
+                // TODO Phase 1[d]: log uses f32 boundary — Fixed32 has no Display.
                 log::info!("💚 {} 回復 {:.1} HP（原 {:.1} × 倍率）| HP: {:.1} → {:.1}/{:.1}",
-                    target_name, actual_heal, amount, hp_before, hp_after, target_props.mhp
+                    target_name,
+                    actual_heal.to_f32_for_render(),
+                    amount.to_f32_for_render(),
+                    hp_before.to_f32_for_render(),
+                    hp_after.to_f32_for_render(),
+                    target_props.mhp.to_f32_for_render()
                 );
             }
         }
 
-        if actual_heal > 0.0 {
+        if actual_heal > Fixed32::ZERO {
             let mut queue = world.write_resource::<crate::scripting::ScriptEventQueue>();
             queue.push(crate::scripting::ScriptEvent::HealReceived {
                 target,
@@ -234,7 +248,7 @@ impl CombatEventHandler {
     pub fn handle_death(
         world: &mut World,
         mqtx: &Sender<OutboundMsg>,
-        _pos: vek::Vec2<f32>,
+        _pos: omoba_sim::Vec2,
         entity: Entity,
     ) -> Vec<Outcome> {
         let mut next_outcomes = Vec::new();
@@ -319,11 +333,11 @@ impl CombatEventHandler {
         world: &mut World,
         _mqtx: &Sender<OutboundMsg>,
         target: Entity,
-        asd_count: Option<f32>,
+        asd_count: Option<omoba_sim::Fixed32>,
         cooldown_reset: bool,
     ) -> Vec<Outcome> {
         let mut attacks = world.write_storage::<TAttack>();
-        
+
         if let Some(attack) = attacks.get_mut(target) {
             if let Some(new_count) = asd_count {
                 attack.asd_count = new_count;
@@ -332,7 +346,7 @@ impl CombatEventHandler {
                 attack.asd_count = attack.asd.v;
             }
         }
-        
+
         Vec::new()
     }
 

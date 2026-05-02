@@ -426,7 +426,13 @@ impl GameProcessor {
                         Self::handle_add_buff(ecs, target, buff_id, duration, payload)?;
                     }
                     Outcome::Explosion { pos, radius, duration } => {
-                        let _ = mqtx.try_send(make_game_explosion(pos.x, pos.y, radius, duration));
+                        // TODO Phase 1[d]: wire format — proto helper takes f32; convert at boundary.
+                        let _ = mqtx.try_send(make_game_explosion(
+                            pos.x.to_f32_for_render(),
+                            pos.y.to_f32_for_render(),
+                            radius.to_f32_for_render(),
+                            duration.to_f32_for_render(),
+                        ));
                     }
                     _ => {}
                 }
@@ -546,7 +552,7 @@ impl GameProcessor {
                         continue; // 同隊死亡不給賞金
                     }
                 }
-                // TODO Phase 1[cd]: drop f32 boundary projection when bounty proximity check goes Fixed32-native.
+                // TODO Phase 1[d]: drop f32 boundary projection when bounty proximity check goes Fixed32-native.
                 let (px, py) = p.xy_f32();
                 let dpx = dead_pos.x.to_f32_for_render();
                 let dpy = dead_pos.y.to_f32_for_render();
@@ -599,15 +605,19 @@ impl GameProcessor {
             if let Some(h) = heroes.get(hero_e) {
                 let g = golds.get(hero_e).map(|g| g.0).unwrap_or(0);
                 let prop = props.get(hero_e);
-                let (hp, mhp) = prop.map(|p| (p.hp, p.mhp)).unwrap_or((0.0, 0.0));
-                let (armor_b, mres_b, msd_b) = prop.map(|p| (p.def_physic, p.def_magic, p.msd)).unwrap_or((0.0, 0.0, 0.0));
-                // TODO Phase 1[cd]: drop f32 boundary projection when wire-format builders take Fixed32.
+                // TODO Phase 1[d]: wire format — wire-format builders take f32; convert here at boundary.
+                let (hp, mhp) = prop
+                    .map(|p| (p.hp.to_f32_for_render(), p.mhp.to_f32_for_render()))
+                    .unwrap_or((0.0, 0.0));
+                let (armor_b, mres_b, msd_b) = prop
+                    .map(|p| (p.def_physic.to_f32_for_render(), p.def_magic.to_f32_for_render(), p.msd.to_f32_for_render()))
+                    .unwrap_or((0.0, 0.0, 0.0));
                 let (px, py) = positions.get(hero_e).map(|p| p.xy_f32()).unwrap_or((0.0, 0.0));
                 let p_vek = vek::Vec2::new(px, py);
                 #[cfg(feature = "kcp")]
                 {
                     let (atk_dmg_b, atk_int_b, atk_rng_b) = atks.get(hero_e)
-                        .map(|a| (a.atk_physic.v, a.asd.v, a.range.v))
+                        .map(|a| (a.atk_physic.v.to_f32_for_render(), a.asd.v.to_f32_for_render(), a.range.v.to_f32_for_render()))
                         .unwrap_or((0.0, 0.0, 0.0));
                     let static_msg = crate::state::resource_management::build_hero_static_msg(hero_e, h, p_vek);
                     let _ = mqtx.send(static_msg);
@@ -623,7 +633,7 @@ impl GameProcessor {
                 {
                     let lives = ecs.read_resource::<PlayerLives>().0;
                     let (atk_dmg_b, atk_int_b, atk_rng_b, bullet_spd) = atks.get(hero_e)
-                        .map(|a| (a.atk_physic.v, a.asd.v, a.range.v, a.bullet_speed))
+                        .map(|a| (a.atk_physic.v.to_f32_for_render(), a.asd.v.to_f32_for_render(), a.range.v.to_f32_for_render(), a.bullet_speed.to_f32_for_render()))
                         .unwrap_or((0.0, 0.0, 0.0, 0.0));
                     let payload = crate::state::resource_management::build_hero_stats_payload(
                         hero_e, h, g, hp, mhp, armor_b, mres_b, msd_b,
@@ -641,14 +651,17 @@ impl GameProcessor {
     }
 
     fn handle_projectile(
-        ecs: &mut World, 
-        mqtx: &crossbeam_channel::Sender<OutboundMsg>, 
-        pos: vek::Vec2<f32>, 
-        source: Option<Entity>, 
+        ecs: &mut World,
+        mqtx: &crossbeam_channel::Sender<OutboundMsg>,
+        pos: omoba_sim::Vec2,
+        source: Option<Entity>,
         target: Option<Entity>
     ) -> Result<(), Error> {
         let source_entity = source.ok_or_else(|| failure::err_msg("Missing source entity"))?;
         let target_entity = target.ok_or_else(|| failure::err_msg("Missing target entity"))?;
+
+        // TODO Phase 1[d]: pos boundary — Projectile struct still uses vek::Vec2<f32>.
+        let pos_v: vek::Vec2<f32> = vek::Vec2::new(pos.x.to_f32_for_render(), pos.y.to_f32_for_render());
 
         // 此 path 只用於非腳本塔（MOBA legacy）；TD 塔走腳本 `spawn_projectile_ex` 直接 spawn
         // 最終 damage 走 UnitStats::final_atk（聚合所有 stat_keys 官方 key）
@@ -666,11 +679,15 @@ impl GameProcessor {
             let tp = tproperty.get(source_entity).ok_or_else(|| failure::err_msg("Source attack properties not found"))?;
             let is_b = is_buildings.get(source_entity).is_some();
             let stats = crate::ability_runtime::UnitStats::from_refs(&*buff_store, is_b);
-            let mut final_atk = stats.final_atk(tp.atk_physic.v, source_entity);
+            // TODO Phase 1[d]: full Fixed32 projectile pipeline; convert at boundary for legacy spawn.
+            let mut final_atk = stats.final_atk(tp.atk_physic.v, source_entity).to_f32_for_render();
 
             // Accuracy 擲骰：base 命中率 1.0 + sum(accuracy_bonus) buffs；clamp [0,1]。
             // miss → damage=0（projectile 仍飛行，前端可由 0 傷害判定顯示 miss）。
-            let accuracy = (1.0 + buff_store.sum_add(source_entity, omb_script_abi::stat_keys::StatKey::AccuracyBonus)).clamp(0.0, 1.0);
+            let accuracy_bonus = buff_store
+                .sum_add(source_entity, omb_script_abi::stat_keys::StatKey::AccuracyBonus)
+                .to_f32_for_render();
+            let accuracy = (1.0 + accuracy_bonus).clamp(0.0, 1.0);
             if accuracy < 1.0 && fastrand::f32() > accuracy {
                 final_atk = 0.0;
             }
@@ -694,14 +711,17 @@ impl GameProcessor {
 
             // 多發視覺 buff：sum_add 聚合（大絕套 3 → 3 發，也支援多個 buff 相加）
             // N > 1 時主彈正常判傷害，額外 N-1 發 visual-only（無傷害、target=None 到 tpos 自毀）
-            let vc = buff_store.sum_add(source_entity, StatKey::MultiShotVisual);
+            let vc = buff_store
+                .sum_add(source_entity, StatKey::MultiShotVisual)
+                .to_f32_for_render();
             let visual_count = if vc >= 2.0 { vc.round().max(1.0) as u32 } else { 1 };
 
-            // TODO Phase 1[cd]: drop f32 boundary projection when projectile spawn goes Fixed32-native.
+            // TODO Phase 1[d]: drop f32 boundary projection when projectile spawn goes Fixed32-native.
             let (p2_x, p2_y) = p2.xy_f32();
-            (tp.bullet_speed, vek::Vec2::new(p2_x, p2_y), final_atk, stun_roll, visual_count)
+            (tp.bullet_speed.to_f32_for_render(), vek::Vec2::new(p2_x, p2_y), final_atk, stun_roll, visual_count)
         };
 
+        let pos = pos_v; // shadow as f32 vek for downstream
         // 命中由 projectile_tick 的距離判定決定（target 接近時 step >= dist 即命中）。
         // time_left 為安全閥：flight_time_s * 3 + 3 秒，允許高速單位拖著子彈移動。
         let move_speed = msd as f32;
@@ -804,19 +824,19 @@ impl GameProcessor {
             "Player" | "player" => Faction::new(FactionType::Player, 0),
             _ => Faction::new(FactionType::Enemy, 1),
         };
-        let turn_speed_rad = cd.turn_speed_deg.to_radians();
+        // TODO Phase 1[d]: turn_speed_deg → rad still through f32; pure-i32 trig planned.
+        let turn_speed_rad_f = cd.turn_speed_deg.to_f32_for_render().to_radians();
         // Creep 統一掛 ScriptUnitTag（預設全單位腳本化）；unit_id = "creep_{name}"
         let unit_id = format!("creep_{}", creep_name);
         let e = ecs.create_entity()
-            .with(Pos::from_xy_f32(cd.pos.x, cd.pos.y))
+            .with(Pos(pos)) // SimVec2 直接內嵌
             .with(cd.creep)
             .with(cd.cdata)
             .with(faction)
             .with(bounty)
             .with(Facing(omoba_sim::Angle::ZERO))
             .with(FacingBroadcast(None))
-            // TODO Phase 1[cd]: drop conversion when CreepData carries Fixed32 turn speed natively.
-            .with(TurnSpeed(omoba_sim::Fixed32::from_raw((turn_speed_rad * 1024.0) as i32)))
+            .with(TurnSpeed(omoba_sim::Fixed32::from_raw((turn_speed_rad_f * 1024.0) as i32)))
             .with(crate::scripting::ScriptUnitTag { unit_id: unit_id.clone() })
             .build();
         ecs.write_resource::<crate::scripting::ScriptEventQueue>()
@@ -835,7 +855,16 @@ impl GameProcessor {
         );
         // Pass internal template id (`creep_name`) not the display label — client
         // looks up display via omoba-template-ids reverse table.
-        let _ = mqtx.try_send(make_creep_create(e.id(), pos.x, pos.y, hp, mhp, msd, &creep_name));
+        // TODO Phase 1[d]: wire format — proto helpers take f32; convert at boundary.
+        let _ = mqtx.try_send(make_creep_create(
+            e.id(),
+            pos.x.to_f32_for_render(),
+            pos.y.to_f32_for_render(),
+            hp.to_f32_for_render(),
+            mhp.to_f32_for_render(),
+            msd.to_f32_for_render(),
+            &creep_name,
+        ));
         Ok(())
     }
 
@@ -846,16 +875,13 @@ impl GameProcessor {
         ecs: &mut World,
         target: Entity,
         buff_id: String,
-        duration: f32,
+        duration: omoba_sim::Fixed32,
         payload: serde_json::Value,
     ) -> Result<(), Error> {
         let has_move_speed_bonus = payload.get(StatKey::MoveSpeedBonus.as_str()).and_then(|v| v.as_f64()).is_some();
         {
             let mut store = ecs.write_resource::<crate::ability_runtime::BuffStore>();
-            // Phase 1c.3: BuffStore::add takes Fixed32 — boundary at f32 caller.
-            // TODO Phase 1[d]: Outcome::AddBuff.duration migrate to Fixed32.
-            let duration_fx = omoba_sim::Fixed32::from_raw((duration * 1024.0) as i32);
-            store.add(target, &buff_id, duration_fx, payload);
+            store.add(target, &buff_id, duration, payload);
         }
         // 只針對有移速影響、且是 creep 的目標廣播（hero 走 hero_move_tick 每幀發位置，不需要離散更新）
         if has_move_speed_bonus {
@@ -910,20 +936,25 @@ impl GameProcessor {
     fn handle_projectile_directional(
         ecs: &mut World,
         mqtx: &crossbeam_channel::Sender<OutboundMsg>,
-        pos: vek::Vec2<f32>,
+        pos: omoba_sim::Vec2,
         source: Option<Entity>,
-        end_pos: vek::Vec2<f32>,
+        end_pos: omoba_sim::Vec2,
     ) -> Result<(), Error> {
         use specs::{Builder, WorldExt};
 
         let source_entity = source.ok_or_else(|| failure::err_msg("ProjectileDirectional 缺少 source"))?;
+
+        // TODO Phase 1[d]: pos / end_pos boundary — Projectile struct still uses vek::Vec2<f32>.
+        let pos: vek::Vec2<f32> = vek::Vec2::new(pos.x.to_f32_for_render(), pos.y.to_f32_for_render());
+        let end_pos: vek::Vec2<f32> = vek::Vec2::new(end_pos.x.to_f32_for_render(), end_pos.y.to_f32_for_render());
 
         // 此 path 為 legacy（tower_tick 不再 push ProjectileDirectional；Tack 走腳本
         // spawn_projectile_ex）。保留 handle 作為備用；kind_id 留 0 (UNSPECIFIED)
         let (msd, atk_phys, kind_id): (f32, f32, u16) = {
             let tatks = ecs.read_storage::<TAttack>();
             let tp = tatks.get(source_entity).ok_or_else(|| failure::err_msg("Source attack properties not found"))?;
-            (tp.bullet_speed, tp.atk_physic.v, 0)
+            // TODO Phase 1[d]: full Fixed32 projectile pipeline; convert at boundary for legacy spawn.
+            (tp.bullet_speed.to_f32_for_render(), tp.atk_physic.v.to_f32_for_render(), 0)
         };
 
         let initial_dist = (end_pos - pos).magnitude();
@@ -963,12 +994,15 @@ impl GameProcessor {
         Ok(())
     }
 
-    fn handle_tower_spawn(ecs: &mut World, mqtx: &crossbeam_channel::Sender<OutboundMsg>, pos: vek::Vec2<f32>, td: TowerData) -> Result<(), Error> {
+    fn handle_tower_spawn(ecs: &mut World, mqtx: &crossbeam_channel::Sender<OutboundMsg>, pos: omoba_sim::Vec2, td: TowerData) -> Result<(), Error> {
         let mut cjs = json!(td);
-        let e = ecs.create_entity().with(Pos::from_xy_f32(pos.x, pos.y)).with(Tower::new()).with(td.tpty).with(td.tatk).build();
+        let e = ecs.create_entity().with(Pos(pos)).with(Tower::new()).with(td.tpty).with(td.tatk).build();
         cjs.as_object_mut().unwrap().insert("id".to_owned(), json!(e.id()));
-        cjs.as_object_mut().unwrap().insert("pos".to_owned(), json!(pos));
-        mqtx.try_send(OutboundMsg::new_s_at("td/all/res", "tower", "C", cjs, pos.x, pos.y));
+        // TODO Phase 1[d]: wire format — JSON outbound, kept f32 for compat.
+        let pos_x_f = pos.x.to_f32_for_render();
+        let pos_y_f = pos.y.to_f32_for_render();
+        cjs.as_object_mut().unwrap().insert("pos".to_owned(), json!({"x": pos_x_f, "y": pos_y_f}));
+        mqtx.try_send(OutboundMsg::new_s_at("td/all/res", "tower", "C", cjs, pos_x_f, pos_y_f));
         ecs.get_mut::<Searcher>().unwrap().tower.mark_dirty();
         Ok(())
     }
@@ -982,7 +1016,7 @@ impl GameProcessor {
         let positions = ecs.read_storage::<Pos>();
         let pos = positions.get(target).ok_or_else(|| failure::err_msg("Creep position not found"))?;
 
-        // TODO Phase 1[cd]: drop f32 boundary projection when wire-format takes Fixed32.
+        // TODO Phase 1[d]: wire format — proto helper takes f32; convert at boundary.
         let (px, py) = pos.xy_f32();
         let _ = mqtx.try_send(make_creep_move_ev(target.id(), px, py, 0.0, px, py));
         Ok(())
@@ -998,10 +1032,10 @@ impl GameProcessor {
     fn handle_damage(
         ecs: &mut World,
         next_outcomes: &mut Vec<Outcome>,
-        pos: vek::Vec2<f32>,
-        phys: f32,
-        magi: f32,
-        real: f32,
+        pos: omoba_sim::Vec2,
+        phys: omoba_sim::Fixed32,
+        magi: omoba_sim::Fixed32,
+        real: omoba_sim::Fixed32,
         source: Entity,
         target: Entity,
         // P7: true 當本 damage 全部來自已 pre-declared 的非 AOE projectile
@@ -1009,8 +1043,9 @@ impl GameProcessor {
         // 此時跳過 creep.H 廣播省 bytes。若死亡仍照常發 entity.D。
         predeclared: bool,
     ) -> Result<(), Error> {
-        let mut hp_after = 0.0f32;
-        let mut max_hp = 0.0f32;
+        use omoba_sim::Fixed32;
+        let mut hp_after = Fixed32::ZERO;
+        let mut max_hp = Fixed32::ZERO;
         let mut died = false;
 
         // damage_taken_bonus 聚合（Task 14）：目標身上所有 buff 的此 key sum_add
@@ -1019,43 +1054,51 @@ impl GameProcessor {
             let bs = ecs.read_resource::<crate::ability_runtime::BuffStore>();
             bs.sum_add(target, StatKey::DamageTakenBonus)
         };
-        let dmg_multiplier = (1.0 + dmg_taken_bonus).max(0.0);
+        let raw_mul = Fixed32::ONE + dmg_taken_bonus;
+        let dmg_multiplier = if raw_mul < Fixed32::ZERO { Fixed32::ZERO } else { raw_mul };
 
         {
             let mut properties = ecs.write_storage::<CProperty>();
             if let Some(target_props) = properties.get_mut(target) {
                 let hp_before = target_props.hp;
                 let total_damage = (phys + magi + real) * dmg_multiplier;
-                target_props.hp -= total_damage;
+                target_props.hp = target_props.hp - total_damage;
                 hp_after = target_props.hp;
                 max_hp = target_props.mhp;
 
                 let (source_name, target_name) = Self::get_entity_names(ecs, source, target);
 
+                // TODO Phase 1[d]: log uses f32 boundary — Fixed32 has no Display.
                 let damage_parts = {
                     let mut parts = Vec::new();
-                    if phys > 0.0 { parts.push(format!("Phys {:.1}", phys)); }
-                    if magi > 0.0 { parts.push(format!("Magi {:.1}", magi)); }
-                    if real > 0.0 { parts.push(format!("Pure {:.1}", real)); }
+                    if phys > Fixed32::ZERO { parts.push(format!("Phys {:.1}", phys.to_f32_for_render())); }
+                    if magi > Fixed32::ZERO { parts.push(format!("Magi {:.1}", magi.to_f32_for_render())); }
+                    if real > Fixed32::ZERO { parts.push(format!("Pure {:.1}", real.to_f32_for_render())); }
                     if parts.is_empty() {
-                        parts.push(format!("Total {:.1}", total_damage));
+                        parts.push(format!("Total {:.1}", total_damage.to_f32_for_render()));
                     }
                     parts.join(", ")
                 };
 
                 log::debug!("⚔️ {} 攻擊 {} | {} damage | HP: {:.1} → {:.1}/{:.1}",
-                    source_name, target_name, damage_parts, hp_before, hp_after, target_props.mhp
+                    source_name, target_name, damage_parts,
+                    hp_before.to_f32_for_render(), hp_after.to_f32_for_render(), target_props.mhp.to_f32_for_render()
                 );
 
-                if target_props.hp <= 0.0 {
-                    target_props.hp = 0.0;
-                    hp_after = 0.0;
+                if target_props.hp <= Fixed32::ZERO {
+                    target_props.hp = Fixed32::ZERO;
+                    hp_after = Fixed32::ZERO;
                     died = true;
                     // [DEBUG-STRESS] 死亡關鍵診斷：印 max_hp / hp_before / total_damage / source
                     // 篩 mhp > 100 跳過 1HP 塔本身的死亡（目前只關心 creep 怎麼死）
-                    if max_hp > 100.0 {
+                    if max_hp > Fixed32::from_i32(100) {
                         log::info!("💀 {} died | max_hp={} hp_before={} dmg={:.1} (×{:.2}) source={}",
-                            target_name, max_hp, hp_before, total_damage, dmg_multiplier, source_name);
+                            target_name,
+                            max_hp.to_f32_for_render(),
+                            hp_before.to_f32_for_render(),
+                            total_damage.to_f32_for_render(),
+                            dmg_multiplier.to_f32_for_render(),
+                            source_name);
                     }
                 }
             }
@@ -1067,7 +1110,7 @@ impl GameProcessor {
         // ProjectileCreate.damage 先發過的 non-AOE 單體彈；client 已於 impact
         // tick 自行扣血。跳過 creep.H 省 bytes。偏差由每 500ms 的 heartbeat
         // hp_snapshot 校正。Miss（total <= 0）與死亡仍需照常廣播。
-        // TODO Phase 1[cd]: drop f32 boundary projection when wire-format takes Fixed32.
+        // TODO Phase 1[d]: wire format — proto helpers take f32; convert at boundary.
         let target_pos_xy = ecs.read_storage::<Pos>().get(target).map(|p| p.xy_f32());
         if let Some((tp_x, tp_y)) = target_pos_xy {
             // Determine entity type for the broadcast
@@ -1083,7 +1126,7 @@ impl GameProcessor {
             let mqtx_list = ecs.read_resource::<Vec<crossbeam_channel::Sender<OutboundMsg>>>();
             if let Some(tx) = mqtx_list.get(0) {
                 let total = phys + magi + real;
-                if total <= 0.0 {
+                if total <= Fixed32::ZERO {
                     // Miss 廣播：accuracy 擲骰失敗導致 0 傷害 → 前端顯示 "Miss"
                     let _ = tx.send(OutboundMsg::new_s_at(
                         "td/all/res",
@@ -1095,7 +1138,12 @@ impl GameProcessor {
                 } else if !predeclared {
                     // HP-only update. Action "H" keeps this separate from real move events;
                     // the position in `new_s_at` is only used for viewport filtering (not the payload).
-                    let _ = tx.send(make_hp_update_at(entity_type, target.id(), hp_after, max_hp, tp_x, tp_y));
+                    let _ = tx.send(make_hp_update_at(
+                        entity_type,
+                        target.id(),
+                        hp_after.to_f32_for_render(),
+                        max_hp.to_f32_for_render(),
+                        tp_x, tp_y));
                 }
                 // predeclared && total > 0 → skip H. Client already applied HP.
             }
@@ -1110,16 +1158,17 @@ impl GameProcessor {
 
         Ok(())
     }
-    
-    fn handle_heal(ecs: &mut World, target: Entity, amount: f32) -> Result<(), Error> {
+
+    fn handle_heal(ecs: &mut World, target: Entity, amount: omoba_sim::Fixed32) -> Result<(), Error> {
         let mut properties = ecs.write_storage::<CProperty>();
         if let Some(target_props) = properties.get_mut(target) {
-            target_props.hp = (target_props.hp + amount).min(target_props.mhp);
+            let summed = target_props.hp + amount;
+            target_props.hp = if summed > target_props.mhp { target_props.mhp } else { summed };
         }
         Ok(())
     }
-    
-    fn handle_attack_update(ecs: &mut World, target: Entity, asd_count: Option<f32>, cooldown_reset: bool) -> Result<(), Error> {
+
+    fn handle_attack_update(ecs: &mut World, target: Entity, asd_count: Option<omoba_sim::Fixed32>, cooldown_reset: bool) -> Result<(), Error> {
         let mut attacks = ecs.write_storage::<TAttack>();
         if let Some(attack) = attacks.get_mut(target) {
             if let Some(new_count) = asd_count {
