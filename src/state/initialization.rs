@@ -319,6 +319,13 @@ impl StateInitializer {
         // resolves; non-kcp builds use the empty unit-struct variant.
         ecs.insert(crate::comp::PendingPlayerInputs::default());
 
+        // Phase 5.3: latest serialized world snapshot for observer rejoin.
+        // Refreshed every SNAPSHOT_INTERVAL_TICKS (= 30 s @ 30 Hz) by the
+        // dispatcher tick loop; consumed by the KCP transport's 0x16
+        // SnapshotResp handler via a shared `Arc<Mutex<SnapshotStore>>`.
+        // Empty (`tick=0`, `bytes=[]`) until the first save fires.
+        ecs.insert(crate::comp::SnapshotStore::default());
+
         // 初始化集合資源
         ecs.insert(BTreeMap::<String, CheckPoint>::new());
         ecs.insert(BTreeMap::<String, Path>::new());

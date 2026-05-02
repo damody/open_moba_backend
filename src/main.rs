@@ -109,14 +109,19 @@ async fn main() -> std::result::Result<(), Error> {
     // TickBroadcaster (spawned below). MasterSeed::default() returns the same
     // value the ECS resource is initialised with in state::initialization, so
     // both code paths see the same seed.
+    //
+    // Phase 5.3 adds a third Arc<Mutex<>> — the SnapshotStore — written by
+    // the dispatcher tick loop every 30 s and read by the kcp transport's
+    // 0x16 SnapshotResp handler.
     #[cfg(feature = "kcp")]
-    let (lockstep_state_handle, input_buffer_handle) = {
+    let (lockstep_state_handle, input_buffer_handle, snapshot_store_handle) = {
         use std::sync::{Arc, Mutex as StdMutex};
         use crate::lockstep::{InputBuffer, LockstepState};
         let master_seed = crate::comp::MasterSeed::default().0;
         let lockstep_state = Arc::new(StdMutex::new(LockstepState::new(master_seed)));
         let input_buffer = Arc::new(StdMutex::new(InputBuffer::new()));
-        (lockstep_state, input_buffer)
+        let snapshot_store = Arc::new(StdMutex::new(crate::comp::SnapshotStore::default()));
+        (lockstep_state, input_buffer, snapshot_store)
     };
 
     #[cfg(feature = "kcp")]
@@ -125,6 +130,7 @@ async fn main() -> std::result::Result<(), Error> {
         server_port.clone(),
         input_buffer_handle.clone(),
         lockstep_state_handle.clone(),
+        snapshot_store_handle.clone(),
     ).await?;
 
     // === TEMP: P7 checkpoint dumper — revert after measurement ===
@@ -197,6 +203,11 @@ async fn main() -> std::result::Result<(), Error> {
     );
     #[cfg(feature = "kcp")]
     state.attach_aoi_grid(aoi_grid);
+    // Phase 5.3: thread the shared SnapshotStore so the dispatcher tick loop
+    // mirrors its periodic snapshot bytes into the same Arc the kcp transport
+    // reads from when serving 0x16 SnapshotResp.
+    #[cfg(feature = "kcp")]
+    state.attach_snapshot_store(snapshot_store_handle.clone());
 
     // Phase 2 lockstep: spawn the 60Hz TickBroadcaster alongside the legacy
     // 30Hz simulation dispatcher. The broadcaster drains the InputBuffer per
@@ -232,7 +243,7 @@ async fn main() -> std::result::Result<(), Error> {
     }
     // Keep handles alive so shared state isn't dropped.
     #[cfg(feature = "kcp")]
-    let _lockstep_handles = (lockstep_state_handle, input_buffer_handle);
+    let _lockstep_handles = (lockstep_state_handle, input_buffer_handle, snapshot_store_handle);
 
     let mut clock = Clock::new(Duration::from_secs_f64(1.0 / TPS as f64));
 

@@ -312,11 +312,19 @@ fn peek_kind_and_id(payload: &str) -> (String, String, Option<u64>) {
 ///   - push 0x10 InputSubmit payloads into the buffer at the right tick;
 ///   - register players + reply with 0x14 GameStart on 0x13 JoinRequest;
 ///   - reply with 0x16 SnapshotResp on 0x15 SnapshotReq.
+///
+/// Phase 5.3 adds `lockstep_snapshot_store`: the dispatcher tick loop in
+/// `state::core::tick()` mirrors a fresh `WorldSnapshot` into this Arc every
+/// `SNAPSHOT_INTERVAL_TICKS` (= 30 s @ 30 Hz). The 0x15 SnapshotReq handler
+/// clones the latest bytes out and returns them as 0x16 SnapshotResp to the
+/// requesting observer client. Empty bytes (`tick=0`) are valid — the
+/// observer falls back to playing from the current tick without bootstrap.
 pub async fn start(
     server_addr: String,
     server_port: String,
     lockstep_input_buffer: Arc<std::sync::Mutex<crate::lockstep::InputBuffer>>,
     lockstep_state: Arc<std::sync::Mutex<crate::lockstep::LockstepState>>,
+    lockstep_snapshot_store: Arc<std::sync::Mutex<crate::comp::SnapshotStore>>,
 ) -> Result<TransportHandle, Error> {
     let (out_tx, out_rx): (Sender<OutboundMsg>, Receiver<OutboundMsg>) = bounded(10000);
     let (in_tx, in_rx): (Sender<InboundMsg>, Receiver<InboundMsg>) = bounded(10000);
@@ -736,6 +744,7 @@ pub async fn start(
     let out_tx_accept = out_tx.clone();
     let lockstep_input_buffer_accept = lockstep_input_buffer.clone();
     let lockstep_state_accept = lockstep_state.clone();
+    let lockstep_snapshot_store_accept = lockstep_snapshot_store.clone();
 
     // Bind synchronously so startup fails fast if the port is taken by a stale instance.
     let mut listener = KcpListener::bind(config, addr)
@@ -761,12 +770,13 @@ pub async fn start(
             let out_tx = out_tx_accept.clone();
             let lockstep_input_buffer = lockstep_input_buffer_accept.clone();
             let lockstep_state = lockstep_state_accept.clone();
+            let lockstep_snapshot_store = lockstep_snapshot_store_accept.clone();
             let session_id = format!("kcp_{}", peer_addr);
 
             tokio::spawn(async move {
                 if let Err(e) = handle_client(
                     stream, session_id, sessions, in_tx, query_tx, viewport_tx,
-                    out_tx, lockstep_input_buffer, lockstep_state,
+                    out_tx, lockstep_input_buffer, lockstep_state, lockstep_snapshot_store,
                 ).await {
                     warn!("KCP client handler error: {}", e);
                 }
@@ -794,6 +804,7 @@ async fn handle_client(
     out_tx: Sender<OutboundMsg>,
     lockstep_input_buffer: Arc<std::sync::Mutex<crate::lockstep::InputBuffer>>,
     lockstep_state: Arc<std::sync::Mutex<crate::lockstep::LockstepState>>,
+    lockstep_snapshot_store: Arc<std::sync::Mutex<crate::comp::SnapshotStore>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let (mut reader, mut writer) = tokio::io::split(stream);
 
@@ -1046,18 +1057,32 @@ async fn handle_client(
                             TAG_SNAPSHOT_REQ => {
                                 match SnapshotReq::decode(payload.as_slice()) {
                                     Ok(req) => {
+                                        // Phase 5.3: serve the latest
+                                        // bincode-serialized world snapshot
+                                        // from the shared SnapshotStore. The
+                                        // dispatcher tick loop refreshes this
+                                        // every SNAPSHOT_INTERVAL_TICKS
+                                        // (= 30 s @ 30 Hz). Empty bytes mean
+                                        // no snapshot has been captured yet —
+                                        // the observer falls back to playing
+                                        // forward from `current_tick` without
+                                        // bootstrap.
+                                        let (snapshot_tick, snapshot_bytes) = {
+                                            let store = lockstep_snapshot_store
+                                                .lock()
+                                                .expect("SnapshotStore mutex poisoned");
+                                            (store.tick, store.bytes.clone())
+                                        };
+                                        let current_tick = lockstep_state.lock().unwrap().current_tick;
                                         info!(
-                                            "📸 SnapshotReq from {} for from_tick={}",
-                                            session_id, req.from_tick
+                                            "📸 SnapshotReq from {} for from_tick={} → serving snapshot tick={} bytes={} (current_tick={})",
+                                            session_id, req.from_tick, snapshot_tick, snapshot_bytes.len(), current_tick
                                         );
-                                        // Phase 2 stub: empty SimSnapshot.
-                                        // Phase 5 will wire a real snapshot
-                                        // store keyed on tick.
                                         let resp = SnapshotResp {
-                                            tick: lockstep_state.lock().unwrap().current_tick,
+                                            tick: snapshot_tick,
                                             state: Some(SimSnapshot {
-                                                world_bytes: vec![],
-                                                schema_version: 1,
+                                                world_bytes: snapshot_bytes,
+                                                schema_version: crate::lockstep::SNAPSHOT_SCHEMA_VERSION,
                                             }),
                                         };
                                         let frame = crate::lockstep::LockstepFrame::SnapshotResp {

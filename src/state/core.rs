@@ -95,6 +95,12 @@ pub struct State {
     /// (mqtt/grpc builds, or kcp builds where main.rs hasn't wired it).
     #[cfg(feature = "kcp")]
     state_hash_tx: Option<crossbeam_channel::Sender<crate::lockstep::tick_broadcaster::StateHashSample>>,
+    /// Phase 5.3: shared snapshot store for observer rejoin. Dispatcher writes
+    /// every `SNAPSHOT_INTERVAL_TICKS` ticks; KCP transport's 0x16 SnapshotResp
+    /// handler reads. `None` when main.rs hasn't wired the Arc (legacy /
+    /// non-lockstep builds — KCP transport falls back to empty bytes).
+    #[cfg(feature = "kcp")]
+    snapshot_store: Option<std::sync::Arc<std::sync::Mutex<crate::comp::SnapshotStore>>>,
 }
 
 /// Per-player visible entity sets, split by type so that specs `Entity::id()`
@@ -124,6 +130,13 @@ const HEARTBEAT_FORCE_SEND_INTERVAL: f64 = 5.0;
 /// the broadcaster's interval fires (with at most one tick of staleness).
 #[cfg(feature = "kcp")]
 const STATE_HASH_INTERVAL_TICKS: u64 = 300;
+
+/// Phase 5.3: serialize a fresh world snapshot every N dispatcher ticks.
+/// Dispatcher runs at 30Hz so 900 = 30s — observer rejoin gets at most a
+/// 30 s gap between snapshot capture and bootstrap. Skipped on `tick=0`
+/// (let the world finish init before the first capture).
+#[cfg(feature = "kcp")]
+const SNAPSHOT_INTERVAL_TICKS: u64 = 900;
 
 impl State {
     /// 創建新的遊戲狀態（標準模式）
@@ -176,6 +189,8 @@ impl State {
             aoi_grid: None,
             #[cfg(feature = "kcp")]
             state_hash_tx: None,
+            #[cfg(feature = "kcp")]
+            snapshot_store: None,
         };
 
         state.initialize_standard_game();
@@ -254,6 +269,8 @@ impl State {
             aoi_grid: None,
             #[cfg(feature = "kcp")]
             state_hash_tx: None,
+            #[cfg(feature = "kcp")]
+            snapshot_store: None,
         };
 
         // 先載 scripts，才能讓 initialize_campaign_game 內的 send_tower_templates 拿到 registry
@@ -343,6 +360,37 @@ impl State {
             }
         }
 
+        // Phase 5.3: serialize a fresh world snapshot for observer rejoin
+        // every SNAPSHOT_INTERVAL_TICKS dispatcher ticks (= 30 s @ 30 Hz).
+        // Skip tick 0 — the very first dispatch tick may run before all
+        // populate_* helpers have finished filling the registry, so wait
+        // until at least one full tick of game state has settled.
+        // Writes go to (1) the SnapshotStore ECS resource (always — query
+        // path) and (2) the optional `snapshot_store` Arc<Mutex<>> when
+        // wired by main.rs (the KCP transport reads from this).
+        #[cfg(feature = "kcp")]
+        if self.local_tick > 0 && self.local_tick % SNAPSHOT_INTERVAL_TICKS == 0 {
+            let bytes = crate::lockstep::serialize_snapshot(&self.ecs);
+            let tick_u32 = self.local_tick as u32;
+            let byte_len = bytes.len();
+            // Update the ECS resource first (cheap — same dispatcher thread).
+            {
+                let mut store = self.ecs.write_resource::<crate::comp::SnapshotStore>();
+                store.tick = tick_u32;
+                store.bytes = bytes.clone();
+            }
+            // Mirror to the shared Arc<Mutex<>> when transport is wired.
+            // `lock().unwrap()` is OK: the transport-side reader holds the
+            // lock for microseconds (clone + drop) and never panics under
+            // normal operation. A poisoned mutex here is unrecoverable.
+            if let Some(shared) = &self.snapshot_store {
+                let mut guard = shared.lock().expect("SnapshotStore mutex poisoned");
+                guard.tick = tick_u32;
+                guard.bytes = bytes;
+            }
+            log::info!("[snapshot] saved tick={} bytes={}", tick_u32, byte_len);
+        }
+
         Ok(())
     }
 
@@ -410,6 +458,20 @@ impl State {
         tx: crossbeam_channel::Sender<crate::lockstep::tick_broadcaster::StateHashSample>,
     ) {
         self.state_hash_tx = Some(tx);
+    }
+
+    /// Phase 5.3: register the shared snapshot store. The dispatcher tick
+    /// loop will mirror its periodic `serialize_snapshot` output into this
+    /// `Arc<Mutex<>>` so the KCP transport's 0x16 SnapshotResp handler
+    /// (running in a tokio task — no direct World access) can serve real
+    /// bytes. If never called, snapshots still update the ECS resource
+    /// (queryable) but the transport sees empty bytes.
+    #[cfg(feature = "kcp")]
+    pub fn attach_snapshot_store(
+        &mut self,
+        store: std::sync::Arc<std::sync::Mutex<crate::comp::SnapshotStore>>,
+    ) {
+        self.snapshot_store = Some(store);
     }
 
     /// 獲取 ECS 世界引用

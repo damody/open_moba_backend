@@ -44,3 +44,27 @@ pub struct PendingPlayerInputs {
 #[cfg(not(feature = "kcp"))]
 #[derive(Default)]
 pub struct PendingPlayerInputs;
+
+/// Phase 5.3: latest serialized world snapshot for observer rejoin.
+///
+/// Updated every `SNAPSHOT_INTERVAL_TICKS` dispatcher ticks (= 30 s @ 30 Hz).
+/// Used by the KCP transport's 0x16 SnapshotResp handler to bootstrap
+/// observer clients connecting mid-game; the observer applies the bytes to
+/// its sim_runner then plays forward via subsequent TickBatches.
+///
+/// `bytes` is bincode-serialized via `omoba_sim::snapshot::serialize` over a
+/// stable subset of components (`id` + `pos` + `vel` + `facing` + `hp`/`mhp`
+/// + `kind`). Schema is pinned via `WorldSnapshot::schema_version` inside
+/// `lockstep::snapshot_producer` — bumping the on-wire format requires
+/// coordinating both ends.
+///
+/// Empty bytes (`tick = 0`) means no snapshot has been saved yet; KCP handler
+/// returns it as-is and the observer falls back to playing from `current_tick`.
+#[derive(Default)]
+pub struct SnapshotStore {
+    /// Tick the snapshot was captured at. `0` = no snapshot yet.
+    pub tick: u32,
+    /// bincode-serialized `WorldSnapshot` (entities + Pos / Vel / Facing /
+    /// CProperty subset + master_seed + tick + schema_version).
+    pub bytes: Vec<u8>,
+}
