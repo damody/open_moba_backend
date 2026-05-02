@@ -22,14 +22,27 @@ use specs::Entity;
 use std::collections::HashMap;
 
 /// Read a numeric stat value out of a JSON payload as Fixed32.
-/// JSON payload keeps f64 (script wire format), conversion happens at boundary.
-/// TODO Phase 1[d]: BuffStore wire payload migrate to deterministic encoding (raw i32).
+///
+/// Phase 1de.2 wire encoding: raw `Fixed32::raw()` i32 stored as a JSON Number
+/// (integer). Drops the f64 → `* 1024 as i32` quantization which lost up to
+/// 14 bits of precision and risked platform-divergent IEEE-754 multiply.
+///
+/// Backward-compat: if the JSON Number is a float (legacy script payload that
+/// hasn't migrated to `.raw()` emission yet), fall back to the old
+/// quantization. Once every script writer is on `.raw()` we can drop this
+/// branch (PHASE 2).
 #[inline]
 fn read_fixed_from_payload(value: &serde_json::Value) -> Fixed32 {
-    value
-        .as_f64()
-        .map(|v| Fixed32::from_raw((v * 1024.0) as i32))
-        .unwrap_or(Fixed32::ZERO)
+    if let Some(i) = value.as_i64() {
+        // PHASE 1de.2 lockstep-correct form: raw Fixed32 integer.
+        Fixed32::from_raw(i as i32)
+    } else if let Some(f) = value.as_f64() {
+        // PHASE 2 legacy: f64 → Fixed32 quantization. Deprecated; remove once all
+        // script payload writers emit `.raw()` integers.
+        Fixed32::from_raw((f * 1024.0) as i32)
+    } else {
+        Fixed32::ZERO
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -198,8 +211,8 @@ impl BuffStore {
 
     /// 加法聚合：對 entity 身上所有 buff，若 `payload[stat]` 是數字則加總。
     /// 慣例：`_bonus` 後綴的 stat 用這個（例 `range_bonus`、`damage_bonus`）。
-    /// Phase 1c.3: returns Fixed32; payload still f64 (JSON wire format), converted at boundary.
-    /// TODO Phase 1[d]: BuffStore wire payload migrate to deterministic encoding (raw i32).
+    /// Phase 1de.2: payload prefers raw i32 (lockstep-correct); legacy f64 still
+    /// accepted via `read_fixed_from_payload` fallback.
     pub fn sum_add(&self, entity: Entity, stat: StatKey) -> Fixed32 {
         let key = stat.as_str();
         self.iter_for(entity)
@@ -211,8 +224,8 @@ impl BuffStore {
     /// 乘法聚合：對 entity 身上所有 buff，若 `payload[stat]` 是數字則連乘。
     /// 空集合回 1.0 (Fixed32::ONE)。慣例：`_multiplier` 後綴的 stat 用這個
     /// （例 `attack_speed_multiplier`、`move_speed_multiplier`）。
-    /// Phase 1c.3: returns Fixed32; payload still f64 (JSON wire format), converted at boundary.
-    /// TODO Phase 1[d]: BuffStore wire payload migrate to deterministic encoding (raw i32).
+    /// Phase 1de.2: payload prefers raw i32 (lockstep-correct); legacy f64 still
+    /// accepted via `read_fixed_from_payload` fallback.
     pub fn product_mult(&self, entity: Entity, stat: StatKey) -> Fixed32 {
         let key = stat.as_str();
         self.iter_for(entity)
@@ -359,6 +372,42 @@ mod tests {
         let entry = s.get(e, "slow").expect("slow buff missing");
         let factor = entry.payload.get("slow_factor").and_then(|v| v.as_f64()).unwrap();
         assert!((factor - 0.3).abs() < 1e-6, "expected 0.3 (stronger), got {}", factor);
+    }
+
+    #[test]
+    fn read_fixed_from_payload_prefers_raw_i64() {
+        // Phase 1de.2: integer payload → raw Fixed32 (lockstep-correct).
+        // 0.5 in Fixed32 raw = 512.
+        let v = serde_json::json!(512);
+        assert_eq!(read_fixed_from_payload(&v), Fixed32::from_raw(512));
+    }
+
+    #[test]
+    fn read_fixed_from_payload_legacy_f64_fallback() {
+        // Backward compat: float payload still parsed via *1024 quantization.
+        let v = serde_json::json!(0.5);
+        assert_eq!(read_fixed_from_payload(&v), Fixed32::from_raw(512));
+    }
+
+    #[test]
+    fn read_fixed_from_payload_nonnumeric_returns_zero() {
+        let v = serde_json::json!("not_a_number");
+        assert_eq!(read_fixed_from_payload(&v), Fixed32::ZERO);
+        let v_null = serde_json::Value::Null;
+        assert_eq!(read_fixed_from_payload(&v_null), Fixed32::ZERO);
+    }
+
+    #[test]
+    fn sum_add_handles_mixed_raw_and_legacy_encodings() {
+        let mut s = BuffStore::new();
+        let e = ent(1, 1);
+        // Old script (legacy f64): 0.3 → raw 307
+        s.add(e, "old_buff", fx(5.0), json!({ "move_speed_bonus": 0.3 }));
+        // New script (raw i32): 0.2 → raw 204
+        s.add(e, "new_buff", fx(5.0), json!({ "move_speed_bonus": 204 }));
+        let total = s.sum_add(e, StatKey::MoveSpeedBonus);
+        // 307 + 204 = 511
+        assert_eq!(total, Fixed32::from_raw(511));
     }
 
     #[test]

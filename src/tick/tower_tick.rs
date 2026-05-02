@@ -18,6 +18,11 @@ use omoba_sim::{Fixed32, Vec2 as SimVec2};
 /// MOBA 鏡頭下肉眼無感的 facing 變化量（~15°）。舊值 0.05 (~3°) 造成過多 F event。
 const FACING_BROADCAST_THRESHOLD_RAD: f32 = 0.26;
 
+/// Per-entity SimRng op_kind for tower_tick. Phase 1de.2: replaces fastrand for
+/// the no-target attack-cooldown jitter. Reordering or reusing this constant
+/// across systems would invalidate replay determinism.
+const OP_TOWER_NO_TARGET_JITTER: u32 = 11;
+
 /// Build an entity.F OutboundMsg (prost EntityFacing under kcp).
 #[inline]
 fn make_entity_facing(id: u32, facing: f32, ent_x: f32, ent_y: f32) -> OutboundMsg {
@@ -45,6 +50,8 @@ pub struct TowerRead<'a> {
     entities: Entities<'a>,
     time: Read<'a, Time>,
     dt: Read<'a, DeltaTime>,
+    master_seed: Read<'a, MasterSeed>,
+    tick: Read<'a, Tick>,
     pos : ReadStorage<'a, Pos>,
     searcher : Read<'a, Searcher>,
     factions: ReadStorage<'a, Faction>,
@@ -82,6 +89,9 @@ impl<'a> System<'a> for Sys {
         // Lossy projection retained ONLY for facing-radian arithmetic + Searcher boundary.
         // TODO Phase 1e: drop when Searcher / Facing migrate to Fixed32 / Angle natively.
         let dt_f = dt.to_f32_for_render();
+        // Phase 1de.2: SimRng seed inputs hoisted into Copy locals for the par_join closure.
+        let master_seed: u64 = tr.master_seed.0;
+        let tick: u32 = tr.tick.0 as u32;
         let time1 = Instant::now();
         let tx = tw.mqtx.get(0).cloned();
         let mut outcomes = (
@@ -224,9 +234,12 @@ impl<'a> System<'a> for Sys {
                                 }
                             } else {
                                 if !is_scripted && near_creeps.len() == 0 {
-                                    // 0.3 ≈ 307/1024 raw; 0.001 ≈ 1/1024 raw.
-                                    // TODO Phase 1d: replace fastrand::u8 with SimRng for replay determinism.
-                                    let jitter = Fixed32::from_raw(fastrand::u8(..) as i32);
+                                    // 0.3 ≈ 307/1024 raw; jitter raw ∈ [0, 256) ≈ 0..0.25.
+                                    // Phase 1de.2: deterministic per-(tower, tick) jitter via SimRng.
+                                    let mut rng = omoba_sim::SimRng::from_master_entity(
+                                        master_seed, tick, e.id(), OP_TOWER_NO_TARGET_JITTER,
+                                    );
+                                    let jitter = Fixed32::from_raw((rng.next_u32() % 256) as i32);
                                     atk.asd_count = atk.asd.val() - Fixed32::from_raw(307) - jitter;
                                 }
                             }

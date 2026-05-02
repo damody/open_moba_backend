@@ -10,6 +10,12 @@ use crate::transport::OutboundMsg;
 use crate::Outcome;
 use crate::Projectile;
 
+/// Per-entity SimRng op_kind for game_processor. Phase 1de.2: replaces fastrand
+/// for projectile accuracy + attack-stun rolls. Reordering or reusing these
+/// constants across systems would invalidate replay determinism.
+const OP_PROJECTILE_ACCURACY: u32 = 20;
+const OP_PROJECTILE_STUN_ROLL: u32 = 21;
+
 // ============================================================================
 // P2 typed-payload helpers — gated behind `kcp`. For non-kcp builds the helpers
 // fall back to legacy JSON-only OutboundMsg construction.
@@ -666,6 +672,13 @@ impl GameProcessor {
         // 同時讀取 source 身上任何 buff 的 attack_stun_chance / attack_stun_duration，擲骰
         // 決定此發 projectile 命中後是否暈眩目標（matchlock_gun 的 87% 機率）
         // 另查 `multi_shot_visual` buff 決定是否額外 spawn 視覺子彈（無傷害）
+        // Phase 1de.2: deterministic SimRng inputs (master_seed + tick) for the
+        // accuracy / stun rolls. Read once at the top of handle_projectile to
+        // avoid repeated resource lookups inside the rolls.
+        let master_seed: u64 = ecs.read_resource::<MasterSeed>().0;
+        let tick: u32 = ecs.read_resource::<Tick>().0 as u32;
+        let attacker_id: u32 = source_entity.id();
+
         let (msd, p2, atk_phys, stun_duration_roll, visual_count) = {
             let positions = ecs.read_storage::<Pos>();
             let tproperty = ecs.read_storage::<TAttack>();
@@ -681,19 +694,26 @@ impl GameProcessor {
 
             // Accuracy 擲骰：base 命中率 1.0 + sum(accuracy_bonus) buffs；clamp [0,1]。
             // miss → damage=0（projectile 仍飛行，前端可由 0 傷害判定顯示 miss）。
-            // TODO Phase 1[d2]: fastrand → SimRng deterministic; this RNG site is
-            // intentional non-determinism for now.
+            // Phase 1de.2: deterministic per-(attacker, OP_PROJECTILE_ACCURACY) stream.
             let accuracy_bonus = buff_store
-                .sum_add(source_entity, omb_script_abi::stat_keys::StatKey::AccuracyBonus)
-                .to_f32_for_render();
-            let accuracy = (1.0 + accuracy_bonus).clamp(0.0, 1.0);
-            if accuracy < 1.0 && fastrand::f32() > accuracy {
-                final_atk = Fixed32::ZERO;
+                .sum_add(source_entity, omb_script_abi::stat_keys::StatKey::AccuracyBonus);
+            let accuracy: Fixed32 = (Fixed32::ONE + accuracy_bonus).clamp(Fixed32::ZERO, Fixed32::ONE);
+            if accuracy < Fixed32::ONE {
+                let mut acc_rng = omoba_sim::SimRng::from_master_entity(
+                    master_seed, tick, attacker_id, OP_PROJECTILE_ACCURACY,
+                );
+                let roll: Fixed32 = acc_rng.gen_fixed32_unit();
+                // Original semantics: miss iff roll > accuracy. With Fixed32 uniform
+                // on the [0,1) grid, `roll >= accuracy` preserves the miss probability
+                // (roll == accuracy collides at one out of 1024 buckets — within game tolerance).
+                if roll >= accuracy {
+                    final_atk = Fixed32::ZERO;
+                }
             }
 
             // 取 source 身上任一 buff 中最強的 attack_stun_chance + 對應 duration
-            // payload reads stay f32 — buff payload JSON is the source-of-truth
-            // (Phase 1[d2] migrates payload schema).
+            // Phase 1de.2: still reads f64 from JSON payload (BuffStore wire format
+            // accepts both i64 raw and legacy f64 — see buff_store.rs).
             let mut stun_chance = 0.0f32;
             let mut stun_duration = 0.0f32;
             for (_, entry) in buff_store.iter_for(source_entity) {
@@ -704,8 +724,17 @@ impl GameProcessor {
                     stun_duration = d;
                 }
             }
-            let stun_roll: Fixed32 = if stun_chance > 0.0 && stun_duration > 0.0 && fastrand::f32() < stun_chance {
-                Fixed32::from_raw((stun_duration * omoba_sim::fixed::SCALE as f32) as i32)
+            // Phase 1de.2: deterministic per-(attacker, OP_PROJECTILE_STUN_ROLL) stream.
+            let stun_roll: Fixed32 = if stun_chance > 0.0 && stun_duration > 0.0 {
+                let mut stun_rng = omoba_sim::SimRng::from_master_entity(
+                    master_seed, tick, attacker_id, OP_PROJECTILE_STUN_ROLL,
+                );
+                let roll = stun_rng.gen_fixed32_unit().to_f32_for_render();
+                if roll < stun_chance {
+                    Fixed32::from_raw((stun_duration * omoba_sim::fixed::SCALE as f32) as i32)
+                } else {
+                    Fixed32::ZERO
+                }
             } else {
                 Fixed32::ZERO
             };

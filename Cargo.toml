@@ -46,7 +46,6 @@ vek = { version = "0.17", features = ["serde"] }
 instant = { version = "0.1.12", features = [] }
 instant-distance = "0.6.0"
 rand = "0.9"
-fastrand = "2.0"
 uuid = { version = "1.6.1", features = ["v4", "serde"] }
 parking_lot = "0.12.1"
 omoba-core = { path = "../omoba-core", default-features = false }

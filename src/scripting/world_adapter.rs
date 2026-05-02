@@ -13,7 +13,7 @@ use omb_script_abi::{
     types::{Angle, DamageKind, EntityHandle, Fixed32, PathSpec, ProjectileSpec, Vec2},
     world::GameWorld,
 };
-use rand::{Rng, SeedableRng};
+use rand::{RngCore, SeedableRng};
 use rand_pcg::Pcg64Mcg;
 use serde_json::json;
 use specs::{
@@ -721,12 +721,12 @@ impl<'a> GameWorld for WorldAdapter<'a> {
     // ---------------- RNG ----------------
 
     fn rand_unit(&mut self) -> Fixed32 {
-        // TODO Phase 1[d]: replace with omoba_sim::SimRng for full deterministic
-        // bit-exact replay. Today we're piggy-backing on Pcg64Mcg seeded from tick
-        // counter (deterministic across replays, but f32 sample loses 6 bits at
-        // the SCALE=1024 quantization).
-        let r = self.rng.gen_range(0.0_f32..1.0_f32);
-        Fixed32::from_raw((r * 1024.0) as i32)
+        // Phase 1de.2: deterministic Pcg64Mcg → Fixed32 [0,1) without f32 quantization.
+        // Matches omoba_sim::SimRng::gen_fixed32_unit (same Pcg variant, same modulo 1024).
+        // The Pcg64Mcg here is seeded per dispatch via `WorldAdapter::new(world, seed, ..)`,
+        // so determinism is preserved across replays as long as the dispatch seed is.
+        let raw = (self.rng.next_u32() % 1024) as i32;
+        Fixed32::from_raw(raw)
     }
 
     // ---------------- Log ----------------

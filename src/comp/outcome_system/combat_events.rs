@@ -9,6 +9,11 @@ use omb_script_abi::stat_keys::StatKey;
 use omb_script_abi::types::DamageKind;
 use serde_json::json;
 
+/// Per-entity SimRng op_kind for combat_events. Phase 1de.2: replaces fastrand
+/// for the miss/evasion roll. Reordering or reusing this constant across systems
+/// would invalidate replay determinism.
+const OP_COMBAT_MISS_ROLL: u32 = 30;
+
 /// 戰鬥事件處理器
 pub struct CombatEventHandler;
 
@@ -45,7 +50,10 @@ impl CombatEventHandler {
             });
 
         // ---- Evasion / miss roll（基於 target 的閃避 + attacker 的 miss）----
-        // TODO Phase 1[d]: keep f32 boundary — miss / evasion roll still uses fastrand f32 below.
+        // Phase 1de.2: deterministic per-(target, OP_COMBAT_MISS_ROLL) stream.
+        // The roll keys on `target.id()` so the victim-side state controls the
+        // outcome; sub-tick attack ordering won't shuffle which roll a given
+        // attack consumes.
         let (miss_chance, evasion): (f32, f32) = {
             let buffs = world.read_resource::<crate::ability_runtime::BuffStore>();
             let is_bldgs = world.read_storage::<IsBuilding>();
@@ -57,7 +65,18 @@ impl CombatEventHandler {
             )
         };
         let miss_roll = 1.0 - (1.0 - miss_chance) * (1.0 - evasion);
-        if miss_roll > 0.0 && fastrand::f32() < miss_roll {
+        let miss_triggered = if miss_roll > 0.0 {
+            let master_seed: u64 = world.read_resource::<MasterSeed>().0;
+            let tick: u32 = world.read_resource::<Tick>().0 as u32;
+            let mut rng = omoba_sim::SimRng::from_master_entity(
+                master_seed, tick, target.id(), OP_COMBAT_MISS_ROLL,
+            );
+            let roll = rng.gen_fixed32_unit().to_f32_for_render();
+            roll < miss_roll
+        } else {
+            false
+        };
+        if miss_triggered {
             world.write_resource::<crate::scripting::ScriptEventQueue>()
                 .push(crate::scripting::ScriptEvent::AttackFail {
                     attacker: source,
