@@ -5,6 +5,7 @@ use specs::prelude::ParallelIterator;
 use crossbeam_channel::Sender;
 use vek::*;
 use serde_json::json;
+use omoba_sim::{Fixed32, Vec2 as SimVec2};
 
 use crate::comp::*;
 use crate::comp::phys::MAX_COLLISION_RADIUS;
@@ -43,19 +44,27 @@ pub struct Sys;
 /// 檢查若單位移動到 `new_center` 是否會撞進任何其他有 CollisionRadius 的實體。
 /// Region 阻擋透過 blocker entities 一起走 Searcher 查詢，不再需要 polygon 測試。
 pub(crate) fn hits_any(
-    new_center: Vec2<f32>,
-    radius: f32,
+    new_center: SimVec2,
+    radius: Fixed32,
     searcher: &Searcher,
     radii: &ReadStorage<CollisionRadius>,
     self_entity: specs::Entity,
     _regions: &BlockedRegions,
 ) -> bool {
-    let q_r = radius + MAX_COLLISION_RADIUS;
-    for di in searcher.search_collidable(new_center, q_r, 16) {
+    // TODO Phase 1e: Searcher Fixed32 — drop conversions when Searcher migrates.
+    let radius_f = radius.to_f32_for_render();
+    let q_r = radius_f + MAX_COLLISION_RADIUS;
+    let center_vek = vek::Vec2::new(
+        new_center.x.to_f32_for_render(),
+        new_center.y.to_f32_for_render(),
+    );
+    for di in searcher.search_collidable(center_vek, q_r, 16) {
         if di.e == self_entity { continue; }
         let Some(other_r) = radii.get(di.e).map(|cr| cr.0) else { continue };
+        // touch = radius + other_r — keep in Fixed32 for consistency with caller.
         let touch = radius + other_r;
-        if di.dis < touch * touch {
+        let touch_f = touch.to_f32_for_render();
+        if di.dis < touch_f * touch_f {
             return true;
         }
     }
@@ -65,22 +74,28 @@ pub(crate) fn hits_any(
 /// 計算避開其他單位的下一步位置：嘗試直接走 → 只走 X → 只走 Y → 停。
 /// 回傳 (新位置, 是否抵達目標範圍)。
 pub(crate) fn advance_with_collision(
-    pos: Vec2<f32>,
-    target: Vec2<f32>,
-    step: f32,
-    radius: f32,
+    pos: SimVec2,
+    target: SimVec2,
+    step: Fixed32,
+    radius: Fixed32,
     searcher: &Searcher,
     radii: &ReadStorage<CollisionRadius>,
     self_entity: specs::Entity,
     regions: &BlockedRegions,
-) -> (Vec2<f32>, bool) {
+) -> (SimVec2, bool) {
     let diff = target - pos;
-    let distance = diff.magnitude();
-    if distance < 0.5 {
+    let distance = diff.length();
+    // 0.5 = Fixed32::from_raw(512)
+    let arrived_eps = Fixed32::from_raw(512);
+    if distance < arrived_eps {
         return (target, true);
     }
-    let direction = diff / distance;
-    if distance <= step.max(1.0) {
+    // normalized() handles zero internally — but we already early-out on distance < 0.5.
+    let direction = diff.normalized();
+    // step.max(1.0) → if step < 1, treat threshold as 1.0
+    let one = Fixed32::ONE;
+    let snap_threshold = if step > one { step } else { one };
+    if distance <= snap_threshold {
         if !hits_any(target, radius, searcher, radii, self_entity, regions) {
             return (target, true);
         }
@@ -90,11 +105,11 @@ pub(crate) fn advance_with_collision(
     if !hits_any(full, radius, searcher, radii, self_entity, regions) {
         return (full, false);
     }
-    let only_x = pos + Vec2::new(direction.x * step, 0.0);
+    let only_x = SimVec2::new(pos.x + direction.x * step, pos.y);
     if !hits_any(only_x, radius, searcher, radii, self_entity, regions) {
         return (only_x, false);
     }
-    let only_y = pos + Vec2::new(0.0, direction.y * step);
+    let only_y = SimVec2::new(pos.x, pos.y + direction.y * step);
     if !hits_any(only_y, radius, searcher, radii, self_entity, regions) {
         return (only_y, false);
     }
@@ -111,9 +126,12 @@ impl<'a> System<'a> for Sys {
 
     fn run(_job: &mut Job<Self>, (tr, mut tw): Self::SystemData) {
         let dt = tr.dt.0;
-        if dt <= 0.0 {
+        if dt <= Fixed32::ZERO {
             return;
         }
+        // f32 view for legacy angle helpers (rotate_toward/normalize_angle still f32).
+        // TODO Phase 1b.4: drop dt_f when angle helpers move to Angle/Fixed32.
+        let dt_f = dt.to_f32_for_render();
 
         // 每 120 tick (~2s) log 一次 searcher 各 index 大小，確認 region 已載入
         let t = TICK_COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -130,6 +148,7 @@ impl<'a> System<'a> for Sys {
         // par_join 並行處理所有 hero — 各 hero 的 collision query 是 Searcher 的 read-only
         // 操作，可安全並行；&mut tw.pos / &mut tw.facings 由 specs 保證同 entity 只被一個
         // thread 寫入。collect 結果後再一次性 remove move_targets + 廣播 OutboundMsg。
+        // ParJoin retained for now; Phase 1e will switch to sequential for full determinism.
         let results: Vec<(Option<specs::Entity>, (u32, f32, f32, f32))> = (
             &tr.entities,
             &tr.heroes,
@@ -145,38 +164,59 @@ impl<'a> System<'a> for Sys {
                     guard
                 },
                 |_guard, (entity, _hero, property, pos, move_target, facing)| {
+                    // facing.0 is now Angle. Convert to f32 rad for the legacy
+                    // rotate_toward / normalize_angle helpers (Phase 1b.4 will move
+                    // those to Angle directly).
+                    // TODO Phase 1b.4: drop angle <-> f32 conversions when the
+                    // angle math helpers migrate to Angle.
+                    let facing_rad_in = angle_to_rad(facing.0);
+                    // Broadcast values (legacy f32 wire format).
+                    let pos_x_f = pos.0.x.to_f32_for_render();
+                    let pos_y_f = pos.0.y.to_f32_for_render();
+
                     // Root / stun 狀態：完全凍結（不轉向、不位移、不消耗 MoveTarget）
                     if tr.buff_store.is_rooted(entity) {
-                        return (None, (entity.id(), pos.0.x, pos.0.y, facing.0));
+                        return (None, (entity.id(), pos_x_f, pos_y_f, facing_rad_in));
                     }
 
                     let target = move_target.0;
                     let diff = target - pos.0;
-                    let distance = diff.magnitude();
+                    let distance = diff.length();
                     // 用 UnitStats 聚合移速（對應 Dota MOVESPEED_BONUS_* / MOVESPEED_ABSOLUTE /
                     // MOVESPEED_MAX/MIN/LIMIT）；建築物會被 is_buildings 跳過（hero 不會）。
+                    // CProperty.msd is still f32 (Phase 1c migration); keep f32 path.
                     let stats = crate::ability_runtime::UnitStats::from_refs(
                         &*tr.buff_store,
                         tr.is_buildings.get(entity).is_some(),
                     );
                     let effective_msd = stats.final_move_speed(property.msd, entity);
-                    let step = effective_msd * dt;
+                    // step in Fixed32 for collision math; effective_msd is still f32 today.
+                    // TODO Phase 1c: drop step_f -> step Fixed32 conversion when CProperty.msd
+                    // migrates to Fixed32.
+                    let step_f = effective_msd * dt_f;
+                    let step = Fixed32::from_raw((step_f * omoba_sim::fixed::SCALE as f32) as i32);
 
                     let mut arrived_entity: Option<specs::Entity> = None;
+                    let mut new_facing_rad = facing_rad_in;
 
-                    if distance > 0.5 {
-                        let desired = diff.y.atan2(diff.x);
+                    // distance > 0.5 — Fixed32 from_raw(512) = 0.5
+                    if distance > Fixed32::from_raw(512) {
+                        // atan2 still f32 in legacy helper land; Phase 1b.4 swaps to Angle.
+                        let diff_x_f = diff.x.to_f32_for_render();
+                        let diff_y_f = diff.y.to_f32_for_render();
+                        let desired = diff_y_f.atan2(diff_x_f);
                         let turn = tr
                             .turn_speeds
                             .get(entity)
-                            .map(|t| t.0)
+                            .map(|t| t.0.to_f32_for_render())
                             .unwrap_or(std::f32::consts::FRAC_PI_2);
-                        facing.0 = rotate_toward(facing.0, desired, turn * dt);
+                        new_facing_rad = rotate_toward(facing_rad_in, desired, turn * dt_f);
 
                         // 面向夾角 < 30° 才能前進
-                        let angle_diff = normalize_angle(desired - facing.0).abs();
+                        let angle_diff = normalize_angle(desired - new_facing_rad).abs();
                         if angle_diff < MOVE_ANGLE_THRESHOLD {
-                            let radius = tr.radii.get(entity).map(|r| r.0).unwrap_or(30.0);
+                            let radius = tr.radii.get(entity).map(|r| r.0)
+                                .unwrap_or(Fixed32::from_i32(30));
                             let (new_pos, reached) = advance_with_collision(
                                 pos.0,
                                 target,
@@ -197,7 +237,13 @@ impl<'a> System<'a> for Sys {
                         arrived_entity = Some(entity);
                     }
 
-                    (arrived_entity, (entity.id(), pos.0.x, pos.0.y, facing.0))
+                    // Write back the new facing in Angle form.
+                    facing.0 = rad_to_angle(new_facing_rad);
+
+                    // Broadcast values use post-step pos + post-rotate facing.
+                    let out_x = pos.0.x.to_f32_for_render();
+                    let out_y = pos.0.y.to_f32_for_render();
+                    (arrived_entity, (entity.id(), out_x, out_y, new_facing_rad))
                 },
             )
             .collect();
@@ -223,4 +269,19 @@ impl<'a> System<'a> for Sys {
             }
         }
     }
+}
+
+// Local Angle <-> f32 rad bridge for legacy rotate_toward / normalize_angle.
+// TODO Phase 1b.4: delete when angle math moves to Angle / TAU_TICKS directly.
+#[inline]
+fn angle_to_rad(a: omoba_sim::Angle) -> f32 {
+    use omoba_sim::trig::TAU_TICKS;
+    (a.ticks() as f32 / TAU_TICKS as f32) * std::f32::consts::TAU
+}
+
+#[inline]
+fn rad_to_angle(rad: f32) -> omoba_sim::Angle {
+    use omoba_sim::trig::TAU_TICKS;
+    let ticks = (rad / std::f32::consts::TAU * TAU_TICKS as f32).round() as i32;
+    omoba_sim::Angle::from_ticks(ticks)
 }

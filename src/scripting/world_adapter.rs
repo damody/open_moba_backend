@@ -360,20 +360,20 @@ impl<'a> GameWorld for WorldAdapter<'a> {
             .collision
             .get(ent)
             .map(|r| r.0)
-            .unwrap_or(30.0);
-        // TODO Phase 1[bcd]: drop conversions once collision tick takes Fixed32.
-        let target_vek = abi_to_vek(target);
+            .unwrap_or(Fixed32::from_i32(30));
+        // Phase 1b.3: collision tick now takes Fixed32 / Vec2 directly; no boundary
+        // conversion needed (ABI types and omoba_sim types coincide).
         let (new_pos, _reached) = crate::tick::hero_move_tick::advance_with_collision(
             pos,
-            target_vek,
-            step.to_f32_for_render(),
+            target,
+            step,
             radius,
             &self.cache.searcher,
             &self.cache.collision,
             ent,
             &self.cache.blocked,
         );
-        vek_to_abi(new_pos)
+        new_pos
     }
 
     fn deal_damage(
