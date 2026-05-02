@@ -104,10 +104,27 @@ async fn main() -> std::result::Result<(), Error> {
         server_port.clone(),
     ).await?;
 
+    // Phase 2 lockstep: create shared state up-front so we can pass it into
+    // both the kcp transport (Task 2.3 — handles 0x10/0x13/0x15) and the
+    // TickBroadcaster (spawned below). MasterSeed::default() returns the same
+    // value the ECS resource is initialised with in state::initialization, so
+    // both code paths see the same seed.
+    #[cfg(feature = "kcp")]
+    let (lockstep_state_handle, input_buffer_handle) = {
+        use std::sync::{Arc, Mutex as StdMutex};
+        use crate::lockstep::{InputBuffer, LockstepState};
+        let master_seed = crate::comp::MasterSeed::default().0;
+        let lockstep_state = Arc::new(StdMutex::new(LockstepState::new(master_seed)));
+        let input_buffer = Arc::new(StdMutex::new(InputBuffer::new()));
+        (lockstep_state, input_buffer)
+    };
+
     #[cfg(feature = "kcp")]
     let handle = transport::kcp_transport::start(
         server_addr.clone(),
         server_port.clone(),
+        input_buffer_handle.clone(),
+        lockstep_state_handle.clone(),
     ).await?;
 
     // === TEMP: P7 checkpoint dumper — revert after measurement ===
@@ -185,23 +202,17 @@ async fn main() -> std::result::Result<(), Error> {
     // 30Hz simulation dispatcher. The broadcaster drains the InputBuffer per
     // tick and emits TickBatch (tag 0x11) + periodic StateHash (tag 0x12) via
     // the existing OutboundMsg channel; the kcp transport's broadcast thread
-    // (Task 2.3) routes lockstep frames distinctly from GameEvent.
+    // routes lockstep frames distinctly from GameEvent.
     //
-    // InputBuffer / LockstepState are held in Arc<Mutex<...>> shared with the
-    // kcp transport's JoinRequest / InputSubmit handlers (Task 2.3).
+    // InputBuffer / LockstepState were created above (before transport.start)
+    // and shared with the kcp transport's JoinRequest / InputSubmit handlers.
     #[cfg(feature = "kcp")]
-    let (lockstep_state_handle, input_buffer_handle) = {
-        use std::sync::{Arc, Mutex as StdMutex};
-        use crate::lockstep::{InputBuffer, LockstepState, TickBroadcaster, TickBroadcasterConfig};
-
-        let master_seed = state.ecs().read_resource::<crate::comp::MasterSeed>().0;
-        let lockstep_state = Arc::new(StdMutex::new(LockstepState::new(master_seed)));
-        let input_buffer = Arc::new(StdMutex::new(InputBuffer::new()));
-
+    {
+        use crate::lockstep::{TickBroadcaster, TickBroadcasterConfig};
         let broadcaster = TickBroadcaster::new(
             TickBroadcasterConfig::default(),
-            input_buffer.clone(),
-            lockstep_state.clone(),
+            input_buffer_handle.clone(),
+            lockstep_state_handle.clone(),
             handle.tx.clone(),
         );
         tokio::spawn(broadcaster.run());
@@ -210,10 +221,8 @@ async fn main() -> std::result::Result<(), Error> {
             TickBroadcasterConfig::default().tick_period_us,
             TickBroadcasterConfig::default().state_hash_interval,
         );
-        (lockstep_state, input_buffer)
-    };
-    // Phase 2.3 will wire these into the kcp transport. For now they're just
-    // kept alive so the broadcaster's shared state isn't dropped.
+    }
+    // Keep handles alive so shared state isn't dropped.
     #[cfg(feature = "kcp")]
     let _lockstep_handles = (lockstep_state_handle, input_buffer_handle);
 

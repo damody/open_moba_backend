@@ -32,6 +32,15 @@ const TAG_GAME_STATE_REQUEST: u8 = 0x05;
 const TAG_GAME_STATE_RESPONSE: u8 = 0x06;
 const TAG_VIEWPORT_UPDATE: u8 = 0x07;
 
+// Phase 2 lockstep tags.
+const TAG_INPUT_SUBMIT: u8 = 0x10;
+const TAG_TICK_BATCH: u8 = 0x11;
+const TAG_STATE_HASH: u8 = 0x12;
+const TAG_JOIN_REQUEST: u8 = 0x13;
+const TAG_GAME_START: u8 = 0x14;
+const TAG_SNAPSHOT_REQ: u8 = 0x15;
+const TAG_SNAPSHOT_RESP: u8 = 0x16;
+
 /// High bit of the tag — set when the framed payload is LZ4-compressed.
 /// Base tags 0x01~0x07 never use this bit so it is always free as a flag.
 const COMPRESSION_FLAG: u8 = 0x80;
@@ -100,6 +109,30 @@ async fn read_framed<R: AsyncReadExt + Unpin>(
     }
 }
 
+/// Build a wire-framed byte buffer matching `write_framed`'s on-wire layout
+/// (`[1B tag][4B len BE][N bytes payload]`) with optional LZ4 compression
+/// when the payload is ≥ LZ4_THRESHOLD AND compresses smaller. Used by the
+/// broadcast thread to assemble lockstep frames once and Arc-share them
+/// across all recipient sessions.
+fn build_framed_bytes(tag: u8, payload: &[u8]) -> Vec<u8> {
+    debug_assert!(tag & COMPRESSION_FLAG == 0, "base tag must not use high bit; got 0x{:02x}", tag);
+    let (out_tag, out_payload): (u8, std::borrow::Cow<'_, [u8]>) = if payload.len() >= LZ4_THRESHOLD {
+        let c = lz4_flex::block::compress_prepend_size(payload);
+        if c.len() < payload.len() {
+            (tag | COMPRESSION_FLAG, std::borrow::Cow::Owned(c))
+        } else {
+            (tag, std::borrow::Cow::Borrowed(payload))
+        }
+    } else {
+        (tag, std::borrow::Cow::Borrowed(payload))
+    };
+    let mut frame = Vec::with_capacity(1 + 4 + out_payload.len());
+    frame.push(out_tag);
+    frame.extend_from_slice(&(out_payload.len() as u32).to_be_bytes());
+    frame.extend_from_slice(&out_payload);
+    frame
+}
+
 /// Per-client session: holds a sender to push outbound events.
 ///
 /// P5: channel payload is `Arc<[u8]>` — the broadcast thread encodes + compresses
@@ -118,6 +151,11 @@ struct ClientSession {
     /// Wrapped in Arc so the broadcast thread can stamp + encode the frame
     /// per-session without holding the sessions mutex during encode.
     seq: Arc<AtomicU64>,
+    /// Phase 2 lockstep: set true once this session sent a JoinRequest (0x13).
+    /// TickBatch (0x11) and StateHash (0x12) broadcasts only fan out to
+    /// sessions with this flag — clients on the legacy GameEvent path
+    /// (omb-mcp, omfx during Phase 2 transition) won't see lockstep traffic.
+    lockstep_joined: bool,
 }
 
 /// Pure-function policy dispatch used by both the broadcast thread and unit
@@ -268,9 +306,17 @@ fn peek_kind_and_id(payload: &str) -> (String, String, Option<u64>) {
 }
 
 /// Start the KCP transport layer.
+///
+/// Phase 2 lockstep: callers pass shared `Arc<Mutex<InputBuffer>>` and
+/// `Arc<Mutex<LockstepState>>` so the per-client read loop can:
+///   - push 0x10 InputSubmit payloads into the buffer at the right tick;
+///   - register players + reply with 0x14 GameStart on 0x13 JoinRequest;
+///   - reply with 0x16 SnapshotResp on 0x15 SnapshotReq.
 pub async fn start(
     server_addr: String,
     server_port: String,
+    lockstep_input_buffer: Arc<std::sync::Mutex<crate::lockstep::InputBuffer>>,
+    lockstep_state: Arc<std::sync::Mutex<crate::lockstep::LockstepState>>,
 ) -> Result<TransportHandle, Error> {
     let (out_tx, out_rx): (Sender<OutboundMsg>, Receiver<OutboundMsg>) = bounded(10000);
     let (in_tx, in_rx): (Sender<InboundMsg>, Receiver<InboundMsg>) = bounded(10000);
@@ -382,6 +428,81 @@ pub async fn start(
 
                 // 處理整個批次
                 for msg in batch {
+                    // Phase 2 lockstep: when `lockstep_frame` is set, emit the
+                    // corresponding tag directly, bypassing the GameEvent
+                    // envelope. Targets:
+                    //   TickBatch / StateHash → all sessions with
+                    //                           lockstep_joined=true
+                    //   GameStart / SnapshotResp → unicast to client_session_id
+                    if let Some(frame) = msg.lockstep_frame.clone() {
+                        match frame {
+                            crate::lockstep::LockstepFrame::TickBatch(batch_msg) => {
+                                let payload = batch_msg.encode_to_vec();
+                                let frame_bytes = build_framed_bytes(TAG_TICK_BATCH, &payload);
+                                let frame_arc: Arc<[u8]> = Arc::from(frame_bytes.into_boxed_slice());
+                                let sessions = sessions_broadcast.lock().await;
+                                let mut to_remove = Vec::new();
+                                for (sid, session) in sessions.iter() {
+                                    if !session.lockstep_joined { continue; }
+                                    if session.event_tx.try_send(frame_arc.clone()).is_err() {
+                                        to_remove.push(sid.clone());
+                                    }
+                                }
+                                drop(sessions);
+                                if !to_remove.is_empty() {
+                                    let mut sessions = sessions_broadcast.lock().await;
+                                    for id in to_remove {
+                                        sessions.remove(&id);
+                                        info!("Removed disconnected KCP session: {}", id);
+                                    }
+                                }
+                            }
+                            crate::lockstep::LockstepFrame::StateHash(sh) => {
+                                let payload = sh.encode_to_vec();
+                                let frame_bytes = build_framed_bytes(TAG_STATE_HASH, &payload);
+                                let frame_arc: Arc<[u8]> = Arc::from(frame_bytes.into_boxed_slice());
+                                let sessions = sessions_broadcast.lock().await;
+                                let mut to_remove = Vec::new();
+                                for (sid, session) in sessions.iter() {
+                                    if !session.lockstep_joined { continue; }
+                                    if session.event_tx.try_send(frame_arc.clone()).is_err() {
+                                        to_remove.push(sid.clone());
+                                    }
+                                }
+                                drop(sessions);
+                                if !to_remove.is_empty() {
+                                    let mut sessions = sessions_broadcast.lock().await;
+                                    for id in to_remove {
+                                        sessions.remove(&id);
+                                        info!("Removed disconnected KCP session: {}", id);
+                                    }
+                                }
+                            }
+                            crate::lockstep::LockstepFrame::GameStart { client_session_id, msg: gs } => {
+                                let payload = gs.encode_to_vec();
+                                let frame_bytes = build_framed_bytes(TAG_GAME_START, &payload);
+                                let frame_arc: Arc<[u8]> = Arc::from(frame_bytes.into_boxed_slice());
+                                let sessions = sessions_broadcast.lock().await;
+                                if let Some(session) = sessions.get(&client_session_id) {
+                                    let _ = session.event_tx.try_send(frame_arc);
+                                } else {
+                                    warn!("GameStart unicast: session '{}' not found", client_session_id);
+                                }
+                            }
+                            crate::lockstep::LockstepFrame::SnapshotResp { client_session_id, msg: sr } => {
+                                let payload = sr.encode_to_vec();
+                                let frame_bytes = build_framed_bytes(TAG_SNAPSHOT_RESP, &payload);
+                                let frame_arc: Arc<[u8]> = Arc::from(frame_bytes.into_boxed_slice());
+                                let sessions = sessions_broadcast.lock().await;
+                                if let Some(session) = sessions.get(&client_session_id) {
+                                    let _ = session.event_tx.try_send(frame_arc);
+                                } else {
+                                    warn!("SnapshotResp unicast: session '{}' not found", client_session_id);
+                                }
+                            }
+                        }
+                        continue; // skip legacy GameEvent path
+                    }
                     {
                         // Parse the msg JSON to extract t, a, d fields
                         let (msg_type, action, data_bytes) = if let Ok(parsed) =
@@ -612,6 +733,9 @@ pub async fn start(
     let in_tx_accept = in_tx.clone();
     let query_tx_accept = query_tx.clone();
     let viewport_tx_accept = viewport_tx.clone();
+    let out_tx_accept = out_tx.clone();
+    let lockstep_input_buffer_accept = lockstep_input_buffer.clone();
+    let lockstep_state_accept = lockstep_state.clone();
 
     // Bind synchronously so startup fails fast if the port is taken by a stale instance.
     let mut listener = KcpListener::bind(config, addr)
@@ -634,10 +758,16 @@ pub async fn start(
             let in_tx = in_tx_accept.clone();
             let query_tx = query_tx_accept.clone();
             let viewport_tx = viewport_tx_accept.clone();
+            let out_tx = out_tx_accept.clone();
+            let lockstep_input_buffer = lockstep_input_buffer_accept.clone();
+            let lockstep_state = lockstep_state_accept.clone();
             let session_id = format!("kcp_{}", peer_addr);
 
             tokio::spawn(async move {
-                if let Err(e) = handle_client(stream, session_id, sessions, in_tx, query_tx, viewport_tx).await {
+                if let Err(e) = handle_client(
+                    stream, session_id, sessions, in_tx, query_tx, viewport_tx,
+                    out_tx, lockstep_input_buffer, lockstep_state,
+                ).await {
                     warn!("KCP client handler error: {}", e);
                 }
             });
@@ -661,6 +791,9 @@ async fn handle_client(
     in_tx: Sender<InboundMsg>,
     query_tx: Sender<QueryRequest>,
     viewport_tx: Sender<ViewportMsg>,
+    out_tx: Sender<OutboundMsg>,
+    lockstep_input_buffer: Arc<std::sync::Mutex<crate::lockstep::InputBuffer>>,
+    lockstep_state: Arc<std::sync::Mutex<crate::lockstep::LockstepState>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let (mut reader, mut writer) = tokio::io::split(stream);
 
@@ -699,6 +832,11 @@ async fn handle_client(
                                             // first GameEvent delivered to
                                             // this session carries sequence=0.
                                             seq: Arc::new(AtomicU64::new(0)),
+                                            // Phase 2: legacy SubscribeRequest
+                                            // path — client is NOT on the
+                                            // lockstep stream until it sends
+                                            // a JoinRequest (0x13).
+                                            lockstep_joined: false,
                                         },
                                     );
                                 }
@@ -809,6 +947,128 @@ async fn handle_client(
                                     }
                                 } else {
                                     warn!("Failed to decode ViewportUpdate payload");
+                                }
+                            }
+                            // ===== Phase 2 Lockstep tags =====
+                            TAG_INPUT_SUBMIT => {
+                                match InputSubmit::decode(payload.as_slice()) {
+                                    Ok(req) => {
+                                        let current_tick = lockstep_state.lock().unwrap().current_tick;
+                                        let player_id = req.player_id;
+                                        let target_tick = req.target_tick;
+                                        let input = req.input.unwrap_or_default();
+                                        let accepted = lockstep_input_buffer
+                                            .lock()
+                                            .unwrap()
+                                            .submit(current_tick, player_id, target_tick, input);
+                                        if !accepted {
+                                            warn!(
+                                                "late InputSubmit from player {} target_tick={} current_tick={}",
+                                                player_id, target_tick, current_tick
+                                            );
+                                        }
+                                    }
+                                    Err(e) => warn!("Failed to decode InputSubmit: {}", e),
+                                }
+                            }
+                            TAG_JOIN_REQUEST => {
+                                match JoinRequest::decode(payload.as_slice()) {
+                                    Ok(req) => {
+                                        let role = match req.role {
+                                            x if x == JoinRole::RoleObserver as i32 => crate::lockstep::JoinRoleEnum::Observer,
+                                            _ => crate::lockstep::JoinRoleEnum::Player,
+                                        };
+                                        let (player_id, master_seed, start_tick) = {
+                                            let mut s = lockstep_state.lock().unwrap();
+                                            let pid = s.register_player(req.player_name.clone(), role);
+                                            (pid, s.master_seed, s.current_tick)
+                                        };
+                                        // Mark this session as joined to the
+                                        // lockstep stream so future TickBatch /
+                                        // StateHash broadcasts reach it.
+                                        {
+                                            let mut sess = sessions.lock().await;
+                                            if let Some(s) = sess.get_mut(&session_id) {
+                                                s.lockstep_joined = true;
+                                                if s.player_name.is_empty() {
+                                                    s.player_name = req.player_name.clone();
+                                                }
+                                            } else {
+                                                // No prior SubscribeRequest —
+                                                // create the session lazily so
+                                                // lockstep-only clients (no
+                                                // legacy GameEvent channel) can
+                                                // still receive TickBatch.
+                                                let (event_tx, rx) = tokio::sync::mpsc::channel::<Arc<[u8]>>(10000);
+                                                event_rx = Some(rx);
+                                                subscribed = true;
+                                                player_name = Some(req.player_name.clone());
+                                                sess.insert(
+                                                    session_id.clone(),
+                                                    ClientSession {
+                                                        player_name: req.player_name.clone(),
+                                                        event_tx,
+                                                        viewport: None,
+                                                        seq: Arc::new(AtomicU64::new(0)),
+                                                        lockstep_joined: true,
+                                                    },
+                                                );
+                                            }
+                                        }
+                                        info!(
+                                            "🎮 KCP lockstep JoinRequest player='{}' role={:?} → assigned player_id={} (session={})",
+                                            req.player_name, role, player_id, session_id
+                                        );
+                                        // Send GameStart unicast back via the
+                                        // broadcast thread (so it goes through
+                                        // the same per-session event_tx the
+                                        // client is reading from).
+                                        let game_start = GameStart {
+                                            player_id,
+                                            start_tick,
+                                            master_seed,
+                                            initial_state: Some(SimSnapshot {
+                                                world_bytes: vec![],
+                                                schema_version: 1,
+                                            }),
+                                        };
+                                        let frame = crate::lockstep::LockstepFrame::GameStart {
+                                            client_session_id: session_id.clone(),
+                                            msg: game_start,
+                                        };
+                                        if let Err(e) = out_tx.send(OutboundMsg::lockstep_frame(frame)) {
+                                            warn!("Failed to enqueue GameStart: {}", e);
+                                        }
+                                    }
+                                    Err(e) => warn!("Failed to decode JoinRequest: {}", e),
+                                }
+                            }
+                            TAG_SNAPSHOT_REQ => {
+                                match SnapshotReq::decode(payload.as_slice()) {
+                                    Ok(req) => {
+                                        info!(
+                                            "📸 SnapshotReq from {} for from_tick={}",
+                                            session_id, req.from_tick
+                                        );
+                                        // Phase 2 stub: empty SimSnapshot.
+                                        // Phase 5 will wire a real snapshot
+                                        // store keyed on tick.
+                                        let resp = SnapshotResp {
+                                            tick: lockstep_state.lock().unwrap().current_tick,
+                                            state: Some(SimSnapshot {
+                                                world_bytes: vec![],
+                                                schema_version: 1,
+                                            }),
+                                        };
+                                        let frame = crate::lockstep::LockstepFrame::SnapshotResp {
+                                            client_session_id: session_id.clone(),
+                                            msg: resp,
+                                        };
+                                        if let Err(e) = out_tx.send(OutboundMsg::lockstep_frame(frame)) {
+                                            warn!("Failed to enqueue SnapshotResp: {}", e);
+                                        }
+                                    }
+                                    Err(e) => warn!("Failed to decode SnapshotReq: {}", e),
                                 }
                             }
                             _ => {
@@ -1196,5 +1456,70 @@ mod tests {
         let third: serde_json::Value = serde_json::from_str(&out[2].msg).unwrap();
         assert_eq!(third["t"].as_str(), Some("creep"));
         assert_eq!(third["a"].as_str(), Some("M"));
+    }
+
+    // ===== Phase 2 lockstep round-trip tests =====
+
+    #[test]
+    fn lockstep_input_submit_decode_roundtrip() {
+        // Encode an InputSubmit, then decode + assert fields. Smoke test for
+        // the per-client read loop's `InputSubmit::decode(payload.as_slice())`.
+        let original = InputSubmit {
+            player_id: 42,
+            target_tick: 1234,
+            input: Some(PlayerInput {
+                action: Some(player_input::Action::NoOp(NoOp {})),
+            }),
+        };
+        let bytes = original.encode_to_vec();
+        let decoded = InputSubmit::decode(bytes.as_slice()).expect("decode");
+        assert_eq!(decoded.player_id, 42);
+        assert_eq!(decoded.target_tick, 1234);
+        assert!(decoded.input.is_some());
+    }
+
+    #[test]
+    fn lockstep_join_request_role_mapping() {
+        // Both ROLE_PLAYER (1) and ROLE_OBSERVER (2) should round-trip; the
+        // server's match arm (in handle_client) treats unknown ints as Player.
+        let player = JoinRequest {
+            player_name: "alice".into(),
+            role: JoinRole::RolePlayer as i32,
+        };
+        let observer = JoinRequest {
+            player_name: "bob".into(),
+            role: JoinRole::RoleObserver as i32,
+        };
+        let p_bytes = player.encode_to_vec();
+        let o_bytes = observer.encode_to_vec();
+        let p_dec = JoinRequest::decode(p_bytes.as_slice()).unwrap();
+        let o_dec = JoinRequest::decode(o_bytes.as_slice()).unwrap();
+        assert_eq!(p_dec.role, JoinRole::RolePlayer as i32);
+        assert_eq!(o_dec.role, JoinRole::RoleObserver as i32);
+        assert_eq!(p_dec.player_name, "alice");
+        assert_eq!(o_dec.player_name, "bob");
+    }
+
+    #[test]
+    fn lockstep_build_framed_bytes_layout() {
+        // build_framed_bytes must produce [tag][4B BE len][payload] matching
+        // the existing write_framed wire format. Below threshold = no compression.
+        let payload = b"hello".to_vec();
+        let frame = build_framed_bytes(TAG_TICK_BATCH, &payload);
+        assert_eq!(frame[0], TAG_TICK_BATCH);
+        assert_eq!(frame[0] & COMPRESSION_FLAG, 0);
+        let len = u32::from_be_bytes(frame[1..5].try_into().unwrap()) as usize;
+        assert_eq!(len, payload.len());
+        assert_eq!(&frame[5..], payload.as_slice());
+    }
+
+    #[test]
+    fn lockstep_build_framed_bytes_compresses_large_redundant() {
+        // 1KB redundant payload → COMPRESSION_FLAG set + total wire bytes drop.
+        let payload = vec![0xABu8; 1000];
+        let frame = build_framed_bytes(TAG_TICK_BATCH, &payload);
+        assert_eq!(frame[0] & COMPRESSION_FLAG, COMPRESSION_FLAG);
+        assert_eq!(frame[0] & 0x7F, TAG_TICK_BATCH);
+        assert!(frame.len() < 500, "expected compressed frame < 500B, got {}", frame.len());
     }
 }
