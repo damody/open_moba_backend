@@ -24,6 +24,15 @@ pub struct TickStart(pub Instant);
 #[derive(Copy, Clone, Default)]
 pub struct Tick(pub u64);
 
+/// Master seed for the deterministic SimRng streams. Should be set at game start
+/// from the GameStart message (Phase 2). Currently hard-coded for Phase 1c development.
+#[derive(Debug, Clone, Copy)]
+pub struct MasterSeed(pub u64);
+
+impl Default for MasterSeed {
+    fn default() -> Self { Self(0xDEAD_BEEF_CAFE_BABE) }
+}
+
 #[derive(Copy, Clone, Debug, Serialize, Deserialize, Default)]
 pub struct TimeOfDay(pub f64);
 

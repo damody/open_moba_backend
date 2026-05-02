@@ -16,13 +16,25 @@
 
 use omb_script_abi::buff_ids::BuffId;
 use omb_script_abi::stat_keys::StatKey;
+use omoba_sim::Fixed32;
 use serde_json::Value;
 use specs::Entity;
 use std::collections::HashMap;
 
+/// Read a numeric stat value out of a JSON payload as Fixed32.
+/// JSON payload keeps f64 (script wire format), conversion happens at boundary.
+/// TODO Phase 1[d]: BuffStore wire payload migrate to deterministic encoding (raw i32).
+#[inline]
+fn read_fixed_from_payload(value: &serde_json::Value) -> Fixed32 {
+    value
+        .as_f64()
+        .map(|v| Fixed32::from_raw((v * 1024.0) as i32))
+        .unwrap_or(Fixed32::ZERO)
+}
+
 #[derive(Debug, Clone)]
 pub struct BuffEntry {
-    pub remaining: f32,
+    pub remaining: Fixed32,
     pub payload: Value,
 }
 
@@ -44,7 +56,7 @@ impl BuffStore {
     /// 策略決定是否覆寫——例如 slow 採單一 instance（buff_id = "slow"），
     /// 由 payload 的 `slow_factor` 欄位驅動「強蓋弱」比較（見上方 Reserved
     /// payload conventions）。
-    pub fn add(&mut self, entity: Entity, buff_id: &str, duration: f32, payload: Value) {
+    pub fn add(&mut self, entity: Entity, buff_id: &str, duration: Fixed32, payload: Value) {
         let key = (entity, buff_id.to_string());
         match self.buffs.get_mut(&key) {
             Some(e) => {
@@ -186,21 +198,27 @@ impl BuffStore {
 
     /// 加法聚合：對 entity 身上所有 buff，若 `payload[stat]` 是數字則加總。
     /// 慣例：`_bonus` 後綴的 stat 用這個（例 `range_bonus`、`damage_bonus`）。
-    pub fn sum_add(&self, entity: Entity, stat: StatKey) -> f32 {
+    /// Phase 1c.3: returns Fixed32; payload still f64 (JSON wire format), converted at boundary.
+    /// TODO Phase 1[d]: BuffStore wire payload migrate to deterministic encoding (raw i32).
+    pub fn sum_add(&self, entity: Entity, stat: StatKey) -> Fixed32 {
         let key = stat.as_str();
         self.iter_for(entity)
-            .filter_map(|(_, e)| e.payload.get(key).and_then(|v| v.as_f64()))
-            .sum::<f64>() as f32
+            .filter_map(|(_, e)| e.payload.get(key))
+            .map(read_fixed_from_payload)
+            .fold(Fixed32::ZERO, |acc, v| acc + v)
     }
 
     /// 乘法聚合：對 entity 身上所有 buff，若 `payload[stat]` 是數字則連乘。
-    /// 空集合回 1.0。慣例：`_multiplier` 後綴的 stat 用這個
+    /// 空集合回 1.0 (Fixed32::ONE)。慣例：`_multiplier` 後綴的 stat 用這個
     /// （例 `attack_speed_multiplier`、`move_speed_multiplier`）。
-    pub fn product_mult(&self, entity: Entity, stat: StatKey) -> f32 {
+    /// Phase 1c.3: returns Fixed32; payload still f64 (JSON wire format), converted at boundary.
+    /// TODO Phase 1[d]: BuffStore wire payload migrate to deterministic encoding (raw i32).
+    pub fn product_mult(&self, entity: Entity, stat: StatKey) -> Fixed32 {
         let key = stat.as_str();
         self.iter_for(entity)
-            .filter_map(|(_, e)| e.payload.get(key).and_then(|v| v.as_f64()))
-            .fold(1.0f64, |acc, v| acc * v) as f32
+            .filter_map(|(_, e)| e.payload.get(key))
+            .map(read_fixed_from_payload)
+            .fold(Fixed32::ONE, |acc, v| acc * v)
     }
 
     /// 控制類 buff 判定 — 這些 buff_id 出現在單位身上代表其處於特定 CC 狀態。
@@ -220,13 +238,14 @@ impl BuffStore {
     /// 倒數所有 buff 並回傳過期的 `(Entity, buff_id, payload)` 清單。
     /// 呼叫端可依 payload 內容決定是否廣播（例：payload 含 move_speed_bonus
     /// 表示這是移速影響類 buff，要發 creep/S 還原訊息）。
-    pub fn tick(&mut self, dt: f32) -> Vec<(Entity, String, Value)> {
+    /// Phase 1c.3: dt is Fixed32 seconds.
+    pub fn tick(&mut self, dt: Fixed32) -> Vec<(Entity, String, Value)> {
         let mut expired = Vec::new();
         // 先收集 expired，避免 retain 內動態借 self（index_dec 也要 &mut self）
         let mut to_drop: Vec<(Entity, String)> = Vec::new();
         for ((e, id), v) in self.buffs.iter_mut() {
             v.remaining -= dt;
-            if v.remaining <= 0.0 {
+            if v.remaining <= Fixed32::ZERO {
                 to_drop.push((*e, id.clone()));
             }
         }
@@ -261,11 +280,15 @@ mod tests {
         Entity::new(id, Generation::new(gen))
     }
 
+    fn fx(seconds: f32) -> Fixed32 {
+        Fixed32::from_raw((seconds * 1024.0) as i32)
+    }
+
     #[test]
     fn entities_with_key_returns_entity_after_add() {
         let mut s = BuffStore::new();
         let e = ent(1, 1);
-        s.add(e, "buff_a", 5.0, json!({ "move_speed_bonus": -0.5 }));
+        s.add(e, "buff_a", fx(5.0), json!({ "move_speed_bonus": -0.5 }));
         let found: Vec<Entity> = s.entities_with_key("move_speed_bonus").collect();
         assert_eq!(found, vec![e]);
     }
@@ -274,7 +297,7 @@ mod tests {
     fn remove_clears_index() {
         let mut s = BuffStore::new();
         let e = ent(1, 1);
-        s.add(e, "b", 5.0, json!({ "x": 1.0 }));
+        s.add(e, "b", fx(5.0), json!({ "x": 1.0 }));
         s.remove(e, "b");
         let found: Vec<Entity> = s.entities_with_key("x").collect();
         assert!(found.is_empty(), "expected empty, got {:?}", found);
@@ -284,8 +307,8 @@ mod tests {
     fn tick_expired_clears_index() {
         let mut s = BuffStore::new();
         let e = ent(1, 1);
-        s.add(e, "b", 1.0, json!({ "x": 1.0 }));
-        let expired = s.tick(2.0); // duration < dt → expire
+        s.add(e, "b", fx(1.0), json!({ "x": 1.0 }));
+        let expired = s.tick(fx(2.0)); // duration < dt → expire
         assert_eq!(expired.len(), 1);
         let found: Vec<Entity> = s.entities_with_key("x").collect();
         assert!(found.is_empty(), "expected empty after expire, got {:?}", found);
@@ -295,8 +318,8 @@ mod tests {
     fn remove_all_for_clears_index() {
         let mut s = BuffStore::new();
         let e = ent(1, 1);
-        s.add(e, "a", 5.0, json!({ "x": 1.0, "y": 2.0 }));
-        s.add(e, "b", 5.0, json!({ "z": 3.0 }));
+        s.add(e, "a", fx(5.0), json!({ "x": 1.0, "y": 2.0 }));
+        s.add(e, "b", fx(5.0), json!({ "z": 3.0 }));
         s.remove_all_for(e);
         for k in &["x", "y", "z"] {
             let found: Vec<Entity> = s.entities_with_key(k).collect();
@@ -308,8 +331,8 @@ mod tests {
     fn refcount_multiple_buffs_same_key() {
         let mut s = BuffStore::new();
         let e = ent(1, 1);
-        s.add(e, "buff1", 5.0, json!({ "k": 1.0 }));
-        s.add(e, "buff2", 5.0, json!({ "k": 2.0 }));
+        s.add(e, "buff1", fx(5.0), json!({ "k": 1.0 }));
+        s.add(e, "buff2", fx(5.0), json!({ "k": 2.0 }));
 
         // both present — entity still in index
         assert_eq!(s.entities_with_key("k").count(), 1);
@@ -329,9 +352,9 @@ mod tests {
         let mut s = BuffStore::new();
         let e = ent(1, 1);
         // 先加弱 slow（factor 越小越強，0.5 比 0.3 弱）
-        s.add(e, "slow", 5.0, json!({ "move_speed_bonus": -0.5, "slow_factor": 0.5 }));
+        s.add(e, "slow", fx(5.0), json!({ "move_speed_bonus": -0.5, "slow_factor": 0.5 }));
         // 加強 slow
-        s.add(e, "slow", 5.0, json!({ "move_speed_bonus": -0.7, "slow_factor": 0.3 }));
+        s.add(e, "slow", fx(5.0), json!({ "move_speed_bonus": -0.7, "slow_factor": 0.3 }));
         // 應該保留強 slow（factor=0.3）
         let entry = s.get(e, "slow").expect("slow buff missing");
         let factor = entry.payload.get("slow_factor").and_then(|v| v.as_f64()).unwrap();
@@ -342,12 +365,12 @@ mod tests {
     fn slow_dedup_weaker_does_not_replace_stronger() {
         let mut s = BuffStore::new();
         let e = ent(1, 1);
-        s.add(e, "slow", 3.0, json!({ "move_speed_bonus": -0.7, "slow_factor": 0.3 }));
-        s.add(e, "slow", 10.0, json!({ "move_speed_bonus": -0.5, "slow_factor": 0.5 }));
+        s.add(e, "slow", fx(3.0), json!({ "move_speed_bonus": -0.7, "slow_factor": 0.3 }));
+        s.add(e, "slow", fx(10.0), json!({ "move_speed_bonus": -0.5, "slow_factor": 0.5 }));
         let entry = s.get(e, "slow").expect("slow buff missing");
         let factor = entry.payload.get("slow_factor").and_then(|v| v.as_f64()).unwrap();
         assert!((factor - 0.3).abs() < 1e-6, "expected 0.3 to be preserved, got {}", factor);
         // duration 應取 max（既有行為）
-        assert!(entry.remaining >= 9.99, "expected duration ≥ 10, got {}", entry.remaining);
+        assert!(entry.remaining >= fx(9.99), "expected duration ≥ 10, got {:?}", entry.remaining);
     }
 }

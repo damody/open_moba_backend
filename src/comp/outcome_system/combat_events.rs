@@ -40,12 +40,16 @@ impl CombatEventHandler {
             });
 
         // ---- Evasion / miss roll（基於 target 的閃避 + attacker 的 miss）----
-        let (miss_chance, evasion) = {
+        // TODO Phase 1[d]: keep f32 boundary — miss / evasion roll still uses fastrand f32 below.
+        let (miss_chance, evasion): (f32, f32) = {
             let buffs = world.read_resource::<crate::ability_runtime::BuffStore>();
             let is_bldgs = world.read_storage::<IsBuilding>();
             let tgt_stats = UnitStats::from_refs(&*buffs, is_bldgs.get(target).is_some());
             let src_stats = UnitStats::from_refs(&*buffs, is_bldgs.get(source).is_some());
-            (src_stats.miss_chance(source), tgt_stats.evasion_chance(target))
+            (
+                src_stats.miss_chance(source).to_f32_for_render(),
+                tgt_stats.evasion_chance(target).to_f32_for_render(),
+            )
         };
         let miss_roll = 1.0 - (1.0 - miss_chance) * (1.0 - evasion);
         if miss_roll > 0.0 && fastrand::f32() < miss_roll {
@@ -61,13 +65,14 @@ impl CombatEventHandler {
 
         // ---- 套 UnitStats::apply_incoming_damage 逐類型減免 ----
         // CProperty 的 def_physic 當 armor；def_magic 當 magic_resist (0..1)。
+        // TODO Phase 1[d]: apply_incoming_damage f32 boundary — full Fixed32 pipeline 1c.4.
         let (final_phys, final_magi, final_real) = {
             let buffs = world.read_resource::<crate::ability_runtime::BuffStore>();
             let is_bldgs = world.read_storage::<IsBuilding>();
             let cps = world.read_storage::<CProperty>();
             let tgt_stats = UnitStats::from_refs(&*buffs, is_bldgs.get(target).is_some());
             let (base_armor, base_resist) = cps.get(target)
-                .map(|cp| (cp.def_physic, cp.def_magic))
+                .map(|cp| (cp.def_physic.to_f32_for_render(), cp.def_magic.to_f32_for_render()))
                 .unwrap_or((0.0, 0.0));
             (
                 tgt_stats.apply_incoming_damage(phys, DamageKind::Physical, target, base_armor, base_resist),
@@ -78,6 +83,8 @@ impl CombatEventHandler {
         let final_total = final_phys + final_magi + final_real;
 
         // ---- 先發 AttackHit / AttackLanded（含 final damage 數值）----
+        // Phase 1c.3: AttackLanded.damage is Fixed32 — convert at boundary.
+        let final_total_fx = omoba_sim::Fixed32::from_raw((final_total * 1024.0) as i32);
         {
             let mut queue = world.write_resource::<crate::scripting::ScriptEventQueue>();
             queue.push(crate::scripting::ScriptEvent::AttackHit {
@@ -87,14 +94,15 @@ impl CombatEventHandler {
             queue.push(crate::scripting::ScriptEvent::AttackLanded {
                 attacker: source,
                 victim: target,
-                damage: final_total,
+                damage: final_total_fx,
             });
         }
 
         // ---- 扣 HP，套 MIN_HEALTH 下限 ----
-        let min_health = {
+        // TODO Phase 1[d]: BuffStore::sum_add returns Fixed32 — keep boundary at f32 for legacy compare.
+        let min_health: f32 = {
             let buffs = world.read_resource::<crate::ability_runtime::BuffStore>();
-            buffs.sum_add(target, StatKey::MinHealth)
+            buffs.sum_add(target, StatKey::MinHealth).to_f32_for_render()
         };
         let has_reincarnation = {
             let buffs = world.read_resource::<crate::ability_runtime::BuffStore>();
@@ -105,22 +113,26 @@ impl CombatEventHandler {
         {
             let mut properties = world.write_storage::<CProperty>();
             if let Some(target_props) = properties.get_mut(target) {
-                let hp_before = target_props.hp;
-                target_props.hp -= final_total;
+                // Phase 1c.3: target_props.hp / mhp are Fixed32 (Phase 1c.2);
+                // final_total / min_health stay f32 here — boundary at the read.
+                // TODO Phase 1[d]: full Fixed32 hp arithmetic.
+                let hp_before_f = target_props.hp.to_f32_for_render();
+                let mut hp_after_f = hp_before_f - final_total;
                 // MIN_HEALTH clamp：> 0 時 HP 不低於此值
-                if min_health > 0.0 && target_props.hp < min_health {
-                    target_props.hp = min_health;
+                if min_health > 0.0 && hp_after_f < min_health {
+                    hp_after_f = min_health;
                 }
-                if target_props.hp <= 0.0 {
-                    target_props.hp = 0.0;
+                if hp_after_f <= 0.0 {
+                    hp_after_f = 0.0;
                     died = true;
                 }
-                let hp_after = target_props.hp;
+                target_props.hp = omoba_sim::Fixed32::from_raw((hp_after_f * 1024.0) as i32);
 
                 let (source_name, target_name) = Self::get_entity_names(world, source, target);
                 let damage_info = Self::format_damage_info(final_phys, final_magi, final_real, final_total);
                 log::info!("⚔️ {} 攻擊 {} | {} | HP: {:.1} → {:.1}/{:.1}",
-                    source_name, target_name, damage_info, hp_before, hp_after, target_props.mhp
+                    source_name, target_name, damage_info, hp_before_f, hp_after_f,
+                    target_props.mhp.to_f32_for_render()
                 );
             }
         }

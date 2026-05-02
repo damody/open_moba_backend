@@ -825,10 +825,12 @@ impl GameProcessor {
         // lerp/extrap fallback 導致 creep 瞬移到下個 waypoint。
         // 用 BuffStore 寫入而非全域 clamp — 不同 creep 類型未來可以有不同下限、
         // 設計上也允許某些 buff 顯式拿掉這個下限（例如「凍結 1 秒」效果）。
+        // Phase 1c.3: BuffStore::add now takes Fixed32 — use raw i32::MAX as
+        // sentinel "permanent". TODO Phase 1[d]: introduce explicit sentinel.
         ecs.write_resource::<crate::ability_runtime::BuffStore>().add(
             e,
             "creep_min_speed_floor",
-            f32::MAX,
+            omoba_sim::Fixed32::from_raw(i32::MAX),
             serde_json::json!({ "movespeed_absolute_min": 10.0 }),
         );
         // Pass internal template id (`creep_name`) not the display label — client
@@ -850,19 +852,24 @@ impl GameProcessor {
         let has_move_speed_bonus = payload.get(StatKey::MoveSpeedBonus.as_str()).and_then(|v| v.as_f64()).is_some();
         {
             let mut store = ecs.write_resource::<crate::ability_runtime::BuffStore>();
-            store.add(target, &buff_id, duration, payload);
+            // Phase 1c.3: BuffStore::add takes Fixed32 — boundary at f32 caller.
+            // TODO Phase 1[d]: Outcome::AddBuff.duration migrate to Fixed32.
+            let duration_fx = omoba_sim::Fixed32::from_raw((duration * 1024.0) as i32);
+            store.add(target, &buff_id, duration_fx, payload);
         }
         // 只針對有移速影響、且是 creep 的目標廣播（hero 走 hero_move_tick 每幀發位置，不需要離散更新）
         if has_move_speed_bonus {
             let is_creep = ecs.read_storage::<Creep>().get(target).is_some();
             if is_creep {
-                let msd = ecs.read_storage::<CProperty>()
-                    .get(target).map(|c| c.msd).unwrap_or(0.0);
-                let sum = {
+                // Phase 1c.3: CProperty.msd is Fixed32 (Phase 1c.2); BuffStore::sum_add returns Fixed32.
+                // Convert to f32 at the wire boundary (creep_slow proto still f32).
+                let msd_f = ecs.read_storage::<CProperty>()
+                    .get(target).map(|c| c.msd.to_f32_for_render()).unwrap_or(0.0);
+                let sum_f: f32 = {
                     let store = ecs.read_resource::<crate::ability_runtime::BuffStore>();
-                    store.sum_add(target, StatKey::MoveSpeedBonus)
+                    store.sum_add(target, StatKey::MoveSpeedBonus).to_f32_for_render()
                 };
-                let effective = msd * (1.0 + sum).clamp(0.01, 1.0);
+                let effective = msd_f * (1.0 + sum_f).clamp(0.01, 1.0);
                 if let Some(tx) = ecs.read_resource::<Vec<crossbeam_channel::Sender<OutboundMsg>>>().get(0) {
                     let _ = tx.try_send(make_creep_slow(target.id(), effective));
                 }

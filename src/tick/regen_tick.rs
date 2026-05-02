@@ -42,12 +42,14 @@ impl<'a> System<'a> for Sys {
     const NAME: &'static str = "regen";
 
     fn run(job: &mut Job<Self>, mut data: Self::SystemData) {
-        // TODO Phase 1[c]: drop conversion when regen tick goes Fixed32-native.
+        // Phase 1c.3: dt_acc kept f32 (small accumulator, threshold compare).
+        // The Fixed32 dt is converted at the boundary for the accumulator only.
         job.own.dt_acc += data.dt.0.to_f32_for_render();
         if job.own.dt_acc < REGEN_INTERVAL {
             return;
         }
-        let dt = std::mem::replace(&mut job.own.dt_acc, 0.0);
+        let dt_f = std::mem::replace(&mut job.own.dt_acc, 0.0);
+        let dt = omoba_sim::Fixed32::from_raw((dt_f * 1024.0) as i32);
         let tx = data.mqtx.get(0).cloned();
 
         // 候選 entity：身上至少有一條 buff 含 HP regen 相關 key（任一）。
@@ -77,10 +79,10 @@ impl<'a> System<'a> for Sys {
         let is_buildings = &data.is_buildings;
         let buffs: &BuffStore = &data.buffs;
 
-        let compute = |&e: &specs::Entity| -> Option<(specs::Entity, f32, f32)> {
+        let compute = |&e: &specs::Entity| -> Option<(specs::Entity, omoba_sim::Fixed32, omoba_sim::Fixed32)> {
             // 確認 entity 有 CProperty（creep / hero / 召喚物都有）
             let cp = cp_storage.get(e)?;
-            if cp.hp <= 0.0 {
+            if cp.hp <= omoba_sim::Fixed32::ZERO {
                 return None;
             }
             // creep / hero 之外的 entity（例：純塔）不算 regen
@@ -90,13 +92,17 @@ impl<'a> System<'a> for Sys {
                 return None;
             }
             let stats = UnitStats::from_refs(buffs, is_buildings.get(e).is_some());
-            let regen = stats.hp_regen(0.0, e);
-            if regen.abs() < 0.0001 {
+            let regen = stats.hp_regen(omoba_sim::Fixed32::ZERO, e);
+            // |regen| < 0.0001 — using raw < 1 as Fixed32 epsilon (raw 1 = 1/1024 ≈ 0.001).
+            if regen.raw().abs() < 1 {
                 return None;
             }
             let eff_max = cp.mhp + stats.max_hp_bonus(e);
-            let new_hp = (cp.hp + regen * dt).clamp(0.0, eff_max);
-            if (new_hp - cp.hp).abs() > 0.01 {
+            let mut new_hp = cp.hp + regen * dt;
+            if new_hp < omoba_sim::Fixed32::ZERO { new_hp = omoba_sim::Fixed32::ZERO; }
+            if new_hp > eff_max { new_hp = eff_max; }
+            // Threshold: only push if delta > raw 10 (~0.01).
+            if (new_hp - cp.hp).raw().abs() > 10 {
                 Some((e, new_hp, eff_max))
             } else {
                 None
@@ -104,7 +110,7 @@ impl<'a> System<'a> for Sys {
         };
 
         let candidates_vec: Vec<specs::Entity> = candidates.into_iter().collect();
-        let hp_updates: Vec<(specs::Entity, f32, f32)> = if candidates_vec.len() >= PAR_MIN {
+        let hp_updates: Vec<(specs::Entity, omoba_sim::Fixed32, omoba_sim::Fixed32)> = if candidates_vec.len() >= PAR_MIN {
             candidates_vec.par_iter().filter_map(compute).collect()
         } else {
             candidates_vec.iter().filter_map(compute).collect()
@@ -120,7 +126,12 @@ impl<'a> System<'a> for Sys {
         // 廣播 HP 更新給前端（少量時才每 tick 送；太頻繁可改 throttling）
         if let Some(ref t) = tx {
             for (e, new_hp, mhp) in hp_updates {
-                let _ = t.try_send(make_hp_update(e.id(), new_hp, mhp));
+                // TODO Phase 1[d]: wire format f32 — drop boundary when proto migrates.
+                let _ = t.try_send(make_hp_update(
+                    e.id(),
+                    new_hp.to_f32_for_render(),
+                    mhp.to_f32_for_render(),
+                ));
             }
         }
     }

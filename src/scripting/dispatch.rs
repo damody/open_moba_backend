@@ -133,8 +133,8 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
                     Some(h) => RSome(h),
                     None => RNone,
                 },
-                // TODO Phase 1[cd]: drop conversion when ScriptEvent::Damage.amount migrates to Fixed32.
-                amount: Fixed32::from_raw((amount * 1024.0) as i32),
+                // Phase 1c.3: amount is already Fixed32 (ScriptEvent::Damage migrated 1c.2).
+                amount,
                 kind,
             };
 
@@ -167,7 +167,7 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
             }
 
             // 3) host applies final amount
-            // TODO Phase 1[cd]: drop conversion when apply_damage / CProperty.hp migrate to Fixed32.
+            // TODO Phase 1[d]: drop conversion when apply_damage / CProperty.hp migrate to Fixed32.
             apply_damage(adapter, victim, info.amount.to_f32_for_render(), info.kind);
         }
 
@@ -187,10 +187,11 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
             // - Active / Toggle / Ultimate：若仍在 CD 中直接拒絕
             if let Some(hero) = adapter.cache.hero.get(caster) {
                 if hero.is_on_cooldown(&skill_id) {
+                    // TODO Phase 1[d]: Hero cooldown remaining in Fixed32 — log f32 for human readability.
                     log::info!(
                         "[scripting] skill '{}' blocked — on cooldown ({:.1}s remaining)",
                         skill_id,
-                        hero.get_cooldown(&skill_id)
+                        hero.get_cooldown(&skill_id).to_f32_for_render()
                     );
                     return;
                 }
@@ -208,11 +209,8 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
             let caster_handle = WorldAdapter::entity_to_handle(caster);
             let target_abi = match target {
                 SkillTarget::Entity(e) => Target::Entity(WorldAdapter::entity_to_handle(e)),
-                // TODO Phase 1[cd]: drop conversion when SkillTarget::Point migrates to Fixed32.
-                SkillTarget::Point(x, y) => Target::Point(Vec2 {
-                    x: Fixed32::from_raw((x * 1024.0) as i32),
-                    y: Fixed32::from_raw((y * 1024.0) as i32),
-                }),
+                // Phase 1c.3: SkillTarget::Point now { x: Fixed32, y: Fixed32 } (Phase 1c.2).
+                SkillTarget::Point { x, y } => Target::Point(Vec2 { x, y }),
                 SkillTarget::None => Target::None,
             };
 
@@ -280,7 +278,8 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
                 // 執行成功後啟動 CD；失敗不扣 CD（讓玩家重試）
                 if exec_ok && cd_seconds > 0.0 {
                     if let Some(hero) = adapter.cache.hero.get_mut(caster) {
-                        hero.start_cooldown(&skill_id, cd_seconds);
+                        // TODO Phase 1[d]: AbilityLevelData.cooldown still f32 — boundary at start_cooldown.
+                        hero.start_cooldown(&skill_id, Fixed32::from_raw((cd_seconds * 1024.0) as i32));
                     }
                 }
             } else {
@@ -375,10 +374,9 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
 
         ScriptEvent::AttackLanded { attacker, victim, damage } => {
             let victim_handle = WorldAdapter::entity_to_handle(victim);
-            // TODO Phase 1[cd]: drop conversion when ScriptEvent::AttackLanded.damage migrates to Fixed32.
-            let damage_fx = Fixed32::from_raw((damage * 1024.0) as i32);
+            // Phase 1c.3: damage already Fixed32 (ScriptEvent migrated 1c.2).
             with_script(adapter, registry, attacker, |script, handle, world_dyn| {
-                script.on_attack_landed(handle, victim_handle, damage_fx, world_dyn);
+                script.on_attack_landed(handle, victim_handle, damage, world_dyn);
             });
         }
 
@@ -397,27 +395,24 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
         }
 
         ScriptEvent::HealthGained { e, amount } => {
-            // TODO Phase 1[cd]: drop conversion when ScriptEvent::HealthGained.amount migrates to Fixed32.
-            let amount_fx = Fixed32::from_raw((amount * 1024.0) as i32);
+            // Phase 1c.3: amount already Fixed32.
             with_script(adapter, registry, e, |script, handle, world_dyn| {
-                script.on_health_gained(handle, amount_fx, world_dyn);
+                script.on_health_gained(handle, amount, world_dyn);
             });
         }
 
         ScriptEvent::ManaGained { e, amount } => {
-            // TODO Phase 1[cd]: drop conversion when ScriptEvent::ManaGained.amount migrates to Fixed32.
-            let amount_fx = Fixed32::from_raw((amount * 1024.0) as i32);
+            // Phase 1c.3: amount already Fixed32.
             with_script(adapter, registry, e, |script, handle, world_dyn| {
-                script.on_mana_gained(handle, amount_fx, world_dyn);
+                script.on_mana_gained(handle, amount, world_dyn);
             });
         }
 
         ScriptEvent::SpentMana { caster, cost, ability_id } => {
             let id_clone = ability_id.clone();
-            // TODO Phase 1[cd]: drop conversion when ScriptEvent::SpentMana.cost migrates to Fixed32.
-            let cost_fx = Fixed32::from_raw((cost * 1024.0) as i32);
+            // Phase 1c.3: cost already Fixed32.
             with_script(adapter, registry, caster, move |script, handle, world_dyn| {
-                script.on_spent_mana(handle, cost_fx, (&*id_clone).into(), world_dyn);
+                script.on_spent_mana(handle, cost, (&*id_clone).into(), world_dyn);
             });
         }
 
@@ -426,10 +421,9 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
                 Some(h) => RSome(h),
                 None => RNone,
             };
-            // TODO Phase 1[cd]: drop conversion when ScriptEvent::HealReceived.amount migrates to Fixed32.
-            let amount_fx = Fixed32::from_raw((amount * 1024.0) as i32);
+            // Phase 1c.3: amount already Fixed32.
             with_script(adapter, registry, target, move |script, handle, world_dyn| {
-                script.on_heal_received(handle, amount_fx, source_opt, world_dyn);
+                script.on_heal_received(handle, amount, source_opt, world_dyn);
             });
         }
 
@@ -458,11 +452,8 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
             let kind_clone = order_kind.clone();
             let target_abi = match target {
                 SkillTarget::Entity(t) => Target::Entity(WorldAdapter::entity_to_handle(t)),
-                // TODO Phase 1[cd]: drop conversion when SkillTarget::Point migrates to Fixed32.
-                SkillTarget::Point(x, y) => Target::Point(Vec2 {
-                    x: Fixed32::from_raw((x * 1024.0) as i32),
-                    y: Fixed32::from_raw((y * 1024.0) as i32),
-                }),
+                // Phase 1c.3: SkillTarget::Point now { x: Fixed32, y: Fixed32 } (Phase 1c.2).
+                SkillTarget::Point { x, y } => Target::Point(Vec2 { x, y }),
                 SkillTarget::None => Target::None,
             };
             with_script(adapter, registry, e, move |script, handle, world_dyn| {
@@ -515,8 +506,12 @@ fn world_dyn_of<'a>(adapter: &'a mut WorldAdapter<'_>) -> GameWorldDyn<'a> {
 /// `ScriptEvent::Damage` is not currently enqueued, so this helper only
 /// exists for future use when we wire scripts into the damage pipeline.
 fn apply_damage(adapter: &mut WorldAdapter<'_>, victim: Entity, amount: f32, _kind: DamageKind) {
+    // Phase 1c.3: CProperty.hp is Fixed32 (Phase 1c.2); convert at boundary from f32 amount.
+    // TODO Phase 1[d]: amount Fixed32 once full damage pipeline migrated.
+    let amount_fx = Fixed32::from_raw((amount * 1024.0) as i32);
     if let Some(p) = adapter.cache.cprop.get_mut(victim) {
-        p.hp = (p.hp - amount).max(0.0);
+        let new_hp = p.hp - amount_fx;
+        p.hp = if new_hp < Fixed32::ZERO { Fixed32::ZERO } else { new_hp };
         return;
     }
     if let Some(u) = adapter.cache.unit.get_mut(victim) {

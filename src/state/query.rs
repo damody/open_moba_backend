@@ -195,16 +195,17 @@ pub fn query_inspect_player_view(world: &World, player_name: &str) -> QueryRespo
         let tatk = tattacks.get(ent);
         let tprop = tproperties.get(ent);
 
+        // TODO Phase 1[d]: wire format — JSON outbound query, kept f32 for compat.
         tower_list.push(json!({
             "entity_id": ent.id(),
             "x": pos.0.x,
             "y": pos.0.y,
-            "hp": tprop.map(|p| f32::from(p.hp)).unwrap_or(0.0),
+            "hp": tprop.map(|p| p.hp.v.to_f32_for_render()).unwrap_or(0.0),
             "block": tprop.map(|p| p.block).unwrap_or(0),
             "max_block": tprop.map(|p| p.mblock).unwrap_or(0),
-            "atk_physic": tatk.map(|a| f32::from(a.atk_physic)).unwrap_or(0.0),
-            "atk_speed": tatk.map(|a| f32::from(a.asd)).unwrap_or(0.0),
-            "range": tatk.map(|a| f32::from(a.range)).unwrap_or(0.0),
+            "atk_physic": tatk.map(|a| a.atk_physic.v.to_f32_for_render()).unwrap_or(0.0),
+            "atk_speed": tatk.map(|a| a.asd.v.to_f32_for_render()).unwrap_or(0.0),
+            "range": tatk.map(|a| a.range.v.to_f32_for_render()).unwrap_or(0.0),
         }));
     }
 

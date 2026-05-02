@@ -175,6 +175,8 @@ impl<'a> System<'a> for Sys {
         // Carries current (target, velocity, start_pos, facing) — the gating +
         // record update happens serially below so we can touch mv_broadcasts
         // without fighting borrow rules inside the parallel closure.
+        // TODO Phase 1[d]: migrate MoveCandidate.velocity to Fixed32 once
+        // CreepMoveBroadcast / make_creep_move_full take Fixed32 payloads.
         struct MoveCandidate {
             entity: specs::Entity,
             target: vek::Vec2<f32>,
@@ -251,7 +253,7 @@ impl<'a> System<'a> for Sys {
                                             // First emit on spawn / PreWalk → unconditional candidate.
                                             cands.push(MoveCandidate {
                                                 entity: e, target: target_point_f,
-                                                velocity: effective_msd,
+                                                velocity: effective_msd.to_f32_for_render(),
                                                 start_pos: p_to_f(pos.0), facing: a_to_rad(facing.0),
                                             });
                                             next_status = CreepStatus::Walk;
@@ -261,10 +263,9 @@ impl<'a> System<'a> for Sys {
                                             if tr.buff_store.is_rooted(e) {
                                                 return (outcomes, cands);
                                             }
-                                            // step in Fixed32 — effective_msd is f32 (Phase 1c
-                                            // CProperty.msd migration). Lossy at boundary.
-                                            let step_f = effective_msd * dt_f;
-                                            let step = Fixed32::from_raw((step_f * omoba_sim::fixed::SCALE as f32) as i32);
+                                            // Phase 1c.3: effective_msd is Fixed32 (UnitStats migrated).
+                                            // step = effective_msd × dt (Fixed32 × Fixed32).
+                                            let step = effective_msd * dt;
                                             let diff = target_point - pos.0;
                                             let dist_sq = diff.length_squared();
                                             // 0.01 in Fixed32 raw = round(0.01 * 1024) = 10
@@ -276,7 +277,7 @@ impl<'a> System<'a> for Sys {
                                                 if let Some(t) = path.check_points.get(creep.pidx) {
                                                     cands.push(MoveCandidate {
                                                         entity: e, target: t.pos,
-                                                        velocity: effective_msd,
+                                                        velocity: effective_msd.to_f32_for_render(),
                                                         start_pos: p_to_f(pos.0), facing: a_to_rad(facing.0),
                                                     });
                                                 }
@@ -357,7 +358,7 @@ impl<'a> System<'a> for Sys {
                                                             if let Some(t) = path.check_points.get(creep.pidx) {
                                                                 cands.push(MoveCandidate {
                                                                     entity: e, target: t.pos,
-                                                                    velocity: effective_msd,
+                                                                    velocity: effective_msd.to_f32_for_render(),
                                                                     start_pos: p_to_f(pos.0), facing: a_to_rad(facing.0),
                                                                 });
                                                             }
@@ -376,7 +377,7 @@ impl<'a> System<'a> for Sys {
                                                         // compares to last broadcast and drops if same.
                                                         cands.push(MoveCandidate {
                                                             entity: e, target: target_point_f,
-                                                            velocity: effective_msd,
+                                                            velocity: effective_msd.to_f32_for_render(),
                                                             start_pos: p_to_f(pos.0), facing: a_to_rad(facing.0),
                                                         });
                                                     }

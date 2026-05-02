@@ -8,13 +8,21 @@ use std::{
     time::{Duration, Instant},
     collections::HashMap,
 };
-use rand::Rng;
+use omoba_sim::Fixed32;
+
+/// Per-entity SimRng op kinds for damage_tick. Each (entity, op) pair gets its
+/// own deterministic stream — keep these constants stable; reordering would
+/// invalidate replay determinism.
+const OP_DODGE: u32 = 0;
+const OP_CRIT: u32 = 1;
 
 #[derive(SystemData)]
 pub struct DamageRead<'a> {
     entities: Entities<'a>,
     time: Read<'a, Time>,
     dt: Read<'a, DeltaTime>,
+    master_seed: Read<'a, MasterSeed>,
+    tick: Read<'a, Tick>,
     units: ReadStorage<'a, Unit>,
     heroes: ReadStorage<'a, Hero>,
     factions: ReadStorage<'a, Faction>,
@@ -42,45 +50,47 @@ impl<'a> System<'a> for Sys {
     fn run(_job: &mut Job<Self>, (tr, mut tw): Self::SystemData) {
         let time = tr.time.0;
         let dt = tr.dt.0;
-        
+        let master_seed: u64 = tr.master_seed.0;
+        let tick: u32 = tr.tick.0 as u32;
+
         // 收集所有單位的屬性用於傷害計算
-        let mut unit_stats: HashMap<Entity, (f32, f32, f32, f32)> = HashMap::new(); // (armor, magic_resist, crit_chance, dodge_chance)
-        
+        // (armor, magic_resist, crit_chance, dodge_chance) — all Fixed32 (Phase 1c.3).
+        let mut unit_stats: HashMap<Entity, (Fixed32, Fixed32, Fixed32, Fixed32)> = HashMap::new();
+
         // 收集 Unit 屬性
         for (entity, unit, properties) in (&tr.entities, &tr.units, &tr.properties).join() {
             unit_stats.insert(entity, (
                 unit.base_armor,
                 unit.magic_resistance,
-                0.0, // TODO: 從裝備或技能獲取暴擊率
-                0.0, // TODO: 從裝備或技能獲取閃避率
+                Fixed32::ZERO, // TODO: 從裝備或技能獲取暴擊率
+                Fixed32::ZERO, // TODO: 從裝備或技能獲取閃避率
             ));
         }
-        
+
         // 收集 Hero 屬性
         for (entity, hero, properties) in (&tr.entities, &tr.heroes, &tr.properties).join() {
             let crit_chance = hero.get_crit_chance();
             unit_stats.insert(entity, (
                 properties.def_physic,
-                0.0, // 魔抗暫時使用 0
+                Fixed32::ZERO, // 魔抗暫時使用 0
                 crit_chance,
-                0.0, // 閃避率暫時使用 0
+                Fixed32::ZERO, // 閃避率暫時使用 0
             ));
         }
-        
+
         // 處理所有傷害實例
         let mut damage_results = Vec::new();
         let mut outcomes = Vec::new();
-        
+
         for damage_inst in tw.damage_instances.drain(..) {
-            let result = calculate_damage(&damage_inst, &unit_stats);
+            let result = calculate_damage(&damage_inst, &unit_stats, master_seed, tick);
 
             // 生成傷害事件而不是直接修改組件
-            if !result.is_dodged && result.total_damage > 0.0 {
-                // 獲取目標位置
-                // TODO Phase 1[c]: drop f32 boundary projection when Outcome variants take Fixed32.
+            if !result.is_dodged && result.total_damage > Fixed32::ZERO {
+                // Phase 1c.3: Outcome::Damage.pos now omoba_sim::Vec2 (Phase 1c.2).
                 let target_pos = tr.positions.get(damage_inst.target)
-                    .map(|p| { let (x, y) = p.xy_f32(); vek::Vec2::new(x, y) })
-                    .unwrap_or(vek::Vec2::new(0.0, 0.0));
+                    .map(|p| p.0)
+                    .unwrap_or(omoba_sim::Vec2::ZERO);
 
                 // 生成傷害事件
                 outcomes.push(Outcome::Damage {
@@ -93,21 +103,24 @@ impl<'a> System<'a> for Sys {
                     predeclared: false, // ability-driven damage path — authoritative
                 });
 
-                log::info!("Generated damage event: {:.1} total damage to target", result.total_damage);
+                log::info!(
+                    "Generated damage event: {:.1} total damage to target",
+                    result.total_damage.to_f32_for_render()
+                );
             } else if result.is_dodged {
                 log::info!("Attack dodged by target");
             }
 
             // 生命偷取 / 法術吸血：calculate_damage 已聚合到 result.healing，這裡 emit Heal 給來源
-            if !result.is_dodged && result.healing > 0.0 {
+            if !result.is_dodged && result.healing > Fixed32::ZERO {
                 let source_entity = damage_inst.source.source_entity;
-                // TODO Phase 1[c]: drop f32 boundary projection when Outcome variants take Fixed32.
+                // Phase 1c.3: Outcome::Heal.pos now omoba_sim::Vec2 (Phase 1c.2).
                 let source_pos = tr.positions.get(source_entity)
-                    .map(|p| { let (x, y) = p.xy_f32(); vek::Vec2::new(x, y) })
+                    .map(|p| p.0)
                     .unwrap_or_else(|| {
                         tr.positions.get(damage_inst.target)
-                            .map(|p| { let (x, y) = p.xy_f32(); vek::Vec2::new(x, y) })
-                            .unwrap_or(vek::Vec2::new(0.0, 0.0))
+                            .map(|p| p.0)
+                            .unwrap_or(omoba_sim::Vec2::ZERO)
                     });
                 outcomes.push(Outcome::Heal {
                     pos: source_pos,
@@ -124,87 +137,103 @@ impl<'a> System<'a> for Sys {
 }
 
 /// 計算傷害的核心函數
+/// Phase 1c.3: full Fixed32 — armor / resist / damage / crit / dodge all deterministic.
 fn calculate_damage(
-    damage_inst: &DamageInstance, 
-    unit_stats: &HashMap<Entity, (f32, f32, f32, f32)>
+    damage_inst: &DamageInstance,
+    unit_stats: &HashMap<Entity, (Fixed32, Fixed32, Fixed32, Fixed32)>,
+    master_seed: u64,
+    tick: u32,
 ) -> DamageResult {
     let mut result = DamageResult {
         target: damage_inst.target,
         source: damage_inst.source.clone(),
         original_damage: damage_inst.damage_types.clone(),
         actual_damage: damage_inst.damage_types.clone(),
-        total_damage: 0.0,
-        absorbed: 0.0,
+        total_damage: Fixed32::ZERO,
+        absorbed: Fixed32::ZERO,
         is_critical: false,
         is_dodged: false,
-        healing: 0.0,
+        healing: Fixed32::ZERO,
     };
-    
+
     // 獲取目標屬性
     let (armor, magic_resist, _, dodge_chance) = unit_stats.get(&damage_inst.target)
         .copied()
-        .unwrap_or((0.0, 0.0, 0.0, 0.0));
-    
+        .unwrap_or((Fixed32::ZERO, Fixed32::ZERO, Fixed32::ZERO, Fixed32::ZERO));
+
     // 獲取攻擊者屬性
     let (_, _, crit_chance, _) = unit_stats.get(&damage_inst.source.source_entity)
         .copied()
-        .unwrap_or((0.0, 0.0, 0.0, 0.0));
-    
-    // 檢查閃避
-    if damage_inst.damage_flags.can_dodge && dodge_chance > 0.0 {
-        let mut rng = rand::thread_rng();
-        if rng.gen::<f32>() < dodge_chance {
+        .unwrap_or((Fixed32::ZERO, Fixed32::ZERO, Fixed32::ZERO, Fixed32::ZERO));
+
+    let victim_id: u32 = damage_inst.target.id();
+    let attacker_id: u32 = damage_inst.source.source_entity.id();
+
+    // 檢查閃避 — Phase 1c.3: deterministic SimRng stream per (victim, OP_DODGE)
+    if damage_inst.damage_flags.can_dodge && dodge_chance > Fixed32::ZERO {
+        let mut dodge_rng =
+            omoba_sim::SimRng::from_master_entity(master_seed, tick, victim_id, OP_DODGE);
+        // gen_fixed32_unit returns Fixed32 in [0, 1) with raw in [0, 1024).
+        let dodge_roll: Fixed32 = dodge_rng.gen_fixed32_unit();
+        if dodge_roll < dodge_chance {
             result.is_dodged = true;
             return result;
         }
     }
-    
-    // 檢查暴擊
-    if damage_inst.damage_flags.can_crit && crit_chance > 0.0 {
-        let mut rng = rand::thread_rng();
-        if rng.gen::<f32>() < crit_chance {
+
+    // 檢查暴擊 — Phase 1c.3: deterministic SimRng stream per (attacker, OP_CRIT)
+    if damage_inst.damage_flags.can_crit && crit_chance > Fixed32::ZERO {
+        let mut crit_rng =
+            omoba_sim::SimRng::from_master_entity(master_seed, tick, attacker_id, OP_CRIT);
+        let crit_roll: Fixed32 = crit_rng.gen_fixed32_unit();
+        if crit_roll < crit_chance {
             result.is_critical = true;
         }
     }
-    
+
     // 計算物理傷害
     let mut physical_damage = damage_inst.damage_types.physical;
     if result.is_critical {
-        physical_damage *= 2.0; // 暴擊傷害 200%
+        physical_damage = physical_damage * Fixed32::from_i32(2); // 暴擊傷害 200%
     }
-    
-    if !damage_inst.damage_flags.ignore_armor && armor > 0.0 {
-        let damage_reduction = armor / (armor + 100.0);
+
+    let hundred = Fixed32::from_i32(100);
+    if !damage_inst.damage_flags.ignore_armor && armor > Fixed32::ZERO {
+        let damage_reduction = armor / (armor + hundred);
         let absorbed = physical_damage * damage_reduction;
-        physical_damage -= absorbed;
-        result.absorbed += absorbed;
+        physical_damage = physical_damage - absorbed;
+        result.absorbed = result.absorbed + absorbed;
     }
-    
+
     // 計算魔法傷害
     let mut magical_damage = damage_inst.damage_types.magical;
-    if !damage_inst.damage_flags.ignore_magic_resist && magic_resist > 0.0 {
-        let damage_reduction = magic_resist / 100.0;
-        let absorbed = magical_damage * damage_reduction.min(0.75); // 魔抗上限 75%
-        magical_damage -= absorbed;
-        result.absorbed += absorbed;
+    if !damage_inst.damage_flags.ignore_magic_resist && magic_resist > Fixed32::ZERO {
+        let mut damage_reduction = magic_resist / hundred;
+        let cap = Fixed32::from_raw(768); // 0.75 in Q22.10
+        if damage_reduction > cap {
+            damage_reduction = cap;
+        }
+        let absorbed = magical_damage * damage_reduction;
+        magical_damage = magical_damage - absorbed;
+        result.absorbed = result.absorbed + absorbed;
     }
-    
+
     // 純粹傷害不受防禦影響
     let pure_damage = damage_inst.damage_types.pure;
-    
+
     // 更新實際傷害
-    result.actual_damage.physical = physical_damage.max(0.0);
-    result.actual_damage.magical = magical_damage.max(0.0);
-    result.actual_damage.pure = pure_damage.max(0.0);
+    result.actual_damage.physical = if physical_damage < Fixed32::ZERO { Fixed32::ZERO } else { physical_damage };
+    result.actual_damage.magical = if magical_damage < Fixed32::ZERO { Fixed32::ZERO } else { magical_damage };
+    result.actual_damage.pure = if pure_damage < Fixed32::ZERO { Fixed32::ZERO } else { pure_damage };
     result.total_damage = result.actual_damage.total();
-    
+
     // 計算治療（生命偷取、法術吸血）
-    if damage_inst.damage_flags.lifesteal > 0.0 {
-        result.healing += result.actual_damage.physical * damage_inst.damage_flags.lifesteal;
+    if damage_inst.damage_flags.lifesteal > Fixed32::ZERO {
+        result.healing = result.healing + result.actual_damage.physical * damage_inst.damage_flags.lifesteal;
     }
-    if damage_inst.damage_flags.spell_vamp > 0.0 {
-        result.healing += result.actual_damage.magical * damage_inst.damage_flags.spell_vamp;
+    if damage_inst.damage_flags.spell_vamp > Fixed32::ZERO {
+        result.healing = result.healing + result.actual_damage.magical * damage_inst.damage_flags.spell_vamp;
     }
-    
+
     result
 }

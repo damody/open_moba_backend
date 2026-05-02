@@ -308,6 +308,9 @@ impl StateInitializer {
         ecs.insert(TimeOfDay(0.0));
         ecs.insert(Time(0.0));
         ecs.insert(DeltaTime(omoba_sim::Fixed32::ZERO));
+        // Phase 1c.3: master seed for deterministic SimRng streams. Phase 2 will
+        // overwrite this from the GameStart message; for now use a fixed default.
+        ecs.insert(crate::comp::MasterSeed::default());
 
         // 初始化集合資源
         ecs.insert(BTreeMap::<String, CheckPoint>::new());

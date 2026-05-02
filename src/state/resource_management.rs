@@ -621,7 +621,8 @@ impl ResourceManager {
         }
         for (buff_id, payload) in stat_mods {
             let mut store = world.write_resource::<crate::ability_runtime::BuffStore>();
-            store.add(tower_entity, &buff_id, f32::MAX, payload);
+            // Phase 1c.3: BuffStore::add takes Fixed32 — sentinel "permanent" via raw i32::MAX.
+            store.add(tower_entity, &buff_id, omoba_sim::Fixed32::from_raw(i32::MAX), payload);
         }
         let new_levels = {
             let mut towers = world.write_storage::<Tower>();
@@ -1787,22 +1788,32 @@ pub(crate) mod proto_build {
         buff_store: &crate::ability_runtime::BuffStore,
     ) -> HeroHot {
         // 與 build_hero_stats_payload 一致的聚合路徑（讓前端看到實際生效值）
+        // Phase 1c.3: UnitStats final_* now returns Fixed32; wire format remains f32.
+        // TODO Phase 1[d]: HeroHot prost schema migrate to deterministic encoding.
         let stats = crate::ability_runtime::UnitStats::from_refs(buff_store, false);
-        let atk_dmg_eff = stats.final_atk(attack_damage_base, hero_entity);
-        let atk_rng_eff = stats.final_attack_range(attack_range_base, hero_entity);
-        let asd_mult = stats.final_attack_speed_mult(hero_entity);
+        let attack_damage_base_fx = omoba_sim::Fixed32::from_raw((attack_damage_base * 1024.0) as i32);
+        let attack_range_base_fx = omoba_sim::Fixed32::from_raw((attack_range_base * 1024.0) as i32);
+        let move_speed_base_fx = omoba_sim::Fixed32::from_raw((move_speed_base * 1024.0) as i32);
+        let armor_base_fx = omoba_sim::Fixed32::from_raw((armor_base * 1024.0) as i32);
+        let magic_resist_base_fx = omoba_sim::Fixed32::from_raw((magic_resist_base * 1024.0) as i32);
+        let atk_dmg_eff = stats.final_atk(attack_damage_base_fx, hero_entity).to_f32_for_render();
+        let atk_rng_eff = stats.final_attack_range(attack_range_base_fx, hero_entity).to_f32_for_render();
+        let asd_mult = stats.final_attack_speed_mult(hero_entity).to_f32_for_render();
         let atk_int_eff = if asd_mult > 0.0 { attack_interval_base / asd_mult } else { attack_interval_base };
-        let msd_eff = stats.final_move_speed(move_speed_base, hero_entity);
-        let armor_eff = stats.final_armor(armor_base, hero_entity);
-        let magic_resist_eff = stats.final_magic_resist(magic_resist_base, hero_entity);
+        let msd_eff = stats.final_move_speed(move_speed_base_fx, hero_entity).to_f32_for_render();
+        let armor_eff = stats.final_armor(armor_base_fx, hero_entity).to_f32_for_render();
+        let magic_resist_eff = stats.final_magic_resist(magic_resist_base_fx, hero_entity).to_f32_for_render();
 
         let buffs: Vec<BuffSnapshot> = buff_store
             .iter_for(hero_entity)
             .map(|(id, entry)| {
-                let remaining_ms = if entry.remaining.is_infinite() || entry.remaining > 65.535 {
+                // Phase 1c.3: BuffEntry.remaining is Fixed32 — wire as ms u32 sentinel.
+                // TODO Phase 1[d]: BuffSnapshot.remaining_ms wire migrate to Fixed32.
+                let remaining_f = entry.remaining.to_f32_for_render();
+                let remaining_ms = if remaining_f.is_infinite() || remaining_f > 65.535 {
                     0xFFFF
                 } else {
-                    (entry.remaining * 1000.0).clamp(0.0, 65535.0) as u32
+                    (remaining_f * 1000.0).clamp(0.0, 65535.0) as u32
                 };
                 BuffSnapshot {
                     buff_id: id.to_string(),
@@ -1851,19 +1862,30 @@ pub(crate) fn build_hero_stats_payload(
     buff_store: &crate::ability_runtime::BuffStore,
 ) -> serde_json::Value {
     use serde_json::json;
+    // Phase 1c.3: UnitStats final_* now Fixed32; wire format remains f32.
     let stats = crate::ability_runtime::UnitStats::from_refs(buff_store, false);
-    let atk_dmg_eff = stats.final_atk(attack_damage_base, hero_entity);
-    let atk_rng_eff = stats.final_attack_range(attack_range_base, hero_entity);
-    let asd_mult = stats.final_attack_speed_mult(hero_entity);
+    let attack_damage_base_fx = omoba_sim::Fixed32::from_raw((attack_damage_base * 1024.0) as i32);
+    let attack_range_base_fx = omoba_sim::Fixed32::from_raw((attack_range_base * 1024.0) as i32);
+    let move_speed_base_fx = omoba_sim::Fixed32::from_raw((move_speed_base * 1024.0) as i32);
+    let armor_base_fx = omoba_sim::Fixed32::from_raw((armor_base * 1024.0) as i32);
+    let magic_resist_base_fx = omoba_sim::Fixed32::from_raw((magic_resist_base * 1024.0) as i32);
+    let atk_dmg_eff = stats.final_atk(attack_damage_base_fx, hero_entity).to_f32_for_render();
+    let atk_rng_eff = stats.final_attack_range(attack_range_base_fx, hero_entity).to_f32_for_render();
+    let asd_mult = stats.final_attack_speed_mult(hero_entity).to_f32_for_render();
     let atk_int_eff = if asd_mult > 0.0 { attack_interval_base / asd_mult } else { attack_interval_base };
-    let msd_eff = stats.final_move_speed(move_speed_base, hero_entity);
-    let armor_eff = stats.final_armor(armor_base, hero_entity);
-    let magic_resist_eff = stats.final_magic_resist(magic_resist_base, hero_entity);
+    let msd_eff = stats.final_move_speed(move_speed_base_fx, hero_entity).to_f32_for_render();
+    let armor_eff = stats.final_armor(armor_base_fx, hero_entity).to_f32_for_render();
+    let magic_resist_eff = stats.final_magic_resist(magic_resist_base_fx, hero_entity).to_f32_for_render();
 
     let buffs: Vec<serde_json::Value> = buff_store
         .iter_for(hero_entity)
         .map(|(id, entry)| {
-            let remaining = if entry.remaining.is_infinite() { -1.0 } else { entry.remaining };
+            // Phase 1c.3: BuffEntry.remaining is Fixed32; treat raw i32::MAX as infinite.
+            let remaining = if entry.remaining.raw() == i32::MAX {
+                -1.0_f32
+            } else {
+                entry.remaining.to_f32_for_render()
+            };
             json!({
                 "id": id,
                 "remaining": remaining,
