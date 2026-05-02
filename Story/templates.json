@@ -35,8 +35,18 @@
   ],
 
   "heroes": [
-    { "id": "saika_magoichi", "display_name": "雜賀孫市", "title": "千里狙擊手" },
-    { "id": "date_masamune",  "display_name": "伊達政宗", "title": "獨眼龍" }
+    {
+      "id": "saika_magoichi",
+      "display_name": "雜賀孫市",
+      "title": "千里狙擊手",
+      "abilities": ["sniper_mode", "saika_reinforcements", "rain_iron_cannon", "three_stage_technique"]
+    },
+    {
+      "id": "date_masamune",
+      "display_name": "伊達政宗",
+      "title": "獨眼龍",
+      "abilities": ["flame_blade", "fire_dash", "flame_assault", "matchlock_gun"]
+    }
   ],
 
   "abilities": [
