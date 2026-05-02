@@ -169,7 +169,12 @@ impl<'a> System<'a> for Sys {
         // Legacy f32 view of dt for CProperty.msd (still f32; Phase 1c).
         let dt_f = dt.to_f32_for_render();
         let server_tick = tr.tick.0;
-        let tx = tw.mqtx.get(0).unwrap().clone();
+        // omfx sim_runner does not wire a transport; fall back to a sink sender
+        // so broadcast sites silently no-op (try_send returns disconnected, ignored).
+        let tx = tw.mqtx.get(0).cloned().unwrap_or_else(|| {
+            let (tx, _rx) = crossbeam_channel::unbounded::<OutboundMsg>();
+            tx
+        });
 
         // P4 emit candidates collected from the par_join pass, keyed by entity.
         // Carries current (target, velocity, start_pos, facing) — the gating +

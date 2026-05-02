@@ -46,7 +46,12 @@ impl<'a> System<'a> for Sys {
     fn run(_job: &mut Job<Self>, (tr, mut tw): Self::SystemData) {
         let totaltime = tr.time.0;
         let is_td = tr.game_mode.is_td();
-        let tx = tw.mqtx.get(0).unwrap().clone();
+        // omfx sim_runner does not wire a transport; fall back to a sink sender
+        // so broadcast sites silently no-op (try_send returns disconnected, ignored).
+        let tx = tw.mqtx.get(0).cloned().unwrap_or_else(|| {
+            let (tx, _rx) = crossbeam_channel::unbounded::<OutboundMsg>();
+            tx
+        });
         let mut cw = tw.cur_creep_wave;
         if cw.wave >= tw.creep_waves.len() {
             return;
