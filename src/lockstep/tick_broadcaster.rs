@@ -101,6 +101,20 @@ impl TickBroadcaster {
     /// Spawn the 60Hz tick loop. Runs until `out_tx` is closed (channel
     /// disconnect surfaces as send error and we log+exit).
     pub async fn run(self) {
+        // Phase 4: loud startup-time warning if state_hash_rx is not wired.
+        // Production code MUST wire it (see main.rs `with_state_hash_rx`);
+        // a missing rx silently falls back to placeholder hash, which would
+        // mask cross-client desync. Test setups intentionally leave None and
+        // accept the placeholder for unit-test stability.
+        if self.state_hash_rx.is_none() {
+            log::error!(
+                "TickBroadcaster: state_hash_rx is None — broadcasting placeholder \
+                 state hash (tick * golden_ratio). This is OK for tests but a \
+                 wire-up regression in production. Lockstep desync detection is DEGRADED."
+            );
+        } else {
+            log::info!("TickBroadcaster: state_hash_rx wired — using authoritative ECS hash");
+        }
         let mut ticker = interval(Duration::from_micros(self.config.tick_period_us));
         // tokio's first interval tick fires immediately; skip it so the
         // first published tick lands at +period rather than at t=0.

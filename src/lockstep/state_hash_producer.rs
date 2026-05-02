@@ -32,36 +32,59 @@ use specs::{Join, World, WorldExt};
 use omoba_sim::state_hash::hash_sorted_by_id;
 
 use crate::comp::creep::CProperty;
-use crate::comp::phys::Pos;
+use crate::comp::facing::Facing;
+use crate::comp::phys::{Pos, Vel};
 
 /// Stable subset hashed per state-hash tick. `#[derive(Hash)]` order matches
 /// field declaration order; do not rearrange without bumping the protocol
 /// version (clients compare against this exact byte sequence).
+///
+/// Phase 4 widens from `(id, pos.x, pos.y, hp)` to add velocity + facing
+/// (ticks). BuffStore aggregations are still excluded — they're a Resource
+/// not a per-entity Component, and the BuffStore wire payload migration is
+/// scheduled for Phase 4d (76 PHASE 2 marker cleanup).
 #[derive(std::hash::Hash)]
 struct HashItem {
     id: u32,
     pos_x_raw: i64,
     pos_y_raw: i64,
+    vel_x_raw: i64,
+    vel_y_raw: i64,
+    facing_ticks: i32,
     hp_raw: i64,
 }
 
 /// Computes a deterministic state hash over every entity that has a `Pos`
-/// component. Entities without `CProperty` (e.g. towers, projectiles) feed
-/// `hp_raw = 0`. Caller must hold the World long enough for the storages to
-/// be borrowed; in `State::tick` this is satisfied by running before
-/// `world.maintain()`.
+/// component. Entities without `Vel` / `Facing` / `CProperty` substitute zeros
+/// so their absence/presence (e.g. towers vs creeps) doesn't shift the hash
+/// for cosmetic-only differences.
 pub fn compute_state_hash(world: &World) -> u64 {
     let entities = world.entities();
     let pos_storage = world.read_storage::<Pos>();
+    let vel_storage = world.read_storage::<Vel>();
+    let facing_storage = world.read_storage::<Facing>();
     let cprop_storage = world.read_storage::<CProperty>();
 
     let items: Vec<HashItem> = (&entities, &pos_storage)
         .join()
-        .map(|(e, pos)| HashItem {
-            id: e.id(),
-            pos_x_raw: pos.0.x.raw(),
-            pos_y_raw: pos.0.y.raw(),
-            hp_raw: cprop_storage.get(e).map(|c| c.hp.raw()).unwrap_or(0),
+        .map(|(e, pos)| {
+            let (vel_x_raw, vel_y_raw) = vel_storage
+                .get(e)
+                .map(|v| (v.0.x.raw(), v.0.y.raw()))
+                .unwrap_or((0, 0));
+            let facing_ticks = facing_storage
+                .get(e)
+                .map(|f| f.0.ticks())
+                .unwrap_or(0);
+            HashItem {
+                id: e.id(),
+                pos_x_raw: pos.0.x.raw(),
+                pos_y_raw: pos.0.y.raw(),
+                vel_x_raw,
+                vel_y_raw,
+                facing_ticks,
+                hp_raw: cprop_storage.get(e).map(|c| c.hp.raw()).unwrap_or(0),
+            }
         })
         .collect();
 
@@ -77,6 +100,8 @@ mod tests {
     fn make_world() -> World {
         let mut w = World::new();
         w.register::<Pos>();
+        w.register::<Vel>();
+        w.register::<Facing>();
         w.register::<CProperty>();
         w
     }
@@ -129,6 +154,45 @@ mod tests {
         let h2 = compute_state_hash(&w2);
 
         assert_ne!(h1, h2, "HP change must affect hash");
+    }
+
+    #[test]
+    fn vel_change_changes_hash() {
+        let mut w1 = make_world();
+        w1.create_entity()
+            .with(pos_xy(0, 0))
+            .with(Vel(SimVec2 { x: Fixed64::from_i32(1), y: Fixed64::ZERO }))
+            .build();
+        let h1 = compute_state_hash(&w1);
+
+        let mut w2 = make_world();
+        w2.create_entity()
+            .with(pos_xy(0, 0))
+            .with(Vel(SimVec2 { x: Fixed64::from_i32(2), y: Fixed64::ZERO }))
+            .build();
+        let h2 = compute_state_hash(&w2);
+
+        assert_ne!(h1, h2, "Vel change must affect hash");
+    }
+
+    #[test]
+    fn facing_change_changes_hash() {
+        use omoba_sim::Angle;
+        let mut w1 = make_world();
+        w1.create_entity()
+            .with(pos_xy(0, 0))
+            .with(Facing(Angle::from_ticks(0)))
+            .build();
+        let h1 = compute_state_hash(&w1);
+
+        let mut w2 = make_world();
+        w2.create_entity()
+            .with(pos_xy(0, 0))
+            .with(Facing(Angle::from_ticks(1024)))
+            .build();
+        let h2 = compute_state_hash(&w2);
+
+        assert_ne!(h1, h2, "Facing change must affect hash");
     }
 
     #[test]
