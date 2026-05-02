@@ -122,41 +122,37 @@ impl Unit {
     
     /// 從戰役 creep 資料創建單位
     pub fn from_creep_data(creep_data: &crate::ue4::import_campaign::CreepJD) -> Self {
+        // entity.json creep 條目已 slim 成只剩 id；數值從 templates.json 走
+        // omoba_template_ids::creep_stats() 取。
+        use omoba_template_ids::{creep_by_name, creep_display, creep_stats};
+        let cid = creep_by_name(&creep_data.id)
+            .unwrap_or_else(|| panic!("creep id '{}' not in templates.json", creep_data.id));
+        let s = creep_stats(cid)
+            .unwrap_or_else(|| panic!("creep '{}' has no stats in templates.json", creep_data.id));
+
         let unit_type = match creep_data.id.as_str() {
             id if id.contains("dummy") => UnitType::TrainingDummy,
             id if id.contains("boss") => UnitType::Boss,
             _ => UnitType::Creep,
         };
-        
+
         let ai_type = match unit_type {
             UnitType::TrainingDummy => AiType::None,
             UnitType::Boss => AiType::Aggressive,
             _ => AiType::Defensive,
         };
-        
-        let gold_reward = match creep_data.bounty_type.as_str() {
-            "siege" => creep_data.gold_reward * 2,
-            _ => creep_data.gold_reward,
-        };
-        
-        let bounty_type = match creep_data.bounty_type.as_str() {
-            "siege" => BountyType::Siege,
-            "boss" => BountyType::Boss,
-            "none" => BountyType::None,
-            _ => BountyType::Normal,
-        };
-        
+
         Unit {
             id: creep_data.id.clone(),
-            name: creep_data.name.clone(),
+            name: creep_display(cid).to_string(),
             unit_type,
-            max_hp: creep_data.hp,
-            current_hp: creep_data.hp,
-            base_armor: creep_data.armor,
-            magic_resistance: 0.0,
-            base_damage: creep_data.damage,
-            attack_range: 150.0, // 默認近戰攻擊距離
-            move_speed: creep_data.move_speed,
+            max_hp: s.hp as i32,
+            current_hp: s.hp as i32,
+            base_armor: s.armor,
+            magic_resistance: s.magic_resistance,
+            base_damage: s.damage as i32,
+            attack_range: if s.attack_range > 0.0 { s.attack_range } else { 150.0 },
+            move_speed: s.move_speed,
             attack_speed: 1.0,
             ai_type,
             aggro_range: 600.0,
@@ -164,42 +160,46 @@ impl Unit {
             current_target: None,
             last_attack_time: 0.0,
             spawn_position: (0.0, 0.0),
-            exp_reward: 0, // creep 資料中沒有經驗值
-            gold_reward,
-            bounty_type,
+            exp_reward: s.exp_reward,
+            gold_reward: s.gold_reward,
+            bounty_type: BountyType::Normal,
         }
     }
-    
-    /// 從戰役 enemy 資料創建單位
+
+    /// 從戰役 enemy 資料創建單位 — entity.json enemy 條目已 slim 成只剩 id +
+    /// abilities override，數值從 templates.json creep_stats() 取。
     pub fn from_enemy_data(enemy_data: &crate::ue4::import_campaign::EnemyJD) -> Self {
-        let unit_type = match enemy_data.enemy_type.as_str() {
-            "boss" => UnitType::Boss,
-            "elite" => UnitType::Elite,
-            "minion" => UnitType::Minion,
-            "neutral" => UnitType::Neutral,
+        use omoba_template_ids::{creep_by_name, creep_display, creep_stats};
+        let cid = creep_by_name(&enemy_data.id)
+            .unwrap_or_else(|| panic!("enemy id '{}' not in templates.json", enemy_data.id));
+        let s = creep_stats(cid)
+            .unwrap_or_else(|| panic!("enemy '{}' has no stats in templates.json", enemy_data.id));
+
+        // u8 (codegen) → enum 變體
+        let unit_type = match s.enemy_type {
+            3 => UnitType::Boss,    // boss
             _ => UnitType::Enemy,
         };
-        
-        let ai_type = match enemy_data.ai_type.as_str() {
-            "aggressive" => AiType::Aggressive,
-            "defensive" => AiType::Defensive,
-            "patrol" => AiType::Patrol,
-            "guard" => AiType::Guard,
-            "passive" => AiType::Passive,
+        let ai_type = match s.ai_type {
+            0 => AiType::Defensive,
+            1 => AiType::Aggressive,
+            2 => AiType::Patrol,
+            3 => AiType::Guard,
+            4 => AiType::Passive,
             _ => AiType::Aggressive,
         };
-        
+
         Unit {
             id: enemy_data.id.clone(),
-            name: enemy_data.name.clone(),
+            name: creep_display(cid).to_string(),
             unit_type: unit_type.clone(),
-            max_hp: enemy_data.hp,
-            current_hp: enemy_data.hp,
-            base_armor: enemy_data.armor,
-            magic_resistance: enemy_data.magic_resistance,
-            base_damage: enemy_data.damage,
-            attack_range: enemy_data.attack_range,
-            move_speed: enemy_data.move_speed,
+            max_hp: s.hp as i32,
+            current_hp: s.hp as i32,
+            base_armor: s.armor,
+            magic_resistance: s.magic_resistance,
+            base_damage: s.damage as i32,
+            attack_range: s.attack_range,
+            move_speed: s.move_speed,
             attack_speed: 1.0,
             ai_type,
             aggro_range: 800.0,
@@ -207,8 +207,8 @@ impl Unit {
             current_target: None,
             last_attack_time: 0.0,
             spawn_position: (0.0, 0.0),
-            exp_reward: enemy_data.exp_reward,
-            gold_reward: enemy_data.gold_reward,
+            exp_reward: s.exp_reward,
+            gold_reward: s.gold_reward,
             bounty_type: match unit_type {
                 UnitType::Boss => BountyType::Boss,
                 UnitType::Elite => BountyType::Siege,

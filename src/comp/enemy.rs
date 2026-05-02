@@ -93,40 +93,47 @@ impl Enemy {
         }
     }
     
-    /// 從戰役資料創建敵人
+    /// 從戰役資料創建敵人。
+    ///
+    /// **單一來源**：所有 intrinsic stats（hp/damage/armor/...）走
+    /// `omoba_template_ids::creep_stats(id)` const lookup，`EnemyJD`（entity.json）
+    /// 只剩 `id` 拿來查 templates.json。abilities 仍允許 entity.json override。
     pub fn from_campaign_data(enemy_data: &crate::ue4::import_campaign::EnemyJD) -> Self {
-        let enemy_type = match enemy_data.enemy_type.as_str() {
-            "melee" => EnemyType::Melee,
-            "ranged" => EnemyType::Ranged,
-            "caster" => EnemyType::Caster,
-            "boss" => EnemyType::Boss,
-            "elite" => EnemyType::Elite,
-            "minion" => EnemyType::Minion,
-            "neutral" => EnemyType::Neutral,
+        use omoba_template_ids::{creep_by_name, creep_display, creep_stats};
+        let id = creep_by_name(&enemy_data.id)
+            .unwrap_or_else(|| panic!("enemy id '{}' not in templates.json", enemy_data.id));
+        let s = creep_stats(id)
+            .unwrap_or_else(|| panic!("enemy '{}' has no stats in templates.json", enemy_data.id));
+
+        // u8 (codegen) → enum 變體（codegen 編碼見 omoba-template-ids/build.rs::enemy_type_to_u8）
+        let enemy_type = match s.enemy_type {
+            0 => EnemyType::Caster,
+            1 => EnemyType::Melee,
+            2 => EnemyType::Ranged,
+            3 => EnemyType::Boss,
             _ => EnemyType::Melee,
         };
-        
-        let ai_type = match enemy_data.ai_type.as_str() {
-            "aggressive" => AiType::Aggressive,
-            "defensive" => AiType::Defensive,
-            "patrol" => AiType::Patrol,
-            "guard" => AiType::Guard,
-            "passive" => AiType::Passive,
-            "berserker" => AiType::Berserker,
+        let ai_type = match s.ai_type {
+            0 => AiType::Defensive,
+            1 => AiType::Aggressive,
+            2 => AiType::Patrol,
+            3 => AiType::Guard,
+            4 => AiType::Passive,
+            5 => AiType::Berserker,
             _ => AiType::Aggressive,
         };
-        
+
         Enemy {
             id: enemy_data.id.clone(),
-            name: enemy_data.name.clone(),
+            name: creep_display(id).to_string(),
             enemy_type,
-            max_hp: enemy_data.hp,
-            current_hp: enemy_data.hp,
-            armor: enemy_data.armor,
-            magic_resistance: enemy_data.magic_resistance,
-            base_damage: enemy_data.damage,
-            attack_range: enemy_data.attack_range,
-            move_speed: enemy_data.move_speed,
+            max_hp: s.hp as i32,
+            current_hp: s.hp as i32,
+            armor: s.armor,
+            magic_resistance: s.magic_resistance,
+            base_damage: s.damage as i32,
+            attack_range: s.attack_range,
+            move_speed: s.move_speed,
             attack_speed: 1.0,
             ai_type,
             aggro_range: 800.0,
@@ -137,8 +144,8 @@ impl Enemy {
             last_attack_time: 0.0,
             is_returning: false,
             spawn_position: (0.0, 0.0),
-            exp_reward: enemy_data.exp_reward,
-            gold_reward: enemy_data.gold_reward,
+            exp_reward: s.exp_reward,
+            gold_reward: s.gold_reward,
             item_drops: Vec::new(),
         }
     }

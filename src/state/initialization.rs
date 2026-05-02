@@ -400,10 +400,16 @@ impl StateInitializer {
                 def_magic: hero.intelligence as f32 * 0.15, // 基於智力的魔法防禦
             };
 
+            // 從 templates.json 取 hero stats（attack_range / turn_speed / 等）。
+            // entity.json hero 條目已 slim 成只剩 id，無 attack_range / turn_speed / collision_radius。
+            let hero_template_stats = omoba_template_ids::hero_by_name(&hero_data.id)
+                .and_then(|hid| omoba_template_ids::hero_stats(hid))
+                .unwrap_or_else(|| panic!("hero '{}' not in templates.json", hero_data.id));
+
             let hero_attack = TAttack {
                 atk_physic: Vf32::new(base_damage),
                 asd: Vf32::new(1.0 / 1.7), // 攻擊間隔（攻擊速度的倒數）
-                range: Vf32::new(hero_data.attack_range), // 使用 JSON 中的攻擊範圍
+                range: Vf32::new(hero_template_stats.attack_range),
                 asd_count: 0.0,
                 bullet_speed: 1000.0,
             };
@@ -414,8 +420,10 @@ impl StateInitializer {
                 180.0   // 英雄高度
             ).with_precision(720); // 高精度視野
 
-            let hero_turn_rad = hero_data.turn_speed.unwrap_or(180.0).to_radians();
-            let hero_radius = hero_data.collision_radius.unwrap_or(30.0);
+            let hero_turn_rad = hero_template_stats.turn_speed.to_radians();
+            // Hero collision_radius 暫定 30（之前由 entity.json optional override，
+            // 簡化後固定）。
+            let hero_radius = 30.0_f32;
             // Hero 統一掛 ScriptUnitTag（預設全單位腳本化）；unit_id = "hero_{HeroJD.id}"
             // 若 registry 無對應腳本，dispatch 會 silent skip，host hero_tick 仍跑預設 auto-attack
             let unit_id = format!("hero_{}", hero_data.id);
@@ -639,7 +647,7 @@ impl StateInitializer {
                 ecs.write_resource::<crate::scripting::ScriptEventQueue>()
                     .push(crate::scripting::ScriptEvent::Spawn { e: _unit_entity });
 
-                log::info!("創建訓練敵人單位 '{}' 於位置 ({}, {})", enemy_data.name, x, y);
+                log::info!("創建訓練敵人單位 '{}' 於位置 ({}, {})", enemy_data.id, x, y);
             }
         }
     }

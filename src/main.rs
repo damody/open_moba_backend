@@ -72,7 +72,15 @@ async fn main() -> std::result::Result<(), Error> {
     }
 
     log::info!("Campaign '{}' loaded successfully", campaign_data.mission.campaign.name);
-    log::info!("Hero: {} - {}", campaign_data.entity.heroes[0].name, campaign_data.entity.heroes[0].title);
+    {
+        let hid_str = &campaign_data.entity.heroes[0].id;
+        let hid = omoba_template_ids::hero_by_name(hid_str).unwrap_or_default();
+        log::info!(
+            "Hero: {} - {}",
+            omoba_template_ids::hero_display(hid),
+            omoba_template_ids::hero_title(hid),
+        );
+    }
     log::info!("Total stages: {}", campaign_data.mission.stages.len());
     log::info!("Total abilities: {}", campaign_data.ability.abilities.len());
 

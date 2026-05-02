@@ -72,25 +72,37 @@ impl CampaignManager {
     }
     
     fn create_hero_entity(ecs: &mut World, hero_data: &crate::ue4::import_campaign::HeroJD, campaign_data: &CampaignData) {
+        use omoba_template_ids::{hero_abilities, hero_by_name, hero_stats};
         let hero = Hero::from_campaign_data(hero_data);
-        let hero_properties = Self::create_hero_properties(&hero, hero_data);
-        let hero_attack = Self::create_hero_attack(&hero, hero_data);
-        
+        // 從 templates.json 取 attack_range / base_armor — entity.json hero 條目已 slim
+        // 成只剩 id，campaign-specific 的 stats 來源唯一。
+        let id = hero_by_name(&hero_data.id)
+            .unwrap_or_else(|| panic!("hero id '{}' not in templates.json", hero_data.id));
+        let s = hero_stats(id)
+            .unwrap_or_else(|| panic!("hero '{}' has no stats in templates.json", hero_data.id));
+        let hero_properties = Self::create_hero_properties(&hero, s.base_armor);
+        let hero_attack = Self::create_hero_attack(&hero, s.attack_range);
+        let abilities: Vec<String> = if hero_data.abilities.is_empty() {
+            hero_abilities(id).iter().map(|a| a.as_str().to_string()).collect()
+        } else {
+            hero_data.abilities.clone()
+        };
+
         let hero_unit = Unit {
             id: hero.id.clone(),
             name: hero.name.clone(),
             unit_type: UnitType::Hero,
             max_hp: hero.get_max_hp() as i32,
             current_hp: hero.get_max_hp() as i32,
-            base_armor: hero_data.base_armor,
+            base_armor: s.base_armor,
             magic_resistance: 0.0,
             base_damage: hero.get_base_damage() as i32,
-            attack_range: hero_data.attack_range,
+            attack_range: s.attack_range,
             move_speed: hero.get_move_speed(),
             attack_speed: hero.get_attack_speed_multiplier(),
             ai_type: unit::AiType::None,
-            aggro_range: hero_data.attack_range + 200.0,
-            abilities: hero_data.abilities.clone(),
+            aggro_range: s.attack_range + 200.0,
+            abilities: abilities.clone(),
             current_target: None,
             last_attack_time: 0.0,
             spawn_position: (0.0, 0.0),
@@ -98,11 +110,11 @@ impl CampaignManager {
             gold_reward: 0,
             bounty_type: BountyType::None,
         };
-        
+
         let hero_faction = Faction::new(FactionType::Player, 0);
         let hero_pos = Pos(vek::Vec2::new(0.0, 0.0));
         let hero_vel = Vel(vek::Vec2::new(0.0, 0.0));
-        let hero_vision = CircularVision::new(hero_data.attack_range + 300.0, 30.0).with_precision(720);
+        let hero_vision = CircularVision::new(s.attack_range + 300.0, 30.0).with_precision(720);
 
         let hero_entity = ecs.create_entity()
             .with(hero_pos)
@@ -114,33 +126,33 @@ impl CampaignManager {
             .with(hero_attack)
             .with(hero_vision)
             .build();
-            
-        log::info!("Created hero entity '{}' with full combat components", hero_data.name);
-        Self::create_hero_abilities(ecs, hero_entity, &hero_data.abilities, campaign_data);
+
+        log::info!("Created hero entity '{}' with full combat components", hero_data.id);
+        Self::create_hero_abilities(ecs, hero_entity, &abilities, campaign_data);
     }
-    
-    fn create_hero_properties(hero: &Hero, hero_data: &crate::ue4::import_campaign::HeroJD) -> CProperty {
+
+    fn create_hero_properties(hero: &Hero, base_armor: f32) -> CProperty {
         let max_hp = hero.get_max_hp();
         let move_speed = hero.get_move_speed();
-        
+
         CProperty {
             hp: max_hp,
             mhp: max_hp,
             msd: move_speed,
-            def_physic: hero_data.base_armor,
+            def_physic: base_armor,
             def_magic: 0.0,
         }
     }
-    
-    fn create_hero_attack(hero: &Hero, hero_data: &crate::ue4::import_campaign::HeroJD) -> TAttack {
+
+    fn create_hero_attack(hero: &Hero, attack_range: f32) -> TAttack {
         let base_damage = hero.get_base_damage();
         let attack_speed_multiplier = hero.get_attack_speed_multiplier();
         let attack_interval = 1.0 / attack_speed_multiplier;
-        
+
         TAttack {
             atk_physic: Vf32::new(base_damage),
             asd: Vf32::new(attack_interval),
-            range: Vf32::new(hero_data.attack_range),
+            range: Vf32::new(attack_range),
             asd_count: 0.0,
             bullet_speed: 1000.0,
         }
@@ -195,7 +207,7 @@ impl CampaignManager {
                     .with(enemy_vision)
                     .build();
                     
-                log::info!("Created training enemy unit '{}' at position ({}, {})", enemy_data.name, x, y);
+                log::info!("Created training enemy unit '{}' at position ({}, {})", enemy_data.id, x, y);
             }
         }
         
@@ -237,7 +249,7 @@ impl CampaignManager {
                     .with(unit_attack)
                     .build();
                     
-                log::info!("Created training creep unit '{}' at position ({}, {})", creep_data.name, x, y);
+                log::info!("Created training creep unit '{}' at position ({}, {})", creep_data.id, x, y);
             }
         }
     }

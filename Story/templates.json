@@ -39,13 +39,53 @@
       "id": "saika_magoichi",
       "display_name": "雜賀孫市",
       "title": "千里狙擊手",
-      "abilities": ["sniper_mode", "saika_reinforcements", "rain_iron_cannon", "three_stage_technique"]
+      "background": "雜賀眾的領袖，以精準的遠程射擊聞名於戰國時代",
+      "abilities": ["sniper_mode", "saika_reinforcements", "rain_iron_cannon", "three_stage_technique"],
+      "strength": 18,
+      "agility": 28,
+      "intelligence": 16,
+      "primary_attribute": "agility",
+      "attack_range": 900.0,
+      "base_damage": 52,
+      "base_armor": 1.5,
+      "base_hp": 580,
+      "base_mana": 300,
+      "move_speed": 320.0,
+      "turn_speed": 180.0,
+      "level_growth": {
+        "strength_per_level": 1.8,
+        "agility_per_level": 3.2,
+        "intelligence_per_level": 1.6,
+        "damage_per_level": 2.8,
+        "hp_per_level": 58.0,
+        "mana_per_level": 26.0
+      }
     },
     {
       "id": "date_masamune",
       "display_name": "伊達政宗",
       "title": "獨眼龍",
-      "abilities": ["flame_blade", "fire_dash", "flame_assault", "matchlock_gun"]
+      "background": "奧州的霸主，以炎之鬥技與火繩銃聞名",
+      "abilities": ["flame_blade", "fire_dash", "flame_assault", "matchlock_gun"],
+      "strength": 26,
+      "agility": 22,
+      "intelligence": 14,
+      "primary_attribute": "strength",
+      "attack_range": 250.0,
+      "base_damage": 60,
+      "base_armor": 2.5,
+      "base_hp": 680,
+      "base_mana": 240,
+      "move_speed": 310.0,
+      "turn_speed": 200.0,
+      "level_growth": {
+        "strength_per_level": 3.0,
+        "agility_per_level": 1.8,
+        "intelligence_per_level": 1.4,
+        "damage_per_level": 3.2,
+        "hp_per_level": 68.0,
+        "mana_per_level": 22.0
+      }
     }
   ],
 
@@ -69,25 +109,136 @@
   ],
 
   "summons": [
-    { "id": "saika_gunner", "display_name": "雜賀鐵炮兵" }
+    {
+      "id": "saika_gunner",
+      "display_name": "雜賀鐵炮兵",
+      "hp": 400.0,
+      "damage": 45.0,
+      "duration": 60.0,
+      "move_speed": 320.0
+    }
   ],
 
   "creeps": [
-    { "id": "training_mage",  "display_name": "訓練法師" },
-    { "id": "fire_mage",      "display_name": "火焰法師" },
-    { "id": "great_mage",     "display_name": "大法師" },
-    { "id": "practice_dummy", "display_name": "練習假人" },
-    { "id": "moving_target",  "display_name": "移動靶" },
-    { "id": "training_creep", "display_name": "訓練小兵" },
-    { "id": "armored_dummy",  "display_name": "裝甲假人" },
-    { "id": "forest_ghost",   "display_name": "森林幽靈" },
-    { "id": "wolf",           "display_name": "野狼" },
-    { "id": "melee_minion",   "display_name": "近戰兵" },
-    { "id": "ranged_minion",  "display_name": "遠程兵" },
-    { "id": "siege_minion",   "display_name": "攻城兵" },
-    { "id": "saika_gunner",   "display_name": "雜賀鐵炮兵" },
-    { "id": "sharpshooter",   "display_name": "神射手" },
-    { "id": "td_stress",      "display_name": "壓測怪" }
+    {
+      "id": "training_mage", "display_name": "訓練法師",
+      "hp": 320.0, "armor": 0.5, "magic_resistance": 15.0,
+      "damage": 45.0, "attack_range": 550.0, "move_speed": 285.0,
+      "enemy_type": "caster", "ai_type": "defensive",
+      "exp_reward": 80, "gold_reward": 45
+    },
+    {
+      "id": "fire_mage", "display_name": "火焰法師",
+      "hp": 420.0, "armor": 1.0, "magic_resistance": 20.0,
+      "damage": 55.0, "attack_range": 600.0, "move_speed": 290.0,
+      "enemy_type": "caster", "ai_type": "aggressive",
+      "exp_reward": 100, "gold_reward": 60
+    },
+    {
+      "id": "great_mage", "display_name": "大法師",
+      "hp": 1500.0, "armor": 3.0, "magic_resistance": 35.0,
+      "damage": 85.0, "attack_range": 700.0, "move_speed": 300.0,
+      "enemy_type": "boss", "ai_type": "aggressive",
+      "exp_reward": 400, "gold_reward": 200
+    },
+    {
+      "id": "practice_dummy", "display_name": "練習假人",
+      "hp": 50.0, "armor": 0.0, "magic_resistance": 0.0,
+      "damage": 0.0, "attack_range": 0.0, "move_speed": 0.0,
+      "enemy_type": "melee", "ai_type": "passive",
+      "exp_reward": 0, "gold_reward": 5
+    },
+    {
+      "id": "moving_target", "display_name": "移動靶",
+      "hp": 75.0, "armor": 0.0, "magic_resistance": 0.0,
+      "damage": 0.0, "attack_range": 0.0, "move_speed": 150.0,
+      "enemy_type": "melee", "ai_type": "passive",
+      "exp_reward": 0, "gold_reward": 8
+    },
+    {
+      "id": "training_creep", "display_name": "訓練小兵",
+      "hp": 100.0, "armor": 1.0, "magic_resistance": 0.0,
+      "damage": 25.0, "attack_range": 50.0, "move_speed": 200.0,
+      "enemy_type": "melee", "ai_type": "aggressive",
+      "exp_reward": 5, "gold_reward": 12
+    },
+    {
+      "id": "armored_dummy", "display_name": "裝甲假人",
+      "hp": 200.0, "armor": 5.0, "magic_resistance": 0.0,
+      "damage": 0.0, "attack_range": 0.0, "move_speed": 50.0,
+      "enemy_type": "melee", "ai_type": "passive",
+      "exp_reward": 0, "gold_reward": 20
+    },
+    {
+      "id": "forest_ghost", "display_name": "森林幽靈",
+      "hp": 150.0, "armor": 0.0, "magic_resistance": 10.0,
+      "damage": 30.0, "attack_range": 50.0, "move_speed": 280.0,
+      "enemy_type": "melee", "ai_type": "patrol",
+      "exp_reward": 30, "gold_reward": 15
+    },
+    {
+      "id": "wolf", "display_name": "野狼",
+      "hp": 200.0, "armor": 2.0, "magic_resistance": 0.0,
+      "damage": 45.0, "attack_range": 50.0, "move_speed": 350.0,
+      "enemy_type": "melee", "ai_type": "berserker",
+      "exp_reward": 40, "gold_reward": 20
+    },
+    {
+      "id": "melee_minion", "display_name": "近戰兵",
+      "hp": 550.0, "armor": 2.0, "magic_resistance": 5.0,
+      "damage": 35.0, "attack_range": 50.0, "move_speed": 325.0,
+      "enemy_type": "melee", "ai_type": "aggressive",
+      "exp_reward": 60, "gold_reward": 36
+    },
+    {
+      "id": "ranged_minion", "display_name": "遠程兵",
+      "hp": 300.0, "armor": 0.0, "magic_resistance": 5.0,
+      "damage": 25.0, "attack_range": 500.0, "move_speed": 325.0,
+      "enemy_type": "ranged", "ai_type": "aggressive",
+      "exp_reward": 60, "gold_reward": 36
+    },
+    {
+      "id": "siege_minion", "display_name": "攻城兵",
+      "hp": 800.0, "armor": 5.0, "magic_resistance": 5.0,
+      "damage": 75.0, "attack_range": 200.0, "move_speed": 325.0,
+      "enemy_type": "ranged", "ai_type": "aggressive",
+      "exp_reward": 120, "gold_reward": 72
+    },
+    {
+      "id": "saika_gunner", "display_name": "雜賀鐵炮兵",
+      "hp": 400.0, "armor": 0.0, "magic_resistance": 0.0,
+      "damage": 45.0, "attack_range": 600.0, "move_speed": 320.0,
+      "enemy_type": "ranged", "ai_type": "aggressive",
+      "exp_reward": 0, "gold_reward": 0
+    },
+    {
+      "id": "sharpshooter", "display_name": "神射手",
+      "hp": 350.0, "armor": 1.0, "magic_resistance": 0.0,
+      "damage": 60.0, "attack_range": 800.0, "move_speed": 300.0,
+      "enemy_type": "ranged", "ai_type": "aggressive",
+      "exp_reward": 80, "gold_reward": 50
+    },
+    {
+      "id": "td_stress", "display_name": "壓測怪",
+      "hp": 10000000.0, "armor": 0.0, "magic_resistance": 0.0,
+      "damage": 0.0, "attack_range": 0.0, "move_speed": 100.0,
+      "enemy_type": "melee", "ai_type": "passive",
+      "exp_reward": 0, "gold_reward": 0
+    },
+    {
+      "id": "archmage_boss", "display_name": "大法師王",
+      "hp": 1500.0, "armor": 3.0, "magic_resistance": 35.0,
+      "damage": 85.0, "attack_range": 700.0, "move_speed": 300.0,
+      "enemy_type": "boss", "ai_type": "aggressive",
+      "exp_reward": 400, "gold_reward": 200
+    },
+    {
+      "id": "wild_wolf", "display_name": "狂野野狼",
+      "hp": 200.0, "armor": 2.0, "magic_resistance": 0.0,
+      "damage": 45.0, "attack_range": 50.0, "move_speed": 350.0,
+      "enemy_type": "melee", "ai_type": "berserker",
+      "exp_reward": 40, "gold_reward": 20
+    }
   ],
 
   "projectile_kinds": [

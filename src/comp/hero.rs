@@ -79,43 +79,57 @@ impl Hero {
         }
     }
     
-    /// 從戰役資料創建英雄
+    /// 從戰役資料創建英雄。
+    ///
+    /// **單一來源**：所有 intrinsic stats（strength/agility/base_hp/level_growth/...）
+    /// 都從 `omoba_template_ids::hero_stats(id)` const lookup 取，
+    /// `HeroJD`（entity.json）只剩 `id` 拿來查 templates.json。
     pub fn from_campaign_data(hero_data: &crate::ue4::import_campaign::HeroJD) -> Self {
-        let primary_attribute = match hero_data.primary_attribute.as_str() {
-            "strength" => AttributeType::Strength,
-            "agility" => AttributeType::Agility,
-            "intelligence" => AttributeType::Intelligence,
+        use omoba_template_ids::{
+            hero_abilities, hero_by_name, hero_display, hero_stats, hero_title,
+        };
+        let id = hero_by_name(&hero_data.id)
+            .unwrap_or_else(|| panic!("hero id '{}' not in templates.json", hero_data.id));
+        let s = hero_stats(id)
+            .unwrap_or_else(|| panic!("hero '{}' has no stats in templates.json", hero_data.id));
+        let primary_attribute = match s.primary_attribute {
+            0 => AttributeType::Strength,
+            1 => AttributeType::Agility,
+            2 => AttributeType::Intelligence,
             _ => AttributeType::Strength,
         };
-        
+        let abilities: Vec<String> = hero_abilities(id)
+            .iter()
+            .map(|aid| aid.as_str().to_string())
+            .collect();
         let mut ability_levels = HashMap::new();
-        for ability_id in &hero_data.abilities {
+        for ability_id in &abilities {
             ability_levels.insert(ability_id.clone(), 0);
         }
-        
+
         Hero {
             id: hero_data.id.clone(),
-            name: hero_data.name.clone(),
-            title: hero_data.title.clone(),
-            background: hero_data.background.clone(),
-            strength: hero_data.strength,
-            agility: hero_data.agility,
-            intelligence: hero_data.intelligence,
+            name: hero_display(id).to_string(),
+            title: hero_title(id).to_string(),
+            background: String::new(), // background 不再放 ECS Hero component（templates.json 內部用）
+            strength: s.strength,
+            agility: s.agility,
+            intelligence: s.intelligence,
             primary_attribute,
             level: 1,
             experience: 0,
             experience_to_next: 100,
-            abilities: hero_data.abilities.clone(),
+            abilities,
             ability_levels,
             skill_points: 8, // 初始技能點（playtest 方便把所有 ability 點起來）
             ability_cooldowns: HashMap::new(),
             level_growth: LevelGrowth {
-                strength_per_level: hero_data.level_growth.strength_per_level,
-                agility_per_level: hero_data.level_growth.agility_per_level,
-                intelligence_per_level: hero_data.level_growth.intelligence_per_level,
-                damage_per_level: hero_data.level_growth.damage_per_level,
-                hp_per_level: hero_data.level_growth.hp_per_level,
-                mana_per_level: hero_data.level_growth.mana_per_level,
+                strength_per_level: s.level_growth.strength_per_level,
+                agility_per_level: s.level_growth.agility_per_level,
+                intelligence_per_level: s.level_growth.intelligence_per_level,
+                damage_per_level: s.level_growth.damage_per_level,
+                hp_per_level: s.level_growth.hp_per_level,
+                mana_per_level: s.level_growth.mana_per_level,
             },
         }
     }

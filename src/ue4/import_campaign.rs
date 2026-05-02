@@ -21,40 +21,21 @@ pub struct EntityData {
     pub summons: Vec<SummonJD>,
 }
 
+/// entity.json hero entry — 全部 stats 都搬到 omb/Story/templates.json 後，
+/// 此結構只剩 id（campaign 引用 templates.json 哪個 hero）。可選保留
+/// abilities 做 per-campaign override（例：訓練關只給 hero 一招）。
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct HeroJD {
     pub id: String,
-    pub name: String,
-    pub title: String,
-    pub background: String,
-    
-    // 基礎屬性
-    pub strength: i32,
-    pub agility: i32,
-    pub intelligence: i32,
-    pub primary_attribute: String,
-    
-    // 戰鬥屬性
-    pub attack_range: f32,
-    pub base_damage: i32,
-    pub base_armor: f32,
-    pub base_hp: i32,
-    pub base_mana: i32,
-    pub move_speed: f32,
-    /// 轉速（度/秒），未填用 180
+    /// 留 abilities 是因為 campaign 可能想 override templates.json 的預設 4 ability
+    /// 集合（例：訓練關只給 1 招），#[serde(default)] 沒寫就走 hero_abilities() lookup。
     #[serde(default)]
-    pub turn_speed: Option<f32>,
-    /// 碰撞半徑（未填用預設 30）
-    #[serde(default)]
-    pub collision_radius: Option<f32>,
-
-    // 技能引用
-    pub abilities: Vec<String>,  // ability IDs
-    
-    // 升級數據
-    pub level_growth: LevelGrowthJD,
+    pub abilities: Vec<String>,
 }
 
+/// 兼容舊 entity.json 的 level_growth nested struct。
+/// **新流程不再從 entity.json 讀此欄位**，改從 templates.json
+/// `heroes[i].level_growth` 讀，但結構體仍保留供 schema 兼容。
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct LevelGrowthJD {
     pub strength_per_level: f32,
@@ -65,67 +46,36 @@ pub struct LevelGrowthJD {
     pub mana_per_level: f32,
 }
 
+/// entity.json enemy entry — 全部 stats 搬到 templates.json 後，只剩 id + abilities override。
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct EnemyJD {
     pub id: String,
-    pub name: String,
-    pub enemy_type: String,  // melee, ranged, caster, boss
-    
-    // 戰鬥屬性
-    pub hp: i32,
-    pub armor: f32,
-    pub magic_resistance: f32,
-    pub damage: i32,
-    pub attack_range: f32,
-    pub move_speed: f32,
-    
-    // AI 行為
-    pub ai_type: String,     // aggressive, defensive, patrol
     #[serde(default)]
     pub abilities: Vec<String>,
-
-    // 獎勵
-    pub exp_reward: i32,
-    pub gold_reward: i32,
-
-    /// 碰撞半徑（未填用預設 25）
-    #[serde(default)]
-    pub collision_radius: Option<f32>,
 }
 
+/// entity.json creep entry — 全部 stats 搬到 templates.json 後，只剩 id。
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct CreepJD {
     pub id: String,
-    pub name: String,
-    pub hp: i32,
-    pub armor: f32,
-    pub damage: i32,
-    pub move_speed: f32,
-    pub gold_reward: i32,
-    pub bounty_type: String,  // normal, siege, super
 }
 
+/// entity.json neutral entry — 全部 stats 搬到 templates.json 後，只剩 id + abilities override。
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct NeutralJD {
     pub id: String,
-    pub name: String,
-    pub hp: i32,
-    pub armor: f32,
-    pub damage: i32,
-    pub move_speed: f32,
-    pub respawn_time: f32,
+    #[serde(default)]
     pub abilities: Vec<String>,
 }
 
+/// entity.json summon entry — 全部 stats 搬到 templates.json 後，只剩 id + summoner_ability
+/// （tying campaign-specific：哪個技能召出此單位）。
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct SummonJD {
     pub id: String,
-    pub name: String,
-    pub hp: i32,
-    pub damage: i32,
-    pub duration: f32,
-    pub move_speed: f32,
-    pub summoner_ability: String,  // 召喚技能ID
+    /// 哪個 ability 召出本 unit — 仍 campaign-specific
+    #[serde(default)]
+    pub summoner_ability: String,
 }
 
 // ===== 技能資料結構 =====
