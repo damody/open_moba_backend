@@ -11,6 +11,27 @@ use omoba_sim::{Vec2 as SimVec2, Fixed32};
 #[derive(Copy, Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Pos(pub SimVec2);
 
+impl Pos {
+    /// Boundary helper: construct from two `f32` (typically world coords from
+    /// config / spawn data). Routes through `Fixed32::from_raw` quantization.
+    /// TODO Phase 1[cd]: drop when callers feed `Fixed32` natively.
+    #[inline]
+    pub fn from_xy_f32(x: f32, y: f32) -> Self {
+        Pos(SimVec2 {
+            x: Fixed32::from_raw((x * 1024.0) as i32),
+            y: Fixed32::from_raw((y * 1024.0) as i32),
+        })
+    }
+
+    /// Boundary helper: lossy `f32` projection of underlying coords. Used at
+    /// wire-format / VFX / non-determinism-tolerant query sites.
+    /// TODO Phase 1[cd]: drop when consumers go native.
+    #[inline]
+    pub fn xy_f32(&self) -> (f32, f32) {
+        (self.0.x.to_f32_for_render(), self.0.y.to_f32_for_render())
+    }
+}
+
 impl Component for Pos {
     type Storage = VecStorage<Self>;
 }
@@ -49,6 +70,15 @@ pub struct Vel(pub SimVec2);
 
 impl Vel {
     pub fn zero() -> Self { Vel(SimVec2::ZERO) }
+
+    /// Boundary helper: construct from two `f32`. TODO Phase 1[cd]: drop on full migration.
+    #[inline]
+    pub fn from_xy_f32(x: f32, y: f32) -> Self {
+        Vel(SimVec2 {
+            x: Fixed32::from_raw((x * 1024.0) as i32),
+            y: Fixed32::from_raw((y * 1024.0) as i32),
+        })
+    }
 }
 
 impl Component for Vel {
@@ -58,6 +88,17 @@ impl Component for Vel {
 /// 移動目標 — 實體每 tick 向此位置移動
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MoveTarget(pub SimVec2);
+
+impl MoveTarget {
+    /// Boundary helper: construct from two `f32`. TODO Phase 1[cd]: drop on full migration.
+    #[inline]
+    pub fn from_xy_f32(x: f32, y: f32) -> Self {
+        MoveTarget(SimVec2 {
+            x: Fixed32::from_raw((x * 1024.0) as i32),
+            y: Fixed32::from_raw((y * 1024.0) as i32),
+        })
+    }
+}
 
 impl Component for MoveTarget {
     type Storage = VecStorage<Self>;

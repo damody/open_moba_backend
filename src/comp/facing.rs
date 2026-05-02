@@ -7,6 +7,25 @@ use omoba_sim::{Fixed32, Angle};
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub struct Facing(pub Angle);
 
+impl Facing {
+    /// Boundary helper: construct from radian f32. Used at script / config / spawn boundary.
+    /// TODO Phase 1[cd]: drop when callers feed `Angle` natively.
+    #[inline]
+    pub fn from_rad_f32(rad: f32) -> Self {
+        let ticks = (rad / (2.0 * std::f32::consts::PI)
+            * omoba_sim::trig::TAU_TICKS as f32).round() as i32;
+        Facing(Angle::from_ticks(ticks))
+    }
+
+    /// Boundary helper: lossy radian projection. Used at wire-format / battle-tick sites.
+    /// TODO Phase 1[cd]: drop on full migration.
+    #[inline]
+    pub fn rad_f32(&self) -> f32 {
+        (self.0.ticks() as f32 / omoba_sim::trig::TAU_TICKS as f32)
+            * 2.0 * std::f32::consts::PI
+    }
+}
+
 impl Default for Facing {
     fn default() -> Self { Facing(Angle::ZERO) }
 }
@@ -60,6 +79,22 @@ pub fn normalize_angle(a: f32) -> f32 {
         a += tau;
     }
     a
+}
+
+/// 往 `target` 旋轉至多 `max_step` 弧度，回傳新角度。f32 radians, legacy.
+///
+/// **Phase 1b.4 deprecation note**: f32-radian helper kept only for `hero_tick.rs` /
+/// `tower_tick.rs` until those migrate to `Angle`. New code must use
+/// `omoba_sim::trig::angle_rotate_toward` instead.
+pub fn rotate_toward(current: f32, target: f32, max_step: f32) -> f32 {
+    let diff = normalize_angle(target - current);
+    if diff.abs() <= max_step {
+        normalize_angle(target)
+    } else if diff > 0.0 {
+        normalize_angle(current + max_step)
+    } else {
+        normalize_angle(current - max_step)
+    }
 }
 
 /// 可移動角度門檻：面向與目標方向夾角 < 30° 才能移動（f32-radian, legacy）
