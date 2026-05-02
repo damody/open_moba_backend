@@ -194,6 +194,48 @@ impl SystemDispatcher {
     }
 }
 
+/// Phase 3 omfx-side helper: build the same simulation dispatcher
+/// `SystemDispatcher::run_systems` would build, but as a free standalone
+/// `Dispatcher<'static, 'static>` owned by the caller (omfx sim_runner
+/// worker thread). Uses an internal rayon thread pool — caller does not
+/// need to share one with omobab.exe.
+///
+/// Mirrors the dependency chain in
+/// `SystemDispatcher::build_system_dependencies`.
+pub fn build_phase3_dispatcher() -> Result<Dispatcher<'static, 'static>, Error> {
+    use rayon::ThreadPoolBuilder;
+    use crate::tick::*;
+
+    let pool = Arc::new(
+        ThreadPoolBuilder::new()
+            .num_threads(num_cpus::get())
+            .thread_name(move |i| format!("omfx-sim-rayon-{}", i))
+            .build()?,
+    );
+
+    let mut builder = DispatcherBuilder::new().with_pool(pool);
+
+    // Phase 1 — no Vec<Outcome> dependency, parallelizable.
+    dispatch::<nearby_tick::Sys>(&mut builder, &[]);
+    dispatch::<player_tick::Sys>(&mut builder, &[]);
+
+    // Phase 2 — Vec<Outcome> producers / consumers, ordered.
+    dispatch::<projectile_tick::Sys>(&mut builder, &["nearby_sys", "player_sys"]);
+    dispatch::<tower_tick::Sys>(&mut builder, &["projectile_sys"]);
+    dispatch::<hero_move_tick::Sys>(&mut builder, &["projectile_sys"]);
+    dispatch::<hero_tick::Sys>(&mut builder, &["tower_sys", "hero_move_sys"]);
+    dispatch::<item_tick::Sys>(&mut builder, &["hero_sys"]);
+    dispatch::<buff_tick::Sys>(&mut builder, &["item_sys"]);
+    dispatch::<regen_tick::Sys>(&mut builder, &["buff_sys"]);
+    dispatch::<summon_tick::Sys>(&mut builder, &["regen_sys"]);
+    dispatch::<creep_tick::Sys>(&mut builder, &["summon_sys"]);
+    dispatch::<creep_wave::Sys>(&mut builder, &["creep_sys"]);
+    dispatch::<damage_tick::Sys>(&mut builder, &["creep_wave_sys"]);
+    dispatch::<death_tick::Sys>(&mut builder, &["damage_sys"]);
+
+    Ok(builder.build())
+}
+
 /// 系統群組枚舉
 #[derive(Debug, Clone, Copy)]
 pub enum SystemGroup {

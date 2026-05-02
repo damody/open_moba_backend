@@ -175,66 +175,18 @@ impl State {
     /// 載入所有 native 腳本 DLL。目錄由環境變數 `OMB_SCRIPTS_DIR` 指定，
     /// 未設定時預設 `./scripts`（相對於執行目錄）。載入完就順便把塔 template
     /// 從腳本 `tower_metadata()` 收集到 `TowerTemplateRegistry` resource。
+    ///
+    /// Phase 3.2: extracted populate_* helpers into
+    /// `state::initialization::{populate_tower_template_registry,
+    /// populate_tower_upgrade_registry, populate_ability_registry}` so
+    /// the omfx sim_runner can reuse the same bootstrap code.
     fn load_scripts(&mut self) {
         let dir_str = std::env::var("OMB_SCRIPTS_DIR").unwrap_or_else(|_| "./scripts".to_string());
         let dir = std::path::Path::new(&dir_str);
         self.script_registry = crate::scripting::loader::load_scripts_dir(dir);
-        self.populate_tower_template_registry();
-        self.populate_tower_upgrade_registry();
-        self.populate_ability_registry();
-    }
-
-    /// 建立靜態 48 塔升級配表 resource（目前 Dart 12 條已填，其餘為 stub）。
-    fn populate_tower_upgrade_registry(&mut self) {
-        let reg = crate::comp::tower_upgrade_registry::TowerUpgradeRegistry::new();
-        self.ecs.insert(reg);
-    }
-
-    /// 把 `ScriptRegistry` 收集到的 AbilityDef metadata 複製到 ECS 的
-    /// `AbilityRegistry` resource，供 client `list_abilities` / `get_ability_detail`
-    /// query 查閱。Handler 本身保留在 ScriptRegistry 由 skill dispatch 使用。
-    fn populate_ability_registry(&mut self) {
-        use crate::ability_runtime::AbilityRegistry;
-        let mut reg = AbilityRegistry::new();
-        for (_id, def, _script) in self.script_registry.iter_abilities() {
-            reg.register(def.clone());
-        }
-        log::info!("[ability_registry] {} abilities loaded", reg.len());
-        self.ecs.insert(reg);
-    }
-
-    /// 依 DLL `units()` 順序 iter 所有腳本、取 `tower_metadata()` 建 host 端
-    /// `TowerTemplateRegistry`。非塔腳本（英雄/creep）會回 RNone，自動跳過。
-    fn populate_tower_template_registry(&mut self) {
-        use abi_stable::std_types::RSome;
-        use crate::comp::tower_registry::{TowerTemplate as RuntimeTpl, TowerTemplateRegistry};
-        let mut reg = TowerTemplateRegistry::default();
-        for (uid, script) in self.script_registry.iter_ordered() {
-            let meta = match script.tower_metadata() {
-                RSome(m) => m,
-                _ => continue,
-            };
-            // PHASE 2: TowerTemplateRegistry runtime template still f32 — Phase 2 KCP tag rework.
-            // TowerMetadata is the script-side ABI surface (Fixed64); host runtime template is still f32.
-            reg.insert(RuntimeTpl {
-                unit_id: uid.to_string(),
-                label: meta.label.to_string(),
-                atk: meta.atk.to_f32_for_render(),
-                asd_interval: meta.asd_interval.to_f32_for_render(),
-                range: meta.range.to_f32_for_render(),
-                bullet_speed: meta.bullet_speed.to_f32_for_render(),
-                splash_radius: meta.splash_radius.to_f32_for_render(),
-                hit_radius: meta.hit_radius.to_f32_for_render(),
-                slow_factor: meta.slow_factor.to_f32_for_render(),
-                slow_duration: meta.slow_duration.to_f32_for_render(),
-                cost: meta.cost,
-                footprint: meta.footprint.to_f32_for_render(),
-                hp: meta.hp.to_f32_for_render(),
-                turn_speed_deg: meta.turn_speed_deg.to_f32_for_render(),
-            });
-        }
-        log::info!("[tower_registry] {} templates loaded", reg.templates.len());
-        self.ecs.insert(reg);
+        super::initialization::populate_tower_template_registry(&mut self.ecs, &self.script_registry);
+        super::initialization::populate_tower_upgrade_registry(&mut self.ecs);
+        super::initialization::populate_ability_registry(&mut self.ecs, &self.script_registry);
     }
 
     /// 創建新的遊戲狀態（戰役模式）

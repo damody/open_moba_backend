@@ -686,3 +686,120 @@ impl StateInitializer {
         log::info!("地形遮擋物創建（新視野系統待實現）");
     }
 }
+
+// =====================================================================
+// Phase 3 omfx-side helpers
+//
+// Expose a slim, transport-free bootstrap path that produces a fully
+// initialized ECS World for the omfx sim_runner worker. The legacy
+// `State::new_with_campaign` path also uses these same building blocks,
+// so the omfx-side simulator stays in sync with omobab.exe.
+//
+// Notes:
+//   * The world has an empty `Vec<Sender<OutboundMsg>>` inserted (by
+//     `setup_campaign_ecs_world`); systems that try to push outbound
+//     messages will silently drop them which is exactly what the
+//     deterministic sim wants — wire emit is the host's job, not the
+//     replica simulator's.
+//   * `MasterSeed` is left at the default; the caller (sim_runner)
+//     overwrites it once the GameStart message arrives.
+//   * Script registries (Tower / Ability / Tower Upgrade) are filled
+//     here so unit tick can spawn / dispatch correctly.
+// =====================================================================
+
+/// Build a fully-initialized ECS World from a campaign scene path
+/// (e.g. "Story/MVP_1"). Inserts campaign + scripts + tower / ability
+/// registries. Used by Phase 3 omfx sim_runner; mirrors what
+/// `State::new_with_campaign` does minus all the transport / heartbeat
+/// plumbing.
+pub fn create_world_for_scene(scene_path: &std::path::Path) -> Result<World, failure::Error> {
+    use failure::err_msg;
+    let scene_str = scene_path
+        .to_str()
+        .ok_or_else(|| err_msg("scene_path is not valid UTF-8"))?;
+
+    log::info!("[create_world_for_scene] loading campaign from {}", scene_str);
+    let campaign_data = CampaignData::load_from_path(scene_str)
+        .map_err(|e| err_msg(format!("CampaignData::load_from_path({}) failed: {}", scene_str, e)))?;
+    if let Err(err) = campaign_data.validate() {
+        return Err(err_msg(format!("Campaign data validation failed: {}", err)));
+    }
+
+    let thread_pool = StateInitializer::create_thread_pool();
+    let mut ecs = StateInitializer::setup_campaign_ecs_world(&thread_pool);
+
+    // Load scripts BEFORE scene init so spawn_td_tower can resolve
+    // unit_id → script template.
+    let dir_str = std::env::var("OMB_SCRIPTS_DIR").unwrap_or_else(|_| "./scripts".to_string());
+    let dir = std::path::Path::new(&dir_str);
+    let registry = crate::scripting::loader::load_scripts_dir(dir);
+    populate_tower_template_registry(&mut ecs, &registry);
+    populate_tower_upgrade_registry(&mut ecs);
+    populate_ability_registry(&mut ecs, &registry);
+    ecs.insert(registry);
+
+    // Apply campaign / map data.
+    StateInitializer::init_campaign_data(&mut ecs, &campaign_data);
+    StateInitializer::init_creep_wave(&mut ecs, &campaign_data.map);
+    StateInitializer::create_campaign_scene(&mut ecs, &campaign_data);
+    StateInitializer::populate_region_blockers(&mut ecs);
+
+    log::info!("[create_world_for_scene] ECS world ready");
+    Ok(ecs)
+}
+
+/// Phase 3 omfx-side helper: populate `TowerTemplateRegistry` from a
+/// `ScriptRegistry`. Mirror of the private method in `state::core::State`.
+pub fn populate_tower_template_registry(
+    ecs: &mut World,
+    registry: &crate::scripting::ScriptRegistry,
+) {
+    use abi_stable::std_types::RSome;
+    use crate::comp::tower_registry::{TowerTemplate as RuntimeTpl, TowerTemplateRegistry};
+    let mut reg = TowerTemplateRegistry::default();
+    for (uid, script) in registry.iter_ordered() {
+        let meta = match script.tower_metadata() {
+            RSome(m) => m,
+            _ => continue,
+        };
+        reg.insert(RuntimeTpl {
+            unit_id: uid.to_string(),
+            label: meta.label.to_string(),
+            atk: meta.atk.to_f32_for_render(),
+            asd_interval: meta.asd_interval.to_f32_for_render(),
+            range: meta.range.to_f32_for_render(),
+            bullet_speed: meta.bullet_speed.to_f32_for_render(),
+            splash_radius: meta.splash_radius.to_f32_for_render(),
+            hit_radius: meta.hit_radius.to_f32_for_render(),
+            slow_factor: meta.slow_factor.to_f32_for_render(),
+            slow_duration: meta.slow_duration.to_f32_for_render(),
+            cost: meta.cost,
+            footprint: meta.footprint.to_f32_for_render(),
+            hp: meta.hp.to_f32_for_render(),
+            turn_speed_deg: meta.turn_speed_deg.to_f32_for_render(),
+        });
+    }
+    log::info!("[tower_registry] {} templates loaded", reg.templates.len());
+    ecs.insert(reg);
+}
+
+/// Phase 3 omfx-side helper: build the static 48-tower upgrade table.
+pub fn populate_tower_upgrade_registry(ecs: &mut World) {
+    let reg = crate::comp::tower_upgrade_registry::TowerUpgradeRegistry::new();
+    ecs.insert(reg);
+}
+
+/// Phase 3 omfx-side helper: copy ability metadata from script registry
+/// into ECS-side `AbilityRegistry` resource.
+pub fn populate_ability_registry(
+    ecs: &mut World,
+    registry: &crate::scripting::ScriptRegistry,
+) {
+    use crate::ability_runtime::AbilityRegistry;
+    let mut reg = AbilityRegistry::new();
+    for (_id, def, _script) in registry.iter_abilities() {
+        reg.register(def.clone());
+    }
+    log::info!("[ability_registry] {} abilities loaded", reg.len());
+    ecs.insert(reg);
+}
