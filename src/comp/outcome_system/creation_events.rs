@@ -147,27 +147,27 @@ impl CreationEventHandler {
         damage_magi: Option<f32>,
         damage_real: Option<f32>,
     ) -> Vec<Outcome> {
-        // TODO Phase 1[d]: pos boundary — Projectile struct still uses vek::Vec2<f32>.
-        let pos_v: vek::Vec2<f32> = vek::Vec2::new(pos.x.to_f32_for_render(), pos.y.to_f32_for_render());
+        use omoba_sim::{Fixed32, Vec2 as SimVec2};
+        // TODO Phase 1[d]: log uses f32 boundary — Fixed32 has no Display.
+        let pos_x_f = pos.x.to_f32_for_render();
+        let pos_y_f = pos.y.to_f32_for_render();
         info!("創建彈道從實體 {} 到實體 {} 於位置 ({}, {})",
-              source.id(), target.id(), pos_v.x, pos_v.y);
-        let pos = pos_v; // shadow as f32 vek for downstream
-        
+              source.id(), target.id(), pos_x_f, pos_y_f);
+
         // 獲取來源和目標的位置資訊
-        // TODO Phase 1[d]: drop f32 boundary projection when projectile spawn goes Fixed32-native.
-        let (source_pos, target_pos) = {
+        let (source_pos, target_pos): (SimVec2, SimVec2) = {
             let positions = world.read_storage::<Pos>();
 
-            let source_pos: vek::Vec2<f32> = match positions.get(source) {
-                Some(p) => { let (x, y) = p.xy_f32(); vek::Vec2::new(x, y) }
+            let source_pos: SimVec2 = match positions.get(source) {
+                Some(p) => p.0,
                 None => {
                     warn!("無法找到來源實體 {} 的位置，使用預設位置", source.id());
                     pos
                 }
             };
 
-            let target_pos: vek::Vec2<f32> = match positions.get(target) {
-                Some(p) => { let (x, y) = p.xy_f32(); vek::Vec2::new(x, y) }
+            let target_pos: SimVec2 = match positions.get(target) {
+                Some(p) => p.0,
                 None => {
                     warn!("無法找到目標實體 {} 的位置，使用預設位置", target.id());
                     pos
@@ -176,51 +176,59 @@ impl CreationEventHandler {
 
             (source_pos, target_pos)
         }; // positions 在這裡被釋放
-        
-        // 從來源實體獲取攻擊屬性來計算傷害值
-        // TODO Phase 1[d]: Projectile damage_* fields still f32; convert at boundary.
-        let (phys_damage, magi_damage, real_damage) = {
+
+        // 從來源實體獲取攻擊屬性來計算傷害值。
+        // 入口參數仍是 Option<f32>（callers in legacy paths）；轉成 Fixed32 在邊界。
+        let (phys_damage, magi_damage, real_damage): (Fixed32, Fixed32, Fixed32) = {
             let attacks = world.read_storage::<TAttack>();
+            let to_fx = |v: f32| Fixed32::from_raw((v * omoba_sim::fixed::SCALE as f32) as i32);
             if let Some(attack) = attacks.get(source) {
                 (
-                    damage_phys.unwrap_or_else(|| attack.atk_physic.v.to_f32_for_render()),
-                    damage_magi.unwrap_or(0.0),
-                    damage_real.unwrap_or(0.0)
+                    damage_phys.map(to_fx).unwrap_or(attack.atk_physic.v),
+                    damage_magi.map(to_fx).unwrap_or(Fixed32::ZERO),
+                    damage_real.map(to_fx).unwrap_or(Fixed32::ZERO),
                 )
             } else {
                 // 如果沒有攻擊組件，使用傳入的數值或預設值
                 (
-                    damage_phys.unwrap_or(25.0),
-                    damage_magi.unwrap_or(0.0),
-                    damage_real.unwrap_or(0.0)
+                    damage_phys.map(to_fx).unwrap_or(Fixed32::from_i32(25)),
+                    damage_magi.map(to_fx).unwrap_or(Fixed32::ZERO),
+                    damage_real.map(to_fx).unwrap_or(Fixed32::ZERO),
                 )
             }
         };
 
         // 創建投射物實體（用於視覺效果和傷害處理）
         let projectile_entity = world.create_entity()
-            .with(Pos::from_xy_f32(source_pos.x, source_pos.y))
+            .with(Pos(source_pos))
             .with(Projectile {
-                time_left: 2.0,     // 彈道存活時間
-                owner: source,      // 擁有者
-                target: Some(target), // 目標實體
-                tpos: target_pos,   // 目標位置
-                radius: 5.0,        // 碰撞半徑
-                msd: 500.0,         // 移動速度
-                damage_phys: phys_damage, // 物理傷害
-                damage_magi: magi_damage, // 魔法傷害
-                damage_real: real_damage, // 真實傷害
-                slow_factor: 0.0,
-                slow_duration: 0.0,
-                hit_radius: 0.0,
-                stun_duration: 0.0,
+                time_left: Fixed32::from_i32(2),     // 彈道存活時間
+                owner: source,                       // 擁有者
+                target: Some(target),                // 目標實體
+                tpos: target_pos,                    // 目標位置
+                radius: Fixed32::from_i32(5),        // 碰撞半徑
+                msd: Fixed32::from_i32(500),         // 移動速度
+                damage_phys: phys_damage,
+                damage_magi: magi_damage,
+                damage_real: real_damage,
+                slow_factor: Fixed32::ZERO,
+                slow_duration: Fixed32::ZERO,
+                hit_radius: Fixed32::ZERO,
+                stun_duration: Fixed32::ZERO,
             })
             .build();
-        
+
         // 前端自管子彈動畫：提供 target_id / move_speed / flight_time_ms，
         // 由前端用 pursuit 公式 lerp 到目標當下位置，保證命中時剛好落到 creep 身上。
+        // Wire format f32 (Phase 2 boundary).
+        let source_x_f = source_pos.x.to_f32_for_render();
+        let source_y_f = source_pos.y.to_f32_for_render();
+        let target_x_f = target_pos.x.to_f32_for_render();
+        let target_y_f = target_pos.y.to_f32_for_render();
         let move_speed: f32 = 500.0;
-        let initial_dist = (target_pos - source_pos).magnitude();
+        let dx = target_x_f - source_x_f;
+        let dy = target_y_f - source_y_f;
+        let initial_dist = (dx * dx + dy * dy).sqrt();
         let flight_time_ms: u64 = if move_speed > 0.0 {
             (initial_dist / move_speed * 1000.0).max(1.0) as u64
         } else {
@@ -231,19 +239,19 @@ impl CreationEventHandler {
             "id": projectile_entity.id(),
             "target_id": target.id(),
             "start_pos": {
-                "x": source_pos.x,
-                "y": source_pos.y
+                "x": source_x_f,
+                "y": source_y_f
             },
             "end_pos": {
-                "x": target_pos.x,
-                "y": target_pos.y
+                "x": target_x_f,
+                "y": target_y_f
             },
             "move_speed": move_speed,
             "flight_time_ms": flight_time_ms,
         });
 
         // P7: non-AOE (splash=0) single-target → pre-declared physical damage.
-        let predeclared_dmg = phys_damage + magi_damage + real_damage;
+        let predeclared_dmg: f32 = (phys_damage + magi_damage + real_damage).to_f32_for_render();
         // Mirror damage into JSON so non-kcp path also supplies it to omfx shim.
         let mut projectile_data_with_dmg = projectile_data.clone();
         if let Some(obj) = projectile_data_with_dmg.as_object_mut() {
@@ -261,11 +269,11 @@ impl CreationEventHandler {
                 "td/all/res", "projectile", "C",
                 TypedOutbound::ProjectileCreate(proto_build::projectile_create(
                     projectile_entity.id(), target.id(),
-                    source_pos.x, source_pos.y, target_pos.x, target_pos.y,
+                    source_x_f, source_y_f, target_x_f, target_y_f,
                     flight_time_ms, false, 0.0, 0.0, 0u16,
                     predeclared_dmg,
                 )),
-                projectile_data_with_dmg, source_pos.x, source_pos.y,
+                projectile_data_with_dmg, source_x_f, source_y_f,
             )
         };
         #[cfg(not(feature = "kcp"))]
@@ -274,7 +282,7 @@ impl CreationEventHandler {
         if let Err(e) = mqtx.try_send(msg) {
             error!("發送彈道創建消息失敗: {}", e);
         }
-        
+
         // 彈道創建成功，無需產生額外事件
         Vec::new()
     }

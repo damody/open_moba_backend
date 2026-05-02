@@ -9,7 +9,6 @@ use crate::comp::*;
 use crate::transport::OutboundMsg;
 use specs::prelude::ParallelIterator;
 use specs::Entity;
-use vek::Vec2;
 use omoba_sim::{Fixed32, Vec2 as SimVec2};
 
 #[derive(SystemData)]
@@ -44,25 +43,18 @@ impl<'a> System<'a> for Sys {
 
     fn run(_job: &mut Job<Self>, (tr, mut tw): Self::SystemData) {
         let time = tr.time.0;
-        // Projectile internals (time_left / msd / hit_radius / tpos / radius) are
-        // still f32. Phase 1d will migrate these. dt as f32 is the boundary value
-        // for arithmetic against those f32 fields.
-        let dt = tr.dt.0.to_f32_for_render();
+        // dt is Fixed32; arithmetic against Projectile fields stays in Fixed32.
+        let dt: Fixed32 = tr.dt.0;
 
         // Snapshot every entity's current Pos so projectiles can home toward the
         // target's LIVE position each tick (homing). Previously `tpos` was frozen
         // at firing time, so the bullet flew to where the target used to be — it
         // visually missed a moving target even though damage was still applied
         // via the stored `target` Entity.
-        // TODO Phase 1d: Pos is SimVec2 now; lossy convert to vek::Vec2<f32> until
-        // projectile internals migrate.
-        let target_positions: std::collections::HashMap<specs::Entity, vek::Vec2<f32>> = {
+        let target_positions: std::collections::HashMap<specs::Entity, SimVec2> = {
             use specs::Join;
             (&tr.entities, &tw.pos).join()
-                .map(|(e, pos)| (e, vek::Vec2::new(
-                    pos.0.x.to_f32_for_render(),
-                    pos.0.y.to_f32_for_render(),
-                )))
+                .map(|(e, pos)| (e, pos.0))
                 .collect()
         };
 
@@ -73,7 +65,7 @@ impl<'a> System<'a> for Sys {
             &mut tw.pos,
         )
             .par_join()
-            .filter(|(e, proj, p)| proj.time_left > 0.)
+            .filter(|(e, proj, p)| proj.time_left > Fixed32::ZERO)
             .map_init(
                 || {
                     prof_span!(guard, "projectile update rayon job");
@@ -81,12 +73,6 @@ impl<'a> System<'a> for Sys {
                 },
                 |_guard, (e, proj, pos)| {
                     let mut outcomes: Vec<Outcome> = Vec::new();
-                    // TODO Phase 1d: Projectile fields (tpos / msd / time_left / radius
-                    // / hit_radius) are still f32. Bridge Pos at the boundary.
-                    let mut pos_f = vek::Vec2::new(
-                        pos.0.x.to_f32_for_render(),
-                        pos.0.y.to_f32_for_render(),
-                    );
                     // Home onto target's current position if still alive；
                     // target 消失時用 stale tpos，靠 time_left 安全閥讓彈道自然消失。
                     if let Some(target) = proj.target {
@@ -94,65 +80,82 @@ impl<'a> System<'a> for Sys {
                             proj.tpos = current_tpos;
                         }
                     }
-                    let delta = proj.tpos - pos_f;
-                    let dist = delta.magnitude();
+                    let delta = proj.tpos - pos.0;
+                    let dist = delta.length();
                     let step = proj.msd * dt;
 
                     // 無 target 的方向性子彈（Tack 放射針）：用掃掠 segment 檢查命中
                     // （不只檢查當前 point，還要檢查本 tick 即將走過的路徑）避免高速子彈
                     // 跨過氣球之間的間隔而沒打中。
-                    let needle_r = if proj.hit_radius > 0.0 { proj.hit_radius } else { 50.0 };
-                    if proj.target.is_none() && proj.radius < 1.0 {
-                        // 計算本 tick 的 swept segment：從 pos_f 出發，沿 delta 方向走 step 距離
-                        let a = pos_f;
-                        let b = if dist > 0.0 {
-                            a + (delta / dist) * step
+                    let needle_r = if proj.hit_radius > Fixed32::ZERO {
+                        proj.hit_radius
+                    } else {
+                        Fixed32::from_i32(50)
+                    };
+                    if proj.target.is_none() && proj.radius < Fixed32::ONE {
+                        // 計算本 tick 的 swept segment：從 pos.0 出發，沿 delta 方向走 step 距離
+                        let a: SimVec2 = pos.0;
+                        let b: SimVec2 = if dist > Fixed32::ZERO {
+                            a + delta.normalized() * step
                         } else { a };
-                        let seg_mid = (a + b) * 0.5;
-                        let half_len = ((b - a).magnitude()) * 0.5;
-                        // 從 mid 找 (half_len + needle_r) 半徑內的 creep 候選，再做 segment 距離
-                        let search_r = half_len + needle_r + 5.0;
-                        let candidates = tr.searcher.creep.search_nn(seg_mid, search_r, 16);
-                        let needle_r2 = needle_r * needle_r;
+                        // mid + half_len computed in f32 only at the search-call boundary
+                        // (Searcher takes vek::Vec2<f32>; Phase 1e migrates).
+                        let a_xf = a.x.to_f32_for_render();
+                        let a_yf = a.y.to_f32_for_render();
+                        let b_xf = b.x.to_f32_for_render();
+                        let b_yf = b.y.to_f32_for_render();
+                        let seg_mid_f = vek::Vec2::new((a_xf + b_xf) * 0.5, (a_yf + b_yf) * 0.5);
+                        let half_len_f = (vek::Vec2::new(b_xf - a_xf, b_yf - a_yf)).magnitude() * 0.5;
+                        let needle_r_f = needle_r.to_f32_for_render();
+                        let search_r = half_len_f + needle_r_f + 5.0;
+                        let candidates = tr.searcher.creep.search_nn(seg_mid_f, search_r, 16);
+                        let needle_r2 = needle_r_f * needle_r_f;
                         let mut hit: Option<specs::Entity> = None;
+                        let a_vek = vek::Vec2::new(a_xf, a_yf);
+                        let b_vek = vek::Vec2::new(b_xf, b_yf);
                         for ci in candidates.iter() {
-                            let cpos = target_positions.get(&ci.e).copied().unwrap_or_default();
-                            if crate::util::geometry::point_segment_dist_sq(cpos, a, b) <= needle_r2 {
+                            let cpos_sim = target_positions.get(&ci.e).copied().unwrap_or(SimVec2::ZERO);
+                            let cpos_vek = vek::Vec2::new(
+                                cpos_sim.x.to_f32_for_render(),
+                                cpos_sim.y.to_f32_for_render(),
+                            );
+                            if crate::util::geometry::point_segment_dist_sq(cpos_vek, a_vek, b_vek) <= needle_r2 {
                                 hit = Some(ci.e);
                                 break;
                             }
                         }
                         if let Some(hit_ent) = hit {
                             // 命中點：取子彈與氣球最接近那一點（pos.0 or b 取近的）
-                            let c = target_positions.get(&hit_ent).copied().unwrap_or(a);
-                            let ta = ((c - a).magnitude_squared()).min((c - b).magnitude_squared());
-                            let hit_pos = if (c - a).magnitude_squared() <= (c - b).magnitude_squared() { a } else { b };
-                            let _ = ta; // silence unused
+                            let c_sim = target_positions.get(&hit_ent).copied().unwrap_or(a);
+                            let da = (c_sim - a).length_squared();
+                            let db = (c_sim - b).length_squared();
+                            let hit_pos: SimVec2 = if da <= db { a } else { b };
                             create_projectile_damage(&proj, hit_ent, &mut outcomes, hit_pos);
-                            // Outcome::Death.pos is SimVec2 (Phase 1c.2). Lossy boundary.
-                            outcomes.push(Outcome::Death { pos: f32_to_sim(hit_pos), ent: e.clone() });
+                            outcomes.push(Outcome::Death { pos: hit_pos, ent: e.clone() });
                             return outcomes;
                         }
                     }
 
                     // 命中判定：本 tick 的移動量已足夠抵達目標 → 直接 hit
-                    let reached = dist <= step || dist < 1.0;
+                    let reached = dist <= step || dist < Fixed32::ONE;
                     if reached {
                         // 命中點：優先用 target 的最新位置（snapshot = 本 tick 初的 Pos storage），
                         // 這樣 AoE 圓心和爆炸特效一定落在氣球身上，不會停在子彈剛發射時那一刻。
-                        let hit_pos = if let Some(target) = proj.target {
+                        let hit_pos: SimVec2 = if let Some(target) = proj.target {
                             target_positions.get(&target).copied().unwrap_or(proj.tpos)
                         } else {
                             proj.tpos
                         };
-                        // Lossy boundary write: f32 hit_pos → SimVec2 Pos.
-                        pos.0 = SimVec2::new(
-                            Fixed32::from_raw((hit_pos.x * omoba_sim::fixed::SCALE as f32) as i32),
-                            Fixed32::from_raw((hit_pos.y * omoba_sim::fixed::SCALE as f32) as i32),
-                        );
-                        if proj.radius > 1.0 {
-                            // 範圍攻擊：以 hit_pos 為中心掃半徑內敵人
-                            let targets = tr.searcher.creep.search_nn(hit_pos, proj.radius, 5);
+                        pos.0 = hit_pos;
+                        if proj.radius > Fixed32::ONE {
+                            // 範圍攻擊：以 hit_pos 為中心掃半徑內敵人。
+                            // Searcher still takes f32 (Phase 1e); convert at boundary.
+                            let hit_pos_vek = vek::Vec2::new(
+                                hit_pos.x.to_f32_for_render(),
+                                hit_pos.y.to_f32_for_render(),
+                            );
+                            let radius_f = proj.radius.to_f32_for_render();
+                            let targets = tr.searcher.creep.search_nn(hit_pos_vek, radius_f, 5);
                             for target_info in targets.iter() {
                                 create_projectile_damage(&proj, target_info.e, &mut outcomes, hit_pos);
                             }
@@ -164,22 +167,16 @@ impl<'a> System<'a> for Sys {
                             create_projectile_damage(&proj, target, &mut outcomes, hit_pos);
                         }
                         // 方向性子彈：抵達 end_pos 但沒打到任何敵人 → 直接消失
-                        // Outcome::Death.pos is SimVec2 (Phase 1c.2). Lossy boundary.
-                        outcomes.push(Outcome::Death { pos: f32_to_sim(hit_pos), ent: e.clone() });
+                        outcomes.push(Outcome::Death { pos: hit_pos, ent: e.clone() });
                     } else {
                         // 還沒抵達：往目標方向前進一個 step
-                        let vel = delta / dist * step;
-                        pos_f += vel;
-                        // Lossy boundary write: f32 pos_f → SimVec2 Pos.
-                        pos.0 = SimVec2::new(
-                            Fixed32::from_raw((pos_f.x * omoba_sim::fixed::SCALE as f32) as i32),
-                            Fixed32::from_raw((pos_f.y * omoba_sim::fixed::SCALE as f32) as i32),
-                        );
+                        let vel = (delta.normalized()) * step;
+                        let new_pos = pos.0 + vel;
+                        pos.0 = new_pos;
                         // 安全閥：time_left 到期仍未命中（例如 target 死掉 tpos 凍結），讓 projectile 自然消失
-                        proj.time_left -= dt;
-                        if proj.time_left <= 0.0 {
-                            // Outcome::Death.pos is SimVec2 (Phase 1c.2). Lossy boundary.
-                            outcomes.push(Outcome::Death { pos: f32_to_sim(pos_f), ent: e.clone() });
+                        proj.time_left = proj.time_left - dt;
+                        if proj.time_left <= Fixed32::ZERO {
+                            outcomes.push(Outcome::Death { pos: new_pos, ent: e.clone() });
                         }
                     }
                     outcomes
@@ -224,64 +221,57 @@ fn create_projectile_damage(
     proj: &Projectile,
     target: specs::Entity,
     outcomes: &mut Vec<Outcome>,
-    pos: vek::Vec2<f32>
+    pos: SimVec2,
 ) {
     log::debug!("彈道命中目標 {}，物理傷害: {:.1}，魔法傷害: {:.1}，真實傷害: {:.1}",
-        target.id(), proj.damage_phys, proj.damage_magi, proj.damage_real);
+        target.id(),
+        proj.damage_phys.to_f32_for_render(),
+        proj.damage_magi.to_f32_for_render(),
+        proj.damage_real.to_f32_for_render());
 
     // P7 layered (re-enabled with heartbeat in_flight_projectiles set):
     // single-target (radius < 1.0) with damage > 0 → predeclared = true. Server
     // skips creep/H. Client maintains pending_pred_dmg, applies on visual hit
     // (t≥1.0), and reconciles via heartbeat in_flight set when server settles.
-    let predeclared = proj.radius < 1.0 && proj.damage_phys > 0.0;
-    // Outcome::Damage / AddBuff fields are Fixed32 / SimVec2 (Phase 1c.2).
-    // Projectile internals stay f32 (Phase 1d). Bridge here.
+    let predeclared = proj.radius < Fixed32::ONE && proj.damage_phys > Fixed32::ZERO;
     outcomes.push(Outcome::Damage {
-        pos: f32_to_sim(pos),
-        phys: f32_to_fx(proj.damage_phys),
-        magi: f32_to_fx(proj.damage_magi),
-        real: f32_to_fx(proj.damage_real),
+        pos,
+        phys: proj.damage_phys,
+        magi: proj.damage_magi,
+        real: proj.damage_real,
         source: proj.owner,
         target: target,
         predeclared,
     });
 
     // Ice 塔：附加減速 debuff 到目標
-    if proj.slow_factor > 0.0 && proj.slow_factor < 1.0 && proj.slow_duration > 0.0 {
-        let bonus = -(1.0 - proj.slow_factor);  // factor=0.5 → bonus=-0.5
+    if proj.slow_factor > Fixed32::ZERO && proj.slow_factor < Fixed32::ONE && proj.slow_duration > Fixed32::ZERO {
+        // factor=0.5 → bonus=-0.5 ; bonus = -(1 - factor) = factor - 1
+        let bonus = proj.slow_factor - Fixed32::ONE;
         let mut payload = serde_json::Map::new();
         payload.insert(
             StatKey::MoveSpeedBonus.as_str().to_string(),
-            serde_json::json!(bonus),
+            serde_json::json!(bonus.to_f32_for_render()),
         );
-        payload.insert("slow_factor".into(), serde_json::json!(proj.slow_factor));
+        payload.insert(
+            "slow_factor".into(),
+            serde_json::json!(proj.slow_factor.to_f32_for_render()),
+        );
         outcomes.push(Outcome::AddBuff {
             target,
             buff_id: "slow".to_string(),
-            duration: f32_to_fx(proj.slow_duration),
+            duration: proj.slow_duration,
             payload: serde_json::Value::Object(payload),
         });
     }
 
     // matchlock_gun 等 on-hit stun：handle_projectile 擲骰後把時長寫在 proj 上
-    if proj.stun_duration > 0.0 {
+    if proj.stun_duration > Fixed32::ZERO {
         outcomes.push(Outcome::AddBuff {
             target,
             buff_id: BuffId::Stun.as_str().to_string(),
-            duration: f32_to_fx(proj.stun_duration),
+            duration: proj.stun_duration,
             payload: serde_json::Value::Null,
         });
     }
-}
-
-/// TODO Phase 1d: drop when Projectile internals migrate to Fixed32.
-#[inline]
-fn f32_to_fx(v: f32) -> Fixed32 {
-    Fixed32::from_raw((v * omoba_sim::fixed::SCALE as f32) as i32)
-}
-
-/// TODO Phase 1d: drop when Projectile internals migrate to SimVec2.
-#[inline]
-fn f32_to_sim(v: vek::Vec2<f32>) -> SimVec2 {
-    SimVec2::new(f32_to_fx(v.x), f32_to_fx(v.y))
 }

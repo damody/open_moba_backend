@@ -763,8 +763,8 @@ impl State {
             let mut v: Vec<(u32, f32, f32)> = Vec::new();
             for (e, p) in (&entities, &projs).join() {
                 if p.target.is_none() { continue; }
-                if p.radius >= 1.0 { continue; }
-                if p.damage_phys <= 0.0 { continue; }
+                if p.radius >= omoba_sim::Fixed32::ONE { continue; }
+                if p.damage_phys <= omoba_sim::Fixed32::ZERO { continue; }
                 let tgt = p.target.unwrap();
                 if let Some(tp) = positions.get(tgt) {
                     let (x, y) = tp.xy_f32();

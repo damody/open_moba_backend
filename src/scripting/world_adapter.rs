@@ -503,18 +503,11 @@ impl<'a> GameWorld for WorldAdapter<'a> {
     }
 
     fn spawn_projectile_ex(&mut self, spec: ProjectileSpec) -> EntityHandle {
+        use omoba_sim::Fixed32;
         let Some(owner_ent) = Self::handle_to_entity(spec.owner) else {
             return EntityHandle::INVALID;
         };
         let from = spec.from;
-        // TODO Phase 1[d]: drop these conversions when Projectile struct migrates to Fixed32.
-        let speed_f = spec.speed.to_f32_for_render();
-        let damage_f = spec.damage.to_f32_for_render();
-        let splash_radius_f = spec.splash_radius.to_f32_for_render();
-        let hit_radius_f = spec.hit_radius.to_f32_for_render();
-        let slow_factor_f = spec.slow_factor.to_f32_for_render();
-        let slow_duration_f = spec.slow_duration.to_f32_for_render();
-        let stun_duration_f = spec.stun_duration.to_f32_for_render();
 
         // 依 PathSpec 算 tpos + target option + end_pos（供前端直線渲染）
         let (target_opt, tpos, end_pos, is_directional, target_id_out) = match spec.path {
@@ -531,13 +524,15 @@ impl<'a> GameWorld for WorldAdapter<'a> {
             }
         };
 
-        // TODO Phase 1[d]: Projectile struct fields are still f32; render-side conversion at boundary.
+        // flight time math goes through f32 for the wire-format helper (kept on
+        // sqrt() / .max(0.01) clamp). Sim-side state in Projectile stays Fixed32.
         let from_x_f = from.x.to_f32_for_render();
         let from_y_f = from.y.to_f32_for_render();
         let tpos_x_f = tpos.x.to_f32_for_render();
         let tpos_y_f = tpos.y.to_f32_for_render();
         let end_x_f = end_pos.x.to_f32_for_render();
         let end_y_f = end_pos.y.to_f32_for_render();
+        let speed_f = spec.speed.to_f32_for_render();
 
         let dx = tpos_x_f - from_x_f;
         let dy = tpos_y_f - from_y_f;
@@ -545,7 +540,7 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         let flight_time_s: f32 = if speed_f > 0.0 {
             (initial_dist / speed_f).max(0.01)
         } else { 0.01 };
-        let safety = flight_time_s * 3.0 + 1.5;
+        let safety: Fixed32 = Fixed32::from_raw(((flight_time_s * 3.0 + 1.5) * omoba_sim::fixed::SCALE as f32) as i32);
 
         // LazyUpdate spawn — 同 frame 後續系統已跑完，maintain 在 core.rs tick 結尾。
         let e = self.cache.lazy.create_entity(&self.cache.entities)
@@ -553,17 +548,17 @@ impl<'a> GameWorld for WorldAdapter<'a> {
             .with(Projectile {
                 time_left: safety,
                 owner: owner_ent,
-                tpos: vek::Vec2::new(tpos_x_f, tpos_y_f),
+                tpos,
                 target: target_opt,
-                radius: splash_radius_f,
-                msd: speed_f,
-                damage_phys: damage_f,
-                damage_magi: 0.0,
-                damage_real: 0.0,
-                slow_factor: slow_factor_f,
-                slow_duration: slow_duration_f,
-                hit_radius: hit_radius_f,
-                stun_duration: stun_duration_f,
+                radius: spec.splash_radius,
+                msd: spec.speed,
+                damage_phys: spec.damage,
+                damage_magi: Fixed32::ZERO,
+                damage_real: Fixed32::ZERO,
+                slow_factor: spec.slow_factor,
+                slow_duration: spec.slow_duration,
+                hit_radius: spec.hit_radius,
+                stun_duration: spec.stun_duration,
             })
             .build();
 
@@ -572,6 +567,9 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         // (splash > 0), directional, or untargeted shots still carry 0 —
         // those don't fit the in_flight reconciliation model and stay
         // server-broadcast (creep/H per impact).
+        let splash_radius_f = spec.splash_radius.to_f32_for_render();
+        let hit_radius_f = spec.hit_radius.to_f32_for_render();
+        let damage_f = spec.damage.to_f32_for_render();
         let predeclared_dmg = if splash_radius_f > 0.0 || is_directional || target_id_out == 0 {
             0.0
         } else {
