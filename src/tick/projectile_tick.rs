@@ -10,6 +10,7 @@ use crate::transport::OutboundMsg;
 use specs::prelude::ParallelIterator;
 use specs::Entity;
 use vek::Vec2;
+use omoba_sim::{Fixed32, Vec2 as SimVec2};
 
 #[derive(SystemData)]
 pub struct ProjectileRead<'a> {
@@ -43,17 +44,25 @@ impl<'a> System<'a> for Sys {
 
     fn run(_job: &mut Job<Self>, (tr, mut tw): Self::SystemData) {
         let time = tr.time.0;
-        let dt = tr.dt.0;
+        // Projectile internals (time_left / msd / hit_radius / tpos / radius) are
+        // still f32. Phase 1d will migrate these. dt as f32 is the boundary value
+        // for arithmetic against those f32 fields.
+        let dt = tr.dt.0.to_f32_for_render();
 
         // Snapshot every entity's current Pos so projectiles can home toward the
         // target's LIVE position each tick (homing). Previously `tpos` was frozen
         // at firing time, so the bullet flew to where the target used to be — it
         // visually missed a moving target even though damage was still applied
         // via the stored `target` Entity.
+        // TODO Phase 1d: Pos is SimVec2 now; lossy convert to vek::Vec2<f32> until
+        // projectile internals migrate.
         let target_positions: std::collections::HashMap<specs::Entity, vek::Vec2<f32>> = {
             use specs::Join;
             (&tr.entities, &tw.pos).join()
-                .map(|(e, pos)| (e, pos.0))
+                .map(|(e, pos)| (e, vek::Vec2::new(
+                    pos.0.x.to_f32_for_render(),
+                    pos.0.y.to_f32_for_render(),
+                )))
                 .collect()
         };
 
@@ -72,6 +81,12 @@ impl<'a> System<'a> for Sys {
                 },
                 |_guard, (e, proj, pos)| {
                     let mut outcomes: Vec<Outcome> = Vec::new();
+                    // TODO Phase 1d: Projectile fields (tpos / msd / time_left / radius
+                    // / hit_radius) are still f32. Bridge Pos at the boundary.
+                    let mut pos_f = vek::Vec2::new(
+                        pos.0.x.to_f32_for_render(),
+                        pos.0.y.to_f32_for_render(),
+                    );
                     // Home onto target's current position if still alive；
                     // target 消失時用 stale tpos，靠 time_left 安全閥讓彈道自然消失。
                     if let Some(target) = proj.target {
@@ -79,7 +94,7 @@ impl<'a> System<'a> for Sys {
                             proj.tpos = current_tpos;
                         }
                     }
-                    let delta = proj.tpos - pos.0;
+                    let delta = proj.tpos - pos_f;
                     let dist = delta.magnitude();
                     let step = proj.msd * dt;
 
@@ -88,8 +103,8 @@ impl<'a> System<'a> for Sys {
                     // 跨過氣球之間的間隔而沒打中。
                     let needle_r = if proj.hit_radius > 0.0 { proj.hit_radius } else { 50.0 };
                     if proj.target.is_none() && proj.radius < 1.0 {
-                        // 計算本 tick 的 swept segment：從 pos.0 出發，沿 delta 方向走 step 距離
-                        let a = pos.0;
+                        // 計算本 tick 的 swept segment：從 pos_f 出發，沿 delta 方向走 step 距離
+                        let a = pos_f;
                         let b = if dist > 0.0 {
                             a + (delta / dist) * step
                         } else { a };
@@ -129,7 +144,11 @@ impl<'a> System<'a> for Sys {
                         } else {
                             proj.tpos
                         };
-                        pos.0 = hit_pos;
+                        // Lossy boundary write: f32 hit_pos → SimVec2 Pos.
+                        pos.0 = SimVec2::new(
+                            Fixed32::from_raw((hit_pos.x * omoba_sim::fixed::SCALE as f32) as i32),
+                            Fixed32::from_raw((hit_pos.y * omoba_sim::fixed::SCALE as f32) as i32),
+                        );
                         if proj.radius > 1.0 {
                             // 範圍攻擊：以 hit_pos 為中心掃半徑內敵人
                             let targets = tr.searcher.creep.search_nn(hit_pos, proj.radius, 5);
@@ -148,11 +167,16 @@ impl<'a> System<'a> for Sys {
                     } else {
                         // 還沒抵達：往目標方向前進一個 step
                         let vel = delta / dist * step;
-                        pos.0 += vel;
+                        pos_f += vel;
+                        // Lossy boundary write: f32 pos_f → SimVec2 Pos.
+                        pos.0 = SimVec2::new(
+                            Fixed32::from_raw((pos_f.x * omoba_sim::fixed::SCALE as f32) as i32),
+                            Fixed32::from_raw((pos_f.y * omoba_sim::fixed::SCALE as f32) as i32),
+                        );
                         // 安全閥：time_left 到期仍未命中（例如 target 死掉 tpos 凍結），讓 projectile 自然消失
                         proj.time_left -= dt;
                         if proj.time_left <= 0.0 {
-                            outcomes.push(Outcome::Death { pos: pos.0.clone(), ent: e.clone() });
+                            outcomes.push(Outcome::Death { pos: pos_f, ent: e.clone() });
                         }
                     }
                     outcomes

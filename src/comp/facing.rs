@@ -47,6 +47,10 @@ impl Component for TurnSpeed {
 }
 
 /// 將角度標準化到 [-π, π]
+///
+/// **Phase 1b.4 deprecation note**: legacy f32-radian helper kept only for
+/// `hero_tick.rs` / `tower_tick.rs` until those migrate to `Angle`. New code
+/// must use `omoba_sim::trig::Angle` arithmetic + `angle_rotate_toward` instead.
 pub fn normalize_angle(a: f32) -> f32 {
     let tau = std::f32::consts::TAU;
     let mut a = a % tau;
@@ -58,17 +62,9 @@ pub fn normalize_angle(a: f32) -> f32 {
     a
 }
 
-/// 從 `current` 朝 `target` 旋轉最多 `max_step` 弧度；回傳新角度
-pub fn rotate_toward(current: f32, target: f32, max_step: f32) -> f32 {
-    let diff = normalize_angle(target - current);
-    if diff.abs() <= max_step {
-        normalize_angle(target)
-    } else if diff > 0.0 {
-        normalize_angle(current + max_step)
-    } else {
-        normalize_angle(current - max_step)
-    }
-}
-
-/// 可移動角度門檻：面向與目標方向夾角 < 30° 才能移動
+/// 可移動角度門檻：面向與目標方向夾角 < 30° 才能移動（f32-radian, legacy）
 pub const MOVE_ANGLE_THRESHOLD: f32 = std::f32::consts::FRAC_PI_6; // 30° = π/6
+
+/// Angle-tick equivalent of `MOVE_ANGLE_THRESHOLD`. 30° = `TAU_TICKS / 12`.
+/// Used by tick systems that are on Angle (creep_tick, hero_move_tick).
+pub const MOVE_ANGLE_THRESHOLD_TICKS: i32 = omoba_sim::trig::TAU_TICKS / 12;

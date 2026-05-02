@@ -5,7 +5,8 @@ use specs::prelude::ParallelIterator;
 use crossbeam_channel::Sender;
 use vek::*;
 use serde_json::json;
-use omoba_sim::{Fixed32, Vec2 as SimVec2};
+use omoba_sim::{Fixed32, Vec2 as SimVec2, Angle};
+use omoba_sim::trig::{angle_rotate_toward, atan2 as sim_atan2, TAU_TICKS};
 
 use crate::comp::*;
 use crate::comp::phys::MAX_COLLISION_RADIUS;
@@ -129,8 +130,8 @@ impl<'a> System<'a> for Sys {
         if dt <= Fixed32::ZERO {
             return;
         }
-        // f32 view for legacy angle helpers (rotate_toward/normalize_angle still f32).
-        // TODO Phase 1b.4: drop dt_f when angle helpers move to Angle/Fixed32.
+        // dt_f only kept for the legacy f32 broadcast wire format + CProperty.msd
+        // (still f32; Phase 1c will migrate). Angle math is fully Fixed32/Angle now.
         let dt_f = dt.to_f32_for_render();
 
         // 每 120 tick (~2s) log 一次 searcher 各 index 大小，確認 region 已載入
@@ -164,19 +165,14 @@ impl<'a> System<'a> for Sys {
                     guard
                 },
                 |_guard, (entity, _hero, property, pos, move_target, facing)| {
-                    // facing.0 is now Angle. Convert to f32 rad for the legacy
-                    // rotate_toward / normalize_angle helpers (Phase 1b.4 will move
-                    // those to Angle directly).
-                    // TODO Phase 1b.4: drop angle <-> f32 conversions when the
-                    // angle math helpers migrate to Angle.
-                    let facing_rad_in = angle_to_rad(facing.0);
                     // Broadcast values (legacy f32 wire format).
                     let pos_x_f = pos.0.x.to_f32_for_render();
                     let pos_y_f = pos.0.y.to_f32_for_render();
+                    let facing_rad_out = angle_to_rad_f32(facing.0);
 
                     // Root / stun 狀態：完全凍結（不轉向、不位移、不消耗 MoveTarget）
                     if tr.buff_store.is_rooted(entity) {
-                        return (None, (entity.id(), pos_x_f, pos_y_f, facing_rad_in));
+                        return (None, (entity.id(), pos_x_f, pos_y_f, facing_rad_out));
                     }
 
                     let target = move_target.0;
@@ -197,24 +193,30 @@ impl<'a> System<'a> for Sys {
                     let step = Fixed32::from_raw((step_f * omoba_sim::fixed::SCALE as f32) as i32);
 
                     let mut arrived_entity: Option<specs::Entity> = None;
-                    let mut new_facing_rad = facing_rad_in;
 
                     // distance > 0.5 — Fixed32 from_raw(512) = 0.5
                     if distance > Fixed32::from_raw(512) {
-                        // atan2 still f32 in legacy helper land; Phase 1b.4 swaps to Angle.
-                        let diff_x_f = diff.x.to_f32_for_render();
-                        let diff_y_f = diff.y.to_f32_for_render();
-                        let desired = diff_y_f.atan2(diff_x_f);
-                        let turn = tr
+                        // Compute desired facing using deterministic Fixed32 atan2.
+                        let desired_angle: Angle = sim_atan2(diff.y, diff.x);
+                        let turn_rate = tr
                             .turn_speeds
                             .get(entity)
-                            .map(|t| t.0.to_f32_for_render())
-                            .unwrap_or(std::f32::consts::FRAC_PI_2);
-                        new_facing_rad = rotate_toward(facing_rad_in, desired, turn * dt_f);
+                            .map(|t| t.0)
+                            .unwrap_or(Fixed32::from_raw(1608)); // π/2 rad/s default
+                        // Convert (rad/s × s) Fixed32 → Angle ticks.
+                        // ticks = rad * TAU_TICKS / (2π); 2π in Fixed32 raw = round(2π * 1024) = 6434.
+                        let max_step_ticks: i32 =
+                            ((turn_rate * dt).raw() as i64 * TAU_TICKS as i64 / 6434) as i32;
+                        facing.0 = angle_rotate_toward(facing.0, desired_angle, max_step_ticks);
 
-                        // 面向夾角 < 30° 才能前進
-                        let angle_diff = normalize_angle(desired - new_facing_rad).abs();
-                        if angle_diff < MOVE_ANGLE_THRESHOLD {
+                        // 面向夾角 < 30° 才能前進 — compare in Angle ticks.
+                        let diff_ticks = (desired_angle.ticks() - facing.0.ticks()).rem_euclid(TAU_TICKS);
+                        let signed_diff_ticks = if diff_ticks > TAU_TICKS / 2 {
+                            diff_ticks - TAU_TICKS
+                        } else {
+                            diff_ticks
+                        };
+                        if signed_diff_ticks.abs() < MOVE_ANGLE_THRESHOLD_TICKS {
                             let radius = tr.radii.get(entity).map(|r| r.0)
                                 .unwrap_or(Fixed32::from_i32(30));
                             let (new_pos, reached) = advance_with_collision(
@@ -237,13 +239,11 @@ impl<'a> System<'a> for Sys {
                         arrived_entity = Some(entity);
                     }
 
-                    // Write back the new facing in Angle form.
-                    facing.0 = rad_to_angle(new_facing_rad);
-
                     // Broadcast values use post-step pos + post-rotate facing.
                     let out_x = pos.0.x.to_f32_for_render();
                     let out_y = pos.0.y.to_f32_for_render();
-                    (arrived_entity, (entity.id(), out_x, out_y, new_facing_rad))
+                    let out_facing = angle_to_rad_f32(facing.0);
+                    (arrived_entity, (entity.id(), out_x, out_y, out_facing))
                 },
             )
             .collect();
@@ -271,17 +271,9 @@ impl<'a> System<'a> for Sys {
     }
 }
 
-// Local Angle <-> f32 rad bridge for legacy rotate_toward / normalize_angle.
-// TODO Phase 1b.4: delete when angle math moves to Angle / TAU_TICKS directly.
+/// Angle → f32 radians for the legacy hero.M wire format. Lossy boundary;
+/// internal sim math now stays in Angle.
 #[inline]
-fn angle_to_rad(a: omoba_sim::Angle) -> f32 {
-    use omoba_sim::trig::TAU_TICKS;
+fn angle_to_rad_f32(a: omoba_sim::Angle) -> f32 {
     (a.ticks() as f32 / TAU_TICKS as f32) * std::f32::consts::TAU
-}
-
-#[inline]
-fn rad_to_angle(rad: f32) -> omoba_sim::Angle {
-    use omoba_sim::trig::TAU_TICKS;
-    let ticks = (rad / std::f32::consts::TAU * TAU_TICKS as f32).round() as i32;
-    omoba_sim::Angle::from_ticks(ticks)
 }
