@@ -214,7 +214,7 @@ impl State {
                 RSome(m) => m,
                 _ => continue,
             };
-            // TODO Phase 1[cd]: drop these conversions when TowerTemplateRegistry migrates to Fixed32.
+            // TODO Phase 1[d]: drop these conversions when TowerTemplateRegistry migrates to Fixed32.
             // TowerMetadata is the script-side ABI surface (Fixed32); host runtime template is still f32.
             reg.insert(RuntimeTpl {
                 unit_id: uid.to_string(),
@@ -318,7 +318,7 @@ impl State {
         // 放在並行系統之後、其他序列處理之前，確保腳本能看到本 tick 的
         // 完整戰鬥結果，也能修改狀態讓下游處理看見。
         let t_dispatch = Instant::now();
-        // TODO Phase 1[cd]: replace with Fixed32 dt directly when omb tick clock migrates.
+        // TODO Phase 1[d]: replace with Fixed32 dt directly when omb tick clock migrates.
         let dt_fx = omoba_template_ids::Fixed32::from_raw((dt.as_secs_f32() * 1024.0) as i32);
         scripting::run_script_dispatch(
             &mut self.ecs,
@@ -643,16 +643,18 @@ impl State {
             let Some(h) = heroes.get(e) else { continue };
             let gold = golds.get(e).map(|g| g.0).unwrap_or(0);
             let prop = props.get(e);
-            let (hp, mhp) = prop.map(|p| (p.hp, p.mhp)).unwrap_or((0.0, 0.0));
-            let (armor_b, mres_b, msd_b) = prop.map(|p| (p.def_physic, p.def_magic, p.msd)).unwrap_or((0.0, 0.0, 0.0));
-            // TODO Phase 1[d]: drop f32 boundary projection when wire-format builders take Fixed32.
+            // TODO Phase 1[d]: wire format — wire-format builders take f32; convert at boundary.
+            let (hp, mhp) = prop.map(|p| (p.hp.to_f32_for_render(), p.mhp.to_f32_for_render())).unwrap_or((0.0, 0.0));
+            let (armor_b, mres_b, msd_b) = prop
+                .map(|p| (p.def_physic.to_f32_for_render(), p.def_magic.to_f32_for_render(), p.msd.to_f32_for_render()))
+                .unwrap_or((0.0, 0.0, 0.0));
             let (pos_x_f, pos_y_f) = positions.get(e).map(|p| p.xy_f32()).unwrap_or((0.0, 0.0));
             let pos_vek = vek::Vec2::new(pos_x_f, pos_y_f);
 
             #[cfg(feature = "kcp")]
             {
                 let (atk_dmg_b, atk_int_b, atk_rng_b) = atks.get(e)
-                    .map(|a| (a.atk_physic.v, a.asd.v, a.range.v))
+                    .map(|a| (a.atk_physic.v.to_f32_for_render(), a.asd.v.to_f32_for_render(), a.range.v.to_f32_for_render()))
                     .unwrap_or((0.0, 0.0, 0.0));
                 let msg = crate::state::resource_management::build_hero_hot_msg(
                     e, h, gold, hp, mhp, armor_b, mres_b, msd_b,
@@ -663,7 +665,7 @@ impl State {
             #[cfg(not(feature = "kcp"))]
             {
                 let (atk_dmg_b, atk_int_b, atk_rng_b, bullet_spd) = atks.get(e)
-                    .map(|a| (a.atk_physic.v, a.asd.v, a.range.v, a.bullet_speed))
+                    .map(|a| (a.atk_physic.v.to_f32_for_render(), a.asd.v.to_f32_for_render(), a.range.v.to_f32_for_render(), a.bullet_speed.to_f32_for_render()))
                     .unwrap_or((0.0, 0.0, 0.0, 0.0));
                 let payload = crate::state::resource_management::build_hero_stats_payload(
                     e, h, gold, hp, mhp, armor_b, mres_b, msd_b,
@@ -719,22 +721,22 @@ impl State {
         // 這個小 Vec 做 viewport 過濾，免得對每個 player 重 join ECS storage。
         // P5 會換成 spatial broadphase；P1 單玩家 linear scan 足夠。
         let mut all_entity_hp: Vec<(u32, f32, f32, f32)> = Vec::new();
-        // TODO Phase 1[d]: drop f32 boundary projection when wire-format heartbeat takes Fixed32.
+        // TODO Phase 1[d]: wire format — heartbeat HP snapshot kept f32 for compat.
         for (e, _, p, pos) in (&entities, &heroes, &properties, &positions).join() {
             let (x, y) = pos.xy_f32();
-            all_entity_hp.push((e.id(), x, y, p.hp));
+            all_entity_hp.push((e.id(), x, y, p.hp.to_f32_for_render()));
         }
         for (e, _, p, pos) in (&entities, &units, &properties, &positions).join() {
             let (x, y) = pos.xy_f32();
-            all_entity_hp.push((e.id(), x, y, p.hp));
+            all_entity_hp.push((e.id(), x, y, p.hp.to_f32_for_render()));
         }
         for (e, _, p, pos) in (&entities, &creeps, &properties, &positions).join() {
             let (x, y) = pos.xy_f32();
-            all_entity_hp.push((e.id(), x, y, p.hp));
+            all_entity_hp.push((e.id(), x, y, p.hp.to_f32_for_render()));
         }
         for (e, _, p, pos) in (&entities, &towers, &properties, &positions).join() {
             let (x, y) = pos.xy_f32();
-            all_entity_hp.push((e.id(), x, y, p.hp));
+            all_entity_hp.push((e.id(), x, y, p.hp.to_f32_for_render()));
         }
 
         // P5: rebuild the shared AOI broadphase grid from the same pre-gather.
@@ -1141,14 +1143,17 @@ impl State {
                 // P3: 初始推 HeroStatic（冷資料）+ HeroHot（熱資料）；非 kcp fallback 到 legacy hero.stats
                 let gold = golds.get(entity).map(|g| g.0).unwrap_or(0);
                 let prop = properties.get(entity);
-                let (hp, mhp) = prop.map(|p| (p.hp, p.mhp)).unwrap_or((0.0, 0.0));
-                let (armor_b, mres_b, msd_b) = prop.map(|p| (p.def_physic, p.def_magic, p.msd)).unwrap_or((0.0, 0.0, 0.0));
+                // TODO Phase 1[d]: wire format — wire-format builders take f32; convert at boundary.
+                let (hp, mhp) = prop.map(|p| (p.hp.to_f32_for_render(), p.mhp.to_f32_for_render())).unwrap_or((0.0, 0.0));
+                let (armor_b, mres_b, msd_b) = prop
+                    .map(|p| (p.def_physic.to_f32_for_render(), p.def_magic.to_f32_for_render(), p.msd.to_f32_for_render()))
+                    .unwrap_or((0.0, 0.0, 0.0));
                 let buff_store = self.ecs.read_resource::<crate::ability_runtime::BuffStore>();
 
                 #[cfg(feature = "kcp")]
                 {
                     let (atk_dmg_b, atk_int_b, atk_rng_b) = atks.get(entity)
-                        .map(|a| (a.atk_physic.v, a.asd.v, a.range.v))
+                        .map(|a| (a.atk_physic.v.to_f32_for_render(), a.asd.v.to_f32_for_render(), a.range.v.to_f32_for_render()))
                         .unwrap_or((0.0, 0.0, 0.0));
                     // HeroStatic 先，client 端 shim 會快取後續 HeroHot 抵達時才合併 emit
                     let static_msg = crate::state::resource_management::build_hero_static_msg(entity, hero, pos_vek);
@@ -1162,7 +1167,7 @@ impl State {
                 #[cfg(not(feature = "kcp"))]
                 {
                     let (atk_dmg_b, atk_int_b, atk_rng_b, bullet_spd) = atks.get(entity)
-                        .map(|a| (a.atk_physic.v, a.asd.v, a.range.v, a.bullet_speed))
+                        .map(|a| (a.atk_physic.v.to_f32_for_render(), a.asd.v.to_f32_for_render(), a.range.v.to_f32_for_render(), a.bullet_speed.to_f32_for_render()))
                         .unwrap_or((0.0, 0.0, 0.0, 0.0));
                     let lives = self.ecs.read_resource::<PlayerLives>().0;
                     let stats_payload = crate::state::resource_management::build_hero_stats_payload(
@@ -1261,7 +1266,8 @@ impl State {
             let collision_radii = self.ecs.read_storage::<CollisionRadius>();
             use specs::Join;
             for (entity, _, pos) in (&entities, &towers, &positions).join() {
-                let hp = props.get(entity).map(|p| p.hp.v).unwrap_or(0.0);
+                // TODO Phase 1[d]: wire format — JSON outbound, kept f32 for compat.
+                let hp = props.get(entity).map(|p| p.hp.v.to_f32_for_render()).unwrap_or(0.0);
                 let is_base = is_bases.get(entity).is_some();
                 let is_enemy = factions.get(entity)
                     .map(|f| f.faction_id == FactionType::Enemy)
@@ -1316,7 +1322,12 @@ impl State {
             let blockers = self.ecs.read_storage::<RegionBlocker>();
             let mut list: Vec<serde_json::Value> = Vec::new();
             for (_e, p, r, _) in (&entities, &positions, &radii, &blockers).join() {
-                list.push(json!({ "x": p.0.x, "y": p.0.y, "r": r.0 }));
+                // TODO Phase 1[d]: wire format — JSON outbound, kept f32 for compat.
+                list.push(json!({
+                    "x": p.0.x.to_f32_for_render(),
+                    "y": p.0.y.to_f32_for_render(),
+                    "r": r.0.to_f32_for_render()
+                }));
             }
             let count = list.len();
             let payload = json!({ "blockers": list });
@@ -1407,10 +1418,10 @@ fn build_hero_payload(
     prop: Option<&CProperty>,
     cr: Option<&CollisionRadius>,
 ) -> serde_json::Value {
+    // TODO Phase 1[d]: wire format — JSON outbound, kept f32 for compat.
     let (hp, mhp, msd) = prop
-        .map(|p| (p.hp, p.mhp, p.msd))
+        .map(|p| (p.hp.to_f32_for_render(), p.mhp.to_f32_for_render(), p.msd.to_f32_for_render()))
         .unwrap_or((100.0, 100.0, 0.0));
-    // TODO Phase 1[d]: drop f32 boundary projection when wire-format takes Fixed32.
     let radius = cr.map(|c| c.0.to_f32_for_render()).unwrap_or(30.0);
     let (pos_x_f, pos_y_f) = pos.xy_f32();
     serde_json::json!({
@@ -1434,10 +1445,10 @@ fn build_unit_payload(
     prop: Option<&CProperty>,
     cr: Option<&CollisionRadius>,
 ) -> serde_json::Value {
+    // TODO Phase 1[d]: wire format — JSON outbound, kept f32 for compat.
     let (hp, mhp, msd) = prop
-        .map(|p| (p.hp, p.mhp, p.msd))
-        .unwrap_or((unit.current_hp as f32, unit.max_hp as f32, unit.move_speed));
-    // TODO Phase 1[d]: drop f32 boundary projection when wire-format takes Fixed32.
+        .map(|p| (p.hp.to_f32_for_render(), p.mhp.to_f32_for_render(), p.msd.to_f32_for_render()))
+        .unwrap_or((unit.current_hp as f32, unit.max_hp as f32, unit.move_speed.to_f32_for_render()));
     let radius = cr.map(|c| c.0.to_f32_for_render()).unwrap_or(20.0);
     let (pos_x_f, pos_y_f) = pos.xy_f32();
     serde_json::json!({
@@ -1461,11 +1472,11 @@ fn build_creep_payload(
     cr: Option<&CollisionRadius>,
     paths: Option<&BTreeMap<String, Path>>,
 ) -> serde_json::Value {
+    // TODO Phase 1[d]: wire format — JSON outbound, kept f32 for compat.
     let (hp, mhp, msd) = prop
-        .map(|p| (p.hp, p.mhp, p.msd))
+        .map(|p| (p.hp.to_f32_for_render(), p.mhp.to_f32_for_render(), p.msd.to_f32_for_render()))
         .unwrap_or((0.0, 0.0, 0.0));
     let display_name = creep.label.clone().unwrap_or_else(|| creep.name.clone());
-    // TODO Phase 1[d]: drop f32 boundary projection when wire-format takes Fixed32.
     let radius = cr.map(|c| c.0.to_f32_for_render()).unwrap_or(20.0);
     let (pos_x_f, pos_y_f) = pos.xy_f32();
     // 輸出從 creep 當前 checkpoint 起到終點的剩餘 waypoints，供前端 debug 畫線
@@ -1502,8 +1513,8 @@ fn build_tower_payload(
     faction: Option<&Faction>,
     is_base: bool,
 ) -> serde_json::Value {
-    let (hp, mhp) = prop.map(|p| (p.hp, p.mhp)).unwrap_or((100.0, 100.0));
-    // TODO Phase 1[d]: drop f32 boundary projection when wire-format takes Fixed32.
+    // TODO Phase 1[d]: wire format — JSON outbound, kept f32 for compat.
+    let (hp, mhp) = prop.map(|p| (p.hp.to_f32_for_render(), p.mhp.to_f32_for_render())).unwrap_or((100.0, 100.0));
     let radius = cr.map(|c| c.0.to_f32_for_render()).unwrap_or(50.0);
     let is_enemy = faction.map(|f| f.faction_id == FactionType::Enemy).unwrap_or(false);
     let name = match (is_enemy, is_base) {

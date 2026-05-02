@@ -138,7 +138,7 @@ impl StateInitializer {
         }
         log::warn!("▶▶ populate_region_blockers DONE: {} blockers created (polygons={})", n, polys.len());
         for (idx, (e, p)) in created.iter().take(3).enumerate() {
-            // TODO Phase 1[cd]: drop f32 projection when CollisionRadius consumers go native.
+            // TODO Phase 1[d]: drop f32 projection when CollisionRadius consumers go native.
             let r = ecs.read_storage::<CollisionRadius>().get(*e).map(|c| c.0.to_f32_for_render()).unwrap_or(0.0);
             log::warn!("▶▶   blocker[{}] entity={:?} pos=({:.1},{:.1}) r={:.1}",
                 idx, e, p.x, p.y, r);
@@ -187,11 +187,12 @@ impl StateInitializer {
                     status: CreepStatus::Walk
                 },
                 property: CProperty {
-                    hp: cp.HP,
-                    mhp: cp.HP,
-                    msd: cp.MoveSpeed,
-                    def_physic: cp.DefendPhysic,
-                    def_magic: cp.DefendMagic
+                    // TODO Phase 1[d]: campaign JSON CreepData fields are still f32; convert at ingress.
+                    hp: omoba_sim::Fixed32::from_raw((cp.HP * 1024.0) as i32),
+                    mhp: omoba_sim::Fixed32::from_raw((cp.HP * 1024.0) as i32),
+                    msd: omoba_sim::Fixed32::from_raw((cp.MoveSpeed * 1024.0) as i32),
+                    def_physic: omoba_sim::Fixed32::from_raw((cp.DefendPhysic * 1024.0) as i32),
+                    def_magic: omoba_sim::Fixed32::from_raw((cp.DefendMagic * 1024.0) as i32),
                 },
                 faction_name: cp.Faction.clone().unwrap_or_default(),
                 turn_speed_deg: cp.TurnSpeed.unwrap_or(90.0),
@@ -319,7 +320,16 @@ impl StateInitializer {
         let mut player_map = BTreeMap::<String, Player>::new();
         let player_name = crate::config::server_config::CONFIG.PLAYER_NAME.clone();
         let mut p = Player { name: player_name.clone(), cost: 100., towers: vec![] };
-        p.towers.push(TowerData { tpty: TProperty::new(10., 1, 100.), tatk: TAttack::new(3., 0.3, 300., 100.) });
+        // TODO Phase 1[d]: hard-coded test stats; should come from omoba_template_ids.
+        p.towers.push(TowerData {
+            tpty: TProperty::new(omoba_sim::Fixed32::from_i32(10), 1, omoba_sim::Fixed32::from_i32(100)),
+            tatk: TAttack::new(
+                omoba_sim::Fixed32::from_i32(3),
+                omoba_sim::Fixed32::from_raw(307), // ≈ 0.3
+                omoba_sim::Fixed32::from_i32(300),
+                omoba_sim::Fixed32::from_i32(100),
+            ),
+        });
         player_map.insert(player_name.clone(), p);
         log::info!("自動建立預設玩家: {}", player_name);
         ecs.insert(player_map);
@@ -393,15 +403,17 @@ impl StateInitializer {
             let hero_vel = Vel::zero();
 
             // 創建英雄的戰鬥屬性 (基於英雄等級和屬性計算)
-            let base_hp = 500.0 + (hero.level as f32 * hero.level_growth.hp_per_level);
-            let base_damage = 50.0 + (hero.level as f32 * hero.level_growth.damage_per_level);
-            
+            // TODO Phase 1[d]: hero spawn defaults still f32 literals; promote to Fixed32 templates.
+            use omoba_sim::Fixed32;
+            let base_hp = Fixed32::from_i32(500) + Fixed32::from_i32(hero.level) * hero.level_growth.hp_per_level;
+            let base_damage = Fixed32::from_i32(50) + Fixed32::from_i32(hero.level) * hero.level_growth.damage_per_level;
+
             let hero_properties = CProperty {
                 hp: base_hp,
                 mhp: base_hp,
-                msd: 350.0, // 基礎移動速度
-                def_physic: hero.strength as f32 * 0.2, // 基於力量的物理防禦
-                def_magic: hero.intelligence as f32 * 0.15, // 基於智力的魔法防禦
+                msd: Fixed32::from_i32(350), // 基礎移動速度
+                def_physic: Fixed32::from_i32(hero.strength) * Fixed32::from_raw(205), // ≈ 0.2 = 205/1024
+                def_magic: Fixed32::from_i32(hero.intelligence) * Fixed32::from_raw(154), // ≈ 0.15 = 154/1024
             };
 
             // 從 templates.json 取 hero stats（attack_range / turn_speed / 等）。
@@ -412,11 +424,10 @@ impl StateInitializer {
 
             let hero_attack = TAttack {
                 atk_physic: Vf32::new(base_damage),
-                asd: Vf32::new(1.0 / 1.7), // 攻擊間隔（攻擊速度的倒數）
-                // TODO Phase 1[cd]: drop conversion when TAttack migrates to Fixed32.
-                range: Vf32::new(hero_template_stats.attack_range.to_f32_for_render()),
-                asd_count: 0.0,
-                bullet_speed: 1000.0,
+                asd: Vf32::new(Fixed32::from_raw(602)), // 1/1.7 ≈ 0.588 (= 602/1024)
+                range: Vf32::new(hero_template_stats.attack_range),
+                asd_count: Fixed32::ZERO,
+                bullet_speed: Fixed32::from_i32(1000),
             };
 
             // 創建英雄圓形視野組件
@@ -425,7 +436,7 @@ impl StateInitializer {
                 180.0   // 英雄高度
             ).with_precision(720); // 高精度視野
 
-            // TODO Phase 1[cd]: drop conversion when TurnSpeed migrates to Angle/Fixed32.
+            // TODO Phase 1[d]: drop conversion when TurnSpeed migrates to Angle/Fixed32.
             // hero_template_stats.turn_speed is Fixed32 in degrees; convert to radians (f32) for omb internal.
             let hero_turn_rad = hero_template_stats.turn_speed.to_f32_for_render() * std::f32::consts::PI / 180.0;
             // Hero collision_radius 暫定 30（之前由 entity.json optional override，
@@ -447,7 +458,7 @@ impl StateInitializer {
                 .with(ItemEffects::default())
                 .with(Facing(omoba_sim::Angle::ZERO))
                 .with(FacingBroadcast(None))
-                // TODO Phase 1[cd]: drop conversion when TurnSpeed source is Fixed32 natively.
+                // TODO Phase 1[d]: drop conversion when TurnSpeed source is Fixed32 natively.
                 .with(TurnSpeed(omoba_sim::Fixed32::from_raw((hero_turn_rad * 1024.0) as i32)))
                 .with(CollisionRadius(omoba_sim::Fixed32::from_raw((hero_radius * 1024.0) as i32)))
                 .with(crate::scripting::ScriptUnitTag { unit_id: unit_id.clone() })
@@ -553,19 +564,25 @@ impl StateInitializer {
         turn_speed_deg: f32,
         collision_radius: f32,
     ) {
-        let prop = TProperty::new(hp, 0, 120.0);
-        let atk_c = TAttack::new(atk, asd, range, 1200.0);
+        // TODO Phase 1[d]: spawn_tower API still f32; convert at boundary into Fixed32 components.
+        use omoba_sim::Fixed32;
+        let hp_fx = Fixed32::from_raw((hp * 1024.0) as i32);
+        let range_fx = Fixed32::from_raw((range * 1024.0) as i32);
+        let atk_fx = Fixed32::from_raw((atk * 1024.0) as i32);
+        let asd_fx = Fixed32::from_raw((asd * 1024.0) as i32);
+        let prop = TProperty::new(hp_fx, 0, Fixed32::from_i32(120));
+        let atk_c = TAttack::new(atk_fx, asd_fx, range_fx, Fixed32::from_i32(1200));
         // Team id 0 for Player, 1 for Enemy (matches create_campaign_heroes convention)
         let team_id = if faction_type == FactionType::Player { 0 } else { 1 };
         let faction = Faction::new(faction_type.clone(), team_id);
         let vision = CircularVision::new(range + 200.0, 40.0).with_precision(180);
         // 傷害處理讀 CProperty.hp，所以塔也要有 CProperty
         let cprop = CProperty {
-            hp,
-            mhp: hp,
-            msd: 0.0,
-            def_physic: 0.0,
-            def_magic: 0.0,
+            hp: hp_fx,
+            mhp: hp_fx,
+            msd: Fixed32::ZERO,
+            def_physic: Fixed32::ZERO,
+            def_magic: Fixed32::ZERO,
         };
 
         // 擊毀獎勵：一般塔 150g / 200xp；基地 300g / 500xp；我方被擊毀不給獎勵
@@ -589,7 +606,7 @@ impl StateInitializer {
             .with(bounty)
             .with(Facing(omoba_sim::Angle::ZERO))
             .with(FacingBroadcast(None))
-            // TODO Phase 1[cd]: drop conversions when tower config feeds Fixed32 natively.
+            // TODO Phase 1[d]: drop conversions when tower config feeds Fixed32 natively.
             .with(TurnSpeed(omoba_sim::Fixed32::from_raw((turn_speed_deg.to_radians() * 1024.0) as i32)))
             .with(CollisionRadius(omoba_sim::Fixed32::from_raw((collision_radius * 1024.0) as i32)));
 
@@ -620,23 +637,26 @@ impl StateInitializer {
                 let unit_vel = Vel::zero();
 
                 let unit_properties = CProperty {
-                    hp: unit.current_hp as f32,
-                    mhp: unit.max_hp as f32,
+                    // TODO Phase 1[d]: Unit.current_hp / max_hp / base_damage are still i32; promote.
+                    hp: omoba_sim::Fixed32::from_i32(unit.current_hp),
+                    mhp: omoba_sim::Fixed32::from_i32(unit.max_hp),
                     msd: unit.move_speed,
                     def_physic: unit.base_armor,
                     def_magic: unit.magic_resistance,
                 };
 
                 let unit_attack = TAttack {
-                    atk_physic: Vf32::new(unit.base_damage as f32),
-                    asd: Vf32::new(1.0 / unit.attack_speed),
+                    atk_physic: Vf32::new(omoba_sim::Fixed32::from_i32(unit.base_damage)),
+                    // TODO Phase 1[d]: 1/attack_speed needs Fixed32 reciprocal; until then convert.
+                    asd: Vf32::new(omoba_sim::Fixed32::ONE / unit.attack_speed),
                     range: Vf32::new(unit.attack_range),
-                    asd_count: 0.0,
-                    bullet_speed: 800.0,
+                    asd_count: omoba_sim::Fixed32::ZERO,
+                    bullet_speed: omoba_sim::Fixed32::from_i32(800),
                 };
 
                 let enemy_vision = CircularVision::new(
-                    unit.attack_range + 150.0,
+                    // TODO Phase 1[d]: CircularVision::new still f32; convert at boundary.
+                    unit.attack_range.to_f32_for_render() + 150.0,
                     20.0
                 ).with_precision(360);
 
