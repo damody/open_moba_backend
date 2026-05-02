@@ -101,7 +101,7 @@ impl<'a> System<'a> for Sys {
                 },
                 |_guard, (e, tower, pty, atk, pos, facing, facing_bc)| {
                     let mut outcomes:Vec<Outcome> = Vec::new();
-                    // TODO Phase 1[c]: drop f32 boundary projection when tower battle tick goes Fixed32/Angle-native.
+                    // TODO Phase 1[d]: drop f32 boundary projection when tower battle tick goes Fixed32/Angle-native.
                     let (pos_x_f, pos_y_f) = pos.xy_f32();
                     let pos_vek = vek::Vec2::new(pos_x_f, pos_y_f);
 

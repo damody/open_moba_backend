@@ -121,7 +121,7 @@ impl<'a> System<'a> for Sys {
                 |_guard, (e, hero, pty, atk, pos, facing, facing_bc)| {
                     let mut outcomes: Vec<Outcome> = Vec::new();
 
-                    // TODO Phase 1[c]: drop f32 boundary projection when hero battle tick goes Fixed32/Angle-native.
+                    // TODO Phase 1[d]: drop f32 boundary projection when hero battle tick goes Fixed32/Angle-native.
                     let (pos_x_f, pos_y_f) = pos.xy_f32();
                     let pos_vek = vek::Vec2::new(pos_x_f, pos_y_f);
 
@@ -221,7 +221,7 @@ impl<'a> System<'a> for Sys {
                             if valid_targets.len() > 0 {
                                 // 攻擊最近的敵人：先轉向，角度 < 30° 才能開火
                                 let target = valid_targets[0].e;
-                                // TODO Phase 1[c]: drop f32 boundary when battle tick goes Fixed32/Angle-native.
+                                // TODO Phase 1[d]: drop f32 boundary when battle tick goes Fixed32/Angle-native.
                                 let target_pos = tr.pos.get(target)
                                     .map(|p| { let (x, y) = p.xy_f32(); vek::Vec2::new(x, y) })
                                     .unwrap_or(pos_vek);

@@ -50,7 +50,7 @@ impl<'a> System<'a> for Sys {
                 dead_entities.push(entity);
 
                 // 記錄死亡獎勵信息
-                // TODO Phase 1[c]: drop f32 boundary projection when Outcome / DeathReward go Fixed32-native.
+                // TODO Phase 1[d]: drop f32 boundary projection when Outcome / DeathReward go Fixed32-native.
                 let (px, py) = pos.xy_f32();
                 death_rewards.push(DeathReward {
                     dead_entity: entity,
@@ -107,7 +107,7 @@ fn distribute_death_rewards(
     
     // 找到範圍內的友方英雄
     for (hero_entity, hero, hero_pos, hero_faction) in (&tr.entities, &tr.heroes, &tr.positions, &tr.factions).join() {
-        // TODO Phase 1[c]: drop f32 boundary projection when DeathReward goes Fixed32-native.
+        // TODO Phase 1[d]: drop f32 boundary projection when DeathReward goes Fixed32-native.
         let (hx, hy) = hero_pos.xy_f32();
         let dx = hx - reward.position.x;
         let dy = hy - reward.position.y;

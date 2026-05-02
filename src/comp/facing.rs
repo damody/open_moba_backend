@@ -9,7 +9,7 @@ pub struct Facing(pub Angle);
 
 impl Facing {
     /// Boundary helper: construct from radian f32. Used at script / config / spawn boundary.
-    /// TODO Phase 1[cd]: drop when callers feed `Angle` natively.
+    /// TODO Phase 1[d]: drop when callers feed `Angle` natively.
     #[inline]
     pub fn from_rad_f32(rad: f32) -> Self {
         let ticks = (rad / (2.0 * std::f32::consts::PI)
@@ -18,7 +18,7 @@ impl Facing {
     }
 
     /// Boundary helper: lossy radian projection. Used at wire-format / battle-tick sites.
-    /// TODO Phase 1[cd]: drop on full migration.
+    /// TODO Phase 1[d]: drop on full migration.
     #[inline]
     pub fn rad_f32(&self) -> f32 {
         (self.0.ticks() as f32 / omoba_sim::trig::TAU_TICKS as f32)

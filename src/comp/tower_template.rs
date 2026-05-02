@@ -60,7 +60,7 @@ pub fn spawn_td_tower(world: &mut World, pos: Vec2<f32>, unit_id: &str) -> Optio
         .with(vision)
         .with(Facing(omoba_sim::Angle::ZERO))
         .with(crate::comp::FacingBroadcast(None))
-        // TODO Phase 1[cd]: drop conversion when tower template metadata feeds Fixed32 natively.
+        // TODO Phase 1[d]: drop conversion when tower template metadata feeds Fixed32 natively.
         .with(TurnSpeed(omoba_sim::Fixed32::from_raw((tpl.turn_speed_deg.to_radians() * 1024.0) as i32)))
         .with(CollisionRadius(omoba_sim::Fixed32::from_raw((tpl.footprint * 1024.0) as i32)))
         .with(crate::scripting::ScriptUnitTag { unit_id: unit_id.to_string() })

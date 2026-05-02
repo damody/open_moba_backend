@@ -35,7 +35,7 @@ impl<'a> System<'a> for Sys {
     const NAME: &'static str = "summon";
 
     fn run(_job: &mut Job<Self>, mut data: Self::SystemData) {
-        // TODO Phase 1[c]: drop conversion when summon tick goes Fixed32-native.
+        // TODO Phase 1[d]: drop conversion when summon tick goes Fixed32-native.
         let dt = data.dt.0.to_f32_for_render();
 
         // 1) MoveTarget 處理：先收集每個有 SummonedUnit + MoveTarget 的 entity 要改到哪個 pos /

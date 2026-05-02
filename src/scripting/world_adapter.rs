@@ -205,17 +205,10 @@ impl<'a> WorldAdapter<'a> {
 }
 
 // ============================================================
-// Phase 1a.4e ABI boundary conversions.
-// omb internal ECS still f32 in this sub-phase; scripts speak Fixed32/Vec2/Angle.
-// All call sites tagged `// TODO Phase 1[cd]` for cleanup when each ECS
-// component migrates to deterministic types.
+// Phase 1c.5 cleanup: battle / ability layer is fully Fixed32 / Vec2 / Angle now.
+// Remaining f32 boundaries are non-battle: Unit i32 hp, Projectile struct, VFX
+// bus, log formatters, RNG. Each is tagged `// TODO Phase 1[d]` for next phase.
 // ============================================================
-
-#[inline]
-fn f32_to_fixed(v: f32) -> Fixed32 {
-    // TODO Phase 1[cd]: drop conversion when source is Fixed32 natively (battle / ability layers).
-    Fixed32::from_raw((v * 1024.0) as i32)
-}
 
 impl<'a> GameWorld for WorldAdapter<'a> {
     // ---------------- Query ----------------
@@ -434,7 +427,7 @@ impl<'a> GameWorld for WorldAdapter<'a> {
             .cloned()
             .unwrap_or_else(|| Faction::new(FactionType::Player, 0));
 
-        // TODO Phase 1[cd]: drop conversions when Unit / spawn helpers migrate to Fixed32.
+        // TODO Phase 1[d]: drop conversions when Unit / spawn helpers migrate to Fixed32.
         let pos_x_f = pos.x.to_f32_for_render();
         let pos_y_f = pos.y.to_f32_for_render();
         let duration_f = duration.to_f32_for_render();
@@ -514,7 +507,7 @@ impl<'a> GameWorld for WorldAdapter<'a> {
             return EntityHandle::INVALID;
         };
         let from = spec.from;
-        // TODO Phase 1[cd]: drop these conversions when Projectile struct migrates to Fixed32.
+        // TODO Phase 1[d]: drop these conversions when Projectile struct migrates to Fixed32.
         let speed_f = spec.speed.to_f32_for_render();
         let damage_f = spec.damage.to_f32_for_render();
         let splash_radius_f = spec.splash_radius.to_f32_for_render();
@@ -538,7 +531,7 @@ impl<'a> GameWorld for WorldAdapter<'a> {
             }
         };
 
-        // TODO Phase 1[cd]: Projectile struct fields are still f32; render-side conversion at boundary.
+        // TODO Phase 1[d]: Projectile struct fields are still f32; render-side conversion at boundary.
         let from_x_f = from.x.to_f32_for_render();
         let from_y_f = from.y.to_f32_for_render();
         let tpos_x_f = tpos.x.to_f32_for_render();
@@ -596,7 +589,7 @@ impl<'a> GameWorld for WorldAdapter<'a> {
     }
 
     fn emit_explosion(&mut self, pos: Vec2, radius: Fixed32, duration: Fixed32) {
-        // TODO Phase 1[cd]: drop conversions when explosion VFX takes Fixed32.
+        // TODO Phase 1[d]: drop conversions when explosion VFX takes Fixed32.
         let _ = self.mqtx.try_send(make_game_explosion_script(
             pos.x.to_f32_for_render(),
             pos.y.to_f32_for_render(),
@@ -716,13 +709,13 @@ impl<'a> GameWorld for WorldAdapter<'a> {
     // ---------------- Side effects ----------------
 
     fn play_vfx(&mut self, id: RStr<'_>, at: Vec2) {
-        // TODO Phase 1[cd]: drop conversion when VFX bus takes Fixed32.
+        // TODO Phase 1[d]: drop conversion when VFX bus takes Fixed32.
         log::debug!("[scripting] play_vfx id={} at=({},{})", id.as_str(),
             at.x.to_f32_for_render(), at.y.to_f32_for_render());
     }
 
     fn play_sfx(&mut self, id: RStr<'_>, at: Vec2) {
-        // TODO Phase 1[cd]: drop conversion when VFX bus takes Fixed32.
+        // TODO Phase 1[d]: drop conversion when VFX bus takes Fixed32.
         log::debug!("[scripting] play_sfx id={} at=({},{})", id.as_str(),
             at.x.to_f32_for_render(), at.y.to_f32_for_render());
     }
@@ -730,7 +723,7 @@ impl<'a> GameWorld for WorldAdapter<'a> {
     // ---------------- RNG ----------------
 
     fn rand_unit(&mut self) -> Fixed32 {
-        // TODO Phase 1[cd]: replace with omoba_sim::SimRng for full deterministic
+        // TODO Phase 1[d]: replace with omoba_sim::SimRng for full deterministic
         // bit-exact replay. Today we're piggy-backing on Pcg64Mcg seeded from tick
         // counter (deterministic across replays, but f32 sample loses 6 bits at
         // the SCALE=1024 quantization).
