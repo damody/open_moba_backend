@@ -18,6 +18,8 @@ pub mod json_preprocessor;
 pub mod item;
 pub mod state;
 pub mod transport;
+#[cfg(feature = "kcp")]
+pub mod lockstep;
 
 // Re-export commonly used types
 pub use crate::comp::*;

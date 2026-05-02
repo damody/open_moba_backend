@@ -44,6 +44,8 @@ impl MqttHandler {
                         typed: None,
                         #[cfg(any(feature = "grpc", feature = "kcp"))]
                         policy: Some(crate::transport::BroadcastPolicy::PlayerOnly(request_data.player_name.clone())),
+                        #[cfg(feature = "kcp")]
+                        lockstep_frame: None,
                     };
                     
                     log::info!("📤 [DEBUG] 準備發送畫面資料到主題: {} - 消息內容長度: {} - 發送隊列容量: {}", response_topic, mqtt_msg.msg.len(), mqtx.len());

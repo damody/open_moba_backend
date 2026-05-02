@@ -91,6 +91,18 @@ pub struct OutboundMsg {
     #[cfg(any(feature = "grpc", feature = "kcp"))]
     #[serde(skip)]
     pub policy: Option<BroadcastPolicy>,
+    /// Phase 2 lockstep wire frame. When `Some`, the kcp transport's
+    /// broadcast thread emits the corresponding lockstep tag (0x11 / 0x12 /
+    /// 0x14 / 0x16) directly, bypassing the GameEvent envelope. When `None`,
+    /// the legacy `typed` / JSON path is used.
+    ///
+    /// The other `OutboundMsg` fields (`topic`, `msg`, `typed`, `policy`)
+    /// are ignored when `lockstep_frame` is set; the lockstep frame carries
+    /// its own routing (broadcast All for Tick/Hash, per-client for
+    /// GameStart/SnapshotResp).
+    #[cfg(feature = "kcp")]
+    #[serde(skip)]
+    pub lockstep_frame: Option<crate::lockstep::LockstepFrame>,
 }
 
 impl OutboundMsg {
@@ -115,6 +127,8 @@ impl OutboundMsg {
             typed: None,
             #[cfg(any(feature = "grpc", feature = "kcp"))]
             policy: None,
+            #[cfg(feature = "kcp")]
+            lockstep_frame: None,
         }
     }
 
@@ -139,6 +153,8 @@ impl OutboundMsg {
             typed: None,
             #[cfg(any(feature = "grpc", feature = "kcp"))]
             policy: None,
+            #[cfg(feature = "kcp")]
+            lockstep_frame: None,
         }
     }
 
@@ -167,6 +183,8 @@ impl OutboundMsg {
             // override via `.with_policy(...)` for All / PlayerOnly / AoiEntity.
             #[cfg(any(feature = "grpc", feature = "kcp"))]
             policy: Some(BroadcastPolicy::AoiPoint(x, y)),
+            #[cfg(feature = "kcp")]
+            lockstep_frame: None,
         }
     }
 
@@ -189,6 +207,7 @@ impl OutboundMsg {
             entity_pos: None,
             typed: Some(typed),
             policy: None,
+            lockstep_frame: None,
         }
     }
 
@@ -213,6 +232,7 @@ impl OutboundMsg {
             // viewport without per-site migration. Callers who need All /
             // AoiEntity / PlayerOnly override via `.with_policy(...)`.
             policy: Some(BroadcastPolicy::AoiPoint(x, y)),
+            lockstep_frame: None,
         }
     }
 
@@ -242,6 +262,7 @@ impl OutboundMsg {
             entity_pos: None,
             typed: Some(typed),
             policy: Some(BroadcastPolicy::All),
+            lockstep_frame: None,
         }
     }
 
@@ -264,6 +285,25 @@ impl OutboundMsg {
             entity_pos: None,
             typed: Some(typed),
             policy: Some(BroadcastPolicy::AoiEntity(entity_id)),
+            lockstep_frame: None,
+        }
+    }
+
+    /// Phase 2 lockstep: build an OutboundMsg carrying a lockstep wire frame.
+    /// The kcp transport's broadcast thread reads `lockstep_frame` and emits
+    /// the appropriate tag (0x11 / 0x12 / 0x14 / 0x16) to either all sessions
+    /// (TickBatch / StateHash) or one session (GameStart / SnapshotResp).
+    /// All other `OutboundMsg` fields are ignored on this path.
+    #[cfg(feature = "kcp")]
+    pub fn lockstep_frame(frame: crate::lockstep::LockstepFrame) -> OutboundMsg {
+        OutboundMsg {
+            topic: String::new(),
+            msg: String::new(),
+            time: SystemTime::now(),
+            entity_pos: None,
+            typed: None,
+            policy: Some(BroadcastPolicy::All),
+            lockstep_frame: Some(frame),
         }
     }
 
@@ -288,6 +328,8 @@ impl Default for OutboundMsg {
             typed: None,
             #[cfg(any(feature = "grpc", feature = "kcp"))]
             policy: None,
+            #[cfg(feature = "kcp")]
+            lockstep_frame: None,
         }
     }
 }

@@ -22,6 +22,8 @@ mod mqtt;
 mod vision;
 mod state;
 mod transport;
+#[cfg(feature = "kcp")]
+mod lockstep;
 pub mod config;
 use crate::config::server_config::CONFIG;
 use crate::json_preprocessor::JsonPreprocessor;
@@ -178,6 +180,43 @@ async fn main() -> std::result::Result<(), Error> {
     );
     #[cfg(feature = "kcp")]
     state.attach_aoi_grid(aoi_grid);
+
+    // Phase 2 lockstep: spawn the 60Hz TickBroadcaster alongside the legacy
+    // 30Hz simulation dispatcher. The broadcaster drains the InputBuffer per
+    // tick and emits TickBatch (tag 0x11) + periodic StateHash (tag 0x12) via
+    // the existing OutboundMsg channel; the kcp transport's broadcast thread
+    // (Task 2.3) routes lockstep frames distinctly from GameEvent.
+    //
+    // InputBuffer / LockstepState are held in Arc<Mutex<...>> shared with the
+    // kcp transport's JoinRequest / InputSubmit handlers (Task 2.3).
+    #[cfg(feature = "kcp")]
+    let (lockstep_state_handle, input_buffer_handle) = {
+        use std::sync::{Arc, Mutex as StdMutex};
+        use crate::lockstep::{InputBuffer, LockstepState, TickBroadcaster, TickBroadcasterConfig};
+
+        let master_seed = state.ecs().read_resource::<crate::comp::MasterSeed>().0;
+        let lockstep_state = Arc::new(StdMutex::new(LockstepState::new(master_seed)));
+        let input_buffer = Arc::new(StdMutex::new(InputBuffer::new()));
+
+        let broadcaster = TickBroadcaster::new(
+            TickBroadcasterConfig::default(),
+            input_buffer.clone(),
+            lockstep_state.clone(),
+            handle.tx.clone(),
+        );
+        tokio::spawn(broadcaster.run());
+        log::info!(
+            "Lockstep TickBroadcaster spawned at 60Hz (period {}us, state_hash every {} ticks)",
+            TickBroadcasterConfig::default().tick_period_us,
+            TickBroadcasterConfig::default().state_hash_interval,
+        );
+        (lockstep_state, input_buffer)
+    };
+    // Phase 2.3 will wire these into the kcp transport. For now they're just
+    // kept alive so the broadcaster's shared state isn't dropped.
+    #[cfg(feature = "kcp")]
+    let _lockstep_handles = (lockstep_state_handle, input_buffer_handle);
+
     let mut clock = Clock::new(Duration::from_secs_f64(1.0 / TPS as f64));
 
     // Game speed multiplier (debug)。每 real frame 跑 N 個 sub-tick，sim 推進 N×dt。
