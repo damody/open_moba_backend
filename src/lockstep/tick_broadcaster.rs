@@ -401,4 +401,62 @@ mod tests {
         }
         assert_eq!(buf.lock().unwrap().pending_count(), 0);
     }
+
+    /// Phase 3.5: when a `state_hash_rx` is wired (the production
+    /// configuration), broadcaster forwards the dispatcher-published hash
+    /// verbatim instead of the placeholder. Verifies the (tick, hash) pair
+    /// landing in `LockstepFrame::StateHash` matches what was sent on the
+    /// channel, and that placeholder formula is bypassed.
+    #[test]
+    fn broadcaster_uses_real_hash_when_rx_provided() {
+        let cfg = TickBroadcasterConfig {
+            tick_period_us: 16_667,
+            state_hash_interval: 3, // small interval so we hit it quickly
+        };
+        let (buf, state) = (
+            Arc::new(Mutex::new(InputBuffer::new())),
+            Arc::new(Mutex::new(LockstepState::new(0xCAFE_BABE_DEAD_BEEF))),
+        );
+        let (out_tx, out_rx) = unbounded();
+        let (hash_tx, hash_rx) = unbounded::<StateHashSample>();
+
+        let bc = TickBroadcaster::new(cfg, buf.clone(), state.clone(), out_tx)
+            .with_state_hash_rx(hash_rx);
+
+        // Send a known dispatcher sample: tick=42, hash=0xCAFE_FOOD_DEAD_FEED.
+        let known_hash: u64 = 0xCAFE_F00D_DEAD_FEED;
+        let dispatcher_tick: u32 = 42;
+        hash_tx.send((dispatcher_tick, known_hash)).expect("send hash sample");
+
+        // Fire 3 ticks → at tick=3 the broadcaster fires its state-hash
+        // interval and drains the channel.
+        for _ in 0..3 {
+            assert!(bc.fire_one_tick());
+        }
+
+        // Look for the StateHash frame.
+        let frames = drain_frames(&out_rx);
+        let mut found_state_hash = false;
+        for frame in &frames {
+            if let LockstepFrame::StateHash(sh) = frame {
+                assert_eq!(
+                    sh.hash, known_hash,
+                    "broadcaster must forward the dispatcher's real hash, not placeholder"
+                );
+                assert_eq!(
+                    sh.tick, dispatcher_tick,
+                    "broadcaster must forward the dispatcher's tick stamp, not its own 60Hz tick"
+                );
+                // Sanity: the placeholder for broadcaster_tick=3 would be
+                // 3 * 0x9E3779B97F4A7C15 — should NOT match.
+                let placeholder_3: u64 = 3u64.wrapping_mul(0x9E3779B97F4A7C15);
+                assert_ne!(
+                    sh.hash, placeholder_3,
+                    "broadcaster fell back to placeholder despite rx wired"
+                );
+                found_state_hash = true;
+            }
+        }
+        assert!(found_state_hash, "expected a StateHash frame in {:?}", frames);
+    }
 }
