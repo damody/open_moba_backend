@@ -2,6 +2,7 @@ use specs::storage::VecStorage;
 use specs::{Component, FlaggedStorage, NullStorage, saveload};
 use specs::Entity;
 use serde::{Deserialize, Serialize};
+use omoba_sim::Fixed32;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum CreepStatus {
@@ -32,11 +33,11 @@ impl Component for Creep {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CProperty {
-    pub hp: f32,  // 目前血量
-    pub mhp: f32,  // 最大血量
-    pub msd: f32, // 移動速度
-    pub def_physic: f32, // 物理防禦
-    pub def_magic: f32, // 魔法防禦
+    pub hp: Fixed32,  // 目前血量
+    pub mhp: Fixed32,  // 最大血量
+    pub msd: Fixed32, // 移動速度
+    pub def_physic: Fixed32, // 物理防禦
+    pub def_magic: Fixed32, // 魔法防禦
 }
 
 impl Component for CProperty {
@@ -90,9 +91,9 @@ pub struct CreepEmit {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TakenDamage {
-    pub phys: f32,
-    pub magi: f32,
-    pub real: f32,
+    pub phys: Fixed32,
+    pub magi: Fixed32,
+    pub real: Fixed32,
     pub ent: Entity,
     pub source: Entity,  // 攻擊者
 }

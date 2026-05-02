@@ -1,6 +1,7 @@
 use specs::storage::VecStorage;
 use specs::{Component, Entity};
 use serde::{Deserialize, Serialize};
+use omoba_sim::Fixed32;
 
 /// 傷害來源信息
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -34,9 +35,9 @@ pub struct DamageInstance {
 /// 傷害類型組合
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct DamageTypes {
-    pub physical: f32,
-    pub magical: f32,
-    pub pure: f32,      // 純粹傷害，無視防禦
+    pub physical: Fixed32,
+    pub magical: Fixed32,
+    pub pure: Fixed32,      // 純粹傷害，無視防禦
 }
 
 /// 傷害標記
@@ -46,8 +47,8 @@ pub struct DamageFlags {
     pub can_dodge: bool,        // 可以閃避
     pub ignore_armor: bool,     // 無視護甲
     pub ignore_magic_resist: bool, // 無視魔抗
-    pub lifesteal: f32,         // 生命偷取比例
-    pub spell_vamp: f32,        // 法術吸血比例
+    pub lifesteal: Fixed32,     // 生命偷取比例
+    pub spell_vamp: Fixed32,    // 法術吸血比例
 }
 
 /// 傷害結果 - 計算後的實際傷害
@@ -57,11 +58,11 @@ pub struct DamageResult {
     pub source: DamageSource,
     pub original_damage: DamageTypes,    // 原始傷害
     pub actual_damage: DamageTypes,      // 實際造成傷害
-    pub total_damage: f32,               // 總傷害
-    pub absorbed: f32,                   // 被護甲/魔抗吸收的傷害
+    pub total_damage: Fixed32,           // 總傷害
+    pub absorbed: Fixed32,               // 被護甲/魔抗吸收的傷害
     pub is_critical: bool,
     pub is_dodged: bool,
-    pub healing: f32,                    // 生命偷取/法術吸血的治療量
+    pub healing: Fixed32,                // 生命偷取/法術吸血的治療量
 }
 
 impl Component for DamageInstance {
@@ -73,28 +74,28 @@ impl Component for DamageResult {
 }
 
 impl DamageTypes {
-    pub fn new(physical: f32, magical: f32, pure: f32) -> Self {
+    pub fn new(physical: Fixed32, magical: Fixed32, pure: Fixed32) -> Self {
         DamageTypes { physical, magical, pure }
     }
-    
-    pub fn physical_only(damage: f32) -> Self {
-        DamageTypes { physical: damage, magical: 0.0, pure: 0.0 }
+
+    pub fn physical_only(damage: Fixed32) -> Self {
+        DamageTypes { physical: damage, magical: Fixed32::ZERO, pure: Fixed32::ZERO }
     }
-    
-    pub fn magical_only(damage: f32) -> Self {
-        DamageTypes { physical: 0.0, magical: damage, pure: 0.0 }
+
+    pub fn magical_only(damage: Fixed32) -> Self {
+        DamageTypes { physical: Fixed32::ZERO, magical: damage, pure: Fixed32::ZERO }
     }
-    
-    pub fn pure_only(damage: f32) -> Self {
-        DamageTypes { physical: 0.0, magical: 0.0, pure: damage }
+
+    pub fn pure_only(damage: Fixed32) -> Self {
+        DamageTypes { physical: Fixed32::ZERO, magical: Fixed32::ZERO, pure: damage }
     }
-    
-    pub fn total(&self) -> f32 {
+
+    pub fn total(&self) -> Fixed32 {
         self.physical + self.magical + self.pure
     }
-    
+
     pub fn is_zero(&self) -> bool {
-        self.physical <= 0.0 && self.magical <= 0.0 && self.pure <= 0.0
+        self.physical <= Fixed32::ZERO && self.magical <= Fixed32::ZERO && self.pure <= Fixed32::ZERO
     }
 }
 
@@ -105,37 +106,37 @@ impl DamageFlags {
             can_dodge: true,
             ignore_armor: false,
             ignore_magic_resist: false,
-            lifesteal: 0.0,
-            spell_vamp: 0.0,
+            lifesteal: Fixed32::ZERO,
+            spell_vamp: Fixed32::ZERO,
         }
     }
-    
+
     pub fn ability_damage() -> Self {
         DamageFlags {
             can_crit: false,
             can_dodge: false,
             ignore_armor: false,
             ignore_magic_resist: false,
-            lifesteal: 0.0,
-            spell_vamp: 0.0,
+            lifesteal: Fixed32::ZERO,
+            spell_vamp: Fixed32::ZERO,
         }
     }
-    
+
     pub fn true_damage() -> Self {
         DamageFlags {
             can_crit: false,
             can_dodge: false,
             ignore_armor: true,
             ignore_magic_resist: true,
-            lifesteal: 0.0,
-            spell_vamp: 0.0,
+            lifesteal: Fixed32::ZERO,
+            spell_vamp: Fixed32::ZERO,
         }
     }
 }
 
 impl DamageInstance {
     /// 創建普通攻擊傷害
-    pub fn new_attack(source: Entity, target: Entity, physical_damage: f32) -> Self {
+    pub fn new_attack(source: Entity, target: Entity, physical_damage: Fixed32) -> Self {
         DamageInstance {
             target,
             source: DamageSource {
@@ -169,7 +170,7 @@ impl DamageInstance {
 
 impl Default for DamageTypes {
     fn default() -> Self {
-        DamageTypes::new(0.0, 0.0, 0.0)
+        DamageTypes::new(Fixed32::ZERO, Fixed32::ZERO, Fixed32::ZERO)
     }
 }
 

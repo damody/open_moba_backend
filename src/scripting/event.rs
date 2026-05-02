@@ -12,6 +12,7 @@
 
 use omb_script_abi::types::DamageKind;
 use specs::Entity;
+use omoba_sim::Fixed32;
 
 #[derive(Clone, Debug)]
 pub enum ScriptEvent {
@@ -33,7 +34,7 @@ pub enum ScriptEvent {
     Damage {
         attacker: Option<Entity>,
         victim: Entity,
-        amount: f32,
+        amount: Fixed32,
         kind: DamageKind,
     },
     AttackHit {
@@ -49,7 +50,7 @@ pub enum ScriptEvent {
     AttackLanded {
         attacker: Entity,
         victim: Entity,
-        damage: f32,
+        damage: Fixed32,
     },
     /// 攻擊 miss / 被閃避。
     AttackFail {
@@ -65,20 +66,20 @@ pub enum ScriptEvent {
     // ---- 資源 / 狀態 ----
     HealthGained {
         e: Entity,
-        amount: f32,
+        amount: Fixed32,
     },
     ManaGained {
         e: Entity,
-        amount: f32,
+        amount: Fixed32,
     },
     SpentMana {
         caster: Entity,
-        cost: f32,
+        cost: Fixed32,
         ability_id: String,
     },
     HealReceived {
         target: Entity,
-        amount: f32,
+        amount: Fixed32,
         source: Option<Entity>,
     },
     StateChanged {
@@ -118,7 +119,7 @@ pub enum ScriptEvent {
 #[derive(Clone, Debug)]
 pub enum SkillTarget {
     Entity(Entity),
-    Point(f32, f32),
+    Point { x: Fixed32, y: Fixed32 },
     None,
 }
 

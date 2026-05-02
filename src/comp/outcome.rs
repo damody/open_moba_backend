@@ -12,6 +12,7 @@ use std::cmp::Ordering;
 use voracious_radix_sort::{Radixable, RadixSort};  // 基數排序演算法
 use crate::Tower;
 use crate::TAttack;
+use omoba_sim::{Fixed32, Vec2 as SimVec2};
 
 /// 遊戲結果事件枚舉
 /// 用於處理遊戲中各種事件的結果，例如傷害、死亡、治療等
@@ -19,10 +20,10 @@ use crate::TAttack;
 pub enum Outcome {
     /// 傷害事件
     Damage {
-        pos: Vec2<f32>,      // 傷害發生位置
-        phys: f32,           // 物理傷害數值
-        magi: f32,           // 魔法傷害數值
-        real: f32,           // 真實傷害數值（無視防禦）
+        pos: SimVec2,        // 傷害發生位置
+        phys: Fixed32,       // 物理傷害數值
+        magi: Fixed32,       // 魔法傷害數值
+        real: Fixed32,       // 真實傷害數值（無視防禦）
         source: Entity,      // 傷害來源實體
         target: Entity,      // 傷害目標實體
         /// P7: true 表示此 damage 由非 AOE projectile 命中產生，且彈丸在
@@ -36,13 +37,13 @@ pub enum Outcome {
     },
     /// 投射物軌跡事件
     ProjectileLine2 {
-        pos: Vec2<f32>,                // 投射物位置
+        pos: SimVec2,                  // 投射物位置
         source: Option<Entity>,        // 投射物來源實體（可選）
         target: Option<Entity>,        // 投射物目標實體（可選）
     },
     /// 死亡事件
     Death {
-        pos: Vec2<f32>,      // 死亡位置
+        pos: SimVec2,        // 死亡位置
         ent: Entity,         // 死亡的實體
     },
     /// 小兵生成事件
@@ -60,19 +61,19 @@ pub enum Outcome {
     },
     /// 塔防建築事件
     Tower {
-        pos: Vec2<f32>,      // 塔的位置
+        pos: SimVec2,        // 塔的位置
         td: TowerData,       // 塔的資料
     },
     /// 治療事件
     Heal {
-        pos: Vec2<f32>,      // 治療發生位置
+        pos: SimVec2,        // 治療發生位置
         target: Entity,      // 治療目標實體
-        amount: f32,         // 治療量
+        amount: Fixed32,     // 治療量
     },
     /// 更新攻擊狀態事件
     UpdateAttack {
         target: Entity,                  // 目標實體
-        asd_count: Option<f32>,          // 攻擊速度計數器（可選）
+        asd_count: Option<Fixed32>,      // 攻擊速度計數器（可選）
         cooldown_reset: bool,            // 是否重置冷卻時間
     },
     /// 獲得經驗值事件
@@ -87,10 +88,10 @@ pub enum Outcome {
     },
     /// 生成單位事件
     SpawnUnit {
-        pos: Vec2<f32>,                        // 生成位置
+        pos: SimVec2,                          // 生成位置
         unit: crate::comp::Unit,               // 單位類型
         faction: crate::comp::Faction,         // 陣營
-        duration: Option<f32>,                 // 持續時間（可選，用於臨時單位）
+        duration: Option<Fixed32>,             // 持續時間（可選，用於臨時單位）
     },
     /// TD 模式：小兵走到 path 終點（未被擊殺）。
     /// GameProcessor 會扣 PlayerLives 1、delete entity、並廣播 hero.stats（lives 更新）。
@@ -102,23 +103,23 @@ pub enum Outcome {
     AddBuff {
         target: Entity,
         buff_id: String,
-        duration: f32,
+        duration: Fixed32,
         #[serde(default)]
         payload: serde_json::Value,
     },
     /// Bomb 塔 AoE 命中 → 前端渲染「由小到大紅圈」爆炸特效。
     /// GameProcessor 收到後廣播 `game/explosion` 給前端。
     Explosion {
-        pos: Vec2<f32>,
-        radius: f32,
-        duration: f32,
+        pos: SimVec2,
+        radius: Fixed32,
+        duration: Fixed32,
     },
     /// Tack 塔放射針：無 target，從 `pos` 飛向 `end_pos`。
     /// projectile_tick 會每 tick 掃描沿路是否命中敵人（第一個打到就消失）。
     ProjectileDirectional {
-        pos: Vec2<f32>,
+        pos: SimVec2,
         source: Option<Entity>,
-        end_pos: Vec2<f32>,
+        end_pos: SimVec2,
     }
 }
 
@@ -126,22 +127,22 @@ pub enum Outcome {
 /// 儲存小兵的相關資訊
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CreepData {
-    pub pos: Vec2<f32>,      // 小兵位置
+    pub pos: SimVec2,         // 小兵位置
     pub creep: Creep,         // 小兵基本資料
     pub cdata: CProperty,     // 小兵屬性資料
     #[serde(default)]
     pub faction_name: String, // "Player" 或 "Enemy"；空視為 "Enemy"
     /// 轉速（度/秒）；預設 90
     #[serde(default = "default_creep_turn_speed_deg")]
-    pub turn_speed_deg: f32,
+    pub turn_speed_deg: Fixed32,
     /// 碰撞半徑；預設 20
     #[serde(default = "default_creep_cr")]
-    pub collision_radius: f32,
+    pub collision_radius: Fixed32,
 }
 
-fn default_creep_cr() -> f32 { 20.0 }
+fn default_creep_cr() -> Fixed32 { Fixed32::from_i32(20) }
 
-fn default_creep_turn_speed_deg() -> f32 { 90.0 }
+fn default_creep_turn_speed_deg() -> Fixed32 { Fixed32::from_i32(90) }
 
 /// 塔防建築資料結構
 /// 儲存塔的相關資訊

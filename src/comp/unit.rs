@@ -1,6 +1,7 @@
 use specs::storage::VecStorage;
 use specs::{Component, Entity};
 use serde::{Deserialize, Serialize};
+use omoba_sim::Fixed32;
 
 /// 統一的單位組件 - 代表遊戲中所有可攻擊的單位
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -8,25 +9,26 @@ pub struct Unit {
     pub id: String,
     pub name: String,
     pub unit_type: UnitType,
-    
+
     // 戰鬥屬性 - 這些會覆蓋或補充 CProperty 和 TAttack
     pub max_hp: i32,
     pub current_hp: i32,
-    pub base_armor: f32,
-    pub magic_resistance: f32,
+    pub base_armor: Fixed32,
+    pub magic_resistance: Fixed32,
     pub base_damage: i32,
-    pub attack_range: f32,
-    pub move_speed: f32,
-    pub attack_speed: f32,
-    
+    pub attack_range: Fixed32,
+    pub move_speed: Fixed32,
+    pub attack_speed: Fixed32,
+
     // AI 和行為
     pub ai_type: AiType,
-    pub aggro_range: f32,
+    pub aggro_range: Fixed32,
     pub abilities: Vec<String>,
-    
+
     // 狀態追蹤
     pub current_target: Option<Entity>,
-    pub last_attack_time: f32,
+    pub last_attack_time: Fixed32,
+    // TODO Phase 1[d]: read from cleaner deterministic source
     pub spawn_position: (f32, f32),
     
     // 獎勵和掉落
@@ -102,17 +104,17 @@ impl Unit {
             unit_type,
             max_hp: 100,
             current_hp: 100,
-            base_armor: 0.0,
-            magic_resistance: 0.0,
+            base_armor: Fixed32::ZERO,
+            magic_resistance: Fixed32::ZERO,
             base_damage: 10,
-            attack_range: 100.0,
-            move_speed: 300.0,
-            attack_speed: 1.0,
+            attack_range: Fixed32::from_i32(100),
+            move_speed: Fixed32::from_i32(300),
+            attack_speed: Fixed32::ONE,
             ai_type: AiType::Aggressive,
-            aggro_range: 800.0,
+            aggro_range: Fixed32::from_i32(800),
             abilities: Vec::new(),
             current_target: None,
-            last_attack_time: 0.0,
+            last_attack_time: Fixed32::ZERO,
             spawn_position: (0.0, 0.0),
             exp_reward: 25,
             gold_reward: 10,
@@ -142,26 +144,26 @@ impl Unit {
             _ => AiType::Defensive,
         };
 
-        // TODO Phase 1[cd]: drop conversions when Unit migrates to Fixed32.
-        // template-ids creep_stats is Fixed32; Unit ECS component is f32 / i32.
-        let attack_range_f32 = s.attack_range.to_f32_for_render();
+        // template-ids creep_stats already Fixed32; we keep i32 for hp/damage by converting via render boundary.
+        // TODO Phase 1[d]: when Unit.{max_hp,base_damage} migrate to Fixed32 too, drop the int conversions.
+        let attack_range = if s.attack_range.raw() > 0 { s.attack_range } else { Fixed32::from_i32(150) };
         Unit {
             id: creep_data.id.clone(),
             name: creep_display(cid).to_string(),
             unit_type,
             max_hp: s.hp.to_f32_for_render() as i32,
             current_hp: s.hp.to_f32_for_render() as i32,
-            base_armor: s.armor.to_f32_for_render(),
-            magic_resistance: s.magic_resistance.to_f32_for_render(),
+            base_armor: s.armor,
+            magic_resistance: s.magic_resistance,
             base_damage: s.damage.to_f32_for_render() as i32,
-            attack_range: if attack_range_f32 > 0.0 { attack_range_f32 } else { 150.0 },
-            move_speed: s.move_speed.to_f32_for_render(),
-            attack_speed: 1.0,
+            attack_range,
+            move_speed: s.move_speed,
+            attack_speed: Fixed32::ONE,
             ai_type,
-            aggro_range: 600.0,
+            aggro_range: Fixed32::from_i32(600),
             abilities: Vec::new(),
             current_target: None,
-            last_attack_time: 0.0,
+            last_attack_time: Fixed32::ZERO,
             spawn_position: (0.0, 0.0),
             exp_reward: s.exp_reward,
             gold_reward: s.gold_reward,
@@ -192,24 +194,24 @@ impl Unit {
             _ => AiType::Aggressive,
         };
 
-        // TODO Phase 1[cd]: drop conversions when Unit migrates to Fixed32.
+        // TODO Phase 1[d]: drop hp/damage int conversions when Unit migrates fully.
         Unit {
             id: enemy_data.id.clone(),
             name: creep_display(cid).to_string(),
             unit_type: unit_type.clone(),
             max_hp: s.hp.to_f32_for_render() as i32,
             current_hp: s.hp.to_f32_for_render() as i32,
-            base_armor: s.armor.to_f32_for_render(),
-            magic_resistance: s.magic_resistance.to_f32_for_render(),
+            base_armor: s.armor,
+            magic_resistance: s.magic_resistance,
             base_damage: s.damage.to_f32_for_render() as i32,
-            attack_range: s.attack_range.to_f32_for_render(),
-            move_speed: s.move_speed.to_f32_for_render(),
-            attack_speed: 1.0,
+            attack_range: s.attack_range,
+            move_speed: s.move_speed,
+            attack_speed: Fixed32::ONE,
             ai_type,
-            aggro_range: 800.0,
+            aggro_range: Fixed32::from_i32(800),
             abilities: enemy_data.abilities.clone(),
             current_target: None,
-            last_attack_time: 0.0,
+            last_attack_time: Fixed32::ZERO,
             spawn_position: (0.0, 0.0),
             exp_reward: s.exp_reward,
             gold_reward: s.gold_reward,
@@ -230,25 +232,40 @@ impl Unit {
     pub fn take_damage(&mut self, damage: i32, damage_type: DamageType) -> i32 {
         let actual_damage = match damage_type {
             DamageType::Physical => {
-                let damage_reduction = self.base_armor / (self.base_armor + 100.0);
-                ((damage as f32) * (1.0 - damage_reduction)) as i32
+                // damage_reduction = armor / (armor + 100)
+                let armor = self.base_armor;
+                let denom = armor + Fixed32::from_i32(100);
+                let reduction = armor / denom;
+                let mult = Fixed32::ONE - reduction;
+                (Fixed32::from_i32(damage) * mult).to_f32_for_render() as i32
             },
             DamageType::Magical => {
-                let damage_reduction = self.magic_resistance / 100.0;
-                ((damage as f32) * (1.0 - damage_reduction.min(0.75))) as i32
+                // damage_reduction = magic_resistance / 100, clamped to 0.75
+                let res_pct = self.magic_resistance / Fixed32::from_i32(100);
+                let cap = Fixed32::from_raw(768); // 0.75
+                let reduction = if res_pct > cap { cap } else { res_pct };
+                let mult = Fixed32::ONE - reduction;
+                (Fixed32::from_i32(damage) * mult).to_f32_for_render() as i32
             },
             DamageType::Pure => damage,
         };
-        
+
         self.current_hp = (self.current_hp - actual_damage).max(0);
         actual_damage
     }
-    
+
     /// 檢查是否可以攻擊
-    pub fn can_attack(&self, current_time: f32) -> bool {
+    pub fn can_attack(&self, current_time: Fixed32) -> bool {
         match self.ai_type {
             AiType::None => false, // 訓練假人等不能攻擊
-            _ => current_time - self.last_attack_time >= (1.0 / self.attack_speed),
+            _ => {
+                // (current - last) >= 1 / attack_speed  ⇔  (current - last) * attack_speed >= 1
+                if self.attack_speed.raw() <= 0 {
+                    return false;
+                }
+                let elapsed = current_time - self.last_attack_time;
+                elapsed * self.attack_speed >= Fixed32::ONE
+            }
         }
     }
     
@@ -270,27 +287,27 @@ impl Unit {
             unit_type: UnitType::Summon,
             max_hp: 150,        // 中等血量
             current_hp: 150,
-            base_armor: 2.0,    // 輕甲
-            magic_resistance: 0.0,
+            base_armor: Fixed32::from_i32(2),    // 輕甲
+            magic_resistance: Fixed32::ZERO,
             base_damage: 35,    // 較高攻擊力
-            attack_range: 450.0, // 遠程攻擊
-            move_speed: 280.0,  // 較慢移速
-            attack_speed: 0.8,  // 較慢攻速但傷害高
+            attack_range: Fixed32::from_i32(450), // 遠程攻擊
+            move_speed: Fixed32::from_i32(280),  // 較慢移速
+            attack_speed: Fixed32::from_raw(819),  // 0.8
             ai_type: AiType::Aggressive, // 主動攻擊
-            aggro_range: 500.0, // 攻擊索敵範圍
+            aggro_range: Fixed32::from_i32(500), // 攻擊索敵範圍
             abilities: Vec::new(),
             current_target: None,
-            last_attack_time: 0.0,
+            last_attack_time: Fixed32::ZERO,
             spawn_position: position,
             exp_reward: 0,      // 召喚物不給經驗
             gold_reward: 0,     // 召喚物不給金錢
             bounty_type: BountyType::None,
         };
-        
+
         unit.set_spawn_position(position.0, position.1);
         unit
     }
-    
+
     /// 創建弓箭手召喚單位
     pub fn create_archer(position: (f32, f32), owner_team: i32) -> Self {
         let mut unit = Unit {
@@ -299,27 +316,27 @@ impl Unit {
             unit_type: UnitType::Summon,
             max_hp: 120,        // 較低血量
             current_hp: 120,
-            base_armor: 1.0,    // 輕甲
-            magic_resistance: 0.0,
+            base_armor: Fixed32::ONE,    // 輕甲
+            magic_resistance: Fixed32::ZERO,
             base_damage: 25,    // 中等攻擊力
-            attack_range: 550.0, // 遠程攻擊
-            move_speed: 320.0,  // 較快移速
-            attack_speed: 1.2,  // 較快攻速
+            attack_range: Fixed32::from_i32(550), // 遠程攻擊
+            move_speed: Fixed32::from_i32(320),  // 較快移速
+            attack_speed: Fixed32::from_raw(1229), // 1.2
             ai_type: AiType::Aggressive,
-            aggro_range: 600.0,
+            aggro_range: Fixed32::from_i32(600),
             abilities: Vec::new(),
             current_target: None,
-            last_attack_time: 0.0,
+            last_attack_time: Fixed32::ZERO,
             spawn_position: position,
             exp_reward: 0,
             gold_reward: 0,
             bounty_type: BountyType::None,
         };
-        
+
         unit.set_spawn_position(position.0, position.1);
         unit
     }
-    
+
     /// 創建劍士召喚單位
     pub fn create_swordsman(position: (f32, f32), owner_team: i32) -> Self {
         let mut unit = Unit {
@@ -328,27 +345,27 @@ impl Unit {
             unit_type: UnitType::Summon,
             max_hp: 200,        // 高血量
             current_hp: 200,
-            base_armor: 3.0,    // 重甲
-            magic_resistance: 10.0,
+            base_armor: Fixed32::from_i32(3),    // 重甲
+            magic_resistance: Fixed32::from_i32(10),
             base_damage: 40,    // 高攻擊力
-            attack_range: 120.0, // 近戰攻擊
-            move_speed: 300.0,  // 中等移速
-            attack_speed: 0.9,  // 較慢攻速
+            attack_range: Fixed32::from_i32(120), // 近戰攻擊
+            move_speed: Fixed32::from_i32(300),  // 中等移速
+            attack_speed: Fixed32::from_raw(922),  // 0.9
             ai_type: AiType::Aggressive,
-            aggro_range: 400.0,
+            aggro_range: Fixed32::from_i32(400),
             abilities: Vec::new(),
             current_target: None,
-            last_attack_time: 0.0,
+            last_attack_time: Fixed32::ZERO,
             spawn_position: position,
             exp_reward: 0,
             gold_reward: 0,
             bounty_type: BountyType::None,
         };
-        
+
         unit.set_spawn_position(position.0, position.1);
         unit
     }
-    
+
     /// 創建法師召喚單位
     pub fn create_mage(position: (f32, f32), owner_team: i32) -> Self {
         let mut unit = Unit {
@@ -357,23 +374,23 @@ impl Unit {
             unit_type: UnitType::Summon,
             max_hp: 80,         // 低血量
             current_hp: 80,
-            base_armor: 0.0,    // 無護甲
-            magic_resistance: 25.0, // 高魔抗
+            base_armor: Fixed32::ZERO,    // 無護甲
+            magic_resistance: Fixed32::from_i32(25), // 高魔抗
             base_damage: 45,    // 高魔法攻擊力
-            attack_range: 600.0, // 超遠程攻擊
-            move_speed: 280.0,  // 慢移速
-            attack_speed: 0.7,  // 慢攻速但高傷害
+            attack_range: Fixed32::from_i32(600), // 超遠程攻擊
+            move_speed: Fixed32::from_i32(280),  // 慢移速
+            attack_speed: Fixed32::from_raw(717),  // 0.7
             ai_type: AiType::Defensive, // 防守型
-            aggro_range: 650.0,
+            aggro_range: Fixed32::from_i32(650),
             abilities: vec!["magic_missile".to_string()], // 有技能
             current_target: None,
-            last_attack_time: 0.0,
+            last_attack_time: Fixed32::ZERO,
             spawn_position: position,
             exp_reward: 0,
             gold_reward: 0,
             bounty_type: BountyType::None,
         };
-        
+
         unit.set_spawn_position(position.0, position.1);
         unit
     }
