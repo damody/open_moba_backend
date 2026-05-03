@@ -26,7 +26,7 @@ use specs::{Read, Write};
 use crate::comp::ecs::{Job, System};
 use crate::comp::{CurrentCreepWave, PendingPlayerInputs, Time};
 #[cfg(feature = "kcp")]
-use crate::comp::{PendingTowerSellQueue, PendingTowerSpawnQueue, PendingTowerUpgradeQueue};
+use crate::comp::{PendingItemUseQueue, PendingTowerSellQueue, PendingTowerSpawnQueue, PendingTowerUpgradeQueue};
 
 #[derive(Default)]
 pub struct Sys;
@@ -40,13 +40,14 @@ impl<'a> System<'a> for Sys {
         Write<'a, PendingTowerSpawnQueue>,
         Write<'a, PendingTowerSellQueue>,
         Write<'a, PendingTowerUpgradeQueue>,
+        Write<'a, PendingItemUseQueue>,
     );
 
     const NAME: &'static str = "player_input";
 
     fn run(
         _job: &mut Job<Self>,
-        (mut pending, mut cw, time, mut tower_q, mut sell_q, mut upgrade_q): Self::SystemData,
+        (mut pending, mut cw, time, mut tower_q, mut sell_q, mut upgrade_q, mut item_q): Self::SystemData,
     ) {
         if pending.by_player.is_empty() {
             return;
@@ -69,6 +70,7 @@ impl<'a> System<'a> for Sys {
                 &mut tower_q,
                 &mut sell_q,
                 &mut upgrade_q,
+                &mut item_q,
             );
         }
     }
@@ -94,6 +96,7 @@ fn route_input(
     tower_q: &mut PendingTowerSpawnQueue,
     sell_q: &mut PendingTowerSellQueue,
     upgrade_q: &mut PendingTowerUpgradeQueue,
+    item_q: &mut PendingItemUseQueue,
 ) {
     use crate::lockstep::PlayerInputEnum;
 
@@ -211,12 +214,26 @@ fn route_input(
             });
         }
         Some(PlayerInputEnum::ItemUse(i)) => {
-            log::trace!(
-                "player_input_tick: pid={} tick={} ItemUse item_slot={}",
-                player_id,
-                tick,
-                i.item_slot
+            log::info!(
+                "player_input_tick: pid={} tick={} ItemUse slot={} target_entity={:?}",
+                player_id, tick, i.item_slot, i.target_entity,
             );
+            // Defer to PendingItemUseQueue: ItemRegistry read + Inventory
+            // write + CProperty (HP / msd) write all need `&mut World`.
+            // Drained right after dispatch on both host and replica via
+            // `GameProcessor::drain_pending_item_uses`.
+            let target_pos = i.target_pos.as_ref().map(|v| {
+                omoba_sim::Vec2::new(
+                    omoba_sim::Fixed64::from_raw(v.x as i64),
+                    omoba_sim::Fixed64::from_raw(v.y as i64),
+                )
+            });
+            item_q.requests.push(crate::comp::PendingItemUse {
+                item_slot: i.item_slot,
+                target_pos,
+                target_entity: i.target_entity,
+                owner_pid: player_id,
+            });
         }
         None => {
             log::warn!(

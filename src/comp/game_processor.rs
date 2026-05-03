@@ -1128,6 +1128,181 @@ impl GameProcessor {
         }
     }
 
+    /// Phase 2.4: lockstep `PlayerInputEnum::ItemUse` handler.
+    ///
+    /// Mirrors the gameplay logic of
+    /// `state::resource_management::use_item` (the legacy MQTT entry):
+    ///   * Validate `slot < INVENTORY_SLOTS`.
+    ///   * Find the Player-faction Hero entity (TD single-player wallet);
+    ///     same lookup pattern as TowerSell / TowerUpgrade.
+    ///   * Read the slot, look up `ItemConfig` via `ItemRegistry`.
+    ///   * Reject if no item / cooldown not ready / no `active` effect.
+    ///   * Apply the active effect to the hero's `CProperty` (Shield → HP up
+    ///     to `mhp`, SprintBuff → `msd += bonus`, others log-only for now —
+    ///     matches the legacy MVP).
+    ///   * Set `item.cooldown_remaining = cfg.cooldown`.
+    ///
+    /// `target_pos` / `target_entity` from the proto are accepted but not
+    /// used by the current effect set; they are forwarded for future
+    /// targeted-active items.
+    ///
+    /// Runs deterministically on both host (omb) and replica (omfx sim_runner)
+    /// because the queue is filled identically on both sides from the same
+    /// `TickBatch.inputs` and drained at the same dispatch boundary.
+    pub fn handle_item_use_from_input(
+        world: &mut World,
+        item_slot: u32,
+        _target_pos: Option<omoba_sim::Vec2>,
+        _target_entity: Option<u32>,
+        owner_pid: u32,
+    ) -> Result<(), Error> {
+        use specs::Join;
+        use crate::comp::inventory::INVENTORY_SLOTS;
+
+        let slot_i = item_slot as usize;
+        if slot_i >= INVENTORY_SLOTS {
+            return Err(failure::err_msg(format!(
+                "ItemUse: invalid slot={} (max {}) pid={}",
+                slot_i, INVENTORY_SLOTS, owner_pid
+            )));
+        }
+
+        // Find the Player-faction hero (TD single-player wallet — same
+        // pattern as handle_tower_sell_from_input). Multi-player support
+        // would compare a per-player marker instead of the first hit.
+        let hero_entity = {
+            let entities = world.entities();
+            let heroes = world.read_storage::<Hero>();
+            let factions = world.read_storage::<Faction>();
+            let mut found = None;
+            for (e, _h, f) in (&entities, &heroes, &factions).join() {
+                if f.faction_id == FactionType::Player {
+                    found = Some(e);
+                    break;
+                }
+            }
+            found
+        };
+        let hero_entity = match hero_entity {
+            Some(e) => e,
+            None => {
+                return Err(failure::err_msg(format!(
+                    "ItemUse: no Player-faction Hero entity (pid={})",
+                    owner_pid
+                )));
+            }
+        };
+
+        // Look up the slot's ItemConfig + readiness.
+        let (item_cfg, can_use) = {
+            let invs = world.read_storage::<crate::comp::Inventory>();
+            let reg = world.read_resource::<crate::item::ItemRegistry>();
+            if let Some(inv) = invs.get(hero_entity) {
+                if let Some(Some(inst)) = inv.slots.get(slot_i) {
+                    let cfg = reg.get(&inst.item_id);
+                    let ready = inst.cooldown_remaining <= 0.0;
+                    (cfg, ready)
+                } else {
+                    (None, false)
+                }
+            } else {
+                (None, false)
+            }
+        };
+        let cfg = match item_cfg {
+            Some(c) => c,
+            None => {
+                return Err(failure::err_msg(format!(
+                    "ItemUse: empty slot={} or unknown item (pid={})",
+                    slot_i, owner_pid
+                )));
+            }
+        };
+        if !can_use {
+            return Err(failure::err_msg(format!(
+                "ItemUse: slot={} on cooldown (pid={})",
+                slot_i, owner_pid
+            )));
+        }
+        let active = match &cfg.active {
+            Some(a) => a.clone(),
+            None => {
+                return Err(failure::err_msg(format!(
+                    "ItemUse: slot={} item has no active effect (pid={})",
+                    slot_i, owner_pid
+                )));
+            }
+        };
+
+        // Apply effect to hero CProperty. Mirrors the MVP from
+        // state::resource_management::use_item — Shield + SprintBuff actually
+        // mutate stats; the others log only (gameplay TBD, no buff system).
+        {
+            let mut props = world.write_storage::<CProperty>();
+            if let Some(p) = props.get_mut(hero_entity) {
+                match &active {
+                    crate::item::ActiveEffect::Shield { amount, .. } => {
+                        let amt_fx = omoba_sim::Fixed64::from_raw((*amount * 1024.0) as i64);
+                        let summed = p.hp + amt_fx;
+                        p.hp = if summed > p.mhp { p.mhp } else { summed };
+                        log::info!("ItemUse Shield +{} HP pid={}", amount, owner_pid);
+                    }
+                    crate::item::ActiveEffect::RestoreMana { amount } => {
+                        log::info!("ItemUse RestoreMana +{} MP pid={} (mp not wired in MVP)", amount, owner_pid);
+                    }
+                    crate::item::ActiveEffect::SprintBuff { ms_bonus, duration } => {
+                        let bonus_fx = omoba_sim::Fixed64::from_raw((*ms_bonus * 1024.0) as i64);
+                        p.msd += bonus_fx;
+                        log::info!("ItemUse SprintBuff +{} ms {}s pid={} (MVP no expiry)", ms_bonus, duration, owner_pid);
+                    }
+                    crate::item::ActiveEffect::DamageReduce { percent, duration } => {
+                        log::info!("ItemUse DamageReduce {}% {}s pid={} (buff pipeline TBD)", percent * 100.0, duration, owner_pid);
+                    }
+                    crate::item::ActiveEffect::HeadshotNext { bonus_damage } => {
+                        log::info!("ItemUse HeadshotNext +{} dmg pid={} (projectile hook TBD)", bonus_damage, owner_pid);
+                    }
+                }
+            }
+        }
+
+        // Start cooldown on the slot.
+        {
+            let mut invs = world.write_storage::<crate::comp::Inventory>();
+            if let Some(inv) = invs.get_mut(hero_entity) {
+                if let Some(Some(inst)) = inv.slots.get_mut(slot_i) {
+                    inst.cooldown_remaining = cfg.cooldown;
+                }
+            }
+        }
+
+        log::info!(
+            "ItemUse ok pid={} slot={} item={} cooldown={}s",
+            owner_pid, slot_i, cfg.id, cfg.cooldown
+        );
+        Ok(())
+    }
+
+    /// Phase 2.4: drain `PendingItemUseQueue` and process each request.
+    /// Must be called after the dispatcher's `player_input_tick::Sys` has
+    /// populated the queue but before the next snapshot extract — both host
+    /// `state::core::tick` and replica `omfx sim_runner` invoke this.
+    pub fn drain_pending_item_uses(world: &mut World) {
+        let drained: Vec<crate::comp::PendingItemUse> = {
+            let mut q = world.write_resource::<crate::comp::PendingItemUseQueue>();
+            std::mem::take(&mut q.requests)
+        };
+        for req in drained {
+            if let Err(e) = Self::handle_item_use_from_input(
+                world, req.item_slot, req.target_pos, req.target_entity, req.owner_pid,
+            ) {
+                log::warn!(
+                    "ItemUse failed pid={} slot={}: {}",
+                    req.owner_pid, req.item_slot, e
+                );
+            }
+        }
+    }
+
 
     fn handle_creep_stop(ecs: &mut World, mqtx: &crossbeam_channel::Sender<OutboundMsg>, source: Entity, target: Entity) -> Result<(), Error> {
         let mut creeps = ecs.write_storage::<Creep>();

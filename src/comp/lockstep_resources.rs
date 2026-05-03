@@ -117,6 +117,27 @@ pub struct PendingTowerUpgrade {
     pub owner_pid: u32,
 }
 
+/// Phase 2.4: deferred item-use requests originating from
+/// `PlayerInputEnum::ItemUse`. Same rationale as the other Pending queues:
+/// `use_item` reads `ItemRegistry` resource + writes `Inventory` + writes
+/// `CProperty` + queries `Hero`/`Faction` storages, none of which is
+/// reachable from a specs `System` SystemData.
+///
+/// Invariant: must be drained every tick on both host and replica via
+/// `comp::GameProcessor::drain_pending_item_uses`.
+#[derive(Default)]
+pub struct PendingItemUseQueue {
+    pub requests: Vec<PendingItemUse>,
+}
+
+#[derive(Clone, Debug)]
+pub struct PendingItemUse {
+    pub item_slot: u32,
+    pub target_pos: Option<SimVec2>,
+    pub target_entity: Option<u32>,
+    pub owner_pid: u32,
+}
+
 /// Phase 5.3: latest serialized world snapshot for observer rejoin.
 ///
 /// Updated every `SNAPSHOT_INTERVAL_TICKS` dispatcher ticks (= 30 s @ 30 Hz).

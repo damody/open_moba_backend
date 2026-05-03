@@ -335,6 +335,11 @@ impl StateInitializer {
         // run on both host (omb) and replica (omfx sim_runner).
         ecs.insert(crate::comp::PendingTowerUpgradeQueue::default());
 
+        // Phase 2.4: deferred item-use requests from lockstep ItemUse inputs.
+        // Drained by `GameProcessor::drain_pending_item_uses` after the
+        // dispatcher run on both host (omb) and replica (omfx sim_runner).
+        ecs.insert(crate::comp::PendingItemUseQueue::default());
+
         // Phase 5.3: latest serialized world snapshot for observer rejoin.
         // Refreshed every SNAPSHOT_INTERVAL_TICKS (= 30 s @ 30 Hz) by the
         // dispatcher tick loop; consumed by the KCP transport's 0x16
