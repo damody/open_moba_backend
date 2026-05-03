@@ -574,59 +574,6 @@ impl GameProcessor {
             }
         };
 
-        // P3 fix: kill bounty 只在「真的升級」時才 push HeroStatic；
-        // hot 欄位（gold/xp）的每次增量由 core.rs::push_hero_stats_if_needed 的
-        // 0.3s tick 統一廣播，省掉「每殺一隻怪就噴一個 hero.hot（TD_STRESS 下 122 Hz）」
-        // 的無謂頻率。非 kcp build 同理：legacy hero.stats 也只在 leveled_up 時發。
-        if leveled_up {
-            let heroes = ecs.read_storage::<Hero>();
-            let golds = ecs.read_storage::<Gold>();
-            let props = ecs.read_storage::<CProperty>();
-            let atks = ecs.read_storage::<TAttack>();
-            let positions = ecs.read_storage::<Pos>();
-            let buff_store = ecs.read_resource::<crate::ability_runtime::BuffStore>();
-            if let Some(h) = heroes.get(hero_e) {
-                let g = golds.get(hero_e).map(|g| g.0).unwrap_or(0);
-                let prop = props.get(hero_e);
-                let (hp, mhp) = prop
-                    .map(|p| (p.hp.to_f32_for_render(), p.mhp.to_f32_for_render()))
-                    .unwrap_or((0.0, 0.0));
-                let (armor_b, mres_b, msd_b) = prop
-                    .map(|p| (p.def_physic.to_f32_for_render(), p.def_magic.to_f32_for_render(), p.msd.to_f32_for_render()))
-                    .unwrap_or((0.0, 0.0, 0.0));
-                let (px, py) = positions.get(hero_e).map(|p| p.xy_f32()).unwrap_or((0.0, 0.0));
-                let p_vek = vek::Vec2::new(px, py);
-                #[cfg(feature = "kcp")]
-                {
-                    let (atk_dmg_b, atk_int_b, atk_rng_b) = atks.get(hero_e)
-                        .map(|a| (a.atk_physic.v.to_f32_for_render(), a.asd.v.to_f32_for_render(), a.range.v.to_f32_for_render()))
-                        .unwrap_or((0.0, 0.0, 0.0));
-                    let static_msg = crate::state::resource_management::build_hero_static_msg(hero_e, h, p_vek);
-                    let _ = mqtx.send(static_msg);
-                    // 升級時還是 push 一次 hot，讓前端立刻看到 level/skill_points
-                    // 變化對應的 xp_next / hp(mhp 可能上調) — 不等 0.3s tick。
-                    let hot_msg = crate::state::resource_management::build_hero_hot_msg(
-                        hero_e, h, g, hp, mhp, armor_b, mres_b, msd_b,
-                        atk_dmg_b, atk_int_b, atk_rng_b, &buff_store, p_vek,
-                    );
-                    let _ = mqtx.send(hot_msg);
-                }
-                #[cfg(not(feature = "kcp"))]
-                {
-                    let lives = ecs.read_resource::<PlayerLives>().0;
-                    let (atk_dmg_b, atk_int_b, atk_rng_b, bullet_spd) = atks.get(hero_e)
-                        .map(|a| (a.atk_physic.v.to_f32_for_render(), a.asd.v.to_f32_for_render(), a.range.v.to_f32_for_render(), a.bullet_speed.to_f32_for_render()))
-                        .unwrap_or((0.0, 0.0, 0.0, 0.0));
-                    let payload = crate::state::resource_management::build_hero_stats_payload(
-                        hero_e, h, g, hp, mhp, armor_b, mres_b, msd_b,
-                        atk_dmg_b, atk_int_b, atk_rng_b, bullet_spd, lives, &buff_store,
-                    );
-                    let _ = mqtx.send(OutboundMsg::new_s_at(
-                        "td/all/res", "hero", "stats", payload, px, py,
-                    ));
-                }
-            }
-        }
         if leveled_up {
             log::info!("🎉 hero entity {:?} 升級！", hero_e);
         }
@@ -800,23 +747,6 @@ impl GameProcessor {
                 })
                 .build();
 
-            // P7 layered: non-AOE single-target → pre-declare damage so client
-            // can apply optimistically on visual impact. Heartbeat's
-            // in_flight_projectiles set tells client which predictions are
-            // still un-settled vs already reflected in authoritative hp.
-            // Wire format still f32 (Phase 2).
-            let predeclared_dmg: f32 = if splash_radius > Fixed64::ZERO || !is_real || ntarget == 0 {
-                0.0
-            } else {
-                dmg_phys_this.to_f32_for_render()
-            };
-            let _ = mqtx.try_send(make_projectile_create(
-                e.id(), ntarget,
-                start_x_f, start_y_f, p2_x_f, p2_y_f,
-                move_speed_f, flight_time_ms,
-                false, splash_radius.to_f32_for_render(), 0.0, kind_id,
-                predeclared_dmg,
-            ));
         }
         Ok(())
     }
@@ -870,17 +800,6 @@ impl GameProcessor {
             omoba_sim::Fixed64::from_raw(i64::MAX),
             serde_json::json!({ "movespeed_absolute_min": 10.0 }),
         );
-        // Pass internal template id (`creep_name`) not the display label — client
-        // looks up display via omoba-template-ids reverse table.
-        let _ = mqtx.try_send(make_creep_create(
-            e.id(),
-            pos.x.to_f32_for_render(),
-            pos.y.to_f32_for_render(),
-            hp.to_f32_for_render(),
-            mhp.to_f32_for_render(),
-            msd.to_f32_for_render(),
-            &creep_name,
-        ));
         Ok(())
     }
 
@@ -894,28 +813,9 @@ impl GameProcessor {
         duration: omoba_sim::Fixed64,
         payload: serde_json::Value,
     ) -> Result<(), Error> {
-        let has_move_speed_bonus = payload.get(StatKey::MoveSpeedBonus.as_str()).and_then(|v| v.as_f64()).is_some();
         {
             let mut store = ecs.write_resource::<crate::ability_runtime::BuffStore>();
             store.add(target, &buff_id, duration, payload);
-        }
-        // 只針對有移速影響、且是 creep 的目標廣播（hero 走 hero_move_tick 每幀發位置，不需要離散更新）
-        if has_move_speed_bonus {
-            let is_creep = ecs.read_storage::<Creep>().get(target).is_some();
-            if is_creep {
-                // Phase 1c.3: CProperty.msd is Fixed64 (Phase 1c.2); BuffStore::sum_add returns Fixed64.
-                // Convert to f32 at the wire boundary (creep_slow proto still f32).
-                let msd_f = ecs.read_storage::<CProperty>()
-                    .get(target).map(|c| c.msd.to_f32_for_render()).unwrap_or(0.0);
-                let sum_f: f32 = {
-                    let store = ecs.read_resource::<crate::ability_runtime::BuffStore>();
-                    store.sum_add(target, StatKey::MoveSpeedBonus).to_f32_for_render()
-                };
-                let effective = msd_f * (1.0 + sum_f).clamp(0.01, 1.0);
-                if let Some(tx) = ecs.read_resource::<Vec<crossbeam_channel::Sender<OutboundMsg>>>().get(0) {
-                    let _ = tx.try_send(make_creep_slow(target.id(), effective));
-                }
-            }
         }
         Ok(())
     }
@@ -994,29 +894,11 @@ impl GameProcessor {
             })
             .build();
 
-        // 前端渲染用：沒 target_id 時用 end_pos 做 end 位置
-        let flight_time_ms: u64 = (flight_time_s * 1000.0).max(1.0) as u64;
-        // P7: directional has no target_id → skip optimistic prediction (client
-        // can't know which creep will be hit until server resolves contact).
-        let _ = mqtx.try_send(make_projectile_create(
-            e.id(), 0,
-            pos.x.to_f32_for_render(), pos.y.to_f32_for_render(),
-            end_pos.x.to_f32_for_render(), end_pos.y.to_f32_for_render(),
-            move_speed_f, flight_time_ms,
-            true, 0.0, 80.0, kind_id,
-            0.0,
-        ));
         Ok(())
     }
 
     fn handle_tower_spawn(ecs: &mut World, mqtx: &crossbeam_channel::Sender<OutboundMsg>, pos: omoba_sim::Vec2, td: TowerData) -> Result<(), Error> {
-        let mut cjs = json!(td);
-        let e = ecs.create_entity().with(Pos(pos)).with(Tower::new()).with(td.tpty).with(td.tatk).build();
-        cjs.as_object_mut().unwrap().insert("id".to_owned(), json!(e.id()));
-        let pos_x_f = pos.x.to_f32_for_render();
-        let pos_y_f = pos.y.to_f32_for_render();
-        cjs.as_object_mut().unwrap().insert("pos".to_owned(), json!({"x": pos_x_f, "y": pos_y_f}));
-        mqtx.try_send(OutboundMsg::new_s_at("td/all/res", "tower", "C", cjs, pos_x_f, pos_y_f));
+        ecs.create_entity().with(Pos(pos)).with(Tower::new()).with(td.tpty).with(td.tatk).build();
         ecs.get_mut::<Searcher>().unwrap().tower.mark_dirty();
         Ok(())
     }
@@ -1116,50 +998,6 @@ impl GameProcessor {
                             source_name);
                     }
                 }
-            }
-        }
-
-        // Broadcast HP update to frontend
-        //
-        // P7: 當 `predeclared` = true 時，所有 contributors 都是已在
-        // ProjectileCreate.damage 先發過的 non-AOE 單體彈；client 已於 impact
-        // tick 自行扣血。跳過 creep.H 省 bytes。偏差由每 500ms 的 heartbeat
-        // hp_snapshot 校正。Miss（total <= 0）與死亡仍需照常廣播。
-        let target_pos_xy = ecs.read_storage::<Pos>().get(target).map(|p| p.xy_f32());
-        if let Some((tp_x, tp_y)) = target_pos_xy {
-            // Determine entity type for the broadcast
-            let entity_type = {
-                let heroes = ecs.read_storage::<Hero>();
-                let creeps = ecs.read_storage::<Creep>();
-                let units = ecs.read_storage::<Unit>();
-                if heroes.get(target).is_some() { "hero" }
-                else if creeps.get(target).is_some() { "creep" }
-                else if units.get(target).is_some() { "unit" }
-                else { "entity" }
-            };
-            let mqtx_list = ecs.read_resource::<Vec<crossbeam_channel::Sender<OutboundMsg>>>();
-            if let Some(tx) = mqtx_list.get(0) {
-                let total = phys + magi + real;
-                if total <= Fixed64::ZERO {
-                    // Miss 廣播：accuracy 擲骰失敗導致 0 傷害 → 前端顯示 "Miss"
-                    let _ = tx.send(OutboundMsg::new_s_at(
-                        "td/all/res",
-                        entity_type,
-                        "Miss",
-                        json!({ "id": target.id() }),
-                        tp_x, tp_y,
-                    ));
-                } else if !predeclared {
-                    // HP-only update. Action "H" keeps this separate from real move events;
-                    // the position in `new_s_at` is only used for viewport filtering (not the payload).
-                    let _ = tx.send(make_hp_update_at(
-                        entity_type,
-                        target.id(),
-                        hp_after.to_f32_for_render(),
-                        max_hp.to_f32_for_render(),
-                        tp_x, tp_y));
-                }
-                // predeclared && total > 0 → skip H. Client already applied HP.
             }
         }
 
