@@ -482,22 +482,6 @@ impl<'a> GameWorld for WorldAdapter<'a> {
             })
             .build();
 
-        // 廣播給前端
-        let _ = self.mqtx.try_send(OutboundMsg::new_s_at(
-            "td/all/res", "unit", "C",
-            json!({
-                "id": e.id(),
-                "unit_id": unit_type_str,
-                "name": unit.name,
-                "position": { "x": pos_x_f, "y": pos_y_f },
-                "hp": unit.current_hp,
-                "max_hp": unit.max_hp,
-                "move_speed": unit.move_speed,
-                "duration": duration_f,
-            }),
-            pos_x_f, pos_y_f,
-        ));
-
         Self::entity_to_handle(e)
     }
 
@@ -560,27 +544,6 @@ impl<'a> GameWorld for WorldAdapter<'a> {
                 stun_duration: spec.stun_duration,
             })
             .build();
-
-        let flight_time_ms: u64 = (flight_time_s * 1000.0).max(1.0) as u64;
-        // P7 layered (re-enabled): pre-declared single-target damage. AOE
-        // (splash > 0), directional, or untargeted shots still carry 0 —
-        // those don't fit the in_flight reconciliation model and stay
-        // server-broadcast (creep/H per impact).
-        let splash_radius_f = spec.splash_radius.to_f32_for_render();
-        let hit_radius_f = spec.hit_radius.to_f32_for_render();
-        let damage_f = spec.damage.to_f32_for_render();
-        let predeclared_dmg = if splash_radius_f > 0.0 || is_directional || target_id_out == 0 {
-            0.0
-        } else {
-            damage_f
-        };
-        let _ = self.mqtx.try_send(make_projectile_create_script(
-            e.id(), target_id_out,
-            from_x_f, from_y_f, end_x_f, end_y_f,
-            speed_f, flight_time_ms,
-            is_directional, splash_radius_f, hit_radius_f, spec.kind_id,
-            predeclared_dmg,
-        ));
 
         Self::entity_to_handle(e)
     }
