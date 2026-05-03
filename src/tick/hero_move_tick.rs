@@ -253,19 +253,6 @@ impl<'a> System<'a> for Sys {
             }
         }
 
-        // 廣播位置 + facing 更新
-        if !results.is_empty() {
-            if let Some(tx) = tw.mqtx.get(0) {
-                for (_, (id, x, y, facing)) in &results {
-                    let _ = tx.send(OutboundMsg::new_s(
-                        "td/all/res",
-                        "hero",
-                        "M",
-                        json!({"id": *id, "x": *x, "y": *y, "facing": *facing}),
-                    ));
-                }
-            }
-        }
     }
 }
 

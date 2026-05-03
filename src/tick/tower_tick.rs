@@ -211,9 +211,6 @@ impl<'a> System<'a> for Sys {
                                     };
                                     if needs_emit {
                                         facing_bc.0 = Some(new_rad);
-                                        if let Some(ref t) = tx {
-                                            let _ = t.try_send(make_entity_facing(e.id(), new_rad, pos_x_f, pos_y_f));
-                                        }
                                     }
 
                                     // 腳本塔：host 只負責轉向，不自動開火（腳本 on_tick 全權決定）
