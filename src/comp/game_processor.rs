@@ -482,13 +482,11 @@ impl GameProcessor {
             ""
         };
 
-        // P7.1: projectile 在 client 端靠 flight_time_ms 本地 auto-destroy
-        // （omfx 的 finished 列表在動畫時間到時自動 remove scene node），
-        // server 不用送 projectile.D。creep/tower/hero 死亡事件仍需 server
-        // 權威，因為死亡時機 client 無法預測。
-        if !entity_type.is_empty() && entity_type != "projectile" {
-            let _ = mqtx.send(make_entity_death(entity_type, entity.id()));
-        }
+        // Phase 1.6: 不再送 entity.death 事件；omfx sim_runner worker 用
+        // SimWorldSnapshot.removed_entity_ids（snapshot diff）自行偵測死亡並
+        // 釋放 per-eid 渲染快取。`entity_type` 計算保留供未來其他 emit 使用，
+        // 若 Phase 1.8 後變成完全無人引用再清掉。
+        let _ = entity_type;
 
         if is_enemy_base {
             // 敵方基地被擊毀 → 玩家勝利
@@ -834,8 +832,9 @@ impl GameProcessor {
         };
         log::info!("💔 小兵漏網！玩家生命 {} (entity={:?})", remaining, entity);
 
-        // 廣播 entity delete 讓前端移除 creep 圖
-        let _ = mqtx.try_send(make_entity_death("creep", entity.id()));
+        // Phase 1.6: 不再送 entity.death；omfx 用 SimWorldSnapshot.removed_entity_ids
+        // 偵測 creep 從 ECS 消失自動釋放 sprite / label slot。
+        let _ = entity;
 
         // 廣播專用的 game/lives 事件（前端 HUD 立即更新），不需要 hero.stats
         let _ = mqtx.try_send(make_game_lives(remaining));
