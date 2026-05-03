@@ -75,15 +75,6 @@ impl<'a> System<'a> for Sys {
             if let Some(cp) = data.cpropertys.get_mut(entity) {
                 let new_hp = cp.hp - dot * dt;
                 cp.hp = if new_hp < omoba_sim::Fixed64::ZERO { omoba_sim::Fixed64::ZERO } else { new_hp };
-                if let Some(t) = tx.as_ref() {
-                    let msg_type = if data.creeps.get(entity).is_some() { "creep" } else { "entity" };
-                    let _ = t.try_send(make_hp_update(
-                        msg_type,
-                        entity.id(),
-                        cp.hp.to_f32_for_render(),
-                        cp.mhp.to_f32_for_render(),
-                    ));
-                }
             }
         }
 
@@ -103,13 +94,12 @@ impl<'a> System<'a> for Sys {
             if touches_movespeed {
                 let is_creep = data.creeps.get(entity).is_some();
                 if is_creep {
-                    if let (Some(ref t), Some(cp)) = (&tx, data.cpropertys.get(entity)) {
+                    if let Some(cp) = data.cpropertys.get(entity) {
                         let stats = UnitStats::from_refs(
                             &*data.buffs,
                             data.is_buildings.get(entity).is_some(),
                         );
-                        let effective = stats.final_move_speed(cp.msd, entity);
-                        let _ = t.try_send(make_creep_slow(entity.id(), effective.to_f32_for_render()));
+                        let _ = stats.final_move_speed(cp.msd, entity);
                     }
                 }
             }

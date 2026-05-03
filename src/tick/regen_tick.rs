@@ -123,16 +123,6 @@ impl<'a> System<'a> for Sys {
             }
         }
 
-        // 廣播 HP 更新給前端（少量時才每 tick 送；太頻繁可改 throttling）
-        if let Some(ref t) = tx {
-            for (e, new_hp, mhp) in hp_updates {
-                let _ = t.try_send(make_hp_update(
-                    e.id(),
-                    new_hp.to_f32_for_render(),
-                    mhp.to_f32_for_render(),
-                ));
-            }
-        }
     }
 }
 
