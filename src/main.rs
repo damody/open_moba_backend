@@ -208,11 +208,15 @@ async fn main() -> std::result::Result<(), Error> {
     // reads from when serving 0x16 SnapshotResp.
     #[cfg(feature = "kcp")]
     state.attach_snapshot_store(snapshot_store_handle.clone());
-    // Phase 5.x bridge: thread the shared InputBuffer so State::tick can drain
-    // per-tick PlayerInputs into PendingPlayerInputs for the dispatcher.
-    // Without this, KCP-received PlayerInputs never reach player_input_tick.
+    // Phase 5.x bridge: receiver paired with TickBroadcaster's host_input_tx
+    // (wired below). State::tick drains drained-input batches per tick and
+    // mirrors them into PendingPlayerInputs for the dispatcher.
     #[cfg(feature = "kcp")]
-    state.attach_input_buffer(input_buffer_handle.clone());
+    let host_input_tx = {
+        let (host_input_tx, host_input_rx) = crossbeam_channel::unbounded();
+        state.attach_host_input_rx(host_input_rx);
+        host_input_tx
+    };
 
     // Phase 2 lockstep: spawn the 60Hz TickBroadcaster alongside the legacy
     // 30Hz simulation dispatcher. The broadcaster drains the InputBuffer per
@@ -238,7 +242,8 @@ async fn main() -> std::result::Result<(), Error> {
             lockstep_state_handle.clone(),
             handle.tx.clone(),
         )
-        .with_state_hash_rx(state_hash_rx);
+        .with_state_hash_rx(state_hash_rx)
+        .with_host_input_tx(host_input_tx.clone());
         tokio::spawn(broadcaster.run());
         log::info!(
             "Lockstep TickBroadcaster spawned at 60Hz (period {}us, state_hash every {} ticks)",

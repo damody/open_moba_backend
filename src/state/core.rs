@@ -101,12 +101,16 @@ pub struct State {
     /// non-lockstep builds — KCP transport falls back to empty bytes).
     #[cfg(feature = "kcp")]
     snapshot_store: Option<std::sync::Arc<std::sync::Mutex<crate::comp::SnapshotStore>>>,
-    /// Phase 5.x bridge: lockstep input buffer (filled by KCP transport's
-    /// 0x10 InputSubmit handler) drained per `tick()` into the ECS
-    /// `PendingPlayerInputs` resource so `player_input_tick::Sys` can
-    /// route StartRound / future commands. None on non-kcp builds.
+    /// Phase 5.x bridge: receiver paired with `TickBroadcaster::host_input_tx`.
+    /// Each broadcaster tick that drains inputs from `InputBuffer` for a
+    /// `TickBatch` also sends a copy down this channel; `State::tick` drains
+    /// it and writes the inputs into `PendingPlayerInputs` so the host's
+    /// `player_input_tick::Sys` sees them too. Without this, host runs at
+    /// 30Hz dispatcher tick while broadcaster runs at 60Hz with its own
+    /// counter — `drain_for_tick(my_local_tick)` never matches the keys
+    /// inputs were stored under.
     #[cfg(feature = "kcp")]
-    input_buffer: Option<std::sync::Arc<std::sync::Mutex<crate::lockstep::InputBuffer>>>,
+    host_input_rx: Option<crossbeam_channel::Receiver<Vec<(u32, crate::lockstep::PlayerInput)>>>,
 }
 
 /// Per-player visible entity sets, split by type so that specs `Entity::id()`
@@ -198,7 +202,7 @@ impl State {
             #[cfg(feature = "kcp")]
             snapshot_store: None,
             #[cfg(feature = "kcp")]
-            input_buffer: None,
+            host_input_rx: None,
         };
 
         state.initialize_standard_game();
@@ -280,7 +284,7 @@ impl State {
             #[cfg(feature = "kcp")]
             snapshot_store: None,
             #[cfg(feature = "kcp")]
-            input_buffer: None,
+            host_input_rx: None,
         };
 
         // 先載 scripts，才能讓 initialize_campaign_game 內的 send_tower_templates 拿到 registry
@@ -303,20 +307,22 @@ impl State {
         #[cfg(any(feature = "grpc", feature = "kcp"))]
         self.drain_viewport_updates();
 
-        // Phase 5.x bridge: drain lockstep InputBuffer → PendingPlayerInputs
-        // so player_input_tick::Sys can route StartRound (and future commands).
-        // Without this, omfx-side inputs reach the buffer but never the ECS
-        // dispatcher — every PlayerInput is silently dropped on the host.
+        // Phase 5.x bridge: pull all pending broadcaster-drained inputs into
+        // PendingPlayerInputs so player_input_tick::Sys can route StartRound
+        // (and future commands). Drains all available batches in this tick to
+        // catch up if the host runs at lower TPS than the 60Hz broadcaster.
         #[cfg(feature = "kcp")]
-        if let Some(buf) = self.input_buffer.as_ref() {
-            let cur_tick = self.local_tick as u32;
-            let drained = buf.lock().unwrap().drain_for_tick(cur_tick);
-            if !drained.is_empty() {
+        if let Some(rx) = self.host_input_rx.as_ref() {
+            let mut accumulated: Vec<(u32, crate::lockstep::PlayerInput)> = Vec::new();
+            while let Ok(batch) = rx.try_recv() {
+                accumulated.extend(batch);
+            }
+            if !accumulated.is_empty() {
                 use crate::comp::PendingPlayerInputs;
                 let mut pending = self.ecs.write_resource::<PendingPlayerInputs>();
-                pending.tick = cur_tick;
+                pending.tick = self.local_tick as u32;
                 pending.by_player.clear();
-                for (player_id, input) in drained {
+                for (player_id, input) in accumulated {
                     pending.by_player.insert(player_id, input);
                 }
             }
@@ -503,18 +509,17 @@ impl State {
         self.snapshot_store = Some(store);
     }
 
-    /// Phase 5.x bridge: register the shared input buffer (filled by KCP
-    /// transport's `0x10 InputSubmit` handler). Each `tick()` drains the
-    /// buffer for the current sim tick and writes the inputs into the ECS
-    /// `PendingPlayerInputs` resource, which `player_input_tick::Sys` then
-    /// routes to the appropriate game-side handler (StartRound flips
-    /// CurrentCreepWave.is_running, etc.).
+    /// Phase 5.x bridge: register the host input receiver paired with
+    /// `TickBroadcaster::with_host_input_tx`. Each `tick()` drains pending
+    /// per-tick input vecs and writes them into the ECS `PendingPlayerInputs`
+    /// resource, which `player_input_tick::Sys` then routes to game-side
+    /// handlers (StartRound flips CurrentCreepWave.is_running, etc.).
     #[cfg(feature = "kcp")]
-    pub fn attach_input_buffer(
+    pub fn attach_host_input_rx(
         &mut self,
-        buf: std::sync::Arc<std::sync::Mutex<crate::lockstep::InputBuffer>>,
+        rx: crossbeam_channel::Receiver<Vec<(u32, crate::lockstep::PlayerInput)>>,
     ) {
-        self.input_buffer = Some(buf);
+        self.host_input_rx = Some(rx);
     }
 
     /// 獲取 ECS 世界引用

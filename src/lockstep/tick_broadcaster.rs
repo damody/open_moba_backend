@@ -73,6 +73,13 @@ pub struct TickBroadcaster {
     /// the latest pending sample (logging a warn + emitting hash=0 if the
     /// channel is empty). `None` falls back to `placeholder_state_hash`.
     state_hash_rx: Option<Receiver<StateHashSample>>,
+    /// Phase 5.x bridge: optional sidecar that mirrors per-tick drained
+    /// PlayerInputs to the host's own dispatcher (State::tick reads from
+    /// the corresponding crossbeam Receiver). Without this, inputs reach
+    /// clients via TickBatch but never the host's `PendingPlayerInputs`,
+    /// so host-side game state (e.g. `CurrentCreepWave.is_running`) never
+    /// flips on Start Round.
+    host_input_tx: Option<crossbeam_channel::Sender<Vec<(u32, crate::lockstep::PlayerInput)>>>,
 }
 
 impl TickBroadcaster {
@@ -88,6 +95,7 @@ impl TickBroadcaster {
             state,
             out_tx,
             state_hash_rx: None,
+            host_input_tx: None,
         }
     }
 
@@ -95,6 +103,17 @@ impl TickBroadcaster {
     /// so existing call sites (incl. tests) don't break.
     pub fn with_state_hash_rx(mut self, rx: Receiver<StateHashSample>) -> Self {
         self.state_hash_rx = Some(rx);
+        self
+    }
+
+    /// Phase 5.x: attach a sidecar that forwards drained inputs to the host
+    /// dispatcher's `State::tick`. The host reads via the matching crossbeam
+    /// Receiver and mirrors them into its `PendingPlayerInputs` resource.
+    pub fn with_host_input_tx(
+        mut self,
+        tx: crossbeam_channel::Sender<Vec<(u32, crate::lockstep::PlayerInput)>>,
+    ) -> Self {
+        self.host_input_tx = Some(tx);
         self
     }
 
@@ -141,6 +160,18 @@ impl TickBroadcaster {
         // Drain inputs targeted at this tick.
         let inputs: Vec<(u32, _)> =
             self.input_buffer.lock().unwrap().drain_for_tick(tick);
+
+        // Phase 5.x: mirror drained inputs to host dispatcher (State::tick
+        // reads via crossbeam Receiver). Send before consuming `inputs` for
+        // the proto conversion below.
+        if !inputs.is_empty() {
+            if let Some(tx) = self.host_input_tx.as_ref() {
+                if let Err(e) = tx.send(inputs.clone()) {
+                    log::warn!("TickBroadcaster: host_input_tx send failed: {e}");
+                }
+            }
+        }
+
         let inputs_proto: Vec<InputForPlayer> = inputs
             .into_iter()
             .map(|(player_id, input)| InputForPlayer {
