@@ -326,7 +326,17 @@ pub async fn start(
     lockstep_state: Arc<std::sync::Mutex<crate::lockstep::LockstepState>>,
     lockstep_snapshot_store: Arc<std::sync::Mutex<crate::comp::SnapshotStore>>,
 ) -> Result<TransportHandle, Error> {
-    let (out_tx, out_rx): (Sender<OutboundMsg>, Receiver<OutboundMsg>) = bounded(10000);
+    // Phase 5.x backpressure fix: under TD_STRESS the host tick systems still
+    // emit legacy per-entity events (creep.M / creep.H / entity.F / projectile.C
+    // — Phase 5 design wants replica clients to compute these locally but the
+    // producers haven't all been cut yet). Combined with TickBroadcaster's
+    // 60Hz lockstep frames, peak rate is ~1000 msg/sec. The old `bounded(10000)`
+    // saturated in ~10s and `out_tx.send` (blocking) deadlocked the broadcaster
+    // task — clients then saw zero TickBatches and sim_runner blocked on its
+    // input recv. 100k buffers ~100s of headroom. Real fix is to drop the
+    // legacy event broadcasts entirely (Phase 5 scope) and/or split lockstep
+    // and game-event channels so a slow drain on one doesn't stall the other.
+    let (out_tx, out_rx): (Sender<OutboundMsg>, Receiver<OutboundMsg>) = bounded(100_000);
     let (in_tx, in_rx): (Sender<InboundMsg>, Receiver<InboundMsg>) = bounded(10000);
     let (query_tx, query_rx): (Sender<QueryRequest>, Receiver<QueryRequest>) = bounded(100);
     let (viewport_tx, viewport_rx): (Sender<ViewportMsg>, Receiver<ViewportMsg>) = bounded(1024);
