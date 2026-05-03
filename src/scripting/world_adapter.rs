@@ -29,61 +29,6 @@ use crate::scripting::tag::ScriptUnitTag;
 use crate::transport::OutboundMsg;
 
 // P2 typed payload helpers (local copies to avoid cross-module pub leakage).
-// P7: `damage` carries pre-declared single-target damage for latency hiding.
-#[inline]
-fn make_projectile_create_script(
-    id: u32, target_id: u32,
-    start_x: f32, start_y: f32, end_x: f32, end_y: f32,
-    move_speed: f32, flight_time_ms: u64,
-    directional: bool, splash_radius: f32, hit_radius: f32, kind_id: u16,
-    damage: f32,
-) -> OutboundMsg {
-    // Backward-compat JSON payload: still emit `kind` as a string so legacy
-    // non-kcp transports and omfx's debug inspector see the familiar tag.
-    let kind_str = omoba_template_ids::projectile_id_str(
-        omoba_template_ids::ProjectileKindId(kind_id),
-    );
-    #[cfg(feature = "kcp")]
-    {
-        use crate::state::resource_management::proto_build;
-        use crate::transport::TypedOutbound;
-        OutboundMsg::new_typed_at(
-            "td/all/res", "projectile", "C",
-            TypedOutbound::ProjectileCreate(proto_build::projectile_create(
-                id, target_id, start_x, start_y, end_x, end_y,
-                flight_time_ms, directional, splash_radius, hit_radius, kind_id,
-                damage,
-            )),
-            json!({
-                "id": id, "target_id": target_id,
-                "start_pos": { "x": start_x, "y": start_y },
-                "end_pos":   { "x": end_x,   "y": end_y },
-                "move_speed": move_speed, "flight_time_ms": flight_time_ms,
-                "kind": kind_str, "directional": directional,
-                "hit_radius": hit_radius, "splash_radius": splash_radius,
-                "damage": damage,
-            }),
-            start_x, start_y,
-        )
-    }
-    #[cfg(not(feature = "kcp"))]
-    {
-        OutboundMsg::new_s_at(
-            "td/all/res", "projectile", "C",
-            json!({
-                "id": id, "target_id": target_id,
-                "start_pos": { "x": start_x, "y": start_y },
-                "end_pos":   { "x": end_x,   "y": end_y },
-                "move_speed": move_speed, "flight_time_ms": flight_time_ms,
-                "kind": kind_str, "directional": directional,
-                "hit_radius": hit_radius, "splash_radius": splash_radius,
-                "damage": damage,
-            }),
-            start_x, start_y,
-        )
-    }
-}
-
 #[inline]
 fn make_game_explosion_script(x: f32, y: f32, radius: f32, duration: f32) -> OutboundMsg {
     #[cfg(feature = "kcp")]
@@ -492,34 +437,29 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         };
         let from = spec.from;
 
-        // 依 PathSpec 算 tpos + target option + end_pos（供前端直線渲染）
-        let (target_opt, tpos, end_pos, is_directional, target_id_out) = match spec.path {
+        // 依 PathSpec 算 tpos + target option（end_pos 不再需要 — wire-emit 已砍）
+        let (target_opt, tpos) = match spec.path {
             PathSpec::Homing { target } => {
                 let Some(target_ent) = Self::handle_to_entity(target) else {
                     return EntityHandle::INVALID;
                 };
                 let tp = self.cache.pos
                     .get(target_ent).map(|p| p.0).unwrap_or(from);
-                (Some(target_ent), tp, tp, false, target.id)
+                (Some(target_ent), tp)
             }
             PathSpec::Straight { end_pos } => {
-                (None, end_pos, end_pos, true, 0u32)
+                (None, end_pos)
             }
         };
 
-        // flight time math goes through f32 for the wire-format helper (kept on
-        // sqrt() / .max(0.01) clamp). Sim-side state in Projectile stays Fixed64.
-        let from_x_f = from.x.to_f32_for_render();
-        let from_y_f = from.y.to_f32_for_render();
-        let tpos_x_f = tpos.x.to_f32_for_render();
-        let tpos_y_f = tpos.y.to_f32_for_render();
-        let end_x_f = end_pos.x.to_f32_for_render();
-        let end_y_f = end_pos.y.to_f32_for_render();
+        // flight time math goes through f32 for the .max(0.01) clamp behavior
+        // (Fixed64 has no sqrt). Sim-side state in Projectile stays Fixed64.
         let speed_f = spec.speed.to_f32_for_render();
-
-        let dx = tpos_x_f - from_x_f;
-        let dy = tpos_y_f - from_y_f;
-        let initial_dist = (dx * dx + dy * dy).sqrt();
+        let initial_dist = {
+            let dx = (tpos.x - from.x).to_f32_for_render();
+            let dy = (tpos.y - from.y).to_f32_for_render();
+            (dx * dx + dy * dy).sqrt()
+        };
         let flight_time_s: f32 = if speed_f > 0.0 {
             (initial_dist / speed_f).max(0.01)
         } else { 0.01 };

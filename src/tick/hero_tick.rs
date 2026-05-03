@@ -20,28 +20,6 @@ const FACING_BROADCAST_THRESHOLD_RAD: f32 = 0.26;
 /// across systems would invalidate replay determinism.
 const OP_HERO_NO_TARGET_JITTER: u32 = 10;
 
-/// Build an entity.F OutboundMsg (prost EntityFacing under kcp).
-#[inline]
-fn make_entity_facing(id: u32, facing: f32, ent_x: f32, ent_y: f32) -> crate::transport::OutboundMsg {
-    #[cfg(feature = "kcp")]
-    {
-        use crate::state::resource_management::proto_build;
-        use crate::transport::TypedOutbound;
-        crate::transport::OutboundMsg::new_typed_at(
-            "td/all/res", "entity", "F",
-            TypedOutbound::EntityFacing(proto_build::entity_facing(id, facing)),
-            serde_json::json!({ "id": id, "facing": facing }),
-            ent_x, ent_y,
-        )
-    }
-    #[cfg(not(feature = "kcp"))]
-    {
-        let _ = (ent_x, ent_y);
-        crate::transport::OutboundMsg::new_s("td/all/res", "entity", "F",
-            serde_json::json!({ "id": id, "facing": facing }))
-    }
-}
-
 #[derive(SystemData)]
 pub struct HeroRead<'a> {
     entities: Entities<'a>,

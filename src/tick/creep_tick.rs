@@ -17,49 +17,6 @@ use omoba_sim::trig::{angle_rotate_toward, atan2 as sim_atan2, fixed_rad_to_tick
 /// MOBA 鏡頭下肉眼無感的 facing 變化量（~15°）。舊值 0.05 (~3°) 造成過多 F event。
 const FACING_BROADCAST_THRESHOLD_RAD: f32 = 0.26;
 
-/// Build a creep.stall OutboundMsg (prost CreepStall under kcp).
-#[inline]
-fn make_creep_stall(id: u32, x: f32, y: f32, facing: f32) -> OutboundMsg {
-    #[cfg(feature = "kcp")]
-    {
-        use crate::state::resource_management::proto_build;
-        use crate::transport::TypedOutbound;
-        OutboundMsg::new_typed_at(
-            "td/all/res", "creep", "stall",
-            TypedOutbound::CreepStall(proto_build::creep_stall(id, x, y, facing)),
-            json!({ "id": id, "x": x, "y": y, "facing": facing }),
-            x, y,
-        )
-    }
-    #[cfg(not(feature = "kcp"))]
-    {
-        OutboundMsg::new_s("td/all/res", "creep", "stall",
-            json!({ "id": id, "x": x, "y": y, "facing": facing }))
-    }
-}
-
-/// Build an entity.F OutboundMsg (prost EntityFacing under kcp).
-#[inline]
-fn make_entity_facing(id: u32, facing: f32, ent_x: f32, ent_y: f32) -> OutboundMsg {
-    #[cfg(feature = "kcp")]
-    {
-        use crate::state::resource_management::proto_build;
-        use crate::transport::TypedOutbound;
-        OutboundMsg::new_typed_at(
-            "td/all/res", "entity", "F",
-            TypedOutbound::EntityFacing(proto_build::entity_facing(id, facing)),
-            json!({ "id": id, "facing": facing }),
-            ent_x, ent_y,
-        )
-    }
-    #[cfg(not(feature = "kcp"))]
-    {
-        let _ = (ent_x, ent_y);
-        OutboundMsg::new_s("td/all/res", "entity", "F",
-            json!({ "id": id, "facing": facing }))
-    }
-}
-
 #[derive(SystemData)]
 pub struct CreepRead<'a> {
     entities: Entities<'a>,

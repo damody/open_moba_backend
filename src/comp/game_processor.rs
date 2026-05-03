@@ -21,210 +21,6 @@ const OP_PROJECTILE_STUN_ROLL: u32 = 21;
 // fall back to legacy JSON-only OutboundMsg construction.
 // ============================================================================
 
-/// projectile.C
-/// P7: `damage` is pre-declared when splash_radius == 0 && target_id != 0.
-/// Client applies HP locally at impact time (latency hiding); server may skip
-/// the creep.H emit on impact since the client already knows the damage.
-#[inline]
-fn make_projectile_create(
-    id: u32, target_id: u32,
-    start_x: f32, start_y: f32, end_x: f32, end_y: f32,
-    move_speed: f32, flight_time_ms: u64,
-    directional: bool, splash_radius: f32, hit_radius: f32, kind_id: u16,
-    damage: f32,
-) -> OutboundMsg {
-    let kind_str = omoba_template_ids::projectile_id_str(
-        omoba_template_ids::ProjectileKindId(kind_id),
-    );
-    #[cfg(feature = "kcp")]
-    {
-        use crate::state::resource_management::proto_build;
-        use crate::transport::TypedOutbound;
-        OutboundMsg::new_typed_at(
-            "td/all/res", "projectile", "C",
-            TypedOutbound::ProjectileCreate(proto_build::projectile_create(
-                id, target_id, start_x, start_y, end_x, end_y,
-                flight_time_ms, directional, splash_radius, hit_radius, kind_id,
-                damage,
-            )),
-            json!({
-                "id": id, "target_id": target_id,
-                "start_pos": { "x": start_x, "y": start_y },
-                "end_pos":   { "x": end_x,   "y": end_y },
-                "move_speed": move_speed, "flight_time_ms": flight_time_ms,
-                "kind": kind_str, "directional": directional,
-                "hit_radius": hit_radius, "splash_radius": splash_radius,
-                "damage": damage,
-            }),
-            start_x, start_y,
-        )
-    }
-    #[cfg(not(feature = "kcp"))]
-    {
-        OutboundMsg::new_s_at(
-            "td/all/res", "projectile", "C",
-            json!({
-                "id": id, "target_id": target_id,
-                "start_pos": { "x": start_x, "y": start_y },
-                "end_pos":   { "x": end_x,   "y": end_y },
-                "move_speed": move_speed, "flight_time_ms": flight_time_ms,
-                "kind": kind_str, "directional": directional,
-                "hit_radius": hit_radius, "splash_radius": splash_radius,
-                "damage": damage,
-            }),
-            start_x, start_y,
-        )
-    }
-}
-
-/// creep.C
-#[inline]
-fn make_creep_create(
-    id: u32, x: f32, y: f32, hp: f32, max_hp: f32, move_speed: f32, name: &str,
-) -> OutboundMsg {
-    #[cfg(feature = "kcp")]
-    {
-        use crate::state::resource_management::proto_build;
-        use crate::transport::TypedOutbound;
-        OutboundMsg::new_typed_at(
-            "td/all/res", "creep", "C",
-            TypedOutbound::CreepCreate(proto_build::creep_create(id, x, y, hp, max_hp, move_speed, name)),
-            json!({
-                "entity_id": id, "id": id,
-                "name": name,
-                "position": { "x": x, "y": y },
-                "hp": hp, "max_hp": max_hp, "move_speed": move_speed,
-            }),
-            x, y,
-        )
-    }
-    #[cfg(not(feature = "kcp"))]
-    {
-        OutboundMsg::new_s_at(
-            "td/all/res", "creep", "C",
-            json!({
-                "entity_id": id, "id": id, "name": name,
-                "position": { "x": x, "y": y },
-                "hp": hp, "max_hp": max_hp, "move_speed": move_speed,
-            }),
-            x, y,
-        )
-    }
-}
-
-/// entity death (msg_type preserves "creep"/"tower"/"projectile"/"hero")
-#[inline]
-fn make_entity_death(msg_type: &str, id: u32) -> OutboundMsg {
-    #[cfg(feature = "kcp")]
-    {
-        use crate::state::resource_management::proto_build;
-        use crate::transport::TypedOutbound;
-        // P9: stamp EntityKind so client shim routes the correct
-        // ("creep"/"tower"/"hero"/"unit"/"projectile", "D") pair.
-        let entity_kind = match msg_type {
-            "hero" => proto_build::EntityKind::Hero,
-            "unit" => proto_build::EntityKind::Unit,
-            "tower" => proto_build::EntityKind::Tower,
-            "creep" => proto_build::EntityKind::Creep,
-            "projectile" => proto_build::EntityKind::Projectile,
-            _ => proto_build::EntityKind::Entity,
-        };
-        // P5: death event at entity's last-known pos. AoiGrid lookup falls
-        // back to broadcast if the entity is already removed (safe — client
-        // still needs to tear down the visual).
-        OutboundMsg::new_typed_aoi_entity(
-            "td/all/res", msg_type, "D",
-            TypedOutbound::EntityDeath(proto_build::entity_death_with_kind(id, entity_kind)),
-            json!({ "id": id }),
-            id as u64,
-        )
-    }
-    #[cfg(not(feature = "kcp"))]
-    {
-        OutboundMsg::new_s("td/all/res", msg_type, "D", json!({ "id": id }))
-    }
-}
-
-/// creep.S
-#[inline]
-fn make_creep_slow(id: u32, move_speed: f32) -> OutboundMsg {
-    #[cfg(feature = "kcp")]
-    {
-        use crate::state::resource_management::proto_build;
-        use crate::transport::TypedOutbound;
-        // P5: slow is a per-entity event — resolve pos via AoiGrid lookup.
-        OutboundMsg::new_typed_aoi_entity(
-            "td/all/res", "creep", "S",
-            TypedOutbound::CreepSlow(proto_build::creep_slow(id, move_speed)),
-            json!({ "id": id, "move_speed": move_speed }),
-            id as u64,
-        )
-    }
-    #[cfg(not(feature = "kcp"))]
-    {
-        OutboundMsg::new_s("td/all/res", "creep", "S",
-            json!({ "id": id, "move_speed": move_speed }))
-    }
-}
-
-/// creep/entity/hero/unit.H
-#[inline]
-fn make_hp_update(msg_type: &str, id: u32, hp: f32, max_hp: f32) -> OutboundMsg {
-    #[cfg(feature = "kcp")]
-    {
-        use crate::state::resource_management::proto_build;
-        use crate::transport::TypedOutbound;
-        // P9: stamp EntityKind for shim routing.
-        let entity_kind = match msg_type {
-            "hero" => proto_build::EntityKind::Hero,
-            "unit" => proto_build::EntityKind::Unit,
-            "tower" => proto_build::EntityKind::Tower,
-            "creep" => proto_build::EntityKind::Creep,
-            _ => proto_build::EntityKind::Entity,
-        };
-        // P5: HP updates without position → resolve pos via AoiGrid entity lookup.
-        OutboundMsg::new_typed_aoi_entity(
-            "td/all/res", msg_type, "H",
-            TypedOutbound::CreepHp(proto_build::creep_hp_with_kind(id, hp, entity_kind)),
-            json!({ "id": id, "hp": hp, "max_hp": max_hp }),
-            id as u64,
-        )
-    }
-    #[cfg(not(feature = "kcp"))]
-    {
-        OutboundMsg::new_s("td/all/res", msg_type, "H",
-            json!({ "id": id, "hp": hp, "max_hp": max_hp }))
-    }
-}
-
-/// HP update with position (for viewport filter).
-#[inline]
-fn make_hp_update_at(msg_type: &str, id: u32, hp: f32, max_hp: f32, x: f32, y: f32) -> OutboundMsg {
-    #[cfg(feature = "kcp")]
-    {
-        use crate::state::resource_management::proto_build;
-        use crate::transport::TypedOutbound;
-        let entity_kind = match msg_type {
-            "hero" => proto_build::EntityKind::Hero,
-            "unit" => proto_build::EntityKind::Unit,
-            "tower" => proto_build::EntityKind::Tower,
-            "creep" => proto_build::EntityKind::Creep,
-            _ => proto_build::EntityKind::Entity,
-        };
-        OutboundMsg::new_typed_at(
-            "td/all/res", msg_type, "H",
-            TypedOutbound::CreepHp(proto_build::creep_hp_with_kind(id, hp, entity_kind)),
-            json!({ "id": id, "hp": hp, "max_hp": max_hp }),
-            x, y,
-        )
-    }
-    #[cfg(not(feature = "kcp"))]
-    {
-        OutboundMsg::new_s_at("td/all/res", msg_type, "H",
-            json!({ "id": id, "hp": hp, "max_hp": max_hp }), x, y)
-    }
-}
-
 /// game.explosion
 #[inline]
 fn make_game_explosion(x: f32, y: f32, radius: f32, duration: f32) -> OutboundMsg {
@@ -457,36 +253,30 @@ impl GameProcessor {
         // 若死者有 Bounty → 將金錢/經驗分給最近的友方英雄
         Self::distribute_bounty(ecs, next_outcomes, mqtx, entity);
 
-        let mut creeps = ecs.write_storage::<Creep>();
-        let mut towers = ecs.write_storage::<Tower>();
-        let mut projs = ecs.write_storage::<Projectile>();
-
-        let entity_type = if let Some(c) = creeps.get_mut(entity) {
-            if let Some(bt) = c.block_tower {
-                if let Some(t) = towers.get_mut(bt) {
-                    t.block_creeps.retain(|&x| x != entity);
+        // Cleanup creep/tower cross-links so the dead entity doesn't leave dangling
+        // block_tower / block_creeps references in survivors. Side-effects only —
+        // the entity itself is removed by `delete_entities` in process_outcomes.
+        // Phase 1.6: 不再廣播 entity.death；omfx sim_runner worker 用
+        // SimWorldSnapshot.removed_entity_ids 自行偵測死亡釋放渲染資源。
+        {
+            let mut creeps = ecs.write_storage::<Creep>();
+            let mut towers = ecs.write_storage::<Tower>();
+            if let Some(c) = creeps.get_mut(entity) {
+                if let Some(bt) = c.block_tower {
+                    if let Some(t) = towers.get_mut(bt) {
+                        t.block_creeps.retain(|&x| x != entity);
+                    }
+                }
+            } else if let Some(t) = towers.get_mut(entity) {
+                let blocked: Vec<Entity> = t.block_creeps.clone();
+                for ce in blocked {
+                    if let Some(c) = creeps.get_mut(ce) {
+                        c.block_tower = None;
+                        next_outcomes.push(Outcome::CreepWalk { target: ce });
+                    }
                 }
             }
-            "creep"
-        } else if let Some(t) = towers.get_mut(entity) {
-            for ce in t.block_creeps.iter() {
-                if let Some(c) = creeps.get_mut(*ce) {
-                    c.block_tower = None;
-                    next_outcomes.push(Outcome::CreepWalk { target: ce.clone() });
-                }
-            }
-            "tower"
-        } else if let Some(_p) = projs.get_mut(entity) {
-            "projectile"
-        } else {
-            ""
-        };
-
-        // Phase 1.6: 不再送 entity.death 事件；omfx sim_runner worker 用
-        // SimWorldSnapshot.removed_entity_ids（snapshot diff）自行偵測死亡並
-        // 釋放 per-eid 渲染快取。`entity_type` 計算保留供未來其他 emit 使用，
-        // 若 Phase 1.8 後變成完全無人引用再清掉。
-        let _ = entity_type;
+        }
 
         if is_enemy_base {
             // 敵方基地被擊毀 → 玩家勝利
@@ -834,7 +624,6 @@ impl GameProcessor {
 
         // Phase 1.6: 不再送 entity.death；omfx 用 SimWorldSnapshot.removed_entity_ids
         // 偵測 creep 從 ECS 消失自動釋放 sprite / label slot。
-        let _ = entity;
 
         // 廣播專用的 game/lives 事件（前端 HUD 立即更新），不需要 hero.stats
         let _ = mqtx.try_send(make_game_lives(remaining));
