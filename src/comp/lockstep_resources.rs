@@ -22,6 +22,8 @@ use std::collections::HashMap;
 #[cfg(feature = "kcp")]
 use crate::lockstep::PlayerInput;
 
+use omoba_sim::Vec2 as SimVec2;
+
 /// Per-tick collection of player inputs decoded from the most recent
 /// `TickBatch`. Cleared by the consumer system every tick. `tick` records
 /// the lockstep tick number these inputs target — currently used only
@@ -44,6 +46,28 @@ pub struct PendingPlayerInputs {
 #[cfg(not(feature = "kcp"))]
 #[derive(Default)]
 pub struct PendingPlayerInputs;
+
+/// Phase 2.1: deferred tower-spawn requests originating from
+/// `PlayerInputEnum::TowerPlace`. The lockstep `player_input_tick::Sys` only
+/// has SystemData access (no `&mut World`), but `spawn_td_tower` needs
+/// `&mut World` to query `TowerTemplateRegistry` + create entities + push
+/// `ScriptEvent::Spawn`. So we queue here and drain in `tick()` (host) /
+/// `sim_runner` (replica) right after the dispatcher runs.
+///
+/// Invariant: must be drained every tick on both host and replica so the two
+/// sims stay deterministically equivalent. `comp::GameProcessor::
+/// drain_pending_tower_spawns` is the single shared drain entry point.
+#[derive(Default)]
+pub struct PendingTowerSpawnQueue {
+    pub requests: Vec<PendingTowerSpawn>,
+}
+
+#[derive(Clone, Debug)]
+pub struct PendingTowerSpawn {
+    pub kind_id: u32,
+    pub pos: SimVec2,
+    pub owner_pid: u32,
+}
 
 /// Phase 5.3: latest serialized world snapshot for observer rejoin.
 ///

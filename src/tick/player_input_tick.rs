@@ -25,6 +25,8 @@ use specs::{Read, Write};
 
 use crate::comp::ecs::{Job, System};
 use crate::comp::{CurrentCreepWave, PendingPlayerInputs, Time};
+#[cfg(feature = "kcp")]
+use crate::comp::PendingTowerSpawnQueue;
 
 #[derive(Default)]
 pub struct Sys;
@@ -35,11 +37,12 @@ impl<'a> System<'a> for Sys {
         Write<'a, PendingPlayerInputs>,
         Write<'a, CurrentCreepWave>,
         Read<'a, Time>,
+        Write<'a, PendingTowerSpawnQueue>,
     );
 
     const NAME: &'static str = "player_input";
 
-    fn run(_job: &mut Job<Self>, (mut pending, mut cw, time): Self::SystemData) {
+    fn run(_job: &mut Job<Self>, (mut pending, mut cw, time, mut tower_q): Self::SystemData) {
         if pending.by_player.is_empty() {
             return;
         }
@@ -52,7 +55,7 @@ impl<'a> System<'a> for Sys {
             target_tick
         );
         for (player_id, input) in drained {
-            route_input(player_id, target_tick, input, &mut cw, totaltime);
+            route_input(player_id, target_tick, input, &mut cw, totaltime, &mut tower_q);
         }
     }
 }
@@ -74,6 +77,7 @@ fn route_input(
     input: crate::lockstep::PlayerInput,
     cw: &mut CurrentCreepWave,
     totaltime: f32,
+    tower_q: &mut PendingTowerSpawnQueue,
 ) {
     use crate::lockstep::PlayerInputEnum;
 
@@ -130,14 +134,26 @@ fn route_input(
             // entity as the caster.
         }
         Some(PlayerInputEnum::TowerPlace(t)) => {
-            log::trace!(
-                "player_input_tick: pid={} tick={} TowerPlace kind_id={} pos={:?}",
-                player_id,
-                tick,
-                t.tower_kind_id,
-                t.pos
+            let pos_raw = t.pos.as_ref();
+            let (px, py) = pos_raw.map(|v| (v.x, v.y)).unwrap_or((0, 0));
+            log::info!(
+                "player_input_tick: pid={} tick={} TowerPlace kind_id={} pos_raw=({}, {})",
+                player_id, tick, t.tower_kind_id, px, py,
             );
-            // Phase 4: GameProcessor::place_tower.
+            // Defer to PendingTowerSpawnQueue: spawn_td_tower needs &mut World
+            // (TowerTemplateRegistry lookup + entity creation + ScriptEvent::
+            // Spawn push) which a specs `System` can't borrow. The queue is
+            // drained right after dispatch on both host and replica via
+            // `GameProcessor::drain_pending_tower_spawns`.
+            let pos = omoba_sim::Vec2::new(
+                omoba_sim::Fixed64::from_raw(px as i64),
+                omoba_sim::Fixed64::from_raw(py as i64),
+            );
+            tower_q.requests.push(crate::comp::PendingTowerSpawn {
+                kind_id: t.tower_kind_id,
+                pos,
+                owner_pid: player_id,
+            });
         }
         Some(PlayerInputEnum::TowerUpgrade(u)) => {
             log::trace!(

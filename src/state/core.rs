@@ -333,6 +333,13 @@ impl State {
         self.system_dispatcher.run_systems(&self.ecs)?;
         let run_systems_ns = t_run.elapsed().as_nanos();
 
+        // Phase 2.1: drain `PendingTowerSpawnQueue` filled by
+        // `player_input_tick::Sys` during the dispatch above. Needs `&mut World`
+        // (TowerTemplateRegistry lookup + entity create + ScriptEvent::Spawn
+        // push) which a specs `System` can't borrow. Replica (omfx sim_runner)
+        // mirrors this call after its own dispatcher run.
+        crate::comp::GameProcessor::drain_pending_tower_spawns(&mut self.ecs);
+
         // 腳本 dispatch 階段（E1 — 序列、獨佔 World）
         // 放在並行系統之後、其他序列處理之前，確保腳本能看到本 tick 的
         // 完整戰鬥結果，也能修改狀態讓下游處理看見。

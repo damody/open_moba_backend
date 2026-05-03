@@ -690,7 +690,66 @@ impl GameProcessor {
         ecs.get_mut::<Searcher>().unwrap().tower.mark_dirty();
         Ok(())
     }
-    
+
+    /// Phase 2.1: lockstep `PlayerInputEnum::TowerPlace` handler.
+    ///
+    /// Called from `drain_pending_tower_spawns` after `PendingTowerSpawnQueue`
+    /// is filled by `tick::player_input_tick::Sys`. Maps `kind_id` (proto
+    /// `TowerPlace.tower_kind_id` = `omoba_template_ids::TowerId.0` as u32) to
+    /// the `unit_id` string the existing `tower_template::spawn_td_tower`
+    /// expects, and delegates the actual entity construction + ScriptEvent::
+    /// Spawn push there.
+    ///
+    /// Runs deterministically on both host (omb) and replica (omfx sim_runner)
+    /// because the queue is filled identically on both sides from the same
+    /// `TickBatch.inputs` and drained at the same dispatch boundary.
+    pub fn handle_tower_spawn_from_input(
+        world: &mut World,
+        kind_id: u32,
+        pos: omoba_sim::Vec2,
+        owner_pid: u32,
+    ) -> Result<specs::Entity, Error> {
+        let tid = omoba_template_ids::TowerId(kind_id as u16);
+        let unit_id = omoba_template_ids::tower_id_str(tid);
+        if unit_id.is_empty() || unit_id == "?" {
+            return Err(failure::err_msg(format!(
+                "TowerPlace: unknown tower_kind_id {} (pid={})",
+                kind_id, owner_pid
+            )));
+        }
+        // spawn_td_tower expects Vec2<f32>; bridge through to_f32_for_render.
+        let pos_f32 = vek::Vec2::new(pos.x.to_f32_for_render(), pos.y.to_f32_for_render());
+        let entity = crate::comp::tower_template::spawn_td_tower(world, pos_f32, unit_id)
+            .ok_or_else(|| failure::err_msg(format!(
+                "spawn_td_tower returned None for unit_id='{}'", unit_id
+            )))?;
+        log::info!(
+            "TowerPlace ok pid={} kind_id={} unit_id='{}' pos=({:.1},{:.1}) entity={:?}",
+            owner_pid, kind_id, unit_id, pos_f32.x, pos_f32.y, entity
+        );
+        Ok(entity)
+    }
+
+    /// Phase 2.1: drain `PendingTowerSpawnQueue` and spawn each requested tower.
+    /// Must be called after the dispatcher's `player_input_tick::Sys` has
+    /// populated the queue but before the next snapshot extract — both host
+    /// `state::core::tick` and replica `omfx sim_runner` invoke this.
+    pub fn drain_pending_tower_spawns(world: &mut World) {
+        let drained: Vec<crate::comp::PendingTowerSpawn> = {
+            let mut q = world.write_resource::<crate::comp::PendingTowerSpawnQueue>();
+            std::mem::take(&mut q.requests)
+        };
+        for req in drained {
+            if let Err(e) = Self::handle_tower_spawn_from_input(world, req.kind_id, req.pos, req.owner_pid) {
+                log::warn!(
+                    "TowerPlace failed pid={} kind_id={}: {}",
+                    req.owner_pid, req.kind_id, e
+                );
+            }
+        }
+    }
+
+
     fn handle_creep_stop(ecs: &mut World, mqtx: &crossbeam_channel::Sender<OutboundMsg>, source: Entity, target: Entity) -> Result<(), Error> {
         let mut creeps = ecs.write_storage::<Creep>();
         let c = creeps.get_mut(target).ok_or_else(|| failure::err_msg("Creep not found"))?;
