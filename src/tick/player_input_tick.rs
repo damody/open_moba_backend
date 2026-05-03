@@ -21,25 +21,30 @@
 //! the dispatcher always drains the resource so the kcp lockstep wire test
 //! in Phase 3.5 doesn't see a leak.
 
-use specs::Write;
+use specs::{Read, Write};
 
 use crate::comp::ecs::{Job, System};
-use crate::comp::PendingPlayerInputs;
+use crate::comp::{CurrentCreepWave, PendingPlayerInputs, Time};
 
 #[derive(Default)]
 pub struct Sys;
 
 #[cfg(feature = "kcp")]
 impl<'a> System<'a> for Sys {
-    type SystemData = Write<'a, PendingPlayerInputs>;
+    type SystemData = (
+        Write<'a, PendingPlayerInputs>,
+        Write<'a, CurrentCreepWave>,
+        Read<'a, Time>,
+    );
 
     const NAME: &'static str = "player_input";
 
-    fn run(_job: &mut Job<Self>, mut pending: Self::SystemData) {
+    fn run(_job: &mut Job<Self>, (mut pending, mut cw, time): Self::SystemData) {
         if pending.by_player.is_empty() {
             return;
         }
         let target_tick = pending.tick;
+        let totaltime = time.0 as f32;
         let drained: Vec<_> = pending.by_player.drain().collect();
         log::trace!(
             "player_input_tick: draining {} inputs for tick {}",
@@ -47,7 +52,7 @@ impl<'a> System<'a> for Sys {
             target_tick
         );
         for (player_id, input) in drained {
-            route_input(player_id, target_tick, input);
+            route_input(player_id, target_tick, input, &mut cw, totaltime);
         }
     }
 }
@@ -63,10 +68,34 @@ impl<'a> System<'a> for Sys {
 }
 
 #[cfg(feature = "kcp")]
-fn route_input(player_id: u32, tick: u32, input: crate::lockstep::PlayerInput) {
+fn route_input(
+    player_id: u32,
+    tick: u32,
+    input: crate::lockstep::PlayerInput,
+    cw: &mut CurrentCreepWave,
+    totaltime: f32,
+) {
     use crate::lockstep::PlayerInputEnum;
 
     match input.action {
+        Some(PlayerInputEnum::StartRound(_)) => {
+            // TD: client pressed "Start Round". Flip is_running so creep_wave_tick
+            // begins emitting the next wave. wave_start_time anchors per-creep
+            // delays at the moment the round started.
+            if !cw.is_running {
+                cw.is_running = true;
+                cw.wave_start_time = totaltime;
+                log::info!(
+                    "player_input_tick: pid={} tick={} StartRound → wave={} start_time={:.2}",
+                    player_id, tick, cw.wave, totaltime,
+                );
+            } else {
+                log::warn!(
+                    "player_input_tick: pid={} tick={} StartRound ignored (round already running)",
+                    player_id, tick,
+                );
+            }
+        }
         Some(PlayerInputEnum::NoOp(_)) => {
             // Ack-only — keepalive heartbeat with no side effects.
         }
