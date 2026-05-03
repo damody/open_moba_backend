@@ -69,6 +69,27 @@ pub struct PendingTowerSpawn {
     pub owner_pid: u32,
 }
 
+/// Phase 2.2: deferred tower-sell requests originating from
+/// `PlayerInputEnum::TowerSell`. Same rationale as `PendingTowerSpawnQueue`:
+/// the lockstep `player_input_tick::Sys` only has SystemData access, but
+/// selling a tower needs `&mut World` (read template registry for refund,
+/// write `Gold` storage on hero, delete entity, clear `BuffStore`). So we
+/// queue here and drain in `tick()` (host) / `sim_runner` (replica) right
+/// after the dispatcher runs.
+///
+/// Invariant: must be drained every tick on both host and replica via
+/// `comp::GameProcessor::drain_pending_tower_sells`.
+#[derive(Default)]
+pub struct PendingTowerSellQueue {
+    pub requests: Vec<PendingTowerSell>,
+}
+
+#[derive(Clone, Debug)]
+pub struct PendingTowerSell {
+    pub tower_entity_id: u32,
+    pub owner_pid: u32,
+}
+
 /// Phase 5.3: latest serialized world snapshot for observer rejoin.
 ///
 /// Updated every `SNAPSHOT_INTERVAL_TICKS` dispatcher ticks (= 30 s @ 30 Hz).

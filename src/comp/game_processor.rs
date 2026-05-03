@@ -749,6 +749,166 @@ impl GameProcessor {
         }
     }
 
+    /// Phase 2.2: lockstep `PlayerInputEnum::TowerSell` handler.
+    ///
+    /// Called from `drain_pending_tower_sells` after `PendingTowerSellQueue`
+    /// is filled by `tick::player_input_tick::Sys`. Mirrors the existing
+    /// MQTT/JSON `state::resource_management::sell_tower` convention:
+    ///   * 85% base cost refund + 75% per upgrade level refund (read from
+    ///     `TowerTemplateRegistry` + `TowerUpgradeRegistry` via the entity's
+    ///     `ScriptUnitTag.unit_id`).
+    ///   * Refund credited to the first `Hero` entity with `Faction == Player`
+    ///     (TD mode = single-player wallet).
+    ///   * Clear `BuffStore` for the doomed entity to prevent leaked buffs
+    ///     (e.g. upgrade_* with f32::MAX duration).
+    ///   * `world.entities().delete(...)` — Phase 1.6 snapshot diff
+    ///     auto-removes from render via `removed_entity_ids`.
+    ///
+    /// Runs deterministically on both host (omb) and replica (omfx sim_runner)
+    /// because the queue is filled identically on both sides from the same
+    /// `TickBatch.inputs` and drained at the same dispatch boundary.
+    pub fn handle_tower_sell_from_input(
+        world: &mut World,
+        tower_entity_id: u32,
+        owner_pid: u32,
+    ) -> Result<(), Error> {
+        use specs::Join;
+
+        // Resolve `Entity` from raw u32 id by joining over live entities. Specs
+        // doesn't expose a stable `Entity::from_id` for non-test code; the
+        // existing `mqtt_handler::sell_tower` site uses the same pattern.
+        let target_entity = {
+            let entities = world.entities();
+            let towers = world.read_storage::<Tower>();
+            let mut found = None;
+            for (e, _t) in (&entities, &towers).join() {
+                if e.id() == tower_entity_id {
+                    found = Some(e);
+                    break;
+                }
+            }
+            found
+        };
+        let target_entity = match target_entity {
+            Some(e) => e,
+            None => {
+                return Err(failure::err_msg(format!(
+                    "TowerSell: tower entity id={} not found / not a Tower (pid={})",
+                    tower_entity_id, owner_pid
+                )));
+            }
+        };
+
+        // Ownership check: TD only has FactionType::Player towers in the
+        // single-player slot. If multi-player slots get added later this
+        // check should also compare a per-tower owner_pid marker.
+        {
+            let factions = world.read_storage::<Faction>();
+            match factions.get(target_entity) {
+                Some(f) if f.faction_id == FactionType::Player => {}
+                Some(f) => {
+                    return Err(failure::err_msg(format!(
+                        "TowerSell: tower id={} not Player-owned (faction={:?}, pid={})",
+                        tower_entity_id, f.faction_id, owner_pid
+                    )));
+                }
+                None => {
+                    return Err(failure::err_msg(format!(
+                        "TowerSell: tower id={} has no Faction component (pid={})",
+                        tower_entity_id, owner_pid
+                    )));
+                }
+            }
+        }
+
+        // Compute refund: 85% base + 75% per upgrade level. Mirrors
+        // `state::resource_management::sell_tower` so the lockstep path stays
+        // consistent with the legacy MQTT path.
+        let refund = {
+            let tags = world.read_storage::<crate::scripting::ScriptUnitTag>();
+            let reg = world.read_resource::<crate::comp::tower_registry::TowerTemplateRegistry>();
+            let towers = world.read_storage::<Tower>();
+            let ureg = world.read_resource::<crate::comp::tower_upgrade_registry::TowerUpgradeRegistry>();
+            let base_refund = tags
+                .get(target_entity)
+                .and_then(|t| reg.get(&t.unit_id))
+                .map(|tpl| (tpl.cost as f32 * 0.85) as i32)
+                .unwrap_or(0);
+            let upgrade_refund = if let (Some(t), Some(tag)) = (towers.get(target_entity), tags.get(target_entity)) {
+                let mut total = 0i32;
+                for path in 0..3u8 {
+                    for level in 1..=t.upgrade_levels[path as usize] {
+                        if let Some(def) = ureg.get(&tag.unit_id, path, level) {
+                            total += (def.cost as f32 * 0.75) as i32;
+                        }
+                    }
+                }
+                total
+            } else {
+                0
+            };
+            base_refund + upgrade_refund
+        };
+
+        // Find the player's hero (TD wallet). Single Player-faction Hero in
+        // current TD mode; pick first match. Mirrors `sell_tower` lookup.
+        let hero_entity = {
+            let entities = world.entities();
+            let heroes = world.read_storage::<Hero>();
+            let factions = world.read_storage::<Faction>();
+            let mut found = None;
+            for (e, _h, f) in (&entities, &heroes, &factions).join() {
+                if f.faction_id == FactionType::Player {
+                    found = Some(e);
+                    break;
+                }
+            }
+            found
+        };
+        if let Some(hero_entity) = hero_entity {
+            let mut golds = world.write_storage::<Gold>();
+            if let Some(g) = golds.get_mut(hero_entity) {
+                g.0 += refund;
+            }
+        }
+
+        // Clear BuffStore residue (upgrade_* f32::MAX permanent buffs would
+        // leak otherwise — see `state::resource_management::sell_tower`).
+        {
+            let mut store = world.write_resource::<crate::ability_runtime::BuffStore>();
+            store.remove_all_for(target_entity);
+        }
+
+        // Delete entity. Phase 1.6 snapshot diff captures this in
+        // `removed_entity_ids` so omfx render auto-cleans.
+        world.entities().delete(target_entity).ok();
+
+        log::info!(
+            "TowerSell ok pid={} entity_id={} refund={}",
+            owner_pid, tower_entity_id, refund
+        );
+        Ok(())
+    }
+
+    /// Phase 2.2: drain `PendingTowerSellQueue` and process each sell request.
+    /// Must be called after the dispatcher's `player_input_tick::Sys` has
+    /// populated the queue but before the next snapshot extract — both host
+    /// `state::core::tick` and replica `omfx sim_runner` invoke this.
+    pub fn drain_pending_tower_sells(world: &mut World) {
+        let drained: Vec<crate::comp::PendingTowerSell> = {
+            let mut q = world.write_resource::<crate::comp::PendingTowerSellQueue>();
+            std::mem::take(&mut q.requests)
+        };
+        for req in drained {
+            if let Err(e) = Self::handle_tower_sell_from_input(world, req.tower_entity_id, req.owner_pid) {
+                log::warn!(
+                    "TowerSell failed pid={} entity_id={}: {}",
+                    req.owner_pid, req.tower_entity_id, e
+                );
+            }
+        }
+    }
+
 
     fn handle_creep_stop(ecs: &mut World, mqtx: &crossbeam_channel::Sender<OutboundMsg>, source: Entity, target: Entity) -> Result<(), Error> {
         let mut creeps = ecs.write_storage::<Creep>();

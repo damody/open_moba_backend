@@ -26,7 +26,7 @@ use specs::{Read, Write};
 use crate::comp::ecs::{Job, System};
 use crate::comp::{CurrentCreepWave, PendingPlayerInputs, Time};
 #[cfg(feature = "kcp")]
-use crate::comp::PendingTowerSpawnQueue;
+use crate::comp::{PendingTowerSellQueue, PendingTowerSpawnQueue};
 
 #[derive(Default)]
 pub struct Sys;
@@ -38,11 +38,12 @@ impl<'a> System<'a> for Sys {
         Write<'a, CurrentCreepWave>,
         Read<'a, Time>,
         Write<'a, PendingTowerSpawnQueue>,
+        Write<'a, PendingTowerSellQueue>,
     );
 
     const NAME: &'static str = "player_input";
 
-    fn run(_job: &mut Job<Self>, (mut pending, mut cw, time, mut tower_q): Self::SystemData) {
+    fn run(_job: &mut Job<Self>, (mut pending, mut cw, time, mut tower_q, mut sell_q): Self::SystemData) {
         if pending.by_player.is_empty() {
             return;
         }
@@ -55,7 +56,7 @@ impl<'a> System<'a> for Sys {
             target_tick
         );
         for (player_id, input) in drained {
-            route_input(player_id, target_tick, input, &mut cw, totaltime, &mut tower_q);
+            route_input(player_id, target_tick, input, &mut cw, totaltime, &mut tower_q, &mut sell_q);
         }
     }
 }
@@ -78,6 +79,7 @@ fn route_input(
     cw: &mut CurrentCreepWave,
     totaltime: f32,
     tower_q: &mut PendingTowerSpawnQueue,
+    sell_q: &mut PendingTowerSellQueue,
 ) {
     use crate::lockstep::PlayerInputEnum;
 
@@ -166,12 +168,20 @@ fn route_input(
             );
         }
         Some(PlayerInputEnum::TowerSell(s)) => {
-            log::trace!(
+            log::info!(
                 "player_input_tick: pid={} tick={} TowerSell tower_entity_id={}",
-                player_id,
-                tick,
-                s.tower_entity_id
+                player_id, tick, s.tower_entity_id,
             );
+            // Defer to PendingTowerSellQueue: refund + entity delete + buff
+            // cleanup all need `&mut World` (read TowerTemplateRegistry +
+            // TowerUpgradeRegistry, write Gold storage, write BuffStore,
+            // delete entity) which a specs `System` can't borrow. Drained
+            // right after dispatch on both host and replica via
+            // `GameProcessor::drain_pending_tower_sells`.
+            sell_q.requests.push(crate::comp::PendingTowerSell {
+                tower_entity_id: s.tower_entity_id,
+                owner_pid: player_id,
+            });
         }
         Some(PlayerInputEnum::ItemUse(i)) => {
             log::trace!(

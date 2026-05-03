@@ -340,6 +340,11 @@ impl State {
         // mirrors this call after its own dispatcher run.
         crate::comp::GameProcessor::drain_pending_tower_spawns(&mut self.ecs);
 
+        // Phase 2.2: drain `PendingTowerSellQueue` (TowerSell lockstep input)
+        // — same `&mut World` requirement (Gold credit + BuffStore clear +
+        // entity delete). Replica mirrors this in sim_runner.
+        crate::comp::GameProcessor::drain_pending_tower_sells(&mut self.ecs);
+
         // 腳本 dispatch 階段（E1 — 序列、獨佔 World）
         // 放在並行系統之後、其他序列處理之前，確保腳本能看到本 tick 的
         // 完整戰鬥結果，也能修改狀態讓下游處理看見。
