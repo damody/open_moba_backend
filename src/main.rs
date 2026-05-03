@@ -208,6 +208,11 @@ async fn main() -> std::result::Result<(), Error> {
     // reads from when serving 0x16 SnapshotResp.
     #[cfg(feature = "kcp")]
     state.attach_snapshot_store(snapshot_store_handle.clone());
+    // Phase 5.x bridge: thread the shared InputBuffer so State::tick can drain
+    // per-tick PlayerInputs into PendingPlayerInputs for the dispatcher.
+    // Without this, KCP-received PlayerInputs never reach player_input_tick.
+    #[cfg(feature = "kcp")]
+    state.attach_input_buffer(input_buffer_handle.clone());
 
     // Phase 2 lockstep: spawn the 60Hz TickBroadcaster alongside the legacy
     // 30Hz simulation dispatcher. The broadcaster drains the InputBuffer per

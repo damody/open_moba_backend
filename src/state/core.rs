@@ -101,6 +101,12 @@ pub struct State {
     /// non-lockstep builds — KCP transport falls back to empty bytes).
     #[cfg(feature = "kcp")]
     snapshot_store: Option<std::sync::Arc<std::sync::Mutex<crate::comp::SnapshotStore>>>,
+    /// Phase 5.x bridge: lockstep input buffer (filled by KCP transport's
+    /// 0x10 InputSubmit handler) drained per `tick()` into the ECS
+    /// `PendingPlayerInputs` resource so `player_input_tick::Sys` can
+    /// route StartRound / future commands. None on non-kcp builds.
+    #[cfg(feature = "kcp")]
+    input_buffer: Option<std::sync::Arc<std::sync::Mutex<crate::lockstep::InputBuffer>>>,
 }
 
 /// Per-player visible entity sets, split by type so that specs `Entity::id()`
@@ -191,6 +197,8 @@ impl State {
             state_hash_tx: None,
             #[cfg(feature = "kcp")]
             snapshot_store: None,
+            #[cfg(feature = "kcp")]
+            input_buffer: None,
         };
 
         state.initialize_standard_game();
@@ -271,6 +279,8 @@ impl State {
             state_hash_tx: None,
             #[cfg(feature = "kcp")]
             snapshot_store: None,
+            #[cfg(feature = "kcp")]
+            input_buffer: None,
         };
 
         // 先載 scripts，才能讓 initialize_campaign_game 內的 send_tower_templates 拿到 registry
@@ -292,6 +302,25 @@ impl State {
         // 吸收 transport 傳進來的 viewport 更新
         #[cfg(any(feature = "grpc", feature = "kcp"))]
         self.drain_viewport_updates();
+
+        // Phase 5.x bridge: drain lockstep InputBuffer → PendingPlayerInputs
+        // so player_input_tick::Sys can route StartRound (and future commands).
+        // Without this, omfx-side inputs reach the buffer but never the ECS
+        // dispatcher — every PlayerInput is silently dropped on the host.
+        #[cfg(feature = "kcp")]
+        if let Some(buf) = self.input_buffer.as_ref() {
+            let cur_tick = self.local_tick as u32;
+            let drained = buf.lock().unwrap().drain_for_tick(cur_tick);
+            if !drained.is_empty() {
+                use crate::comp::PendingPlayerInputs;
+                let mut pending = self.ecs.write_resource::<PendingPlayerInputs>();
+                pending.tick = cur_tick;
+                pending.by_player.clear();
+                for (player_id, input) in drained {
+                    pending.by_player.insert(player_id, input);
+                }
+            }
+        }
 
         // 運行遊戲系統
         let t_run = Instant::now();
@@ -472,6 +501,20 @@ impl State {
         store: std::sync::Arc<std::sync::Mutex<crate::comp::SnapshotStore>>,
     ) {
         self.snapshot_store = Some(store);
+    }
+
+    /// Phase 5.x bridge: register the shared input buffer (filled by KCP
+    /// transport's `0x10 InputSubmit` handler). Each `tick()` drains the
+    /// buffer for the current sim tick and writes the inputs into the ECS
+    /// `PendingPlayerInputs` resource, which `player_input_tick::Sys` then
+    /// routes to the appropriate game-side handler (StartRound flips
+    /// CurrentCreepWave.is_running, etc.).
+    #[cfg(feature = "kcp")]
+    pub fn attach_input_buffer(
+        &mut self,
+        buf: std::sync::Arc<std::sync::Mutex<crate::lockstep::InputBuffer>>,
+    ) {
+        self.input_buffer = Some(buf);
     }
 
     /// 獲取 ECS 世界引用
