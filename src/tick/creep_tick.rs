@@ -245,8 +245,6 @@ impl<'a> System<'a> for Sys {
                                                 };
                                                 if needs_emit {
                                                     facing_bc.0 = Some(new_facing_rad);
-                                                    let p_f = p_to_f(pos.0);
-                                                    tx.try_send(make_entity_facing(e.id(), new_facing_rad, p_f.x, p_f.y));
                                                 }
 
                                                 // 角度對齊（<30°）才移動 — Angle ticks comparison.
@@ -316,8 +314,6 @@ impl<'a> System<'a> for Sys {
                                                     }
                                                     if blocked {
                                                         // 凍結前端 lerp（action="stall"），避免視覺上穿過其他單位。
-                                                        let p_f = p_to_f(pos.0);
-                                                        tx.try_send(make_creep_stall(e.id(), p_f.x, p_f.y, a_to_rad(facing.0)));
                                                     } else {
                                                         // Not a waypoint advance, not blocked — but
                                                         // still consider emitting if velocity changed
