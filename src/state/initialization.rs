@@ -384,6 +384,10 @@ impl StateInitializer {
         // 初始化不可通行多邊形區域（由 init_creep_wave 載入 map.json 時填入）
         ecs.insert(BlockedRegions::default());
 
+        // Phase 4.2: 爆炸 FX queue — process_outcomes 推入，sim_runner snapshot
+        // 抽取器每 tick drain 給前端渲染。非 sim 狀態，不影響 determinism hash。
+        ecs.insert(crate::comp::ExplosionFxQueue::default());
+
         // 遊戲模式 / 玩家生命（由 init_creep_wave 依 map.json 覆寫）
         ecs.insert(GameMode::default());
         ecs.insert(PlayerLives::default());

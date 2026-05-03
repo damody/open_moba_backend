@@ -152,6 +152,29 @@ pub struct TowerData {
     pub tatk: TAttack,        // 塔的攻擊資料
 }
 
+/// Phase 4.2: render-only explosion FX entry.
+/// Produced by `process_outcomes` Outcome::Explosion arm; drained per tick by
+/// the omfx sim_runner snapshot extractor and shipped through the snapshot to
+/// the render thread. NOT part of the deterministic ECS state — sim never
+/// reads it back.
+#[derive(Clone, Debug)]
+pub struct ExplosionFx {
+    pub pos_x: f32,
+    pub pos_y: f32,
+    pub radius: f32,
+    pub duration_ms: u32,
+    pub spawn_tick: u32,
+}
+
+/// Phase 4.2: pending explosion-FX queue resource. Pushed by
+/// `process_outcomes` Outcome::Explosion arm; drained (`std::mem::take`) by
+/// the snapshot extractor each tick. Resource is NOT hashed in `state_hash`,
+/// so writes here don't break replay determinism.
+#[derive(Default)]
+pub struct ExplosionFxQueue {
+    pub pending: Vec<ExplosionFx>,
+}
+
 /// 距離索引結構
 /// 用於根據距離進行排序，主要用於尋找最近的實體
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]

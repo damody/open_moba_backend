@@ -21,27 +21,6 @@ const OP_PROJECTILE_STUN_ROLL: u32 = 21;
 // fall back to legacy JSON-only OutboundMsg construction.
 // ============================================================================
 
-/// game.explosion
-#[inline]
-fn make_game_explosion(x: f32, y: f32, radius: f32, duration: f32) -> OutboundMsg {
-    #[cfg(feature = "kcp")]
-    {
-        use crate::state::resource_management::proto_build;
-        use crate::transport::TypedOutbound;
-        OutboundMsg::new_typed_at(
-            "td/all/res", "game", "explosion",
-            TypedOutbound::GameExplosion(proto_build::game_explosion(x, y, radius, duration)),
-            json!({ "x": x, "y": y, "radius": radius, "duration": duration }),
-            x, y,
-        )
-    }
-    #[cfg(not(feature = "kcp"))]
-    {
-        OutboundMsg::new_s_at("td/all/res", "game", "explosion",
-            json!({ "x": x, "y": y, "radius": radius, "duration": duration }), x, y)
-    }
-}
-
 /// game.lives
 #[inline]
 fn make_game_lives(lives: i32) -> OutboundMsg {
@@ -206,12 +185,25 @@ impl GameProcessor {
                         Self::handle_add_buff(ecs, target, buff_id, duration, payload)?;
                     }
                     Outcome::Explosion { pos, radius, duration } => {
-                        let _ = mqtx.try_send(make_game_explosion(
-                            pos.x.to_f32_for_render(),
-                            pos.y.to_f32_for_render(),
-                            radius.to_f32_for_render(),
-                            duration.to_f32_for_render(),
-                        ));
+                        // Phase 4.2: route legacy `make_game_explosion` mqtx
+                        // emit through the deterministic snapshot pipeline.
+                        // Push into ExplosionFxQueue (non-state resource —
+                        // sim never reads back, so determinism is unaffected);
+                        // the omfx sim_runner extractor drains it each tick
+                        // and the render thread spawns the ring scene node
+                        // with omfx-wall-clock lifecycle.
+                        let current_tick = ecs.read_resource::<Tick>().0 as u32;
+                        let duration_ms = (duration.to_f32_for_render() * 1000.0)
+                            .clamp(0.0, u32::MAX as f32)
+                            as u32;
+                        let mut q = ecs.write_resource::<ExplosionFxQueue>();
+                        q.pending.push(ExplosionFx {
+                            pos_x: pos.x.to_f32_for_render(),
+                            pos_y: pos.y.to_f32_for_render(),
+                            radius: radius.to_f32_for_render(),
+                            duration_ms,
+                            spawn_tick: current_tick,
+                        });
                     }
                     _ => {}
                 }

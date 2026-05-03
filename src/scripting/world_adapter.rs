@@ -28,27 +28,6 @@ use crate::scripting::event::{ScriptEvent, ScriptEventQueue};
 use crate::scripting::tag::ScriptUnitTag;
 use crate::transport::OutboundMsg;
 
-// P2 typed payload helpers (local copies to avoid cross-module pub leakage).
-#[inline]
-fn make_game_explosion_script(x: f32, y: f32, radius: f32, duration: f32) -> OutboundMsg {
-    #[cfg(feature = "kcp")]
-    {
-        use crate::state::resource_management::proto_build;
-        use crate::transport::TypedOutbound;
-        OutboundMsg::new_typed_at(
-            "td/all/res", "game", "explosion",
-            TypedOutbound::GameExplosion(proto_build::game_explosion(x, y, radius, duration)),
-            json!({ "x": x, "y": y, "radius": radius, "duration": duration }),
-            x, y,
-        )
-    }
-    #[cfg(not(feature = "kcp"))]
-    {
-        OutboundMsg::new_s_at("td/all/res", "game", "explosion",
-            json!({ "x": x, "y": y, "radius": radius, "duration": duration }), x, y)
-    }
-}
-
 /// 預先 fetch 好的 storage / resource 集合。
 /// 在整個 `run_script_dispatch` 期間共用，每個 `GameWorld` API 不再重複 borrow。
 ///
@@ -80,6 +59,13 @@ pub struct AdapterCache<'a> {
     pub searcher: Read<'a, Searcher>,
     pub blocked: Read<'a, BlockedRegions>,
     pub time: Read<'a, Time>,
+    /// Phase 4.2: explosion-FX queue (script-side `emit_explosion` pushes
+    /// here instead of going via `mqtx`; sim_runner extractor drains).
+    pub explosion_fx: Write<'a, ExplosionFxQueue>,
+    /// Phase 4.2: current tick — stamped onto each ExplosionFx so the
+    /// render side can age the ring against omfx wall clock starting from
+    /// the snapshot it arrived in.
+    pub tick: Read<'a, Tick>,
 }
 
 impl<'a> AdapterCache<'a> {
@@ -107,6 +93,8 @@ impl<'a> AdapterCache<'a> {
             searcher: world.read_resource::<Searcher>().into(),
             blocked: world.read_resource::<BlockedRegions>().into(),
             time: world.read_resource::<Time>().into(),
+            explosion_fx: world.write_resource::<ExplosionFxQueue>().into(),
+            tick: world.read_resource::<Tick>().into(),
         }
     }
 }
@@ -489,12 +477,22 @@ impl<'a> GameWorld for WorldAdapter<'a> {
     }
 
     fn emit_explosion(&mut self, pos: Vec2, radius: Fixed64, duration: Fixed64) {
-        let _ = self.mqtx.try_send(make_game_explosion_script(
-            pos.x.to_f32_for_render(),
-            pos.y.to_f32_for_render(),
-            radius.to_f32_for_render(),
-            duration.to_f32_for_render(),
-        ));
+        // Phase 4.2: was `mqtx.try_send(make_game_explosion_script(...))`;
+        // now goes through the lockstep snapshot pipeline by pushing into
+        // `ExplosionFxQueue`. The sim_runner extractor drains this each
+        // tick and the render thread spawns the ring with omfx-wall-clock
+        // lifecycle. ExplosionFxQueue is a non-state resource (sim never
+        // reads it back), so determinism is unaffected.
+        let duration_ms = (duration.to_f32_for_render() * 1000.0)
+            .clamp(0.0, u32::MAX as f32) as u32;
+        let current_tick = self.cache.tick.0 as u32;
+        self.cache.explosion_fx.pending.push(ExplosionFx {
+            pos_x: pos.x.to_f32_for_render(),
+            pos_y: pos.y.to_f32_for_render(),
+            radius: radius.to_f32_for_render(),
+            duration_ms,
+            spawn_tick: current_tick,
+        });
     }
 
     fn despawn(&mut self, e: EntityHandle) {
