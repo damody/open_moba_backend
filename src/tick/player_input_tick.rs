@@ -26,7 +26,7 @@ use specs::{Read, Write};
 use crate::comp::ecs::{Job, System};
 use crate::comp::{CurrentCreepWave, PendingPlayerInputs, Time};
 #[cfg(feature = "kcp")]
-use crate::comp::{PendingTowerSellQueue, PendingTowerSpawnQueue};
+use crate::comp::{PendingTowerSellQueue, PendingTowerSpawnQueue, PendingTowerUpgradeQueue};
 
 #[derive(Default)]
 pub struct Sys;
@@ -39,11 +39,15 @@ impl<'a> System<'a> for Sys {
         Read<'a, Time>,
         Write<'a, PendingTowerSpawnQueue>,
         Write<'a, PendingTowerSellQueue>,
+        Write<'a, PendingTowerUpgradeQueue>,
     );
 
     const NAME: &'static str = "player_input";
 
-    fn run(_job: &mut Job<Self>, (mut pending, mut cw, time, mut tower_q, mut sell_q): Self::SystemData) {
+    fn run(
+        _job: &mut Job<Self>,
+        (mut pending, mut cw, time, mut tower_q, mut sell_q, mut upgrade_q): Self::SystemData,
+    ) {
         if pending.by_player.is_empty() {
             return;
         }
@@ -56,7 +60,16 @@ impl<'a> System<'a> for Sys {
             target_tick
         );
         for (player_id, input) in drained {
-            route_input(player_id, target_tick, input, &mut cw, totaltime, &mut tower_q, &mut sell_q);
+            route_input(
+                player_id,
+                target_tick,
+                input,
+                &mut cw,
+                totaltime,
+                &mut tower_q,
+                &mut sell_q,
+                &mut upgrade_q,
+            );
         }
     }
 }
@@ -80,6 +93,7 @@ fn route_input(
     totaltime: f32,
     tower_q: &mut PendingTowerSpawnQueue,
     sell_q: &mut PendingTowerSellQueue,
+    upgrade_q: &mut PendingTowerUpgradeQueue,
 ) {
     use crate::lockstep::PlayerInputEnum;
 
@@ -158,14 +172,27 @@ fn route_input(
             });
         }
         Some(PlayerInputEnum::TowerUpgrade(u)) => {
-            log::trace!(
-                "player_input_tick: pid={} tick={} TowerUpgrade tower_entity_id={} path={} level={}",
-                player_id,
-                tick,
-                u.tower_entity_id,
-                u.path,
-                u.level
+            log::info!(
+                "player_input_tick: pid={} tick={} TowerUpgrade eid={} path={} level={}",
+                player_id, tick, u.tower_entity_id, u.path, u.level,
             );
+            // Defer to PendingTowerUpgradeQueue: rule validation + Gold
+            // deduction + Tower.upgrade_levels write + BuffStore add for
+            // StatMod effects all need `&mut World` which a specs `System`
+            // can't borrow. Drained right after dispatch on both host and
+            // replica via `GameProcessor::drain_pending_tower_upgrades`.
+            //
+            // `level` is treated as a hint by the handler — the actual
+            // target level is computed from the tower's current
+            // `upgrade_levels[path] + 1` so a stale client (one that hasn't
+            // yet observed the entity's upgrade_levels via snapshot) still
+            // produces the correct result.
+            upgrade_q.requests.push(crate::comp::PendingTowerUpgrade {
+                tower_entity_id: u.tower_entity_id,
+                path: u.path as u8,
+                level: u.level as u8,
+                owner_pid: player_id,
+            });
         }
         Some(PlayerInputEnum::TowerSell(s)) => {
             log::info!(

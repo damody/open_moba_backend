@@ -90,6 +90,33 @@ pub struct PendingTowerSell {
     pub owner_pid: u32,
 }
 
+/// Phase 2.3: deferred tower-upgrade requests originating from
+/// `PlayerInputEnum::TowerUpgrade`. Same rationale as `PendingTowerSellQueue`:
+/// the lockstep `player_input_tick::Sys` only has SystemData access, but
+/// upgrading a tower needs `&mut World` (read TowerUpgradeRegistry, write
+/// `Gold` / `Tower` / `BuffStore`, validate via tower_upgrade_rules). So we
+/// queue here and drain in `tick()` (host) / `sim_runner` (replica) right
+/// after the dispatcher runs.
+///
+/// Invariant: must be drained every tick on both host and replica via
+/// `comp::GameProcessor::drain_pending_tower_upgrades`.
+#[derive(Default)]
+pub struct PendingTowerUpgradeQueue {
+    pub requests: Vec<PendingTowerUpgrade>,
+}
+
+#[derive(Clone, Debug)]
+pub struct PendingTowerUpgrade {
+    pub tower_entity_id: u32,
+    pub path: u8,
+    /// Target level (post-upgrade). Phase 2.3: client may send `0` if it
+    /// hasn't observed `Tower.upgrade_levels` via snapshot yet — the omb
+    /// handler computes the actual target from the entity's current
+    /// `upgrade_levels[path] + 1` in that case.
+    pub level: u8,
+    pub owner_pid: u32,
+}
+
 /// Phase 5.3: latest serialized world snapshot for observer rejoin.
 ///
 /// Updated every `SNAPSHOT_INTERVAL_TICKS` dispatcher ticks (= 30 s @ 30 Hz).

@@ -909,6 +909,225 @@ impl GameProcessor {
         }
     }
 
+    /// Phase 2.3: lockstep `PlayerInputEnum::TowerUpgrade` handler.
+    ///
+    /// Mirrors the gameplay logic of
+    /// `state::resource_management::upgrade_tower` (the legacy MQTT entry):
+    ///   * Resolve `Entity` from `tower_entity_id` (Tower-storage join +
+    ///     `id() == tower_entity_id`).
+    ///   * Validate `Faction == Player`.
+    ///   * Compute target level = `tower.upgrade_levels[path] + 1`. The
+    ///     `level` field on the proto is treated as a hint only — it would
+    ///     otherwise force the omfx UI (Phase 4.3 hasn't yet exposed
+    ///     `upgrade_levels` via snapshot) to know the current level. Using
+    ///     the entity-side state guarantees correctness whatever the client
+    ///     sent.
+    ///   * Run `tower_upgrade_rules::validate_upgrade` on the current levels +
+    ///     path; reject if the rules say no.
+    ///   * Look up `UpgradeDef` from `TowerUpgradeRegistry`; reject if none.
+    ///   * Find Player-faction Hero (TD wallet); check Gold ≥ cost; deduct.
+    ///   * Apply the def's `effects`:
+    ///       - `BehaviorFlag` → push to `tower.upgrade_flags` if absent.
+    ///       - `StatMod`      → add a `BuffStore` entry with key
+    ///                          `upgrade_<path>_<level>_<i>` and a sentinel
+    ///                          `Fixed64::from_raw(i64::MAX)` duration so it
+    ///                          never expires (matches legacy convention).
+    ///   * Increment `tower.upgrade_levels[path]`.
+    ///
+    /// Runs deterministically on both host (omb) and replica (omfx sim_runner)
+    /// because the queue is filled identically on both sides from the same
+    /// `TickBatch.inputs` and drained at the same dispatch boundary.
+    pub fn handle_tower_upgrade_from_input(
+        world: &mut World,
+        tower_entity_id: u32,
+        path: u8,
+        _level_hint: u8,
+        owner_pid: u32,
+    ) -> Result<(), Error> {
+        use specs::Join;
+        use omoba_core::tower_meta::UpgradeEffect;
+
+        if path >= 3 {
+            return Err(failure::err_msg(format!(
+                "TowerUpgrade: invalid path={} (must be 0..=2) pid={}",
+                path, owner_pid
+            )));
+        }
+
+        // Resolve target tower entity + capture levels + unit_id.
+        let target = {
+            let entities = world.entities();
+            let towers = world.read_storage::<Tower>();
+            let tags = world.read_storage::<crate::scripting::ScriptUnitTag>();
+            let mut found: Option<(specs::Entity, [u8; 3], String)> = None;
+            for (e, t, tag) in (&entities, &towers, &tags).join() {
+                if e.id() == tower_entity_id {
+                    found = Some((e, t.upgrade_levels, tag.unit_id.clone()));
+                    break;
+                }
+            }
+            found
+        };
+        let (target_entity, levels, unit_id) = match target {
+            Some(t) => t,
+            None => {
+                return Err(failure::err_msg(format!(
+                    "TowerUpgrade: tower id={} not found / not a Tower (pid={})",
+                    tower_entity_id, owner_pid
+                )));
+            }
+        };
+
+        // Ownership check (mirror handle_tower_sell_from_input).
+        {
+            let factions = world.read_storage::<Faction>();
+            match factions.get(target_entity) {
+                Some(f) if f.faction_id == FactionType::Player => {}
+                Some(f) => {
+                    return Err(failure::err_msg(format!(
+                        "TowerUpgrade: tower id={} not Player-owned (faction={:?}, pid={})",
+                        tower_entity_id, f.faction_id, owner_pid
+                    )));
+                }
+                None => {
+                    return Err(failure::err_msg(format!(
+                        "TowerUpgrade: tower id={} has no Faction component (pid={})",
+                        tower_entity_id, owner_pid
+                    )));
+                }
+            }
+        }
+
+        // Rule validation (already-maxed / two-primary / two-secondary / etc.).
+        if let Err(rej) = crate::comp::tower_upgrade_rules::validate_upgrade(levels, path) {
+            return Err(failure::err_msg(format!(
+                "TowerUpgrade: rule rejection eid={} path={} levels={:?} → {:?} (pid={})",
+                tower_entity_id, path, levels, rej, owner_pid
+            )));
+        }
+        let next_level = levels[path as usize] + 1;
+
+        // Look up UpgradeDef (clone out to release the borrow on the
+        // registry resource before we take other borrows).
+        let def = {
+            let reg = world.read_resource::<crate::comp::tower_upgrade_registry::TowerUpgradeRegistry>();
+            reg.get(&unit_id, path, next_level).cloned()
+        };
+        let def = match def {
+            Some(d) => d,
+            None => {
+                return Err(failure::err_msg(format!(
+                    "TowerUpgrade: no UpgradeDef for kind={} path={} level={} (pid={})",
+                    unit_id, path, next_level, owner_pid
+                )));
+            }
+        };
+
+        // Find player's hero (TD wallet) — mirror handle_tower_sell_from_input.
+        let hero_entity = {
+            let entities = world.entities();
+            let heroes = world.read_storage::<Hero>();
+            let factions = world.read_storage::<Faction>();
+            let mut found = None;
+            for (e, _h, f) in (&entities, &heroes, &factions).join() {
+                if f.faction_id == FactionType::Player {
+                    found = Some(e);
+                    break;
+                }
+            }
+            found
+        };
+        let hero_entity = match hero_entity {
+            Some(e) => e,
+            None => {
+                return Err(failure::err_msg(format!(
+                    "TowerUpgrade: no Player-faction Hero entity (pid={})",
+                    owner_pid
+                )));
+            }
+        };
+
+        // Gold check (read).
+        let has_gold = {
+            let golds = world.read_storage::<Gold>();
+            golds.get(hero_entity).map(|g| g.0).unwrap_or(0) >= def.cost
+        };
+        if !has_gold {
+            return Err(failure::err_msg(format!(
+                "TowerUpgrade: insufficient gold (need {}) for kind={} path={} level={} (pid={})",
+                def.cost, unit_id, path, next_level, owner_pid
+            )));
+        }
+
+        // Deduct gold.
+        {
+            let mut golds = world.write_storage::<Gold>();
+            if let Some(g) = golds.get_mut(hero_entity) {
+                g.0 -= def.cost;
+            }
+        }
+
+        // Sort effects into flag adds + stat-mod buff entries (so we can
+        // collect them without holding overlapping borrows on storages).
+        let mut flags_to_add: Vec<String> = Vec::new();
+        let mut stat_mods: Vec<(String, serde_json::Value)> = Vec::new();
+        for (effect_idx, effect) in def.effects.iter().enumerate() {
+            match effect {
+                UpgradeEffect::BehaviorFlag { flag } => flags_to_add.push(flag.clone()),
+                UpgradeEffect::StatMod { key, value, op: _ } => {
+                    let buff_id = format!("upgrade_{}_{}_{}", path, next_level, effect_idx);
+                    stat_mods.push((buff_id, json!({ key: *value })));
+                }
+            }
+        }
+        for (buff_id, payload) in stat_mods {
+            let mut store = world.write_resource::<crate::ability_runtime::BuffStore>();
+            // Sentinel "permanent" via raw i64::MAX, matches the legacy
+            // upgrade_tower convention (BuffStore::add takes Fixed64).
+            store.add(target_entity, &buff_id, omoba_sim::Fixed64::from_raw(i64::MAX), payload);
+        }
+
+        // Increment upgrade_levels[path] + dedupe upgrade_flags.
+        {
+            let mut towers = world.write_storage::<Tower>();
+            if let Some(t) = towers.get_mut(target_entity) {
+                for flag in flags_to_add {
+                    if !t.upgrade_flags.iter().any(|f| f == &flag) {
+                        t.upgrade_flags.push(flag);
+                    }
+                }
+                t.upgrade_levels[path as usize] = next_level;
+            }
+        }
+
+        log::info!(
+            "TowerUpgrade ok pid={} eid={} kind={} path={} level={} cost={}",
+            owner_pid, tower_entity_id, unit_id, path, next_level, def.cost
+        );
+        Ok(())
+    }
+
+    /// Phase 2.3: drain `PendingTowerUpgradeQueue` and process each upgrade.
+    /// Must be called after the dispatcher's `player_input_tick::Sys` has
+    /// populated the queue but before the next snapshot extract — both host
+    /// `state::core::tick` and replica `omfx sim_runner` invoke this.
+    pub fn drain_pending_tower_upgrades(world: &mut World) {
+        let drained: Vec<crate::comp::PendingTowerUpgrade> = {
+            let mut q = world.write_resource::<crate::comp::PendingTowerUpgradeQueue>();
+            std::mem::take(&mut q.requests)
+        };
+        for req in drained {
+            if let Err(e) = Self::handle_tower_upgrade_from_input(
+                world, req.tower_entity_id, req.path, req.level, req.owner_pid,
+            ) {
+                log::warn!(
+                    "TowerUpgrade failed pid={} eid={} path={}: {}",
+                    req.owner_pid, req.tower_entity_id, req.path, e
+                );
+            }
+        }
+    }
+
 
     fn handle_creep_stop(ecs: &mut World, mqtx: &crossbeam_channel::Sender<OutboundMsg>, source: Entity, target: Entity) -> Result<(), Error> {
         let mut creeps = ecs.write_storage::<Creep>();

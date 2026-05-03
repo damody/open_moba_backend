@@ -345,6 +345,13 @@ impl State {
         // entity delete). Replica mirrors this in sim_runner.
         crate::comp::GameProcessor::drain_pending_tower_sells(&mut self.ecs);
 
+        // Phase 2.3: drain `PendingTowerUpgradeQueue` (TowerUpgrade lockstep
+        // input) — needs `&mut World` (TowerUpgradeRegistry read, validate
+        // via tower_upgrade_rules, deduct Gold, write Tower.upgrade_levels +
+        // upgrade_flags, push StatMod into BuffStore). Replica mirrors this
+        // in sim_runner.
+        crate::comp::GameProcessor::drain_pending_tower_upgrades(&mut self.ecs);
+
         // 腳本 dispatch 階段（E1 — 序列、獨佔 World）
         // 放在並行系統之後、其他序列處理之前，確保腳本能看到本 tick 的
         // 完整戰鬥結果，也能修改狀態讓下游處理看見。

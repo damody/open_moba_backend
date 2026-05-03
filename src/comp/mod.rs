@@ -47,7 +47,10 @@ pub use building::IsBuilding;
 pub mod creep_move_broadcast;
 pub use creep_move_broadcast::CreepMoveBroadcast;
 pub mod lockstep_resources;
-pub use lockstep_resources::{PendingPlayerInputs, PendingTowerSell, PendingTowerSellQueue, PendingTowerSpawn, PendingTowerSpawnQueue, SnapshotStore};
+pub use lockstep_resources::{
+    PendingPlayerInputs, PendingTowerSell, PendingTowerSellQueue, PendingTowerSpawn,
+    PendingTowerSpawnQueue, PendingTowerUpgrade, PendingTowerUpgradeQueue, SnapshotStore,
+};
 
 pub use self::{
     blocked_region::*,
