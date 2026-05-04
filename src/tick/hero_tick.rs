@@ -241,7 +241,7 @@ impl<'a> System<'a> for Sys {
                                             target: Some(target)
                                         });
                                         let actual_distance = valid_targets[0].dis.sqrt();
-                                        log::error!("⚔️ {} 發射彈道攻擊，距離: {:.0}，攻擊力: {:.1}",
+                                        log::info!("⚔️ {} 發射彈道攻擊，距離: {:.0}，攻擊力: {:.1}",
                                             hero_name, actual_distance,
                                             atk.atk_physic.v.to_f32_for_render());
                                     }
