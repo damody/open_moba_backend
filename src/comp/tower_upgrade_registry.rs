@@ -51,6 +51,10 @@ impl TowerUpgradeRegistry {
     pub fn get(&self, kind: &str, path: u8, level: u8) -> Option<&TowerUpgradeDef> {
         self.defs.get(&(kind.to_string(), path, level))
     }
+
+    pub fn iter_all(&self) -> impl Iterator<Item = &TowerUpgradeDef> {
+        self.defs.values()
+    }
 }
 
 fn upgrade_effect_from_const(c: &UpgradeEffectConst) -> UpgradeEffect {
