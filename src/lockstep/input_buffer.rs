@@ -34,7 +34,9 @@ impl InputBuffer {
         }
     }
 
-    /// Submit one input. Returns false if `target_tick < current_tick` (late).
+    /// Submit one input. Returns false if `target_tick <= current_tick` (late).
+    /// `current_tick` has already been drained by the broadcaster, so equality
+    /// would otherwise park an orphan input under a tick that will never fire again.
     /// If the same player submits twice for the same tick, the latter wins
     /// (overwrite policy — clients should not double-submit; if they do,
     /// the second is interpreted as a correction).
@@ -46,7 +48,7 @@ impl InputBuffer {
         input: PlayerInput,
         input_id: u32,
     ) -> bool {
-        if target_tick < current_tick {
+        if target_tick <= current_tick {
             return false; // late
         }
         self.by_tick
@@ -109,6 +111,7 @@ mod tests {
     fn late_input_rejected() {
         let mut b = InputBuffer::new();
         assert!(!b.submit(10, 1, 5, noop(), 1)); // target=5 < current=10
+        assert!(!b.submit(10, 1, 10, noop(), 2)); // target=10 already drained
         assert_eq!(b.pending_count(), 0);
     }
 
