@@ -541,24 +541,10 @@ impl ResourceManager {
             t.upgrade_levels
         };
 
-        // 10. 廣播 tower/upgrade
-        let (tower_x_f, tower_y_f) = world.read_storage::<Pos>()
-            .get(tower_entity).map(|p| p.xy_f32()).unwrap_or((0.0, 0.0));
-        let payload = json!({
-            "tower_id": tower_id_u32,
-            "levels": [new_levels[0], new_levels[1], new_levels[2]],
-        });
-        #[cfg(feature = "kcp")]
-        let msg = OutboundMsg::new_typed_at(
-            "td/all/res", "tower", "upgrade",
-            crate::transport::TypedOutbound::TowerUpgrade(proto_build::tower_upgrade(tower_id_u32, new_levels)),
-            payload, tower_x_f, tower_y_f,
-        );
-        #[cfg(not(feature = "kcp"))]
-        let msg = OutboundMsg::new_s_at(
-            "td/all/res", "tower", "upgrade", payload, tower_x_f, tower_y_f,
-        );
-        let _ = self.mqtx.send(msg);
+        // 10. TowerUpgrade broadcast 已砍 — omfx 從
+        // EntityRenderData.upgrade_levels: Option<[u8; 3]> 讀
+        // (sim_runner.rs:180)，render-side pip 自動反映新 levels
+        let _ = new_levels;
 
         log::info!("⬆️ TD 升級塔 id={} path={} → L{} ({}) cost={}",
             tower_id_u32, path, next_level, def.name, def.cost);
