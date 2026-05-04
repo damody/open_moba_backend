@@ -964,11 +964,12 @@ async fn handle_client(
                                         let current_tick = lockstep_state.lock().unwrap().current_tick;
                                         let player_id = req.player_id;
                                         let target_tick = req.target_tick;
+                                        let input_id = req.input_id;
                                         let input = req.input.unwrap_or_default();
                                         let accepted = lockstep_input_buffer
                                             .lock()
                                             .unwrap()
-                                            .submit(current_tick, player_id, target_tick, input);
+                                            .submit(current_tick, player_id, target_tick, input, input_id);
                                         if !accepted {
                                             warn!(
                                                 "late InputSubmit from player {} target_tick={} current_tick={}",
@@ -1509,11 +1510,13 @@ mod tests {
             input: Some(PlayerInput {
                 action: Some(player_input::Action::NoOp(NoOp {})),
             }),
+            input_id: 99,
         };
         let bytes = original.encode_to_vec();
         let decoded = InputSubmit::decode(bytes.as_slice()).expect("decode");
         assert_eq!(decoded.player_id, 42);
         assert_eq!(decoded.target_tick, 1234);
+        assert_eq!(decoded.input_id, 99);
         assert!(decoded.input.is_some());
     }
 

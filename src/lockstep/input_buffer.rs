@@ -12,13 +12,19 @@
 use std::collections::BTreeMap;
 use crate::lockstep::PlayerInput;
 
+#[derive(Clone, Debug)]
+pub struct BufferedPlayerInput {
+    pub input: PlayerInput,
+    pub input_id: u32,
+}
+
 #[derive(Default)]
 pub struct InputBuffer {
-    /// target_tick → player_id → input.
+    /// target_tick → player_id → input plus wire-edge metadata.
     /// Outer BTreeMap so drain_for_tick is O(log N) on the tick key.
     /// Inner BTreeMap keyed by player_id for deterministic iteration order
     /// in TickBatch composition.
-    by_tick: BTreeMap<u32, BTreeMap<u32, PlayerInput>>,
+    by_tick: BTreeMap<u32, BTreeMap<u32, BufferedPlayerInput>>,
 }
 
 impl InputBuffer {
@@ -38,6 +44,7 @@ impl InputBuffer {
         player_id: u32,
         target_tick: u32,
         input: PlayerInput,
+        input_id: u32,
     ) -> bool {
         if target_tick < current_tick {
             return false; // late
@@ -45,14 +52,14 @@ impl InputBuffer {
         self.by_tick
             .entry(target_tick)
             .or_insert_with(BTreeMap::new)
-            .insert(player_id, input);
+            .insert(player_id, BufferedPlayerInput { input, input_id });
         true
     }
 
     /// Drain all inputs targeted at this tick. Returns sorted by player_id
     /// (BTreeMap iteration is in key order — required for deterministic
     /// TickBatch composition across all peers).
-    pub fn drain_for_tick(&mut self, tick: u32) -> Vec<(u32, PlayerInput)> {
+    pub fn drain_for_tick(&mut self, tick: u32) -> Vec<(u32, BufferedPlayerInput)> {
         self.by_tick
             .remove(&tick)
             .map(|m| m.into_iter().collect())
@@ -86,12 +93,14 @@ mod tests {
     #[test]
     fn submit_and_drain() {
         let mut b = InputBuffer::new();
-        assert!(b.submit(0, 1, 5, noop()));
-        assert!(b.submit(0, 2, 5, noop()));
+        assert!(b.submit(0, 1, 5, noop(), 41));
+        assert!(b.submit(0, 2, 5, noop(), 42));
         let drained = b.drain_for_tick(5);
         assert_eq!(drained.len(), 2);
         assert_eq!(drained[0].0, 1); // sorted by player_id
         assert_eq!(drained[1].0, 2);
+        assert_eq!(drained[0].1.input_id, 41);
+        assert_eq!(drained[1].1.input_id, 42);
         // Already drained — second drain returns empty.
         assert!(b.drain_for_tick(5).is_empty());
     }
@@ -99,16 +108,16 @@ mod tests {
     #[test]
     fn late_input_rejected() {
         let mut b = InputBuffer::new();
-        assert!(!b.submit(10, 1, 5, noop())); // target=5 < current=10
+        assert!(!b.submit(10, 1, 5, noop(), 1)); // target=5 < current=10
         assert_eq!(b.pending_count(), 0);
     }
 
     #[test]
     fn evict_older() {
         let mut b = InputBuffer::new();
-        b.submit(0, 1, 1, noop());
-        b.submit(0, 1, 2, noop());
-        b.submit(0, 1, 3, noop());
+        b.submit(0, 1, 1, noop(), 0);
+        b.submit(0, 1, 2, noop(), 0);
+        b.submit(0, 1, 3, noop(), 0);
         b.evict_older(2);
         assert!(b.drain_for_tick(1).is_empty());
         assert_eq!(b.drain_for_tick(2).len(), 1);

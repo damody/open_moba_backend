@@ -158,15 +158,18 @@ impl TickBroadcaster {
         };
 
         // Drain inputs targeted at this tick.
-        let inputs: Vec<(u32, _)> =
-            self.input_buffer.lock().unwrap().drain_for_tick(tick);
+        let inputs = self.input_buffer.lock().unwrap().drain_for_tick(tick);
 
         // Phase 5.x: mirror drained inputs to host dispatcher (State::tick
         // reads via crossbeam Receiver). Send before consuming `inputs` for
         // the proto conversion below.
         if !inputs.is_empty() {
             if let Some(tx) = self.host_input_tx.as_ref() {
-                if let Err(e) = tx.send(inputs.clone()) {
+                let host_inputs: Vec<_> = inputs
+                    .iter()
+                    .map(|(player_id, buffered)| (*player_id, buffered.input.clone()))
+                    .collect();
+                if let Err(e) = tx.send(host_inputs) {
                     log::warn!("TickBroadcaster: host_input_tx send failed: {e}");
                 }
             }
@@ -174,9 +177,10 @@ impl TickBroadcaster {
 
         let inputs_proto: Vec<InputForPlayer> = inputs
             .into_iter()
-            .map(|(player_id, input)| InputForPlayer {
+            .map(|(player_id, buffered)| InputForPlayer {
                 player_id,
-                input: Some(input),
+                input: Some(buffered.input),
+                input_id: buffered.input_id,
             })
             .collect();
 
@@ -315,8 +319,8 @@ mod tests {
         // can confirm BTreeMap ordering carried through to TickBatch.
         {
             let mut b = buf.lock().unwrap();
-            assert!(b.submit(0, 7, 5, noop_input()));
-            assert!(b.submit(0, 3, 5, noop_input()));
+            assert!(b.submit(0, 7, 5, noop_input(), 107));
+            assert!(b.submit(0, 3, 5, noop_input(), 103));
         }
 
         // Fire 5 ticks. Tick 1..=4 should be empty TickBatch, tick 5 has 2 inputs.
@@ -337,6 +341,8 @@ mod tests {
                         // BTreeMap iteration order: 3, then 7.
                         assert_eq!(b.inputs[0].player_id, 3);
                         assert_eq!(b.inputs[1].player_id, 7);
+                        assert_eq!(b.inputs[0].input_id, 103);
+                        assert_eq!(b.inputs[1].input_id, 107);
                     } else {
                         assert!(b.inputs.is_empty(), "tick {} should be empty", expect_tick);
                     }
@@ -421,7 +427,7 @@ mod tests {
         // Easier: directly insert and check pending_count behavior.
         {
             let mut b = buf.lock().unwrap();
-            b.submit(0, 1, 200, noop_input());
+            b.submit(0, 1, 200, noop_input(), 0);
             assert_eq!(b.pending_count(), 1);
         }
 
