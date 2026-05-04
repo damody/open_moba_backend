@@ -850,74 +850,13 @@ impl ResourceManager {
         }
     }
 
+    /// Hero broadcast 已砍 — omfx 從 SimWorldSnapshot.entities[].hero_ext
+    /// 讀完整 HeroStatsExt（armor/atk/range/msd/asd/inventory/ability_levels
+    /// /buffs 全 12 欄位），不需要 server 主動推 hero.static / hero.hot /
+    /// hero.stats / hero.inventory 任一條。函式保留空殼讓 4 個呼叫點不破，
+    /// 1.8 dead code 清理時連同呼叫一起砍。
     fn broadcast_hero_update(&self, world: &World, hero_entity: Entity) {
-        use serde_json::json;
-        let heroes = world.read_storage::<Hero>();
-        let golds = world.read_storage::<Gold>();
-        let invs = world.read_storage::<Inventory>();
-        let props = world.read_storage::<CProperty>();
-        let atks = world.read_storage::<crate::comp::TAttack>();
-        let positions = world.read_storage::<Pos>();
-        let buff_store = world.read_resource::<crate::ability_runtime::BuffStore>();
-
-        let hero = heroes.get(hero_entity);
-        let gold = golds.get(hero_entity).map(|g| g.0).unwrap_or(0);
-        let (pos_x_f, pos_y_f) = positions.get(hero_entity).map(|p| p.xy_f32()).unwrap_or((0.0, 0.0));
-        let pos_vek = vek::Vec2::new(pos_x_f, pos_y_f);
-        #[cfg(not(feature = "kcp"))]
-        let lives = world.read_resource::<PlayerLives>().0;
-        if let Some(h) = hero {
-            let prop = props.get(hero_entity);
-            let (hp, mhp) = prop.map(|p| (p.hp.to_f32_for_render(), p.mhp.to_f32_for_render())).unwrap_or((0.0, 0.0));
-            let (armor_b, mres_b, msd_b) = prop
-                .map(|p| (p.def_physic.to_f32_for_render(), p.def_magic.to_f32_for_render(), p.msd.to_f32_for_render()))
-                .unwrap_or((0.0, 0.0, 0.0));
-            #[cfg(feature = "kcp")]
-            {
-                let (atk_dmg_b, atk_int_b, atk_rng_b) = atks.get(hero_entity)
-                    .map(|a| (a.atk_physic.v.to_f32_for_render(), a.asd.v.to_f32_for_render(), a.range.v.to_f32_for_render()))
-                    .unwrap_or((0.0, 0.0, 0.0));
-                // P3: inventory/ability 變化時同時 push static（可能 abilities/points 改了）
-                // + hot（gold 可能改了）。shim 會緩存 static 並跟後續 hot 合併。
-                let static_msg = build_hero_static_msg(hero_entity, h, pos_vek);
-                let _ = self.mqtx.send(static_msg);
-                let hot_msg = build_hero_hot_msg(
-                    hero_entity, h, gold, hp, mhp, armor_b, mres_b, msd_b,
-                    atk_dmg_b, atk_int_b, atk_rng_b, &buff_store, pos_vek,
-                );
-                let _ = self.mqtx.send(hot_msg);
-            }
-            #[cfg(not(feature = "kcp"))]
-            {
-                let (atk_dmg_b, atk_int_b, atk_rng_b, bullet_spd) = atks.get(hero_entity)
-                    .map(|a| (a.atk_physic.v.to_f32_for_render(), a.asd.v.to_f32_for_render(), a.range.v.to_f32_for_render(), a.bullet_speed.to_f32_for_render()))
-                    .unwrap_or((0.0, 0.0, 0.0, 0.0));
-                let payload = build_hero_stats_payload(
-                    hero_entity, h, gold, hp, mhp, armor_b, mres_b, msd_b,
-                    atk_dmg_b, atk_int_b, atk_rng_b, bullet_spd, lives, &buff_store,
-                );
-                let _ = self.mqtx.send(OutboundMsg::new_s_at(
-                    "td/all/res", "hero", "stats", payload, pos_x_f, pos_y_f,
-                ));
-            }
-        }
-        if let Some(inv) = invs.get(hero_entity) {
-            let slots: Vec<serde_json::Value> = inv
-                .slots
-                .iter()
-                .map(|s| match s {
-                    Some(it) => json!({"item_id": it.item_id, "cd": it.cooldown_remaining}),
-                    None => json!(null),
-                })
-                .collect();
-            let _ = self.mqtx.send(OutboundMsg::new_s_at(
-                "td/all/res",
-                "hero",
-                "inventory",
-                serde_json::json!({"id": hero_entity.id(), "slots": slots}),
-                pos_x_f, pos_y_f,
-            ));
-        }
+        let _ = (world, hero_entity);
     }
 
     fn upgrade_skill(&self, world: &mut World, pd: &InboundMsg) -> Result<(), Error> {
