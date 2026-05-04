@@ -321,9 +321,6 @@ impl ResourceManager {
         // 新 spawn 的 Tower entity，render-side TD build menu 從
         // tower_templates Arc 拿 metadata（sim_runner.rs:88）
 
-        // 扣完金幣主動廣播 hero.stats（避免前端 HUD 滯後）
-        self.push_hero_stats(world, hero_entity);
-
         Ok(())
     }
 
@@ -360,18 +357,6 @@ impl ResourceManager {
         // total_rounds / round_is_running 讀取（sim_runner.rs:57-67）
         let _ = (round, total);
         Ok(())
-    }
-
-    /// 主動廣播指定英雄的 hot 狀態（hp/gold/damage/armor/msd/range/interval/buffs）。
-    /// Phase 5.2: legacy 0x02 GameEvent producer cut — body no-ops. Lockstep
-    /// TickBatch (0x10) carries authoritative hero state.
-    pub(crate) fn push_hero_stats(&self, world: &mut World, hero_entity: specs::Entity) {
-        let _ = (world, hero_entity);
-    }
-
-    /// Phase 5.2: legacy 0x02 GameEvent producer cut — body no-ops.
-    pub(crate) fn push_hero_static(&self, world: &mut World, hero_entity: specs::Entity) {
-        let _ = (world, hero_entity);
     }
 
     fn upgrade_tower(&self, world: &mut World, pd: &InboundMsg) -> Result<(), Error> {
@@ -549,9 +534,6 @@ impl ResourceManager {
         log::info!("⬆️ TD 升級塔 id={} path={} → L{} ({}) cost={}",
             tower_id_u32, path, next_level, def.name, def.cost);
 
-        // 11. 推 hero.stats（gold 即時更新）
-        self.push_hero_stats(world, hero_entity);
-
         Ok(())
     }
 
@@ -648,11 +630,6 @@ impl ResourceManager {
         // snapshot.removed_entity_ids 自動清理 scene node
         world.write_resource::<Vec<crate::comp::Outcome>>()
             .push(crate::comp::Outcome::EntityRemoved { entity: target_entity });
-
-        // 推新 hero.stats（gold 即時更新）
-        if let Some(hero_entity) = hero_entity {
-            self.push_hero_stats(world, hero_entity);
-        }
 
         log::info!("🏚 TD 賣塔 id={} 退款 {}", tower_id_u32, refund);
         Ok(())
@@ -853,13 +830,6 @@ impl ResourceManager {
 
     /// Hero broadcast 已砍 — omfx 從 SimWorldSnapshot.entities[].hero_ext
     /// 讀完整 HeroStatsExt（armor/atk/range/msd/asd/inventory/ability_levels
-    /// /buffs 全 12 欄位），不需要 server 主動推 hero.static / hero.hot /
-    /// hero.stats / hero.inventory 任一條。函式保留空殼讓 4 個呼叫點不破，
-    /// 1.8 dead code 清理時連同呼叫一起砍。
-    fn broadcast_hero_update(&self, world: &World, hero_entity: Entity) {
-        let _ = (world, hero_entity);
-    }
-
     fn upgrade_skill(&self, world: &mut World, pd: &InboundMsg) -> Result<(), Error> {
         let slot = pd.d.get("slot").and_then(|v| v.as_str()).unwrap_or("");
         let idx = match Self::slot_to_index(slot) {
@@ -918,7 +888,6 @@ impl ResourceManager {
                 new_level,
             });
         }
-        self.broadcast_hero_update(world, hero_e);
         Ok(())
     }
 
@@ -1005,7 +974,6 @@ impl ResourceManager {
         drop(golds);
         drop(invs);
         drop(effs);
-        self.broadcast_hero_update(world, hero_e);
         Ok(())
     }
 
@@ -1044,7 +1012,6 @@ impl ResourceManager {
                 log::info!("💰 賣出 slot {}，退還 {} 金錢，餘 {}", slot_i, refund, g.0);
             }
         }
-        self.broadcast_hero_update(world, hero_e);
         Ok(())
     }
 
@@ -1129,7 +1096,6 @@ impl ResourceManager {
                 }
             }
         }
-        self.broadcast_hero_update(world, hero_e);
         Ok(())
     }
 
@@ -1418,23 +1384,6 @@ pub(crate) mod proto_build {
         }
     }
 
-    /// Default `entity_death` — kind defaults to `Creep` (most common emit site).
-    /// Use `entity_death_with_kind` when emitting for hero/unit/tower/projectile.
-    pub fn entity_death(id: u32) -> EntityDeath {
-        EntityDeath {
-            id: id as u64,
-            kind: EntityKind::Creep as i32,
-        }
-    }
-
-    /// P9: explicit-kind variant for death events.
-    pub fn entity_death_with_kind(id: u32, kind: EntityKind) -> EntityDeath {
-        EntityDeath {
-            id: id as u64,
-            kind: kind as i32,
-        }
-    }
-
     /// P9: minimal hero create — for visibility-diff spawn. Hero static + hot
     /// payloads should be pushed alongside (or shortly after) so omfx can
     /// hydrate the rest.
@@ -1486,32 +1435,6 @@ pub(crate) mod proto_build {
         }
     }
 
-    pub fn tower_create(
-        id: u32,
-        x: f32,
-        y: f32,
-        hp: f32,
-        max_hp: f32,
-        kind: &str,
-        name: &str,
-    ) -> TowerCreate {
-        TowerCreate {
-            id: id as u64,
-            pos: Some(pos16(x, y)),
-            hp: Some(fx16(hp)),
-            max_hp: Some(fx16(max_hp)),
-            kind: kind.to_string(),
-            name: name.to_string(),
-        }
-    }
-
-    pub fn tower_upgrade(id: u32, levels: [u8; 3]) -> TowerUpgrade {
-        TowerUpgrade {
-            id: id as u64,
-            levels: vec![levels[0] as u32, levels[1] as u32, levels[2] as u32],
-        }
-    }
-
     pub fn buff_add(
         entity_id: u32,
         buff_id: &str,
@@ -1538,10 +1461,6 @@ pub(crate) mod proto_build {
         }
     }
 
-    pub fn game_round(round: u32, total: u32, is_running: bool) -> GameRound {
-        GameRound { round, total, is_running }
-    }
-
     pub fn game_lives(lives: i32) -> GameLives {
         GameLives { lives }
     }
@@ -1559,231 +1478,5 @@ pub(crate) mod proto_build {
         }
     }
 
-    /// P3: build `HeroStatic` prost — cold hero metadata (name/title/base_stats/
-    /// abilities/level/xp/skill_points/ability_levels). Pushed on create /
-    /// level up / ability learn (低頻）。
-    pub fn hero_static(
-        hero_entity: specs::Entity,
-        h: &crate::comp::Hero,
-    ) -> HeroStatic {
-        let ability_ids: Vec<String> = h.abilities.iter().cloned().collect();
-        // 固定順序輸出 ability_levels：照 abilities[] 順序，避免 HashMap 不決定性。
-        let ability_levels: Vec<AbilityLevelPair> = h.abilities.iter().map(|id| {
-            let cur = *h.ability_levels.get(id).unwrap_or(&0);
-            // Hero::learn_ability 中 cap 在 4；R-前綴 ult 額外受 (level/6).max(1) 限
-            let max = if id.starts_with('R') { ((h.level as u32) / 6).max(1) } else { 4 };
-            AbilityLevelPair { cur: cur.max(0) as u32, max }
-        }).collect();
-
-        HeroStatic {
-            id: hero_entity.id() as u64,
-            name: h.name.clone(),
-            title: h.title.clone(),
-            base_str: h.strength.max(0) as u32,
-            base_agi: h.agility.max(0) as u32,
-            base_int: h.intelligence.max(0) as u32,
-            ability_ids,
-            level: h.level.max(0) as u32,
-            xp: h.experience.max(0) as u32,
-            xp_next: h.experience_to_next.max(0) as u32,
-            skill_points: h.skill_points.max(0) as u32,
-            ability_levels,
-        }
-    }
-
-    /// P3: build `HeroHot` prost — hot hero state (HP/mana/damage/armor/
-    /// resists/speed/range/interval + gold + buff snapshot). Pushed every 0.3s.
-    ///
-    /// `buff_store` iter_for(hero_entity) 會把 hero 身上所有 buff 打包；
-    /// `remaining.is_infinite()` → 0xFFFF sentinel（與 `buff_add` builder 對齊）。
-    pub fn hero_hot(
-        hero_entity: specs::Entity,
-        _h: &crate::comp::Hero,
-        gold: i32,
-        hp: f32,
-        mhp: f32,
-        armor_base: f32,
-        magic_resist_base: f32,
-        move_speed_base: f32,
-        attack_damage_base: f32,
-        attack_interval_base: f32,
-        attack_range_base: f32,
-        buff_store: &crate::ability_runtime::BuffStore,
-    ) -> HeroHot {
-        // 與 build_hero_stats_payload 一致的聚合路徑（讓前端看到實際生效值）
-        // Phase 1c.3: UnitStats final_* now returns Fixed64; wire format remains f32.
-        let stats = crate::ability_runtime::UnitStats::from_refs(buff_store, false);
-        let attack_damage_base_fx = omoba_sim::Fixed64::from_raw((attack_damage_base * 1024.0) as i64);
-        let attack_range_base_fx = omoba_sim::Fixed64::from_raw((attack_range_base * 1024.0) as i64);
-        let move_speed_base_fx = omoba_sim::Fixed64::from_raw((move_speed_base * 1024.0) as i64);
-        let armor_base_fx = omoba_sim::Fixed64::from_raw((armor_base * 1024.0) as i64);
-        let magic_resist_base_fx = omoba_sim::Fixed64::from_raw((magic_resist_base * 1024.0) as i64);
-        let atk_dmg_eff = stats.final_atk(attack_damage_base_fx, hero_entity).to_f32_for_render();
-        let atk_rng_eff = stats.final_attack_range(attack_range_base_fx, hero_entity).to_f32_for_render();
-        let asd_mult = stats.final_attack_speed_mult(hero_entity).to_f32_for_render();
-        let atk_int_eff = if asd_mult > 0.0 { attack_interval_base / asd_mult } else { attack_interval_base };
-        let msd_eff = stats.final_move_speed(move_speed_base_fx, hero_entity).to_f32_for_render();
-        let armor_eff = stats.final_armor(armor_base_fx, hero_entity).to_f32_for_render();
-        let magic_resist_eff = stats.final_magic_resist(magic_resist_base_fx, hero_entity).to_f32_for_render();
-
-        let buffs: Vec<BuffSnapshot> = buff_store
-            .iter_for(hero_entity)
-            .map(|(id, entry)| {
-                // Phase 1c.3: BuffEntry.remaining is Fixed64 — wire as ms u32 sentinel.
-                let remaining_f = entry.remaining.to_f32_for_render();
-                let remaining_ms = if remaining_f.is_infinite() || remaining_f > 65.535 {
-                    0xFFFF
-                } else {
-                    (remaining_f * 1000.0).clamp(0.0, 65535.0) as u32
-                };
-                BuffSnapshot {
-                    buff_id: id.to_string(),
-                    remaining_ms,
-                    payload_json: entry.payload.to_string(),
-                }
-            })
-            .collect();
-
-        HeroHot {
-            id: hero_entity.id() as u64,
-            hp: Some(fx16(hp)),
-            max_hp: Some(fx16(mhp)),
-            // 目前 omb 尚未實裝 hero mana tracking — 以 0 暫代；前端 omfx hero.stats 也沒讀取 mana
-            mana: Some(fx16(0.0)),
-            max_mana: Some(fx16(0.0)),
-            gold: gold.max(0) as u32,
-            attack_damage: Some(fx16(atk_dmg_eff)),
-            armor: Some(fx16(armor_eff)),
-            magic_resist: Some(fx16(magic_resist_eff)),
-            move_speed: Some(fx16(msd_eff)),
-            attack_range: Some(fx16(atk_rng_eff)),
-            attack_interval: Some(fx16(atk_int_eff)),
-            buffs,
-        }
-    }
 }
 
-/// P3: JSON 版本（非 kcp 傳輸用）— 原 hero.stats 的全 20 欄位 payload。
-/// kcp path 改走 `build_hero_hot_msg` / `build_hero_static_msg` 直接 prost 編碼。
-#[cfg(not(feature = "kcp"))]
-pub(crate) fn build_hero_stats_payload(
-    hero_entity: specs::Entity,
-    h: &crate::comp::Hero,
-    gold: i32,
-    hp: f32,
-    mhp: f32,
-    armor_base: f32,
-    magic_resist_base: f32,
-    move_speed_base: f32,
-    attack_damage_base: f32,
-    attack_interval_base: f32,
-    attack_range_base: f32,
-    bullet_speed: f32,
-    lives: i32,
-    buff_store: &crate::ability_runtime::BuffStore,
-) -> serde_json::Value {
-    use serde_json::json;
-    // Phase 1c.3: UnitStats final_* now Fixed64; wire format remains f32.
-    let stats = crate::ability_runtime::UnitStats::from_refs(buff_store, false);
-    let attack_damage_base_fx = omoba_sim::Fixed64::from_raw((attack_damage_base * 1024.0) as i64);
-    let attack_range_base_fx = omoba_sim::Fixed64::from_raw((attack_range_base * 1024.0) as i64);
-    let move_speed_base_fx = omoba_sim::Fixed64::from_raw((move_speed_base * 1024.0) as i64);
-    let armor_base_fx = omoba_sim::Fixed64::from_raw((armor_base * 1024.0) as i64);
-    let magic_resist_base_fx = omoba_sim::Fixed64::from_raw((magic_resist_base * 1024.0) as i64);
-    let atk_dmg_eff = stats.final_atk(attack_damage_base_fx, hero_entity).to_f32_for_render();
-    let atk_rng_eff = stats.final_attack_range(attack_range_base_fx, hero_entity).to_f32_for_render();
-    let asd_mult = stats.final_attack_speed_mult(hero_entity).to_f32_for_render();
-    let atk_int_eff = if asd_mult > 0.0 { attack_interval_base / asd_mult } else { attack_interval_base };
-    let msd_eff = stats.final_move_speed(move_speed_base_fx, hero_entity).to_f32_for_render();
-    let armor_eff = stats.final_armor(armor_base_fx, hero_entity).to_f32_for_render();
-    let magic_resist_eff = stats.final_magic_resist(magic_resist_base_fx, hero_entity).to_f32_for_render();
-
-    let buffs: Vec<serde_json::Value> = buff_store
-        .iter_for(hero_entity)
-        .map(|(id, entry)| {
-            // Phase 1c.3: BuffEntry.remaining is Fixed64; treat raw i32::MAX as infinite.
-            let remaining = if entry.remaining.raw() == i32::MAX {
-                -1.0_f32
-            } else {
-                entry.remaining.to_f32_for_render()
-            };
-            json!({
-                "id": id,
-                "remaining": remaining,
-                "payload": entry.payload,
-            })
-        })
-        .collect();
-
-    json!({
-        "id": hero_entity.id(),
-        "name": h.name,
-        "title": h.title,
-        "level": h.level,
-        "xp": h.experience,
-        "xp_next": h.experience_to_next,
-        "skill_points": h.skill_points,
-        "ability_levels": h.ability_levels,
-        "abilities": h.abilities,
-        "strength": h.strength,
-        "agility": h.agility,
-        "intelligence": h.intelligence,
-        "primary_attribute": format!("{:?}", h.primary_attribute).to_lowercase(),
-        "gold": gold,
-        "hp": hp,
-        "max_hp": mhp,
-        "armor": armor_eff,
-        "magic_resist": magic_resist_eff,
-        "move_speed": msd_eff,
-        "attack_damage": atk_dmg_eff,
-        "attack_interval": atk_int_eff,
-        "attack_range": atk_rng_eff,
-        "bullet_speed": bullet_speed,
-        "lives": lives,
-        "buffs": buffs,
-    })
-}
-
-/// P3 (kcp only): 建構 `HeroHot` prost OutboundMsg — 0.3s tick + 狀態變化事件共用。
-#[cfg(feature = "kcp")]
-pub(crate) fn build_hero_hot_msg(
-    hero_entity: specs::Entity,
-    h: &crate::comp::Hero,
-    gold: i32,
-    hp: f32,
-    mhp: f32,
-    armor_base: f32,
-    magic_resist_base: f32,
-    move_speed_base: f32,
-    attack_damage_base: f32,
-    attack_interval_base: f32,
-    attack_range_base: f32,
-    buff_store: &crate::ability_runtime::BuffStore,
-    pos: vek::Vec2<f32>,
-) -> OutboundMsg {
-    let hot = proto_build::hero_hot(
-        hero_entity, h, gold, hp, mhp, armor_base, magic_resist_base, move_speed_base,
-        attack_damage_base, attack_interval_base, attack_range_base, buff_store,
-    );
-    // json_fallback 僅供 dedupe 的 (t,a,id) 識別；真實 payload 走 typed。
-    let fb = serde_json::json!({ "id": hero_entity.id() });
-    OutboundMsg::new_typed_at(
-        "td/all/res", "hero", "hot",
-        crate::transport::TypedOutbound::HeroHot(hot), fb, pos.x, pos.y,
-    )
-}
-
-/// P3 (kcp only): 建構 `HeroStatic` prost OutboundMsg — create / level up / ability learn。
-#[cfg(feature = "kcp")]
-pub(crate) fn build_hero_static_msg(
-    hero_entity: specs::Entity,
-    h: &crate::comp::Hero,
-    pos: vek::Vec2<f32>,
-) -> OutboundMsg {
-    let st = proto_build::hero_static(hero_entity, h);
-    let fb = serde_json::json!({ "id": hero_entity.id() });
-    OutboundMsg::new_typed_at(
-        "td/all/res", "hero", "static",
-        crate::transport::TypedOutbound::HeroStatic(st), fb, pos.x, pos.y,
-    )
-}

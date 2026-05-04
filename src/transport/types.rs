@@ -21,29 +21,13 @@ use super::metrics::KcpBytesCounter;
 #[derive(Clone, Debug)]
 pub enum TypedOutbound {
     Heartbeat(super::kcp_transport::game_proto::HeartbeatTick),
-    // P2 full migration: typed variants for the high-volume events.
-    ProjectileCreate(super::kcp_transport::game_proto::ProjectileCreate),
-    ProjectileDestroy(super::kcp_transport::game_proto::ProjectileDestroy),
-    CreepCreate(super::kcp_transport::game_proto::CreepCreate),
-    CreepMove(super::kcp_transport::game_proto::CreepMove),
-    CreepHp(super::kcp_transport::game_proto::CreepHp),
-    CreepSlow(super::kcp_transport::game_proto::CreepSlow),
-    CreepStall(super::kcp_transport::game_proto::CreepStall),
-    EntityFacing(super::kcp_transport::game_proto::EntityFacing),
-    EntityDeath(super::kcp_transport::game_proto::EntityDeath),
-    TowerCreate(super::kcp_transport::game_proto::TowerCreate),
-    TowerUpgrade(super::kcp_transport::game_proto::TowerUpgrade),
     BuffAdd(super::kcp_transport::game_proto::BuffAdd),
     BuffRemove(super::kcp_transport::game_proto::BuffRemove),
-    HeroStatic(super::kcp_transport::game_proto::HeroStatic),
-    HeroHot(super::kcp_transport::game_proto::HeroHot),
-    HeroCreate(super::kcp_transport::game_proto::HeroCreate),     // P9
-    UnitCreate(super::kcp_transport::game_proto::UnitCreate),     // P9
-    GameRound(super::kcp_transport::game_proto::GameRound),
+    HeroCreate(super::kcp_transport::game_proto::HeroCreate),
+    UnitCreate(super::kcp_transport::game_proto::UnitCreate),
     GameLives(super::kcp_transport::game_proto::GameLives),
     GameEnd(super::kcp_transport::game_proto::GameEnd),
-    GameExplosion(super::kcp_transport::game_proto::GameExplosion),
-    LegacyJson(super::kcp_transport::game_proto::LegacyJson),     // P9 catch-all
+    LegacyJson(super::kcp_transport::game_proto::LegacyJson),
 }
 
 /// P5 broadcast policy — declares who should receive this event. The
