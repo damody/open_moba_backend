@@ -294,31 +294,12 @@ impl CombatEventHandler {
             "unknown"
         };
         
-        if !entity_type.is_empty() && entity_type != "unknown" {
-            #[cfg(feature = "kcp")]
-            let msg = {
-                use crate::state::resource_management::proto_build;
-                use crate::transport::TypedOutbound;
-                // P9: stamp EntityKind for shim ("hero"/"creep"/"unit"/"tower"/"projectile", "D")
-                let entity_kind = match entity_type {
-                    "hero" => proto_build::EntityKind::Hero,
-                    "unit" => proto_build::EntityKind::Unit,
-                    "tower" => proto_build::EntityKind::Tower,
-                    "creep" => proto_build::EntityKind::Creep,
-                    "projectile" => proto_build::EntityKind::Projectile,
-                    _ => proto_build::EntityKind::Entity,
-                };
-                OutboundMsg::new_typed(
-                    "td/all/res", entity_type, "D",
-                    TypedOutbound::EntityDeath(proto_build::entity_death_with_kind(entity.id(), entity_kind)),
-                    json!({ "id": entity.id() }),
-                )
-            };
-            #[cfg(not(feature = "kcp"))]
-            let msg = OutboundMsg::new_s("td/all/res", entity_type, "D", json!({"id": entity.id()}));
-            let _ = mqtx.send(msg);
-        }
-        
+        // EntityDeath broadcast 已砍 — render-side scene node cleanup
+        // 由 SimWorldSnapshot.removed_entity_ids 自動處理（1.6 重構為
+        // Outcome::EntityRemoved 通道）；entity_type 變數保留是因為
+        // 此函式上方還會用它做其他 routing
+        let _ = entity_type;
+
         next_outcomes
     }
 

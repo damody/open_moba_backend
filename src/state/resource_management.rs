@@ -700,24 +700,10 @@ impl ResourceManager {
             store.remove_all_for(target_entity);
         }
 
-        // 刪塔 + 廣播 delete
+        // 刪塔（render-side scene node 由 SimWorldSnapshot.removed_entity_ids
+        // 自動清理 — 1.6 重構走 Outcome::EntityRemoved，這裡先保留 raw delete
+        // 等 1.6b 全 site 清查時改走 delete_entity_tracked）
         world.entities().delete(target_entity).ok();
-        #[cfg(feature = "kcp")]
-        // P5: tower entity already captured pos at spawn; use AoiEntity lookup
-        // so only players in the tower's viewport pay the teardown bandwidth.
-        let msg = OutboundMsg::new_typed_aoi_entity(
-            "td/all/res", "tower", "D",
-            crate::transport::TypedOutbound::EntityDeath(proto_build::entity_death_with_kind(
-                tower_id_u32,
-                proto_build::EntityKind::Tower,
-            )),
-            json!({ "id": tower_id_u32 }),
-            tower_id_u32 as u64,
-        );
-        #[cfg(not(feature = "kcp"))]
-        let msg = OutboundMsg::new_s("td/all/res", "tower", "D",
-            json!({ "id": tower_id_u32 }));
-        let _ = self.mqtx.send(msg);
 
         // 推新 hero.stats（gold 即時更新）
         if let Some(hero_entity) = hero_entity {
