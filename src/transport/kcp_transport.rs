@@ -293,6 +293,14 @@ fn dedupe_batch(batch: Vec<OutboundMsg>) -> Vec<OutboundMsg> {
     out
 }
 
+fn outbound_urgency(msg: &OutboundMsg) -> Urgency {
+    if msg.lockstep_frame.is_some() {
+        return Urgency::Urgent;
+    }
+    let (t, a, _) = peek_kind_and_id(&msg.msg);
+    urgency(&t, &a)
+}
+
 /// Extract (msg_type, action, Option<entity_id>) from an OutboundMsg JSON
 /// payload. `entity_id = None` means either parse failure or `d.id` absent;
 /// caller treats that as non-dedupable. A present `d.id = 0` is a legal
@@ -389,11 +397,6 @@ pub async fn start(
             const MIN_BATCH: Duration = Duration::from_millis(10);
             const MAX_BATCH: Duration = Duration::from_millis(33);
 
-            let msg_urgency = |m: &OutboundMsg| -> Urgency {
-                let (t, a, _) = peek_kind_and_id(&m.msg);
-                urgency(&t, &a)
-            };
-
             'outer: loop {
                 // 等第一筆訊息（阻塞）
                 let first = match out_rx.recv() {
@@ -403,7 +406,7 @@ pub async fn start(
                         break 'outer;
                     }
                 };
-                let first_is_urgent = msg_urgency(&first) == Urgency::Urgent;
+                let first_is_urgent = outbound_urgency(&first) == Urgency::Urgent;
                 let mut batch: Vec<crate::transport::OutboundMsg> = vec![first];
                 let window_start = Instant::now();
 
@@ -427,8 +430,12 @@ pub async fn start(
                         let timeout = MAX_BATCH - elapsed;
                         match out_rx.recv_timeout(timeout) {
                             Ok(m) => {
-                                let is_urg = msg_urgency(&m) == Urgency::Urgent;
+                                let is_lockstep = m.lockstep_frame.is_some();
+                                let is_urg = outbound_urgency(&m) == Urgency::Urgent;
                                 batch.push(m);
+                                if is_lockstep {
+                                    break;
+                                }
                                 // If Urgent arrived after MIN_BATCH, don't
                                 // wait any longer — the batch has already
                                 // earned its dedupe savings.
@@ -1367,10 +1374,7 @@ mod tests {
         max_batch: Duration,
     ) -> Option<Vec<OutboundMsg>> {
         let first = rx.recv().ok()?;
-        let first_urg = {
-            let (t, a, _) = peek_kind_and_id(&first.msg);
-            urgency(&t, &a)
-        };
+        let first_urg = outbound_urgency(&first);
         let mut batch = vec![first];
         let start = Instant::now();
         if first_urg == Urgency::Urgent {
@@ -1388,10 +1392,10 @@ mod tests {
             let timeout = max_batch - elapsed;
             match rx.recv_timeout(timeout) {
                 Ok(m) => {
-                    let (t, a, _) = peek_kind_and_id(&m.msg);
-                    let is_urg = urgency(&t, &a) == Urgency::Urgent;
+                    let is_lockstep = m.lockstep_frame.is_some();
+                    let is_urg = outbound_urgency(&m) == Urgency::Urgent;
                     batch.push(m);
-                    if is_urg && start.elapsed() >= min_batch {
+                    if is_lockstep || (is_urg && start.elapsed() >= min_batch) {
                         break;
                     }
                 }
@@ -1414,6 +1418,41 @@ mod tests {
         let elapsed = t0.elapsed();
         assert!(elapsed < Duration::from_millis(5), "urgent flush took {:?}", elapsed);
         // Both messages made it in (the Normal got piggy-backed via try_recv).
+        assert_eq!(batch.len(), 2);
+    }
+
+    #[test]
+    fn lockstep_frame_flushes_immediately() {
+        use crate::lockstep::{LockstepFrame, TickBatch};
+
+        let (tx, rx) = bounded::<OutboundMsg>(32);
+        tx.send(OutboundMsg::lockstep_frame(LockstepFrame::TickBatch(TickBatch {
+            tick: 1,
+            inputs: Vec::new(),
+            server_events: Vec::new(),
+        }))).unwrap();
+        let t0 = Instant::now();
+        let batch = collect_batch(&rx, Duration::from_millis(10), Duration::from_millis(33)).unwrap();
+        let elapsed = t0.elapsed();
+        assert!(elapsed < Duration::from_millis(5), "lockstep flush took {:?}", elapsed);
+        assert_eq!(batch.len(), 1);
+    }
+
+    #[test]
+    fn lockstep_frame_short_circuits_normal_batch() {
+        use crate::lockstep::{LockstepFrame, TickBatch};
+
+        let (tx, rx) = bounded::<OutboundMsg>(32);
+        tx.send(make("creep", "H", json!({ "id": 42, "hp": 10.0 }))).unwrap();
+        tx.send(OutboundMsg::lockstep_frame(LockstepFrame::TickBatch(TickBatch {
+            tick: 1,
+            inputs: Vec::new(),
+            server_events: Vec::new(),
+        }))).unwrap();
+        let t0 = Instant::now();
+        let batch = collect_batch(&rx, Duration::from_millis(10), Duration::from_millis(33)).unwrap();
+        let elapsed = t0.elapsed();
+        assert!(elapsed < Duration::from_millis(5), "lockstep did not short-circuit: {:?}", elapsed);
         assert_eq!(batch.len(), 2);
     }
 
