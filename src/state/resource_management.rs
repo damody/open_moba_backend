@@ -356,22 +356,9 @@ impl ResourceManager {
         }
         log::info!("▶️ TD 開始第 {}/{} 波 @ t={:.1}s", round, total, totaltime);
 
-        let payload = json!({
-            "round": round,
-            "total": total,
-            "is_running": true,
-        });
-        #[cfg(feature = "kcp")]
-        let msg = OutboundMsg::new_typed_all(
-            "td/all/res", "game", "round",
-            crate::transport::TypedOutbound::GameRound(proto_build::game_round(round as u32, total as u32, true)),
-            payload,
-        );
-        #[cfg(all(not(feature = "kcp"), any(feature = "grpc")))]
-        let msg = OutboundMsg::new_s_all("td/all/res", "game", "round", payload);
-        #[cfg(not(any(feature = "grpc", feature = "kcp")))]
-        let msg = OutboundMsg::new_s("td/all/res", "game", "round", payload);
-        self.mqtx.send(msg)?;
+        // GameRound broadcast 已砍 — omfx HUD 從 SimWorldSnapshot.round /
+        // total_rounds / round_is_running 讀取（sim_runner.rs:57-67）
+        let _ = (round, total);
         Ok(())
     }
 

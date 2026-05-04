@@ -40,6 +40,8 @@ const TAG_JOIN_REQUEST: u8 = 0x13;
 const TAG_GAME_START: u8 = 0x14;
 const TAG_SNAPSHOT_REQ: u8 = 0x15;
 const TAG_SNAPSHOT_RESP: u8 = 0x16;
+const TAG_PING_REQ: u8 = 0x17;
+const TAG_PING_RESP: u8 = 0x18;
 
 /// High bit of the tag — set when the framed payload is LZ4-compressed.
 /// Base tags 0x01~0x07 never use this bit so it is always free as a flag.
@@ -1104,6 +1106,23 @@ async fn handle_client(
                                         }
                                     }
                                     Err(e) => warn!("Failed to decode SnapshotReq: {}", e),
+                                }
+                            }
+                            TAG_PING_REQ => {
+                                // Echo PingResponse with the same client_send_us
+                                // so the client can derive RTT. Direct write —
+                                // bypasses the broadcast channel for minimum
+                                // turnaround time (out_tx adds queuing delay
+                                // that contaminates the RTT measurement).
+                                match PingRequest::decode(payload.as_slice()) {
+                                    Ok(req) => {
+                                        let resp = PingResponse {
+                                            client_send_us: req.client_send_us,
+                                        };
+                                        let resp_payload = resp.encode_to_vec();
+                                        let _ = write_framed(&mut writer, TAG_PING_RESP, &resp_payload).await;
+                                    }
+                                    Err(e) => warn!("Failed to decode PingRequest: {}", e),
                                 }
                             }
                             _ => {
