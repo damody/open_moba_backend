@@ -393,6 +393,12 @@ impl StateInitializer {
         // 抽取器每 tick drain 給前端渲染。非 sim 狀態，不影響 determinism hash。
         ecs.insert(crate::comp::ExplosionFxQueue::default());
 
+        // Phase 1b: entity-removed queue — delete_entity_tracked helper
+        // 推入，sim_runner snapshot extractor 每 tick drain 進
+        // SimWorldSnapshot.removed_entity_ids。同 ExplosionFxQueue 模式，
+        // 非 sim 狀態，不影響 determinism hash。
+        ecs.insert(crate::comp::RemovedEntitiesQueue::default());
+
         // 遊戲模式 / 玩家生命（由 init_creep_wave 依 map.json 覆寫）
         ecs.insert(GameMode::default());
         ecs.insert(PlayerLives::default());

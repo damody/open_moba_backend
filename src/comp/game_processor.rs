@@ -79,6 +79,7 @@ fn outcome_kind(o: &Outcome) -> &'static str {
         Outcome::AddBuff { .. } => "AddBuff",
         Outcome::Explosion { .. } => "Explosion",
         Outcome::ProjectileDirectional { .. } => "ProjectileDirectional",
+        Outcome::EntityRemoved { .. } => "EntityRemoved",
     }
 }
 
@@ -204,6 +205,16 @@ impl GameProcessor {
                             duration_ms,
                             spawn_tick: current_tick,
                         });
+                    }
+                    Outcome::EntityRemoved { entity_id } => {
+                        // Phase 1b: alternative entry point to RemovedEntitiesQueue
+                        // for systems that produce outcomes but can't take
+                        // &mut World to call delete_entity_tracked directly.
+                        // Most call sites use the helper; this arm handles the
+                        // outcome-style producer case (e.g., abi_stable script
+                        // boundary that returns Outcomes).
+                        let mut q = ecs.write_resource::<crate::comp::RemovedEntitiesQueue>();
+                        q.pending.push(entity_id);
                     }
                     _ => {}
                 }
