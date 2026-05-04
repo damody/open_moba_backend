@@ -340,6 +340,11 @@ impl StateInitializer {
         // dispatcher run on both host (omb) and replica (omfx sim_runner).
         ecs.insert(crate::comp::PendingItemUseQueue::default());
 
+        // MoveTo (右鍵移動): deferred hero MoveTarget writes from lockstep
+        // MoveTo inputs. Drained by `GameProcessor::drain_pending_moves` after
+        // the dispatcher run on both host (omb) and replica (omfx sim_runner).
+        ecs.insert(crate::comp::PendingMoveQueue::default());
+
         // Phase 5.3: latest serialized world snapshot for observer rejoin.
         // Refreshed every SNAPSHOT_INTERVAL_TICKS (= 30 s @ 30 Hz) by the
         // dispatcher tick loop; consumed by the KCP transport's 0x16

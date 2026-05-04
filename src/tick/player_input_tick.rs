@@ -26,7 +26,7 @@ use specs::{Read, Write};
 use crate::comp::ecs::{Job, System};
 use crate::comp::{CurrentCreepWave, PendingPlayerInputs, Time};
 #[cfg(feature = "kcp")]
-use crate::comp::{PendingItemUseQueue, PendingTowerSellQueue, PendingTowerSpawnQueue, PendingTowerUpgradeQueue};
+use crate::comp::{PendingItemUseQueue, PendingMoveQueue, PendingTowerSellQueue, PendingTowerSpawnQueue, PendingTowerUpgradeQueue};
 
 #[derive(Default)]
 pub struct Sys;
@@ -41,13 +41,14 @@ impl<'a> System<'a> for Sys {
         Write<'a, PendingTowerSellQueue>,
         Write<'a, PendingTowerUpgradeQueue>,
         Write<'a, PendingItemUseQueue>,
+        Write<'a, PendingMoveQueue>,
     );
 
     const NAME: &'static str = "player_input";
 
     fn run(
         _job: &mut Job<Self>,
-        (mut pending, mut cw, time, mut tower_q, mut sell_q, mut upgrade_q, mut item_q): Self::SystemData,
+        (mut pending, mut cw, time, mut tower_q, mut sell_q, mut upgrade_q, mut item_q, mut move_q): Self::SystemData,
     ) {
         if pending.by_player.is_empty() {
             return;
@@ -71,6 +72,7 @@ impl<'a> System<'a> for Sys {
                 &mut sell_q,
                 &mut upgrade_q,
                 &mut item_q,
+                &mut move_q,
             );
         }
     }
@@ -97,6 +99,7 @@ fn route_input(
     sell_q: &mut PendingTowerSellQueue,
     upgrade_q: &mut PendingTowerUpgradeQueue,
     item_q: &mut PendingItemUseQueue,
+    move_q: &mut PendingMoveQueue,
 ) {
     use crate::lockstep::PlayerInputEnum;
 
@@ -124,14 +127,24 @@ fn route_input(
         }
         Some(PlayerInputEnum::MoveTo(m)) => {
             let (x, y) = m.target.map(|v| (v.x, v.y)).unwrap_or((0, 0));
-            log::trace!(
+            log::info!(
                 "player_input_tick: pid={} tick={} MoveTo target_raw=({}, {})",
-                player_id,
-                tick,
-                x,
-                y
+                player_id, tick, x, y,
             );
-            // Phase 4: lookup hero entity by player_id and write MoveTarget.
+            // Defer to PendingMoveQueue: writing MoveTarget on the player's
+            // hero needs join over (Hero, Faction) storages which the System
+            // already could do, but we keep the queue pattern for symmetry
+            // with TowerPlace/Sell/Upgrade/ItemUse — drained via
+            // `GameProcessor::drain_pending_moves` after dispatch on both
+            // host and replica.
+            let pos = omoba_sim::Vec2::new(
+                omoba_sim::Fixed64::from_raw(x as i64),
+                omoba_sim::Fixed64::from_raw(y as i64),
+            );
+            move_q.requests.push(crate::comp::PendingMoveTo {
+                pos,
+                owner_pid: player_id,
+            });
         }
         Some(PlayerInputEnum::AttackTarget(a)) => {
             log::trace!(

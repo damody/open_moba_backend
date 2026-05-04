@@ -138,6 +138,24 @@ pub struct PendingItemUse {
     pub owner_pid: u32,
 }
 
+/// MoveTo: hero right-click move. Writes `MoveTarget` component on the
+/// player's hero entity. Same `&mut World` rationale as the other Pending
+/// queues — the System can't borrow World, so we queue and drain after
+/// dispatcher.
+///
+/// Invariant: must be drained every tick on both host and replica via
+/// `comp::GameProcessor::drain_pending_moves`.
+#[derive(Default)]
+pub struct PendingMoveQueue {
+    pub requests: Vec<PendingMoveTo>,
+}
+
+#[derive(Clone, Debug)]
+pub struct PendingMoveTo {
+    pub pos: SimVec2,
+    pub owner_pid: u32,
+}
+
 /// Phase 5.3: latest serialized world snapshot for observer rejoin.
 ///
 /// Updated every `SNAPSHOT_INTERVAL_TICKS` dispatcher ticks (= 30 s @ 30 Hz).

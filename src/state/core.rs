@@ -358,6 +358,11 @@ impl State {
         // sim_runner.
         crate::comp::GameProcessor::drain_pending_item_uses(&mut self.ecs);
 
+        // MoveTo (右鍵移動): drain `PendingMoveQueue` — writes `MoveTarget`
+        // component on player's hero entity. Replica mirrors this in
+        // sim_runner.
+        crate::comp::GameProcessor::drain_pending_moves(&mut self.ecs);
+
         // 腳本 dispatch 階段（E1 — 序列、獨佔 World）
         // 放在並行系統之後、其他序列處理之前，確保腳本能看到本 tick 的
         // 完整戰鬥結果，也能修改狀態讓下游處理看見。

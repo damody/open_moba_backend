@@ -1295,6 +1295,45 @@ impl GameProcessor {
         }
     }
 
+    /// MoveTo (右鍵移動): drain `PendingMoveQueue` and write `MoveTarget`
+    /// component on the player's hero entity. TD mode: single-player wallet,
+    /// pick first `(Hero, Faction == Player)` entity. Determinism: queue is
+    /// filled identically on host + replica from the same `TickBatch.inputs`,
+    /// drained at the same dispatch boundary, hero lookup uses the same join
+    /// order on both sides.
+    pub fn drain_pending_moves(world: &mut World) {
+        use specs::Join;
+        let drained: Vec<crate::comp::PendingMoveTo> = {
+            let mut q = world.write_resource::<crate::comp::PendingMoveQueue>();
+            std::mem::take(&mut q.requests)
+        };
+        if drained.is_empty() {
+            return;
+        }
+        // Single-player TD: first Hero entity with Player faction.
+        let hero_entity: Option<Entity> = {
+            let entities = world.entities();
+            let heroes = world.read_storage::<Hero>();
+            let factions = world.read_storage::<Faction>();
+            (&entities, &heroes, &factions)
+                .join()
+                .find(|(_, _, f)| f.faction_id == FactionType::Player)
+                .map(|(e, _, _)| e)
+        };
+        let Some(hero) = hero_entity else {
+            log::warn!("MoveTo: no Player-faction hero found ({} requests dropped)", drained.len());
+            return;
+        };
+        let mut move_targets = world.write_storage::<MoveTarget>();
+        for req in drained {
+            log::info!(
+                "MoveTo pid={} → hero={:?} pos=({:.1},{:.1})",
+                req.owner_pid, hero, req.pos.x.to_f32_for_render(), req.pos.y.to_f32_for_render(),
+            );
+            let _ = move_targets.insert(hero, MoveTarget(req.pos));
+        }
+    }
+
 
     fn handle_creep_stop(ecs: &mut World, mqtx: &crossbeam_channel::Sender<OutboundMsg>, source: Entity, target: Entity) -> Result<(), Error> {
         let mut creeps = ecs.write_storage::<Creep>();
