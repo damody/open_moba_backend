@@ -19,7 +19,7 @@
     {
       "Name": "td_stress",
       "Label": "壓測怪",
-      "HP": 10000000.0,
+      "HP": 10000.0,
       "DefendPhysic": 0.0,
       "DefendMagic": 0.0,
       "MoveSpeed": 100.0,
