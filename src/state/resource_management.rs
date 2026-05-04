@@ -317,39 +317,9 @@ impl ResourceManager {
         );
 
         // 廣播 tower.create
-        {
-            let positions = world.read_storage::<Pos>();
-            let properties = world.read_storage::<CProperty>();
-            let radii = world.read_storage::<CollisionRadius>();
-            let hp = properties.get(tower_entity).map(|p| p.hp.to_f32_for_render()).unwrap_or(tpl.hp);
-            let mhp = properties.get(tower_entity).map(|p| p.mhp.to_f32_for_render()).unwrap_or(tpl.hp);
-            let radius = radii.get(tower_entity).map(|r| r.0.to_f32_for_render()).unwrap_or(tpl.footprint);
-            let json_fallback = serde_json::json!({
-                "id": tower_entity.id(),
-                "entity_id": tower_entity.id(),
-                "name": tpl.label,
-                "kind": tpl.unit_id,
-                "position": { "x": pos.x, "y": pos.y },
-                "hp": hp,
-                "max_hp": mhp,
-                "collision_radius": radius,
-                "range": tpl.range,
-                "is_base": false,
-            });
-            #[cfg(feature = "kcp")]
-            let msg = OutboundMsg::new_typed_at(
-                "td/all/res", "tower", "create",
-                crate::transport::TypedOutbound::TowerCreate(proto_build::tower_create(
-                    tower_entity.id(), pos.x, pos.y, hp, mhp, &tpl.unit_id, &tpl.label,
-                )),
-                json_fallback, pos.x, pos.y,
-            );
-            #[cfg(not(feature = "kcp"))]
-            let msg = OutboundMsg::new_s_at(
-                "td/all/res", "tower", "create", json_fallback, pos.x, pos.y,
-            );
-            let _ = self.mqtx.send(msg);
-        }
+        // TowerCreate broadcast 已砍 — omfx snapshot.entities 自然包含
+        // 新 spawn 的 Tower entity，render-side TD build menu 從
+        // tower_templates Arc 拿 metadata（sim_runner.rs:88）
 
         // 扣完金幣主動廣播 hero.stats（避免前端 HUD 滯後）
         self.push_hero_stats(world, hero_entity);
