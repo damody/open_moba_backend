@@ -206,15 +206,20 @@ impl GameProcessor {
                             spawn_tick: current_tick,
                         });
                     }
-                    Outcome::EntityRemoved { entity_id } => {
-                        // Phase 1b: alternative entry point to RemovedEntitiesQueue
-                        // for systems that produce outcomes but can't take
-                        // &mut World to call delete_entity_tracked directly.
-                        // Most call sites use the helper; this arm handles the
-                        // outcome-style producer case (e.g., abi_stable script
-                        // boundary that returns Outcomes).
+                    Outcome::EntityRemoved { entity } => {
+                        // Phase 1b: 唯一的 entity-deletion entry point in
+                        // the omb sim path. (a) record id into
+                        // RemovedEntitiesQueue so the next snapshot's
+                        // removed_entity_ids covers it; (b) atomic-flag
+                        // delete via specs entities — actual storage
+                        // cleanup runs at world.maintain() at the
+                        // dispatcher tick boundary. Both steps run in
+                        // this fn body — server and client both reach
+                        // process_outcomes at the same logical point in
+                        // their respective tick, so StateHash agrees.
                         let mut q = ecs.write_resource::<crate::comp::RemovedEntitiesQueue>();
-                        q.pending.push(entity_id);
+                        q.pending.push(entity.id());
+                        let _ = ecs.entities().delete(entity);
                     }
                     _ => {}
                 }
@@ -882,9 +887,12 @@ impl GameProcessor {
             store.remove_all_for(target_entity);
         }
 
-        // Delete entity. Phase 1.6 snapshot diff captures this in
-        // `removed_entity_ids` so omfx render auto-cleans.
-        world.entities().delete(target_entity).ok();
+        // Phase 1.6: enqueue Outcome::EntityRemoved — process_outcomes
+        // (runs after drain_pending_* in the same tick) handles the
+        // actual entities().delete() + RemovedEntitiesQueue push, and
+        // omfx render auto-cleans via snapshot.removed_entity_ids.
+        world.write_resource::<Vec<Outcome>>()
+            .push(Outcome::EntityRemoved { entity: target_entity });
 
         log::info!(
             "TowerSell ok pid={} entity_id={} refund={}",

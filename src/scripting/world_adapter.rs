@@ -66,6 +66,11 @@ pub struct AdapterCache<'a> {
     /// render side can age the ring against omfx wall clock starting from
     /// the snapshot it arrived in.
     pub tick: Read<'a, Tick>,
+    /// Phase 1.6: Outcome queue — script-side `despawn` pushes
+    /// `Outcome::EntityRemoved` here; process_outcomes runs after the
+    /// script dispatch and handles entities().delete() + RemovedEntitiesQueue
+    /// push uniformly.
+    pub outcomes: Write<'a, Vec<crate::comp::Outcome>>,
 }
 
 impl<'a> AdapterCache<'a> {
@@ -95,6 +100,7 @@ impl<'a> AdapterCache<'a> {
             time: world.read_resource::<Time>().into(),
             explosion_fx: world.write_resource::<ExplosionFxQueue>().into(),
             tick: world.read_resource::<Tick>().into(),
+            outcomes: world.write_resource::<Vec<crate::comp::Outcome>>().into(),
         }
     }
 }
@@ -497,8 +503,10 @@ impl<'a> GameWorld for WorldAdapter<'a> {
 
     fn despawn(&mut self, e: EntityHandle) {
         let Some(ent) = Self::handle_to_entity(e) else { return };
-        // EntitiesRes::delete 內部走 atomic flag，&Entities 即可。
-        let _ = self.cache.entities.delete(ent);
+        // 走 Outcome::EntityRemoved 通道 — script-side 跟 omb-side 統一
+        // entry。process_outcomes 跑時處理 entities().delete() +
+        // RemovedEntitiesQueue push。
+        self.cache.outcomes.push(crate::comp::Outcome::EntityRemoved { entity: ent });
     }
 
     // ---------------- 塔 / 單位屬性 ----------------

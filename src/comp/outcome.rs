@@ -121,11 +121,19 @@ pub enum Outcome {
         source: Option<Entity>,
         end_pos: SimVec2,
     },
-    /// Entity 已從 ECS World 移除 — render 端收到後釋放 per-eid scene
-    /// node / label / collision ring 等 cache。push 由 `delete_entity_tracked`
-    /// helper 統一發送（與 `entities().delete(e)` 同步配對）。
+    /// 唯一的 entity-removal entry point。系統 / handler / script 端 push
+    /// 此 outcome 後，`process_outcomes` 統一在當 tick 結尾呼叫
+    /// `entities().delete(entity)` 並把 `entity.id()` 推進
+    /// `RemovedEntitiesQueue`。Render 端從 snapshot.removed_entity_ids
+    /// 釋放 per-eid scene cache。
+    ///
+    /// 為什麼不直接呼叫 `entities().delete()`：(1) 一致性 — 跟
+    /// `Outcome::Death` / `Outcome::Explosion` 同 outcome-driven
+    /// pattern；(2) script boundary（abi_stable）沒 `&mut World`，
+    /// 只能 push outcome；(3) RemovedEntitiesQueue 的 push 跟 delete
+    /// 自然在 process_outcomes 同一 fn body 內配對，不會漏。
     EntityRemoved {
-        entity_id: u32,
+        entity: Entity,
     },
 }
 
@@ -181,38 +189,15 @@ pub struct ExplosionFxQueue {
     pub pending: Vec<ExplosionFx>,
 }
 
-/// Pending entity-removed queue resource. Pushed by `delete_entity_tracked`
-/// helper just before `world.entities().delete(e)`; drained
-/// (`std::mem::take`) by the snapshot extractor each tick into
+/// Pending entity-removed queue resource. Pushed by `process_outcomes`
+/// when handling `Outcome::EntityRemoved`; drained (`std::mem::take`) by
+/// the snapshot extractor each tick into
 /// `SimWorldSnapshot.removed_entity_ids`. Same lifecycle pattern as
 /// `ExplosionFxQueue` — NOT hashed in `state_hash`, replay-deterministic
-/// because pushes happen at deterministic delete sites.
+/// because pushes happen at deterministic outcome processing.
 #[derive(Default)]
 pub struct RemovedEntitiesQueue {
     pub pending: Vec<u32>,
-}
-
-/// Single entry-point for entity deletion in the omb sim path. Records the
-/// entity_id into `RemovedEntitiesQueue` (so the next snapshot's
-/// `removed_entity_ids` field includes it), then deletes the entity. Both
-/// steps run synchronously in this fn body so the entity is gone in the
-/// same tick — keeps server / client `StateHash` aligned and avoids
-/// 8-client desync false positives.
-///
-/// **Same-tick invariant:** caller MUST not split the push and the delete
-/// into separate systems. If a future refactor wants to defer the actual
-/// deletion (e.g., to a maintenance system at end-of-tick), the `q.pending`
-/// push must move with it — the two are an atomic pair semantically.
-///
-/// All call sites in `omb/src/` and `scripts/base_content/src/` SHALL use
-/// this helper instead of `world.entities().delete(e)` directly.
-pub fn delete_entity_tracked(world: &mut specs::World, e: Entity) {
-    use specs::WorldExt;
-    {
-        let mut q = world.write_resource::<RemovedEntitiesQueue>();
-        q.pending.push(e.id());
-    }
-    let _ = world.entities().delete(e);
 }
 
 /// 距離索引結構

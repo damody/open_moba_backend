@@ -643,10 +643,11 @@ impl ResourceManager {
             store.remove_all_for(target_entity);
         }
 
-        // 刪塔（render-side scene node 由 SimWorldSnapshot.removed_entity_ids
-        // 自動清理 — 1.6 重構走 Outcome::EntityRemoved，這裡先保留 raw delete
-        // 等 1.6b 全 site 清查時改走 delete_entity_tracked）
-        world.entities().delete(target_entity).ok();
+        // 刪塔走 Outcome::EntityRemoved 通道 — process_outcomes 統一處理
+        // entities().delete() + RemovedEntitiesQueue push，render 端從
+        // snapshot.removed_entity_ids 自動清理 scene node
+        world.write_resource::<Vec<crate::comp::Outcome>>()
+            .push(crate::comp::Outcome::EntityRemoved { entity: target_entity });
 
         // 推新 hero.stats（gold 即時更新）
         if let Some(hero_entity) = hero_entity {
