@@ -1,4 +1,4 @@
-[server]
+﻿[server]
 MAP = "map.json"
 MAX_PLAYER = 10000
 SERVER_IP = "localhost"
@@ -44,3 +44,5 @@ SHG_CELL_SIZE = 128.0
 QUADTREE_MAX_DEPTH = 8
 QUADTREE_MAX_PER_NODE = 10
 BVH_MAX_LEAF = 4
+
+
