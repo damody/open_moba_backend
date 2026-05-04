@@ -159,9 +159,16 @@ impl<'a> System<'a> for Sys {
                             for target_info in targets.iter() {
                                 create_projectile_damage(&proj, target_info.e, &mut outcomes, hit_pos);
                             }
-                            // 爆炸視覺由前端自己在子彈飛完時 spawn（projectile/C 有帶
-                            // splash_radius，前端在 elapsed>=flight_time 時畫圈）。
-                            // 後端不再廣播 game/explosion，避免雙重爆炸 + 位置不同步。
+                            // Phase 4.2: 把爆炸 VFX 走 Outcome::Explosion → ExplosionFxQueue
+                            // → snapshot → omfx ring render lifecycle。原註解寫「前端
+                            // 自己在子彈飛完時 spawn」，但 Phase 1.4 砍了 projectile_create
+                            // wire emit 後前端不再收到那個訊息，VFX 整個漏了。
+                            // 0.5s duration 跟 legacy make_game_explosion 保持一致。
+                            outcomes.push(Outcome::Explosion {
+                                pos: hit_pos,
+                                radius: proj.radius,
+                                duration: Fixed64::from_raw(512), // 0.5 s (raw 512 / SCALE 1024)
+                            });
                         } else if let Some(target) = proj.target {
                             // 單體攻擊
                             create_projectile_damage(&proj, target, &mut outcomes, hit_pos);
