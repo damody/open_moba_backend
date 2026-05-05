@@ -21,20 +21,20 @@ pub struct EntityData {
     pub summons: Vec<SummonJD>,
 }
 
-/// entity.json hero entry — 全部 stats 都搬到 omb/Story/templates.json 後，
-/// 此結構只剩 id（campaign 引用 templates.json 哪個 hero）。可選保留
+/// Generated story hero entry — 全部 stats 都在 templates.lua generated data，
+/// 此結構只剩 id（campaign 引用哪個 hero template）。可選保留
 /// abilities 做 per-campaign override（例：訓練關只給 hero 一招）。
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct HeroJD {
     pub id: String,
-    /// 留 abilities 是因為 campaign 可能想 override templates.json 的預設 4 ability
+    /// 留 abilities 是因為 campaign 可能想 override templates.lua 的預設 4 ability
     /// 集合（例：訓練關只給 1 招），#[serde(default)] 沒寫就走 hero_abilities() lookup。
     #[serde(default)]
     pub abilities: Vec<String>,
 }
 
-/// 兼容舊 entity.json 的 level_growth nested struct。
-/// **新流程不再從 entity.json 讀此欄位**，改從 templates.json
+/// 兼容舊 story source 的 level_growth nested struct。
+/// **新流程不再從 story entity 讀此欄位**，改從 templates.lua
 /// `heroes[i].level_growth` 讀，但結構體仍保留供 schema 兼容。
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct LevelGrowthJD {
@@ -46,7 +46,7 @@ pub struct LevelGrowthJD {
     pub mana_per_level: f32,
 }
 
-/// entity.json enemy entry — 全部 stats 搬到 templates.json 後，只剩 id + abilities override。
+/// Generated story enemy entry — 全部 stats 在 templates.lua，只剩 id + abilities override。
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct EnemyJD {
     pub id: String,
@@ -54,13 +54,13 @@ pub struct EnemyJD {
     pub abilities: Vec<String>,
 }
 
-/// entity.json creep entry — 全部 stats 搬到 templates.json 後，只剩 id。
+/// Generated story creep entry — 全部 stats 在 templates.lua，只剩 id。
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct CreepJD {
     pub id: String,
 }
 
-/// entity.json neutral entry — 全部 stats 搬到 templates.json 後，只剩 id + abilities override。
+/// Generated story neutral entry — 全部 stats 在 templates.lua，只剩 id + abilities override。
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct NeutralJD {
     pub id: String,
@@ -68,7 +68,7 @@ pub struct NeutralJD {
     pub abilities: Vec<String>,
 }
 
-/// entity.json summon entry — 全部 stats 搬到 templates.json 後，只剩 id + summoner_ability
+/// Generated story summon entry — 全部 stats 在 templates.lua，只剩 id + summoner_ability
 /// （tying campaign-specific：哪個技能召出此單位）。
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct SummonJD {
@@ -189,10 +189,42 @@ pub struct UiSettingsJD {
 
 // ===== 載入函數 =====
 impl CampaignData {
-    /// 從指定目錄載入完整戰役資料
+    /// Load shipped campaign data from `omoba-template-ids` generated Rust data.
+    /// Runtime gameplay does not read JSON or Lua content source files.
+    pub fn load_generated(story_id: &str) -> Result<CampaignData, Box<dyn std::error::Error>> {
+        let story = omoba_template_ids::story_by_name(story_id)
+            .ok_or_else(|| format!("unknown generated story '{}'", story_id))?;
+        Self::from_generated_story(story)
+    }
+
+    pub fn from_generated_story(
+        story: &omoba_template_ids::GeneratedStory,
+    ) -> Result<CampaignData, Box<dyn std::error::Error>> {
+        let mut entity_value = story_value_to_json(story.entity);
+        let ability_value = story_value_to_json(story.ability);
+        let mut mission_value = story_value_to_json(story.mission);
+        let mut map_value = story_value_to_json(story.map);
+        normalize_entity_value(&mut entity_value);
+        normalize_mission_value(&mut mission_value);
+        normalize_map_value(&mut map_value);
+
+        let entity: EntityData = serde_json::from_value(entity_value)?;
+        let ability: AbilityData = serde_json::from_value(ability_value)?;
+        let mission: MissionData = serde_json::from_value(mission_value)?;
+        let map: super::import_map::CreepWaveData = serde_json::from_value(map_value)?;
+
+        Ok(CampaignData {
+            entity,
+            ability,
+            mission,
+            map,
+        })
+    }
+
+    /// Legacy JSON loader for migration tooling only. Runtime should use `load_generated`.
     /// 
     /// # Arguments
-    /// * `campaign_path` - 戰役資料夾路徑 (例如: "Story/B01_1/")
+    /// * `campaign_path` - legacy JSON story folder path
     /// 
     /// # Returns
     /// * `Result<CampaignData, Box<dyn std::error::Error>>` - 載入結果
@@ -260,5 +292,90 @@ impl CampaignData {
         }
         
         Ok(())
+    }
+}
+
+fn story_value_to_json(value: omoba_template_ids::StoryValue) -> serde_json::Value {
+    match value {
+        omoba_template_ids::StoryValue::Null => serde_json::Value::Null,
+        omoba_template_ids::StoryValue::Bool(value) => serde_json::Value::Bool(value),
+        omoba_template_ids::StoryValue::Number(value) => json_number(value),
+        omoba_template_ids::StoryValue::String(value) => serde_json::Value::String(value.to_string()),
+        omoba_template_ids::StoryValue::Array(values) => {
+            serde_json::Value::Array(values.iter().copied().map(story_value_to_json).collect())
+        }
+        omoba_template_ids::StoryValue::Object(values) => {
+            let mut map = serde_json::Map::new();
+            for (key, value) in values.iter().copied() {
+                map.insert(key.to_string(), story_value_to_json(value));
+            }
+            serde_json::Value::Object(map)
+        }
+    }
+}
+
+fn normalize_entity_value(value: &mut serde_json::Value) {
+    for key in ["heroes", "enemies", "creeps", "neutrals", "summons"] {
+        ensure_array_field(value, key);
+    }
+}
+
+fn normalize_mission_value(value: &mut serde_json::Value) {
+    if let Some(campaign) = value.get_mut("campaign") {
+        ensure_array_field(campaign, "unlock_requirements");
+    }
+    ensure_array_field(value, "stages");
+    if let Some(stages) = value.get_mut("stages").and_then(serde_json::Value::as_array_mut) {
+        for stage in stages {
+            ensure_array_field(stage, "objectives");
+            ensure_array_field(stage, "optional_objectives");
+            if let Some(scoring) = stage.get_mut("scoring") {
+                ensure_array_field(scoring, "star_thresholds");
+            }
+        }
+    }
+}
+
+fn normalize_map_value(value: &mut serde_json::Value) {
+    for key in ["Path", "Creep", "CheckPoint", "Tower", "CreepWave", "Structures", "BlockedRegions"] {
+        ensure_array_field(value, key);
+    }
+    if let Some(waves) = value.get_mut("CreepWave").and_then(serde_json::Value::as_array_mut) {
+        for wave in waves {
+            ensure_array_field(wave, "Detail");
+            if let Some(details) = wave.get_mut("Detail").and_then(serde_json::Value::as_array_mut) {
+                for detail in details {
+                    ensure_array_field(detail, "Creeps");
+                }
+            }
+        }
+    }
+    if let Some(regions) = value.get_mut("BlockedRegions").and_then(serde_json::Value::as_array_mut) {
+        for region in regions {
+            ensure_array_field(region, "Points");
+        }
+    }
+}
+
+fn ensure_array_field(value: &mut serde_json::Value, key: &str) {
+    let Some(object) = value.as_object_mut() else { return; };
+    match object.get_mut(key) {
+        Some(field) if field.as_object().is_some_and(serde_json::Map::is_empty) => {
+            *field = serde_json::Value::Array(Vec::new());
+        }
+        None => {
+            object.insert(key.to_string(), serde_json::Value::Array(Vec::new()));
+        }
+        _ => {}
+    }
+}
+
+fn json_number(value: f64) -> serde_json::Value {
+    if value.fract() == 0.0 && value >= i64::MIN as f64 && value <= i64::MAX as f64 {
+        serde_json::Value::Number(serde_json::Number::from(value as i64))
+    } else {
+        serde_json::Number::from_f64(value)
+            .map(serde_json::Value::Number)
+            .unwrap_or(serde_json::Value::Null)
     }
 }

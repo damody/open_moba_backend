@@ -47,7 +47,7 @@ impl StateInitializer {
     pub fn init_creep_wave(ecs: &mut World, cw: &CreepWaveData) {
         use std::collections::BTreeMap;
 
-        // 根據 map.json 的 GameMode 欄位設置遊戲模式 resource
+        // 根據 generated map data 的 GameMode 欄位設置遊戲模式 resource
         let mode = GameMode::from_opt_str(cw.GameMode.as_deref());
         log::info!("遊戲模式: {:?}", mode);
         *ecs.write_resource::<GameMode>() = mode;
@@ -85,7 +85,7 @@ impl StateInitializer {
         Self::setup_blocked_regions(ecs, cw);
     }
 
-    /// 把 map.json 的 BlockedRegions 載入成 ECS resource 供移動 tick 查詢。
+    /// 把 generated map data 的 BlockedRegions 載入成 ECS resource 供移動 tick 查詢。
     fn setup_blocked_regions(ecs: &mut World, cw: &CreepWaveData) {
         let regions: Vec<BlockedRegion> = cw.BlockedRegions.iter()
             .filter(|r| r.Points.len() >= 3)
@@ -176,24 +176,46 @@ impl StateInitializer {
         let mut ces = ecs.get_mut::<BTreeMap<String, CreepEmiter>>().unwrap();
         log::info!("載入 {} 個小兵類型", cw.Creep.len());
         for cp in cw.Creep.iter() {
-            log::info!("小兵類型 '{}' - HP: {}, 移動速度: {}", cp.Name, cp.HP, cp.MoveSpeed);
+            let creep_id = omoba_template_ids::creep_by_name(&cp.Name)
+                .unwrap_or_else(|| panic!("map creep '{}' missing generated creep template", cp.Name));
+            let stats = omoba_template_ids::creep_stats(creep_id)
+                .unwrap_or_else(|| panic!("map creep '{}' has no generated creep stats", cp.Name));
+            let display_name = omoba_template_ids::creep_display(creep_id);
+            let label = if display_name.is_empty() {
+                None
+            } else {
+                Some(display_name.to_string())
+            };
+            let faction_name = cp.Faction.clone().unwrap_or_else(|| {
+                if cp.Name.starts_with("ally_") {
+                    "Player".to_string()
+                } else {
+                    String::new()
+                }
+            });
+            log::info!(
+                "小兵類型 '{}' - HP: {}, 移動速度: {}",
+                cp.Name,
+                stats.hp.to_f32_for_render(),
+                stats.move_speed.to_f32_for_render()
+            );
             ces.insert(cp.Name.clone(), CreepEmiter {
                 root: Creep {
                     name: cp.Name.clone(),
-                    label: cp.Label.clone(),
+                    label,
                     path: "".to_owned(),
                     pidx: 0,
                     block_tower: None,
                     status: CreepStatus::Walk
                 },
                 property: CProperty {
-                    hp: omoba_sim::Fixed64::from_raw((cp.HP * 1024.0) as i64),
-                    mhp: omoba_sim::Fixed64::from_raw((cp.HP * 1024.0) as i64),
-                    msd: omoba_sim::Fixed64::from_raw((cp.MoveSpeed * 1024.0) as i64),
-                    def_physic: omoba_sim::Fixed64::from_raw((cp.DefendPhysic * 1024.0) as i64),
-                    def_magic: omoba_sim::Fixed64::from_raw((cp.DefendMagic * 1024.0) as i64),
+                    hp: stats.hp,
+                    mhp: stats.hp,
+                    msd: stats.move_speed,
+                    def_physic: stats.armor,
+                    def_magic: stats.magic_resistance,
                 },
-                faction_name: cp.Faction.clone().unwrap_or_default(),
+                faction_name,
                 turn_speed_deg: cp.TurnSpeed.unwrap_or(90.0),
                 collision_radius: cp.CollisionRadius.unwrap_or(20.0),
             });
@@ -243,7 +265,7 @@ impl StateInitializer {
     /// 創建戰役場景
     pub fn create_campaign_scene(ecs: &mut World, campaign_data: &CampaignData) {
         Self::create_campaign_heroes(ecs, campaign_data);
-        // 優先：map.json 的 Structures（script 驅動塔/基地放置）
+        // 優先：generated map data 的 Structures（script 驅動塔/基地放置）
         let is_td = ecs.read_resource::<GameMode>().is_td();
         if !campaign_data.map.Structures.is_empty() {
             Self::spawn_structures_from_map(ecs, &campaign_data.map);
@@ -386,7 +408,7 @@ impl StateInitializer {
         // 初始化 Searcher 資源
         ecs.insert(crate::comp::outcome::Searcher::default());
 
-        // 初始化不可通行多邊形區域（由 init_creep_wave 載入 map.json 時填入）
+        // 初始化不可通行多邊形區域（由 init_creep_wave 載入 generated map data 時填入）
         ecs.insert(BlockedRegions::default());
 
         // Phase 4.2: 爆炸 FX queue — process_outcomes 推入，sim_runner snapshot
@@ -399,7 +421,7 @@ impl StateInitializer {
         // 非 sim 狀態，不影響 determinism hash。
         ecs.insert(crate::comp::RemovedEntitiesQueue::default());
 
-        // 遊戲模式 / 玩家生命（由 init_creep_wave 依 map.json 覆寫）
+        // 遊戲模式 / 玩家生命（由 init_creep_wave 依 generated map data 覆寫）
         ecs.insert(GameMode::default());
         ecs.insert(PlayerLives::default());
 
@@ -463,11 +485,11 @@ impl StateInitializer {
                 def_magic: Fixed64::from_i32(hero.intelligence) * Fixed64::from_raw(154), // ≈ 0.15 = 154/1024
             };
 
-            // 從 templates.json 取 hero stats（attack_range / turn_speed / 等）。
-            // entity.json hero 條目已 slim 成只剩 id，無 attack_range / turn_speed / collision_radius。
+            // 從 templates.lua generated stats 取 hero stats（attack_range / turn_speed / 等）。
+            // generated story hero 條目已 slim 成只剩 id，無 attack_range / turn_speed / collision_radius。
             let hero_template_stats = omoba_template_ids::hero_by_name(&hero_data.id)
                 .and_then(|hid| omoba_template_ids::hero_stats(hid))
-                .unwrap_or_else(|| panic!("hero '{}' not in templates.json", hero_data.id));
+                .unwrap_or_else(|| panic!("hero '{}' not in generated templates", hero_data.id));
 
             let hero_attack = TAttack {
                 atk_physic: Vf32::new(base_damage),
@@ -485,7 +507,7 @@ impl StateInitializer {
 
             // hero_template_stats.turn_speed is Fixed64 in degrees; convert to radians (f32) for omb internal.
             let hero_turn_rad = hero_template_stats.turn_speed.to_f32_for_render() * std::f32::consts::PI / 180.0;
-            // Hero collision_radius 暫定 30（之前由 entity.json optional override，
+            // Hero collision_radius 暫定 30（之前由 story source optional override，
             // 簡化後固定）。
             let hero_radius = 30.0_f32;
             // Hero 統一掛 ScriptUnitTag（預設全單位腳本化）；unit_id = "hero_{HeroJD.id}"
@@ -522,7 +544,7 @@ impl StateInitializer {
 
     /// MVP_1 場景（LoL 風格單線）
     ///
-    /// 依 map.json 的 `Structures` 清單放置塔/基地。
+    /// 依 generated map data 的 `Structures` 清單放置塔/基地。
     /// 每筆 Structure 指定 Tower 模板名稱 + 陣營 + 位置 + 是否為基地，
     /// 模板屬性（Hp/Range/AttackSpeed/Physic）從 `Tower` 清單查。
     pub fn spawn_structures_from_map(ecs: &mut World, cw: &CreepWaveData) {
@@ -562,7 +584,7 @@ impl StateInitializer {
                 }
             }
 
-            // Fallback：走 map.json Tower 模板的 dumb tower 路徑（無腳本）
+            // Fallback：走 generated map data Tower 模板的 dumb tower 路徑（無腳本）
             let Some(tpl) = tower_templates.get(s.Tower.as_str()) else {
                 log::warn!("Structure 未知 Tower 模板 '{}'，跳過", s.Tower);
                 continue;
@@ -593,7 +615,7 @@ impl StateInitializer {
             );
             dumb_count += 1;
         }
-        log::info!("已依 map.json 放置 {} 個 Structure (script-driven={}, dumb={})",
+        log::info!("已依 generated map data 放置 {} 個 Structure (script-driven={}, dumb={})",
             total, script_count, dumb_count);
     }
 
@@ -751,19 +773,25 @@ impl StateInitializer {
 // =====================================================================
 
 /// Build a fully-initialized ECS World from a campaign scene path
-/// (e.g. "Story/MVP_1"). Inserts campaign + scripts + tower / ability
+/// (e.g. `scripts/lua_data/MVP_1`). The path is used only to derive the
+/// generated story id; runtime gameplay does not read story JSON/Lua files.
+/// Inserts campaign + scripts + tower / ability
 /// registries. Used by Phase 3 omfx sim_runner; mirrors what
 /// `State::new_with_campaign` does minus all the transport / heartbeat
 /// plumbing.
 pub fn create_world_for_scene(scene_path: &std::path::Path) -> Result<World, failure::Error> {
     use failure::err_msg;
+    let story_id = scene_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| err_msg("scene_path does not end in a valid story id"))?;
     let scene_str = scene_path
         .to_str()
         .ok_or_else(|| err_msg("scene_path is not valid UTF-8"))?;
 
-    log::info!("[create_world_for_scene] loading campaign from {}", scene_str);
-    let campaign_data = CampaignData::load_from_path(scene_str)
-        .map_err(|e| err_msg(format!("CampaignData::load_from_path({}) failed: {}", scene_str, e)))?;
+    log::info!("[create_world_for_scene] loading generated campaign {} from {}", story_id, scene_str);
+    let campaign_data = CampaignData::load_generated(story_id)
+        .map_err(|e| err_msg(format!("CampaignData::load_generated({}) failed: {}", story_id, e)))?;
     if let Err(err) = campaign_data.validate() {
         return Err(err_msg(format!("Campaign data validation failed: {}", err)));
     }
@@ -845,4 +873,28 @@ pub fn populate_ability_registry(
     }
     log::info!("[ability_registry] {} abilities loaded", reg.len());
     ecs.insert(reg);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn td_stress_emitter_uses_generated_template_stats() {
+        let campaign = CampaignData::load_generated("TD_STRESS").expect("generated TD_STRESS");
+        let mut ecs = World::new();
+        ecs.insert(BTreeMap::<String, CreepEmiter>::new());
+
+        StateInitializer::setup_creep_emiters(&mut ecs, &campaign.map);
+
+        let emitters = ecs.read_resource::<BTreeMap<String, CreepEmiter>>();
+        let emitter = emitters.get("td_stress").expect("td_stress emitter");
+        assert_eq!(emitter.root.label.as_deref(), Some("壓測怪"));
+        assert_eq!(emitter.property.hp, omoba_sim::Fixed64::from_i32(10_000));
+        assert_eq!(emitter.property.mhp, omoba_sim::Fixed64::from_i32(10_000));
+        assert_eq!(emitter.property.msd, omoba_sim::Fixed64::from_i32(100));
+        assert_eq!(emitter.property.def_physic, omoba_sim::Fixed64::ZERO);
+        assert_eq!(emitter.property.def_magic, omoba_sim::Fixed64::ZERO);
+    }
 }

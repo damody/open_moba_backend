@@ -124,13 +124,13 @@ impl Unit {
     
     /// 從戰役 creep 資料創建單位
     pub fn from_creep_data(creep_data: &crate::ue4::import_campaign::CreepJD) -> Self {
-        // entity.json creep 條目已 slim 成只剩 id；數值從 templates.json 走
+        // generated story creep 條目已 slim 成只剩 id；數值從 templates.lua 走
         // omoba_template_ids::creep_stats() 取。
         use omoba_template_ids::{creep_by_name, creep_display, creep_stats};
         let cid = creep_by_name(&creep_data.id)
-            .unwrap_or_else(|| panic!("creep id '{}' not in templates.json", creep_data.id));
+            .unwrap_or_else(|| panic!("creep id '{}' not in generated templates", creep_data.id));
         let s = creep_stats(cid)
-            .unwrap_or_else(|| panic!("creep '{}' has no stats in templates.json", creep_data.id));
+            .unwrap_or_else(|| panic!("creep '{}' has no stats in generated templates", creep_data.id));
 
         let unit_type = match creep_data.id.as_str() {
             id if id.contains("dummy") => UnitType::TrainingDummy,
@@ -171,14 +171,14 @@ impl Unit {
         }
     }
 
-    /// 從戰役 enemy 資料創建單位 — entity.json enemy 條目已 slim 成只剩 id +
-    /// abilities override，數值從 templates.json creep_stats() 取。
+    /// 從戰役 enemy 資料創建單位 — generated story enemy 條目已 slim 成只剩 id +
+    /// abilities override，數值從 templates.lua creep_stats() 取。
     pub fn from_enemy_data(enemy_data: &crate::ue4::import_campaign::EnemyJD) -> Self {
         use omoba_template_ids::{creep_by_name, creep_display, creep_stats};
         let cid = creep_by_name(&enemy_data.id)
-            .unwrap_or_else(|| panic!("enemy id '{}' not in templates.json", enemy_data.id));
+            .unwrap_or_else(|| panic!("enemy id '{}' not in generated templates", enemy_data.id));
         let s = creep_stats(cid)
-            .unwrap_or_else(|| panic!("enemy '{}' has no stats in templates.json", enemy_data.id));
+            .unwrap_or_else(|| panic!("enemy '{}' has no stats in generated templates", enemy_data.id));
 
         // u8 (codegen) → enum 變體
         let unit_type = match s.enemy_type {

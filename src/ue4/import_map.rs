@@ -42,13 +42,19 @@ pub struct PathJD {
 }
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct CreepJD {
+    /// Generated creep template id. Map-local creep stats are rejected during
+    /// Lua codegen; runtime resolves stats through `omoba-template-ids`.
     pub Name: String,
-    /// Optional display label (e.g. "練習假人"); falls back to `Name` if absent.
+    /// Legacy JSON-only field. Generated map data omits this.
     #[serde(default)]
     pub Label: Option<String>,
+    #[serde(default)]
     pub HP: f32,
+    #[serde(default)]
     pub DefendPhysic: f32,
+    #[serde(default)]
     pub DefendMagic: f32,
+    #[serde(default)]
     pub MoveSpeed: f32,
     /// 陣營 "Player" / "Enemy"；預設 Enemy。用於 LoL 式雙方出兵
     #[serde(default)]
@@ -109,7 +115,7 @@ pub struct CreepsJD {
 }
 
 /// 不可通行多邊形區域（凹/凸皆可）。至少 3 點。
-/// 由 map.json 的 `BlockedRegions` 欄位載入，並於 `state/initialization.rs`
+/// 由 generated map data 的 `BlockedRegions` 欄位載入，並於 `state/initialization.rs`
 /// 轉為 `comp::BlockedRegions` resource 供移動 tick 查詢。
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct BlockedRegionJD {

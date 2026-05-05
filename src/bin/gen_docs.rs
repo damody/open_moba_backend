@@ -17,7 +17,7 @@ struct Args {
     /// Output HTML path (relative to cwd)
     #[arg(long, default_value = "target/docs/index.html")]
     out: PathBuf,
-    /// Story folder name under <story-root>/ (overrides game.toml)
+    /// Generated story id (overrides game.toml)
     #[arg(long)]
     story: Option<String>,
     /// Path to base_content.dll (auto-detected if omitted)
@@ -29,8 +29,8 @@ struct Args {
     /// base_content source directory (for coverage scan)
     #[arg(long, default_value = "../scripts/base_content/src")]
     content_src: PathBuf,
-    /// Story root directory
-    #[arg(long, default_value = "Story")]
+    /// Deprecated: generated story data is loaded from omoba-template-ids.
+    #[arg(long, default_value = "../scripts/lua_data")]
     story_root: PathBuf,
     /// game.toml path (to read STORY if --story is omitted)
     #[arg(long, default_value = "game.toml")]
@@ -69,14 +69,13 @@ fn main() -> Result<()> {
         }
     };
 
-    // 4. entity.json (soft)
-    let story_dir = args.story_root.join(&story);
-    let entity = match lib::entity::load(&story_dir) {
+    // 4. Generated story/template data (soft)
+    let entity = match lib::entity::load(&story) {
         Ok(d) => d,
         Err(e) => {
             warnings.push(lib::model::Warning {
-                source: story_dir.display().to_string(),
-                message: format!("entity.json load failed: {e}"),
+                source: story.clone(),
+                message: format!("generated story load failed: {e}"),
             });
             lib::entity::EntityData {
                 heroes: Default::default(),
@@ -92,7 +91,7 @@ fn main() -> Result<()> {
         story: story.clone(),
         sources: vec![
             dll_path.display().to_string().replace('\\', "/"),
-            story_dir.display().to_string().replace('\\', "/"),
+            format!("generated-story:{story}"),
             args.abi_src.display().to_string().replace('\\', "/"),
             args.content_src.display().to_string().replace('\\', "/"),
         ],

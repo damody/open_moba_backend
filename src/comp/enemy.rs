@@ -96,14 +96,14 @@ impl Enemy {
     /// 從戰役資料創建敵人。
     ///
     /// **單一來源**：所有 intrinsic stats（hp/damage/armor/...）走
-    /// `omoba_template_ids::creep_stats(id)` const lookup，`EnemyJD`（entity.json）
-    /// 只剩 `id` 拿來查 templates.json。abilities 仍允許 entity.json override。
+    /// `omoba_template_ids::creep_stats(id)` const lookup，`EnemyJD`（generated story）
+    /// 只剩 `id` 拿來查 generated templates。abilities 仍允許 story override。
     pub fn from_campaign_data(enemy_data: &crate::ue4::import_campaign::EnemyJD) -> Self {
         use omoba_template_ids::{creep_by_name, creep_display, creep_stats};
         let id = creep_by_name(&enemy_data.id)
-            .unwrap_or_else(|| panic!("enemy id '{}' not in templates.json", enemy_data.id));
+            .unwrap_or_else(|| panic!("enemy id '{}' not in generated templates", enemy_data.id));
         let s = creep_stats(id)
-            .unwrap_or_else(|| panic!("enemy '{}' has no stats in templates.json", enemy_data.id));
+            .unwrap_or_else(|| panic!("enemy '{}' has no stats in generated templates", enemy_data.id));
 
         // u8 (codegen) → enum 變體（codegen 編碼見 omoba-template-ids/build.rs::enemy_type_to_u8）
         let enemy_type = match s.enemy_type {

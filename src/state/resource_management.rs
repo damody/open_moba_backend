@@ -1239,7 +1239,7 @@ pub(crate) mod proto_build {
         splash_radius: f32,
         hit_radius: f32,
         // Template id from `omoba-template-ids` `ProjectileKindId.0` (sequential u16
-        // per projectile_kinds declaration order in Story/templates.json; 0 = UNSPECIFIED).
+        // per projectile_kinds declaration order in scripts/lua_data/templates.lua; 0 = UNSPECIFIED).
         // Replaced FNV-1a u32 hash — wire saving ~2 B per event under varint.
         kind_id: u16,
         // P7: pre-declared single-target damage (splash_radius == 0 only);

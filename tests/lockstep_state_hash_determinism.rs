@@ -66,7 +66,10 @@ fn dll_dir() -> Option<PathBuf> {
 fn two_worlds_same_seed_same_hashes() -> TestResult {
     // Use TD_1 — simpler than MVP_1, has deterministic creep waves running
     // even without any player input.
-    let scene = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Story/TD_1");
+    let scene = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("omb must live under the monorepo root")
+        .join("scripts/lua_data/TD_1");
 
     let dir = match dll_dir() {
         Some(d) => d,

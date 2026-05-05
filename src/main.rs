@@ -62,10 +62,9 @@ fn read_input() -> Option<String> {
 async fn main() -> std::result::Result<(), Error> {
     log4rs::init_file("log4rs.yml", Default::default()).unwrap();
 
-    // 載入戰役資料（由 game.toml 的 STORY 欄位決定關卡資料夾）
-    let story_path = format!("Story/{}", CONFIG.STORY);
-    let campaign_data = CampaignData::load_from_path(&story_path)
-        .unwrap_or_else(|e| panic!("Failed to load campaign data from {}: {}", story_path, e));
+    // 載入戰役資料（由 game.toml 的 STORY 欄位決定 generated story id）。
+    let campaign_data = CampaignData::load_generated(&CONFIG.STORY)
+        .unwrap_or_else(|e| panic!("Failed to load generated campaign '{}': {}", CONFIG.STORY, e));
 
     // 驗證戰役資料完整性
     if let Err(err) = campaign_data.validate() {

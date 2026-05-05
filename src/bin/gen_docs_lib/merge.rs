@@ -47,7 +47,7 @@ pub fn merge(
         });
     }
 
-    // 2. Heroes from entity.json
+    // 2. Heroes from generated story/template data
     for (id, h) in entity.heroes {
         let imp = by_id.remove(&id);
         let (overrides, world_calls, src) = match imp {
@@ -68,7 +68,7 @@ pub fn merge(
         });
     }
 
-    // 3. Creeps from entity.json
+    // 3. Creeps from generated story/template data
     for (id, c) in entity.creeps {
         let imp = by_id.remove(&id);
         let (overrides, world_calls, src) = match imp {
@@ -106,7 +106,7 @@ pub fn merge(
     };
 
     // 4. 剩下的 impl 處理：
-    //    - UnitScript 但對不到 DLL manifest/entity.json → push warning（可能是 orphan）。
+    //    - UnitScript 但對不到 DLL manifest/generated story → push warning（可能是 orphan）。
     //    - AbilityScript：當前 pipeline 不把 impl 的 overrides/world_calls 綁回
     //      `AbilityEntry`（Task 7 範圍），只保留 JSON 層級 metadata。若未來 Task 10
     //      想在 ability card 顯示 "implemented in X.rs / calls Y"，需要在 `AbilityEntry`
@@ -115,7 +115,7 @@ pub fn merge(
     let mut warnings = warnings;
     for (unit_id, ab) in dangling_ability_refs {
         warnings.push(Warning {
-            source: format!("entity.json#{}", unit_id),
+            source: format!("generated-story#{}", unit_id),
             message: format!("unit '{}' references unknown ability '{}'", unit_id, ab),
         });
     }
@@ -124,7 +124,7 @@ pub fn merge(
             warnings.push(Warning {
                 source: i.source_file.clone(),
                 message: format!(
-                    "orphan UnitScript impl for {} (id={}) not referenced by DLL manifest or entity.json",
+                    "orphan UnitScript impl for {} (id={}) not referenced by DLL manifest or generated story",
                     i.self_ty, k),
             });
         }

@@ -20,7 +20,7 @@ pub struct ServerSetting {
     pub MAP: String,
     pub MAX_PLAYER: i32,
     pub RENDER_DELAY_MS: u64,
-    /// `Story/{STORY}` 資料夾名稱；預設 "MVP_1" 以保留既有行為。
+    /// `scripts/lua_data/{STORY}` 資料夾名稱；預設 "MVP_1" 以保留既有行為。
     /// TD 模式設為 "TD_1" 以載入塔防關卡。
     #[serde(default = "default_story")]
     pub STORY: String,

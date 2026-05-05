@@ -84,15 +84,15 @@ impl Hero {
     ///
     /// **單一來源**：所有 intrinsic stats（strength/agility/base_hp/level_growth/...）
     /// 都從 `omoba_template_ids::hero_stats(id)` const lookup 取，
-    /// `HeroJD`（entity.json）只剩 `id` 拿來查 templates.json。
+    /// `HeroJD`（generated story）只剩 `id` 拿來查 generated templates。
     pub fn from_campaign_data(hero_data: &crate::ue4::import_campaign::HeroJD) -> Self {
         use omoba_template_ids::{
             hero_abilities, hero_by_name, hero_display, hero_stats, hero_title,
         };
         let id = hero_by_name(&hero_data.id)
-            .unwrap_or_else(|| panic!("hero id '{}' not in templates.json", hero_data.id));
+            .unwrap_or_else(|| panic!("hero id '{}' not in generated templates", hero_data.id));
         let s = hero_stats(id)
-            .unwrap_or_else(|| panic!("hero '{}' has no stats in templates.json", hero_data.id));
+            .unwrap_or_else(|| panic!("hero '{}' has no stats in generated templates", hero_data.id));
         let primary_attribute = match s.primary_attribute {
             0 => AttributeType::Strength,
             1 => AttributeType::Agility,
@@ -112,7 +112,7 @@ impl Hero {
             id: hero_data.id.clone(),
             name: hero_display(id).to_string(),
             title: hero_title(id).to_string(),
-            background: String::new(), // background 不再放 ECS Hero component（templates.json 內部用）
+            background: String::new(), // background 不再放 ECS Hero component（templates.lua 內部用）
             strength: s.strength,
             agility: s.agility,
             intelligence: s.intelligence,

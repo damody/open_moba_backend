@@ -1,7 +1,7 @@
 //! Server-side 48 個 tower upgrade 配表，存為 ECS resource。
 //! 在 state/core.rs 初始化時 insert。
 //!
-//! 數值來源：`omb/Story/templates.json` 的 `towers[].upgrades`，由
+//! 數值來源：`scripts/lua_data/templates.lua` 的 `towers[].upgrades`，由
 //! `omoba-template-ids/build.rs` 編譯期讀取生 `TOWER_<NAME>_UPGRADES` const +
 //! `tower_upgrades(id)` lookup。本檔案只負責把 const POD 轉成 runtime
 //! `TowerUpgradeDef`（含 String / Vec）並塞入 HashMap 供查詢。
