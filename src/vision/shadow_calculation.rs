@@ -21,13 +21,13 @@ impl ShadowCalculator {
             ObstacleType::Circular { radius } => {
                 Self::calculate_circular_shadow(
                     observer_pos, vision_range, obstacle.position, 
-                    *radius, obstacle.height, observer_height
+                    * 半徑、障礙物高度、觀察者高度
                 )
             },
             ObstacleType::Rectangle { width, height, rotation } => {
                 Self::calculate_rectangular_shadow(
                     observer_pos, vision_range, obstacle.position,
-                    *width, *height, *rotation, obstacle.height, observer_height
+                    * 寬度、*高度、*旋轉、障礙物高度、觀察者高度
                 )
             },
             ObstacleType::Terrain { elevation } => {

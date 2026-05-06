@@ -7,14 +7,14 @@ use specs::storage::VecStorage;
 use instant_distance::{Builder, Search};
 use omoba_sim::{Vec2 as SimVec2, Fixed64};
 
-/// Position
+/// 位置
 #[derive(Copy, Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Pos(pub SimVec2);
 
 impl Pos {
-    /// Boundary helper: construct from two `f32` (typically world coords from
-    /// config / spawn data). Routes through `Fixed64::from_raw` quantization.
-    /// NOTE: legacy f32 helper retained as transition utility for wire-format / config read boundary.
+    /// 邊界助手：由兩個「f32」建構（通常是世界座標
+    /// 配置/生成數據）。以 `Fixed64::from_raw` 量化進行路由。
+    /// 注意：舊版 f32 幫助程式保留為線格式/配置讀取邊界的轉換實用程式。
     #[inline]
     pub fn from_xy_f32(x: f32, y: f32) -> Self {
         Pos(SimVec2 {
@@ -23,9 +23,9 @@ impl Pos {
         })
     }
 
-    /// Boundary helper: lossy `f32` projection of underlying coords. Used at
-    /// wire-format / VFX / non-determinism-tolerant query sites.
-    /// NOTE: legacy f32 projection retained for wire-format / VFX / determinism-tolerant query sites; sim-side reads SimVec2 directly.
+    /// 边界助手：底层坐标的有损“f32”投影。使用於
+    /// 有線格式/視覺特效/非確定性容忍查詢網站。
+    /// 注意：傳統的 f32 投影保留用於有線格式/VFX/確定性容忍查詢站點；sim-side直接讀取SimVec2。
     #[inline]
     pub fn xy_f32(&self) -> (f32, f32) {
         (self.0.x.to_f32_for_render(), self.0.y.to_f32_for_render())
@@ -38,10 +38,10 @@ impl Component for Pos {
 
 impl instant_distance::Point for Pos {
     fn distance(&self, other: &Self) -> f32 {
-        // Euclidean distance metric
-        // NOTE: instant_distance::Point trait requires f32. Searcher / spatial index uses f32 internally for
-        // instant_distance lib compat. Cache rebuilt per tick from authoritative Pos with deterministic
-        // entity-id ordering; final distance check in caller is Fixed64. Boundary lossy is acceptable.
+        // 歐氏距離測量
+        // 注意： instant_distance::Point 特徵需要 f32。搜尋器/空間索引在內部使用 f32
+        // instant_distance lib 相容。根據具有確定性的權威 Pos 在每次更新時重建緩存
+        // 實體 ID 排序；呼叫者的最終距離檢查是固定64。邊界有損是可以接受的。
         let dx = (self.0.x - other.0.x).to_f32_for_render();
         let dy = (self.0.y - other.0.y).to_f32_for_render();
         dx * dx + dy * dy
@@ -64,14 +64,14 @@ impl Rot {
     }
 }
 
-/// Velocity
+/// 速度
 #[derive(Copy, Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Vel(pub SimVec2);
 
 impl Vel {
     pub fn zero() -> Self { Vel(SimVec2::ZERO) }
 
-    /// NOTE: legacy f32 helper retained as transition utility for wire-format / config read boundary.
+    /// 注意：舊版 f32 幫助程式保留為線格式/配置讀取邊界的轉換實用程式。
     #[inline]
     pub fn from_xy_f32(x: f32, y: f32) -> Self {
         Vel(SimVec2 {
@@ -90,7 +90,7 @@ impl Component for Vel {
 pub struct MoveTarget(pub SimVec2);
 
 impl MoveTarget {
-    /// NOTE: legacy f32 helper retained as transition utility for wire-format / config read boundary.
+    /// 注意：舊版 f32 幫助程式保留為線格式/配置讀取邊界的轉換實用程式。
     #[inline]
     pub fn from_xy_f32(x: f32, y: f32) -> Self {
         MoveTarget(SimVec2 {
@@ -104,7 +104,7 @@ impl Component for MoveTarget {
     type Storage = VecStorage<Self>;
 }
 
-/// Used to defer writes to Pos/Vel in nested join loops
+/// 用於延遲對嵌套連接循環中的​​ Pos/Vel 的寫入
 #[derive(Copy, Clone, Debug)]
 pub struct PosVelOriDefer {
     pub pos: Option<Pos>,
@@ -115,23 +115,23 @@ impl Component for PosVelOriDefer {
     type Storage = VecStorage<Self>;
 }
 
-/// Cache of Velocity (of last tick) * dt (of curent tick)
-/// It's updated and read in physics sys to speed up entity<->entity collisions
-/// no need to send it via network
+/// 速度緩存（最後一個刻度）* dt（當前刻度）
+/// 它在物理系統中更新和讀取以加速實體<->實體碰撞
+/// 無需透過網路傳送
 #[derive(Copy, Clone, Default, Debug, PartialEq)]
 pub struct PreviousPhysCache {
     pub velocity_dt: Vec2<f32>,
-    /// Center of bounding sphere that encompasses the entity along its path for
-    /// this tick
+    /// 沿著實體的路徑包圍實體的邊界球的中心
+    /// 這個勾號
     pub center: Vec2<f32>,
-    /// Calculates a Sphere over the Entity for quick boundary checking
+    /// 計算實體上的球體以進行快速邊界檢查
     pub collision_boundary: f32,
     pub scale: f32,
-    /// Approximate radius of cylinder of collider.
+    /// 對撞機圓柱體的近似半徑。
     pub scaled_radius: f32,
-    /// Radius of stadium of collider.
+    /// 對撞機體育場的半徑。
     pub neighborhood_radius: f32,
-    /// relative p0 and p1 of collider's statium, None if cylinder.
+    /// 對撞機狀態的相對 p0 和 p1，如果是圓柱體，則無。
     pub origins: Option<(Vec2<f32>, Vec2<f32>)>,
     pub pos: Option<Pos>,
 }
@@ -140,7 +140,7 @@ impl Component for PreviousPhysCache {
     type Storage = VecStorage<Self>;
 }
 
-// Scale
+// 規模
 #[derive(Copy, Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Scale(pub Fixed64);
 
@@ -148,7 +148,7 @@ impl Component for Scale {
     type Storage = FlaggedStorage<Self, VecStorage<Self>>;
 }
 
-// Mass
+// 大量的
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Mass(pub Fixed64);
 
@@ -175,8 +175,8 @@ impl Component for Immovable {
     type Storage = FlaggedStorage<Self, NullStorage<Self>>;
 }
 
-/// Used to forcefully update the position, velocity, and orientation of the
-/// client
+/// 用於強制更新物體的位置、速度和方向
+/// 客戶
 #[derive(Copy, Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ForceUpdate;
 

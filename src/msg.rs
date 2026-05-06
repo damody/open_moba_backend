@@ -80,7 +80,7 @@ use serde_json::ser::Formatter;
 pub mod Serializer {
     use super::{io, F32Formatter, Formatter};
 
-    /// Creates a new JSON serializer.
+    /// 建立一個新的 JSON 序列化器。
     #[inline]
     pub fn new<W>(writer: W) -> serde_json::ser::Serializer<W, F32Formatter>
     where
@@ -89,8 +89,8 @@ pub mod Serializer {
         with_formatter(writer, F32Formatter)
     }
 
-    /// Creates a new JSON visitor whose output will be written to the writer
-    /// specified.
+    /// 建立一個新的 JSON 訪客，其輸出將寫入寫入器
+    /// 指定的。
     #[inline]
     pub fn with_formatter<W, F>(writer: W, formatter: F) -> serde_json::ser::Serializer<W, F>
     where
@@ -133,7 +133,7 @@ impl Formatter for F32Formatter {
 }
 
 impl F32Formatter {
-    /// Construct a pretty printer formatter that defaults to using two spaces for indentation.
+    /// 建立一個漂亮的印表機格式化程序，預設使用兩個空格進行縮排。
     pub fn new() -> Self {
         F32Formatter {}
     }

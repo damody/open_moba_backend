@@ -137,7 +137,7 @@ where
     fn name(&self) -> &'static str;
 }
 
-// ---- Vision factory：(Id=String, Item=ObstacleInfo) ----
+// ---- 視覺工廠：(Id=String, Item=ObstacleInfo) ----
 
 use crate::comp::circular_vision::ObstacleInfo;
 
@@ -198,5 +198,5 @@ pub fn build_entity_index(
     }
 }
 
-// ---- Backward-compat alias for the old vision-only TreeEntry name ----
+// ---- 舊的僅視覺 TreeEntry 名稱的向後相容別名 ----
 pub type TreeEntry = Entry<String, ObstacleInfo>;

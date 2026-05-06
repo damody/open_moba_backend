@@ -162,7 +162,7 @@ where
         self.ys.clear();
         self.max_bounding_radius = 0.0;
 
-        // batch fill
+        // 批量填充
         self.slots.reserve(entries.len());
         self.xs.reserve(entries.len());
         self.ys.reserve(entries.len());
@@ -506,7 +506,7 @@ mod tests {
         assert_eq!(ids_of(&s.query_in_range(Vec2::new(900.0, 900.0), 30.0)), vec!["c"]);
         assert_eq!(ids_of(&s.query_in_range(Vec2::new(700.0, 100.0), 30.0)), vec!["d"]);
 
-        // xs/ys invariant: sorted
+        // xs/ys 不變式：已排序
         for w in s.xs.windows(2) {
             assert!(w[0].coord <= w[1].coord);
         }

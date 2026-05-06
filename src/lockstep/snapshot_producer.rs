@@ -1,27 +1,27 @@
-//! Phase 5.3: deterministic ECS world snapshot for observer rejoin.
+//! 階段 5.3：觀察者重新加入的確定性 ECS 世界快照。
 //!
-//! Produces a compact bincode-serialized subset of the authoritative specs
-//! `World` (entity id + pos + vel + facing + hp/mhp + kind tag) along with
-//! `master_seed` and `tick` so an observer joining mid-game can bootstrap
-//! its sim_runner state then play forward via subsequent TickBatches.
+//! 產生權威規範的緊湊二進制碼序列化子集
+//! `World`（實體 id + pos + vel + faces + hp/mhp + kind 標籤）以及
+//! `master_seed` 和 `tick` 這樣加入遊戲中期的觀察者就可以引導
+//! 其 sim_runner 狀態然後透過後續的 TickBatches 向前播放。
 //!
-//! Run from the dispatcher tick loop (in `State::tick()`) every
-//! `SNAPSHOT_INTERVAL_TICKS` ticks (= 30 s @ 30 Hz dispatcher). The output
-//! bytes are stored in the `SnapshotStore` resource; the KCP transport's
-//! 0x16 SnapshotResp handler reads from a shared `Arc<Mutex<SnapshotStore>>`.
+//! 從調度程序滴答循環（在“State::tick()”中）運行
+//! `SNAPSHOT_INTERVAL_TICKS` 刻度（= 30 s @ 30 Hz 調度程式）。輸出
+//! 位元組儲存在「SnapshotStore」資源中； KCP 運輸
+//! 0x16 SnapshotResp 處理程序從共用「Arc<Mutex<SnapshotStore>>」讀取。
 //!
-//! # Schema versioning
+//! # 模式版本控制
 //!
-//! `WorldSnapshot::schema_version` is pinned at `SCHEMA_VERSION = 1`. The
-//! omfx-side LockstepClient checks this against its compiled-in expected
-//! version before applying the bytes; mismatches fall back to playing from
-//! the current tick without bootstrapping. **Add fields to the end of
-//! `EntitySnapshot` only, and bump SCHEMA_VERSION when doing so**, because
-//! bincode is position-sensitive.
+//! `WorldSnapshot::schema_version` 固定在 `SCHEMA_VERSION = 1`。這
+//! omfx 端 LockstepClient 根據其編譯的預期檢查此內容
+//! 應用位元組之前的版本；不匹配的情況會從
+//! 沒有引導的當前刻度。 **將欄位新增至末尾
+//! 僅“EntitySnapshot”，並在執行此操作時碰撞 SCHEMA_VERSION**，因為
+//! bincode 是位置敏感的。
 //!
-//! Phase 5.3 ships **server-side write only** — the omfx observer
-//! consumer is logged-only for now (deserialize + apply is a Phase 5+
-//! followup once observer mode is actually exercised).
+//! 階段 5.3 發布 **伺服器端只寫** — omfx 觀察者
+//! 消費者目前僅記錄（反序列化 + 應用是階段 5+
+//! 一旦實際執行觀察者模式，就進行後續操作）。
 
 use specs::{Join, World, WorldExt};
 use serde::{Deserialize, Serialize};
@@ -34,14 +34,14 @@ use crate::comp::projectile::Projectile;
 use crate::comp::resources::{MasterSeed, Tick};
 use crate::comp::tower::Tower;
 
-/// On-wire schema version. Bump when adding/reordering fields in
-/// `EntitySnapshot` or `WorldSnapshot`. Clients refuse to apply mismatched
-/// versions and fall back to no-bootstrap rejoin.
+/// 線上架構版本。新增/重新排序欄位時出現碰撞
+/// “EntitySnapshot”或“WorldSnapshot”。客戶拒絕申請不匹配
+/// 版本並回退到無開機重新加入。
 pub const SCHEMA_VERSION: u32 = 1;
 
-/// Entity type tag — matches the omfx-side `EntityKind` discriminants so
-/// observer rejoin can dispatch each entity to the correct sprite/render
-/// path without re-querying the script registry. Order pinned for bincode.
+/// 實體類型標籤 — 與 omfx 端 `EntityKind` 判別式匹配
+/// 觀察者重新加入可以將每個實體分派到正確的 sprite/渲染
+/// 路徑而無需重新查詢腳本登錄。訂單已固定為 bincode。
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum EntityKindTag {
@@ -52,10 +52,10 @@ pub enum EntityKindTag {
     Projectile = 4,
 }
 
-/// Per-entity state shipped in a snapshot.
+/// 每個實體的狀態在快照中傳送。
 ///
-/// **Add fields at the end, never reorder existing ones** — bincode is
-/// position-sensitive. Bump `SCHEMA_VERSION` on any change.
+/// **在末尾添加字段，切勿對現有字段重新排序** - bincode 是
+/// 位置敏感。任何更改都會影響“SCHEMA_VERSION”。
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct EntitySnapshot {
     pub id: u32,
@@ -69,8 +69,8 @@ pub struct EntitySnapshot {
     pub kind: EntityKindTag,
 }
 
-/// Top-level snapshot frame. `master_seed` lets a rejoining observer
-/// re-seed its `SimRng` streams to match the authoritative server.
+/// 頂級快照框架。 `master_seed` 讓觀察者重新加入
+/// 重新播種其“SimRng”流以匹配權威伺服器。
 #[derive(Serialize, Deserialize, Debug)]
 pub struct WorldSnapshot {
     pub schema_version: u32,
@@ -79,13 +79,13 @@ pub struct WorldSnapshot {
     pub entities: Vec<EntitySnapshot>,
 }
 
-/// Walks the world, collects every entity with `Pos`, classifies it via
-/// presence of `Hero` / `Tower` / `Projectile` / `CProperty` storages, and
-/// bincode-serializes the result through `omoba_sim::snapshot::serialize`.
+/// 走遍世界，用「Pos」收集每個實體，透過
+/// 存在“Hero”/“Tower”/“Projectile”/“CProperty”存儲，以及
+/// bincode 透過 `omoba_sim::snapshot::serialize` 對結果進行序列化。
 ///
-/// Returns an empty `Vec` on serialization failure; the caller treats that
-/// as "no snapshot saved this tick" and the previous (possibly empty) bytes
-/// stay in the `SnapshotStore`.
+/// 序列化失敗時返回空的“Vec”；呼叫者將其視為
+/// 作為“沒有快照保存此刻度”和之前的（可能是空的）位元組
+/// 留在“SnapshotStore”中。
 pub fn serialize_snapshot(world: &World) -> Vec<u8> {
     let entities = world.entities();
     let pos_storage = world.read_storage::<Pos>();
@@ -197,8 +197,8 @@ mod tests {
         assert_eq!(snap.master_seed, MasterSeed::default().0);
         assert_eq!(snap.entities.len(), 0);
 
-        // Re-serializing the deserialized snapshot must produce the same
-        // bytes (bincode is canonical for this schema).
+        // 重新序列化反序列化的快照必須產生相同的結果
+        // 位元組（bincode 是此模式的規格）。
         let bytes2 = omoba_sim::snapshot::serialize(&snap).expect("re-serialize");
         assert_eq!(bytes, bytes2, "snapshot bytes must round-trip identically");
     }
@@ -206,20 +206,20 @@ mod tests {
     #[test]
     fn three_entities_preserve_count_and_seed() {
         let mut w = make_world();
-        // Insert a custom MasterSeed so we can assert it round-trips.
+        // 插入一個自訂 MasterSeed，以便我們可以斷言它往返。
         w.insert(MasterSeed(0x1234_5678_9ABC_DEF0));
         w.insert(Tick(123));
 
-        // Plain entity (kind = Other since no CProperty)
+        // 普通實體（種類 = 其他，因為沒有 CProperty）
         w.create_entity().with(pos_xy(1, 1)).build();
-        // Creep-like (CProperty present, no Hero/Tower/Projectile)
+        // 類似蠕變（存在 C 屬性，無英雄/塔樓/彈）
         w.create_entity()
             .with(pos_xy(2, 2))
             .with(Vel(SimVec2 { x: Fixed64::from_i32(1), y: Fixed64::ZERO }))
             .with(Facing(Angle::from_ticks(1024)))
             .with(cprop(50, 100))
             .build();
-        // Plain entity 2
+        // 普通實體2
         w.create_entity().with(pos_xy(3, 3)).build();
 
         let bytes = serialize_snapshot(&w);
@@ -231,8 +231,8 @@ mod tests {
         assert_eq!(snap.master_seed, 0x1234_5678_9ABC_DEF0);
         assert_eq!(snap.entities.len(), 3, "three Pos-bearing entities must survive round-trip");
 
-        // Confirm at least one creep-classified entity has matching
-        // hp/vel/facing values (find by kind).
+        // 確認至少一個蠕變分類實體具有匹配
+        // 馬力/速度/面值（依種類找出）。
         let creep = snap
             .entities
             .iter()
@@ -245,10 +245,10 @@ mod tests {
 
     #[test]
     fn schema_version_pinned() {
-        // Tripwire: any future change that bumps the on-wire schema must
-        // be conscious — clients pin their expected version against this
-        // constant. If you bump it, also update the omfx LockstepClient
-        // observer-rejoin handler in lockstep_client.rs.
+        // Tripwire：任何未來影響線上模式的變更都必須
+        // 要有意識——客戶將他們的預期版本與此相對應
+        // 持續的。如果您修改了它，也要更新 omfx LockstepClient
+        // lockstep_client.rs 中的觀察者重新加入處理程序。
         assert_eq!(SCHEMA_VERSION, 1);
     }
 }

@@ -46,8 +46,8 @@ impl<'a> System<'a> for Sys {
     fn run(_job: &mut Job<Self>, (tr, mut tw): Self::SystemData) {
         let totaltime = tr.time.0;
         let is_td = tr.game_mode.is_td();
-        // omfx sim_runner does not wire a transport; fall back to a sink sender
-        // so broadcast sites silently no-op (try_send returns disconnected, ignored).
+        // omfx sim_runner 不連接傳輸；回退到接收器發送器
+        // 因此靜默廣播站點無操作（try_send 返回斷開連接，被忽略）。
         let tx = tw.mqtx.get(0).cloned().unwrap_or_else(|| {
             let (tx, _rx) = crossbeam_channel::unbounded::<OutboundMsg>();
             tx
@@ -83,9 +83,9 @@ impl<'a> System<'a> for Sys {
                         if let Some(ct) = path.check_points.first() {
                             let mut cpp = cp.root.clone();
                             cpp.path = pc.path_name.clone();
-                            // CreepData.{pos, turn_speed_deg, collision_radius} now SimVec2 / Fixed64
-                            // (Phase 1c.2). CreepEmiter / CheckPoint still f32 (template-side migration
-                            // is Phase 1d). Bridge once per spawn.
+                            // CreepData.{pos、turn_speed_deg、collision_radius} 現在為 SimVec2/Fixed64
+                            // （階段 1c.2）。 CreepEmiter / CheckPoint 仍為 f32（模板端遷移
+                            // 是階段 1d)。每次生成時橋一次。
                             let cp0 = CreepData {
                                 pos: SimVec2::new(
                                     Fixed64::from_raw((ct.pos.x * omoba_sim::fixed::SCALE as f32) as i64),
@@ -123,7 +123,7 @@ impl<'a> System<'a> for Sys {
                     "total": total,
                     "is_running": false,
                 });
-                // P5: game/round + game/end are game-wide — reach every player.
+                // P5：遊戲/回合+遊戲/結束是整個遊戲範圍的－觸及每位玩家。
                 #[cfg(any(feature = "grpc", feature = "kcp"))]
                 let round_msg = OutboundMsg::new_s_all("td/all/res", "game", "round", payload);
                 #[cfg(not(any(feature = "grpc", feature = "kcp")))]

@@ -189,8 +189,8 @@ pub struct UiSettingsJD {
 
 // ===== 載入函數 =====
 impl CampaignData {
-    /// Load shipped campaign data from `omoba-template-ids` generated Rust data.
-    /// Runtime gameplay does not read JSON or Lua content source files.
+    /// 從「omoba-template-ids」產生的 Rust 資料載入已傳送的活動資料。
+    /// 運行時遊戲不會讀取 JSON 或 Lua 內容原始檔。
     pub fn load_generated(story_id: &str) -> Result<CampaignData, Box<dyn std::error::Error>> {
         let story = omoba_template_ids::story_by_name(story_id)
             .ok_or_else(|| format!("unknown generated story '{}'", story_id))?;
@@ -221,12 +221,12 @@ impl CampaignData {
         })
     }
 
-    /// Legacy JSON loader for migration tooling only. Runtime should use `load_generated`.
+    /// 僅用於移轉工具的舊版 JSON 載入器。運行時應使用“load_ generated”。
     /// 
-    /// # Arguments
-    /// * `campaign_path` - legacy JSON story folder path
+    /// # 參數
+    /// * `campaign_path` - 舊版 JSON 故事資料夾路徑
     /// 
-    /// # Returns
+    /// # 返回
     /// * `Result<CampaignData, Box<dyn std::error::Error>>` - 載入結果
     pub fn load_from_path(campaign_path: &str) -> Result<CampaignData, Box<dyn std::error::Error>> {
         use crate::json_preprocessor::JsonPreprocessor;
@@ -361,7 +361,7 @@ fn ensure_array_field(value: &mut serde_json::Value, key: &str) {
     let Some(object) = value.as_object_mut() else { return; };
     match object.get_mut(key) {
         Some(field) if field.as_object().is_some_and(serde_json::Map::is_empty) => {
-            *field = serde_json::Value::Array(Vec::new());
+            * 字段 = serde_json::Value::Array(Vec::new());
         }
         None => {
             object.insert(key.to_string(), serde_json::Value::Array(Vec::new()));

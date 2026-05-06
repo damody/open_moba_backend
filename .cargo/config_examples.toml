@@ -6,16 +6,16 @@ linker = "clang"
 rustflags = ["-C", "link-arg=-fuse-ld=mold"]
 
 # === 選項 2: 使用 lld (次快) ===
-# [target.x86_64-unknown-linux-gnu]
-# linker = "clang"
+# [目標.x86_64-未知-linux-gnu]
+# 連結器=“鏗鏘”
 # rustflags = ["-C", "link-arg=-fuse-ld=lld"]
 
 # === 選項 3: 使用 mold 但保留調試信息 ===
-# [target.x86_64-unknown-linux-gnu]
-# linker = "clang"
-# rustflags = [
-#     "-C", "link-arg=-fuse-ld=mold",
-#     "-C", "link-arg=-Wl,--compress-debug-sections=zlib",
+# [目標.x86_64-未知-linux-gnu]
+# 連結器=“鏗鏘”
+# 生鏽標誌 = [
+# “-C”，“link-arg=-fuse-ld=模具”，
+# “-C”，“link-arg=-Wl，--compress-debug-sections=zlib”，
 # ]
 
 [build]

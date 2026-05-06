@@ -16,7 +16,7 @@ pub enum CreepStatus {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Creep {
-    /// Internal identifier (matches CreepEmiter key, e.g. "practice_dummy").
+    /// 內部識別碼（與 CreepEmiter 鍵匹配，例如“practice_dummy”）。
     pub name: String,
     /// Optional display label shown on client (e.g. "練習假人"); falls back to `name`.
     #[serde(default)]

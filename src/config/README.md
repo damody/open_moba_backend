@@ -4,7 +4,7 @@
 
 ## 📁 檔案結構
 
-### server_config.rs
+# ## 伺服器設定.rs
 
 管理服務器的全局配置，使用 lazy_static 實現單例模式。
 
@@ -58,12 +58,12 @@ SERVER_PORT = "1883"
 CLIENT_ID = "omobab"
 
 # 未來可擴展的配置
-# [game]
+# [遊戲]
 # TICK_RATE = 10
-# SPAWN_INTERVAL = 30.0
+# 生成間隔 = 30.0
 # 
-# [balance]
-# TOWER_DAMAGE_MULTIPLIER = 1.0
+# [平衡]
+# 塔傷害倍數 = 1.0
 # CREEP_HEALTH_MULTIPLIER = 1.0
 ```
 
@@ -73,7 +73,7 @@ CLIENT_ID = "omobab"
 
 1. **修改 ServerConfig 結構**
 ```rust
-#[derive(Debug, Deserialize, Clone)]
+# [衍生（調試、反序列化、克隆）]
 pub struct ServerConfig {
     // 現有欄位...
     

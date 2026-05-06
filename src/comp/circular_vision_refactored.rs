@@ -61,7 +61,7 @@ impl VisionSystemManager {
             if self.result_manager.needs_vision_update(entity, current_time) || 
                vision.needs_recalculation(current_time) {
                 
-                // NOTE: vision is client-side render hint (fog of war); per-tick rebuild from authoritative Pos keeps it cross-client consistent.
+                // 注意：視覺是客戶端渲染提示（戰爭迷霧）；從權威 Pos 進行的每次報價重建可保持跨客戶端的一致性。
                 let (px, py) = pos.xy_f32();
                 let result = self.calculator.calculate_circular_vision(vek::Vec2::new(px, py), &*vision);
                 vision.vision_result = Some(result.clone());
@@ -114,7 +114,7 @@ impl VisionSystemManager {
         let entities = world.entities();
         let positions = world.read_storage::<Pos>();
         
-        // NOTE: vision is client-side render hint (fog of war); per-tick rebuild from authoritative Pos keeps it cross-client consistent.
+        // 注意：視覺是客戶端渲染提示（戰爭迷霧）；從權威 Pos 進行的每次報價重建可保持跨客戶端的一致性。
         let entity_positions: Vec<(Entity, vek::Vec2<f32>)> = (&entities, &positions)
             .join()
             .map(|(e, pos)| { let (x, y) = pos.xy_f32(); (e, vek::Vec2::new(x, y)) })

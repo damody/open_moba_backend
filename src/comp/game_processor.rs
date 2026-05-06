@@ -10,25 +10,25 @@ use crate::transport::OutboundMsg;
 use crate::Outcome;
 use crate::Projectile;
 
-/// Per-entity SimRng op_kind for game_processor. Phase 1de.2: replaces fastrand
-/// for projectile accuracy + attack-stun rolls. Reordering or reusing these
-/// constants across systems would invalidate replay determinism.
+/// game_processor 的每實體 SimRng op_kind。階段 1de.2：取代 fastrand
+/// 彈體精準度+攻擊眩暈擲骰。重新排序或重複使用這些
+/// 跨系統的常數將使重播決定論失效。
 const OP_PROJECTILE_ACCURACY: u32 = 20;
 const OP_PROJECTILE_STUN_ROLL: u32 = 21;
 
 // ============================================================================
-// P2 typed-payload helpers — gated behind `kcp`. For non-kcp builds the helpers
-// fall back to legacy JSON-only OutboundMsg construction.
+// P2 類型有效負載助手 — 在「kcp」後面進行門控。對於非 kcp 建置助手
+// 回退到傳統的僅 JSON OutboundMsg 構造。
 // ============================================================================
 
-/// game.lives
+/// 遊戲.生活
 #[inline]
 fn make_game_lives(lives: i32) -> OutboundMsg {
     #[cfg(feature = "kcp")]
     {
         use crate::state::resource_management::proto_build;
         use crate::transport::TypedOutbound;
-        // P5: game-wide event — reach every player.
+        // P5：全遊戲範圍的事件－觸及每位玩家。
         OutboundMsg::new_typed_all(
             "td/all/res", "game", "lives",
             TypedOutbound::GameLives(proto_build::game_lives(lives)),
@@ -41,14 +41,14 @@ fn make_game_lives(lives: i32) -> OutboundMsg {
     }
 }
 
-/// game.end
+/// 遊戲結束
 #[inline]
 fn make_game_end(winner: &str, extra: serde_json::Value) -> OutboundMsg {
     #[cfg(feature = "kcp")]
     {
         use crate::state::resource_management::proto_build;
         use crate::transport::TypedOutbound;
-        // P5: game-end broadcasts to every player.
+        // P5：遊戲結束向所有玩家廣播。
         OutboundMsg::new_typed_all(
             "td/all/res", "game", "end",
             TypedOutbound::GameEnd(proto_build::game_end(winner)),
@@ -115,10 +115,10 @@ impl GameProcessor {
                                 *ap += *p;
                                 *am += *m;
                                 *ar += *r;
-                                // P7: AND-combine — skip H only if ALL
-                                // contributors were pre-declared. Mixed
-                                // (predeclared + authoritative) falls back to
-                                // emitting H so server stays authoritative.
+                                // P7：與組合 — 僅當 ALL 時才跳過 H
+                                // contributors were pre-declared.混合
+                                // （預先聲明+權威）回落到
+                                // 發出 H，以便伺服器保持權威。
                                 *apd = *apd && *pd;
                                 merged_damage_count += 1;
                                 continue;
@@ -186,13 +186,13 @@ impl GameProcessor {
                         Self::handle_add_buff(ecs, target, buff_id, duration, payload)?;
                     }
                     Outcome::Explosion { pos, radius, duration } => {
-                        // Phase 4.2: route legacy `make_game_explosion` mqtx
-                        // emit through the deterministic snapshot pipeline.
-                        // Push into ExplosionFxQueue (non-state resource —
-                        // sim never reads back, so determinism is unaffected);
-                        // the omfx sim_runner extractor drains it each tick
-                        // and the render thread spawns the ring scene node
-                        // with omfx-wall-clock lifecycle.
+                        // 階段 4.2：路由遺留 `make_game_explosion` mqtx
+                        // 透過確定性快照管道發出。
+                        // 推入 ExplosionFxQueue（非狀態資源 —
+                        // sim 從不回讀，因此決定論不受影響）；
+                        // omfx sim_runner 提取器在每個週期都會耗盡它
+                        // 渲染線程產生環形場景節點
+                        // 具有 omfx-wall-clock 生命週期。
                         let current_tick = ecs.read_resource::<Tick>().0 as u32;
                         let duration_ms = (duration.to_f32_for_render() * 1000.0)
                             .clamp(0.0, u32::MAX as f32)
@@ -208,15 +208,15 @@ impl GameProcessor {
                     }
                     Outcome::EntityRemoved { entity } => {
                         // Phase 1b: 唯一的 entity-deletion entry point in
-                        // the omb sim path. (a) record id into
-                        // RemovedEntitiesQueue so the next snapshot's
-                        // removed_entity_ids covers it; (b) atomic-flag
-                        // delete via specs entities — actual storage
-                        // cleanup runs at world.maintain() at the
-                        // dispatcher tick boundary. Both steps run in
-                        // this fn body — server and client both reach
-                        // process_outcomes at the same logical point in
-                        // their respective tick, so StateHash agrees.
+                        // omb sim 路徑。 (a) 將id記錄到
+                        // 已刪除實體佇列，因此下一個快照的
+                        // returned_entity_ids 覆蓋它； (b) 原子標誌
+                        // 透過規格實體刪除－實際存儲
+                        // 清理工作在 world.maintain() 處運行
+                        // 調度程序刻度線邊界。兩個步驟都運行在
+                        // 這個 fn body — 伺服器和客戶端都到達
+                        // process_outcomes 在同一邏輯點
+                        // 他們各自的勾選，所以 StateHash 同意。
                         let mut q = ecs.write_resource::<crate::comp::RemovedEntitiesQueue>();
                         q.pending.push(entity.id());
                         let _ = ecs.entities().delete(entity);
@@ -261,9 +261,9 @@ impl GameProcessor {
         // 若死者有 Bounty → 將金錢/經驗分給最近的友方英雄
         Self::distribute_bounty(ecs, next_outcomes, mqtx, entity);
 
-        // Cleanup creep/tower cross-links so the dead entity doesn't leave dangling
-        // block_tower / block_creeps references in survivors. Side-effects only —
-        // the entity itself is removed by `delete_entities` in process_outcomes.
+        // 清理蠕變/塔交叉鏈接，這樣死亡的實體就不會懸空
+        // 倖存者中的 block_tower / block_creeps 引用。僅副作用——
+        // 實體本身被 process_outcomes 中的「delete_entities」刪除。
         // Phase 1.6: 不再廣播 entity.death；omfx sim_runner worker 用
         // SimWorldSnapshot.removed_entity_ids 自行偵測死亡釋放渲染資源。
         {
@@ -331,7 +331,7 @@ impl GameProcessor {
                         continue; // 同隊死亡不給賞金
                     }
                 }
-                // NOTE: bounty proximity is non-deterministic UI hint (faction-scoped); lossy f32 acceptable.
+                // 注意：賞金接近度是不確定的 UI 提示（派系範圍）；有損 f32 可接受。
                 let (px, py) = p.xy_f32();
                 let dpx = dead_pos.x.to_f32_for_render();
                 let dpy = dead_pos.y.to_f32_for_render();
@@ -391,9 +391,9 @@ impl GameProcessor {
         // 同時讀取 source 身上任何 buff 的 attack_stun_chance / attack_stun_duration，擲骰
         // 決定此發 projectile 命中後是否暈眩目標（matchlock_gun 的 87% 機率）
         // 另查 `multi_shot_visual` buff 決定是否額外 spawn 視覺子彈（無傷害）
-        // Phase 1de.2: deterministic SimRng inputs (master_seed + tick) for the
-        // accuracy / stun rolls. Read once at the top of handle_projectile to
-        // avoid repeated resource lookups inside the rolls.
+        // 階段 1de.2：確定性 SimRng 輸入（master_seed + tick）
+        // 準確度/眩暈擲骰。在handle_projectile的頂部讀一次
+        // 避免在卷內重複進行資源查找。
         let master_seed: u64 = ecs.read_resource::<MasterSeed>().0;
         let tick: u32 = ecs.read_resource::<Tick>().0 as u32;
         let attacker_id: u32 = source_entity.id();
@@ -413,7 +413,7 @@ impl GameProcessor {
 
             // Accuracy 擲骰：base 命中率 1.0 + sum(accuracy_bonus) buffs；clamp [0,1]。
             // miss → damage=0（projectile 仍飛行，前端可由 0 傷害判定顯示 miss）。
-            // Phase 1de.2: deterministic per-(attacker, OP_PROJECTILE_ACCURACY) stream.
+            // 階段 1de.2：確定性每個（攻擊者、OP_PROJECTILE_ACCURACY）流。
             let accuracy_bonus = buff_store
                 .sum_add(source_entity, omb_script_abi::stat_keys::StatKey::AccuracyBonus);
             let accuracy: Fixed64 = (Fixed64::ONE + accuracy_bonus).clamp(Fixed64::ZERO, Fixed64::ONE);
@@ -422,17 +422,17 @@ impl GameProcessor {
                     master_seed, tick, attacker_id, OP_PROJECTILE_ACCURACY,
                 );
                 let roll: Fixed64 = acc_rng.gen_fixed64_unit();
-                // Original semantics: miss iff roll > accuracy. With Fixed64 uniform
-                // on the [0,1) grid, `roll >= accuracy` preserves the miss probability
-                // (roll == accuracy collides at one out of 1024 buckets — within game tolerance).
+                // 原始語意：miss iff roll > 準確性。與Fixed64統一
+                // 在 [0,1) 網格上，`roll>=accuracy` 保留了丟失機率
+                // （滾動 == 準確度在 1024 個桶中的一個發生碰撞 - 在遊戲容差範圍內）。
                 if roll >= accuracy {
                     final_atk = Fixed64::ZERO;
                 }
             }
 
             // 取 source 身上任一 buff 中最強的 attack_stun_chance + 對應 duration
-            // Phase 1de.2: still reads f64 from JSON payload (BuffStore wire format
-            // accepts both i64 raw and legacy f64 — see buff_store.rs).
+            // 階段 1de.2：仍從 JSON 有效負載讀取 f64（BuffStore 有線格式）
+            // 接受 i64 raw 和傳統 f64 — 請參閱 buff_store.rs）。
             let mut stun_chance = 0.0f32;
             let mut stun_duration = 0.0f32;
             for (_, entry) in buff_store.iter_for(source_entity) {
@@ -443,7 +443,7 @@ impl GameProcessor {
                     stun_duration = d;
                 }
             }
-            // Phase 1de.2: deterministic per-(attacker, OP_PROJECTILE_STUN_ROLL) stream.
+            // 階段 1de.2：確定性每個（攻擊者、OP_PROJECTILE_STUN_ROLL）流。
             let stun_roll: Fixed64 = if stun_chance > 0.0 && stun_duration > 0.0 {
                 let mut stun_rng = omoba_sim::SimRng::from_master_entity(
                     master_seed, tick, attacker_id, OP_PROJECTILE_STUN_ROLL,
@@ -471,8 +471,8 @@ impl GameProcessor {
         // 命中由 projectile_tick 的距離判定決定（target 接近時 step >= dist 即命中）。
         // time_left 為安全閥：flight_time_s * 3 + 3 秒，允許高速單位拖著子彈移動。
         let initial_dist: Fixed64 = (p2 - pos).length();
-        // flight_time math (s) needs f32 — wire format is f32 ms, and we want
-        // the .max(0.01) clamp behavior. Compute in f32 only at the wire boundary.
+        // Flight_time math (s) 需要 f32 — 線路格式為 f32 ms，我們想要
+        // .max(0.01) 箝位行為。僅在連線邊界處以 f32 進行計算。
         let move_speed_f = msd.to_f32_for_render();
         let initial_dist_f = initial_dist.to_f32_for_render();
         let flight_time_s: f32 = if move_speed_f > 0.0 {
@@ -508,8 +508,8 @@ impl GameProcessor {
             let dmg_phys_this: Fixed64 = if is_real { atk_phys } else { Fixed64::ZERO };
             let stun_this: Fixed64 = if is_real { stun_duration_roll } else { Fixed64::ZERO };
             let target_this = if is_real { target } else { None };
-            // (i - half) * lateral_step ; computed in Fixed64: half can be 0.5
-            // → encode as raw 512.
+            // (i - 半) * 橫向步長;以Fixed64計算：一半可以是0.5
+            // → 編碼為原始 512。
             let lateral: Fixed64 = if visual_count > 1 {
                 let half_raw: i64 = ((visual_count as i64 - 1) * 512) ; // (n-1)/2 * SCALE
                 let i_scaled: i64 = i as i64 * omoba_sim::fixed::SCALE; // i * SCALE
@@ -588,8 +588,8 @@ impl GameProcessor {
         // lerp/extrap fallback 導致 creep 瞬移到下個 waypoint。
         // 用 BuffStore 寫入而非全域 clamp — 不同 creep 類型未來可以有不同下限、
         // 設計上也允許某些 buff 顯式拿掉這個下限（例如「凍結 1 秒」效果）。
-        // Phase 1c.3: BuffStore::add now takes Fixed64 — use raw i32::MAX as
-        // sentinel "permanent". NOTE: i32::MAX duration is the permanent-buff convention; could be replaced with explicit None/permanent flag in Phase 2.
+        // 階段 1c.3：BuffStore::add 現在採用 Fix64 — 使用原始 i32::MAX 作為
+        // 「永久」哨兵。注意：i32::MAX 持續時間是永久 buff 約定；可在第 2 階段以明確的 None/permanent 標誌取代。
         ecs.write_resource::<crate::ability_runtime::BuffStore>().add(
             e,
             "creep_min_speed_floor",
@@ -699,18 +699,18 @@ impl GameProcessor {
         Ok(())
     }
 
-    /// Phase 2.1: lockstep `PlayerInputEnum::TowerPlace` handler.
+    /// 階段 2.1：鎖定步驟 `PlayerInputEnum::TowerPlace` 處理程序。
     ///
-    /// Called from `drain_pending_tower_spawns` after `PendingTowerSpawnQueue`
-    /// is filled by `tick::player_input_tick::Sys`. Maps `kind_id` (proto
-    /// `TowerPlace.tower_kind_id` = `omoba_template_ids::TowerId.0` as u32) to
-    /// the `unit_id` string the existing `tower_template::spawn_td_tower`
-    /// expects, and delegates the actual entity construction + ScriptEvent::
-    /// Spawn push there.
+    /// 在“PendingTowerSpawnQueue”之後從“drain_pending_tower_spawns”調用
+    /// 由 `tick::player_input_tick::Sys` 填滿。映射`kind_id`（原型
+    /// `TowerPlace.tower_kind_id` = `omoba_template_ids::TowerId.0` 作為 u32) 到
+    /// `unit_id` 字串現有的 `tower_template::spawn_td_tower`
+    /// 期望並委託實際的實體建構 + ScriptEvent::
+    /// 產卵推到那裡。
     ///
-    /// Runs deterministically on both host (omb) and replica (omfx sim_runner)
-    /// because the queue is filled identically on both sides from the same
-    /// `TickBatch.inputs` and drained at the same dispatch boundary.
+    /// 在主機 (omb) 和副本 (omfx sim_runner) 上確定性地運行
+    /// 因為隊列兩邊的填充量相同
+    /// `TickBatch.inputs` 並在同一調度邊界處耗盡。
     pub fn handle_tower_spawn_from_input(
         world: &mut World,
         kind_id: u32,
@@ -725,7 +725,7 @@ impl GameProcessor {
                 kind_id, owner_pid
             )));
         }
-        // spawn_td_tower expects Vec2<f32>; bridge through to_f32_for_render.
+        // spawn_td_tower 需要 Vec2<f32>；經由 to_f32_for_render 橋接。
         let pos_f32 = vek::Vec2::new(pos.x.to_f32_for_render(), pos.y.to_f32_for_render());
         let entity = crate::comp::tower_template::spawn_td_tower(world, pos_f32, unit_id)
             .ok_or_else(|| failure::err_msg(format!(
@@ -738,10 +738,10 @@ impl GameProcessor {
         Ok(entity)
     }
 
-    /// Phase 2.1: drain `PendingTowerSpawnQueue` and spawn each requested tower.
-    /// Must be called after the dispatcher's `player_input_tick::Sys` has
-    /// populated the queue but before the next snapshot extract — both host
-    /// `state::core::tick` and replica `omfx sim_runner` invoke this.
+    /// 階段 2.1：排空 `PendingTowerSpawnQueue` 並產生每個請求的塔。
+    /// 必須在調度程序的“player_input_tick::Sys”完成後調用
+    /// 填充隊列，但在下一個快照提取之前 - 兩個主機
+    /// `state::core::tick` 和副本 `omfx sim_runner` 呼叫它。
     pub fn drain_pending_tower_spawns(world: &mut World) {
         let drained: Vec<crate::comp::PendingTowerSpawn> = {
             let mut q = world.write_resource::<crate::comp::PendingTowerSpawnQueue>();
@@ -757,24 +757,24 @@ impl GameProcessor {
         }
     }
 
-    /// Phase 2.2: lockstep `PlayerInputEnum::TowerSell` handler.
+    /// 階段 2.2：鎖定步驟 `PlayerInputEnum::TowerSell` 處理程序。
     ///
-    /// Called from `drain_pending_tower_sells` after `PendingTowerSellQueue`
-    /// is filled by `tick::player_input_tick::Sys`. Mirrors the existing
-    /// MQTT/JSON `state::resource_management::sell_tower` convention:
-    ///   * 85% base cost refund + 75% per upgrade level refund (read from
-    ///     `TowerTemplateRegistry` + `TowerUpgradeRegistry` via the entity's
-    ///     `ScriptUnitTag.unit_id`).
-    ///   * Refund credited to the first `Hero` entity with `Faction == Player`
-    ///     (TD mode = single-player wallet).
-    ///   * Clear `BuffStore` for the doomed entity to prevent leaked buffs
-    ///     (e.g. upgrade_* with f32::MAX duration).
-    ///   * `world.entities().delete(...)` — Phase 1.6 snapshot diff
-    ///     auto-removes from render via `removed_entity_ids`.
+    /// 在“PendingTowerSellQueue”之後從“drain_pending_tower_sells”調用
+    /// 由 `tick::player_input_tick::Sys` 填滿。反映現有的
+    /// MQTT/JSON `state::resource_management::sell_tower` 約定：
+    /// * 85% 基本成本退款 + 每個升級等級退款 75%（讀自
+    /// `TowerTemplateRegistry` + `TowerUpgradeRegistry` 透過實體的
+    /// `ScriptUnitTag.unit_id`)。
+    /// * 退款記入第一個「Faction == Player」的「Hero」實體
+    /// （TD模式=單人錢包）。
+    /// * 清除注定實體的「BuffStore」以防止增益洩漏
+    /// （例如，upgrade_* 的 f32::MAX 持續時間）。
+    /// * `world.entities().delete(...)` — 階段 1.6 快照差異
+    /// 透過「removed_entity_ids」自動從渲染中刪除。
     ///
-    /// Runs deterministically on both host (omb) and replica (omfx sim_runner)
-    /// because the queue is filled identically on both sides from the same
-    /// `TickBatch.inputs` and drained at the same dispatch boundary.
+    /// 在主機 (omb) 和副本 (omfx sim_runner) 上確定性地運行
+    /// 因為隊列兩邊的填充量相同
+    /// `TickBatch.inputs` 並在同一調度邊界處耗盡。
     pub fn handle_tower_sell_from_input(
         world: &mut World,
         tower_entity_id: u32,
@@ -782,9 +782,9 @@ impl GameProcessor {
     ) -> Result<(), Error> {
         use specs::Join;
 
-        // Resolve `Entity` from raw u32 id by joining over live entities. Specs
-        // doesn't expose a stable `Entity::from_id` for non-test code; the
-        // existing `mqtt_handler::sell_tower` site uses the same pattern.
+        // 透過加入活動實體​​，從原始 u32 id 解析「實體」。規格
+        // 不會為非測試程式碼公開穩定的“Entity::from_id”；這
+        // 現有的「mqtt_handler::sell_tower」網站使用相同的模式。
         let target_entity = {
             let entities = world.entities();
             let towers = world.read_storage::<Tower>();
@@ -807,9 +807,9 @@ impl GameProcessor {
             }
         };
 
-        // Ownership check: TD only has FactionType::Player towers in the
-        // single-player slot. If multi-player slots get added later this
-        // check should also compare a per-tower owner_pid marker.
+        // 所有權檢查：TD 中只有 FactionType::Player 塔
+        // 單人老虎機。如果稍後再增加多人老虎機
+        // 檢查也應該比較每個塔的owner_pid 標記。
         {
             let factions = world.read_storage::<Faction>();
             match factions.get(target_entity) {
@@ -829,9 +829,9 @@ impl GameProcessor {
             }
         }
 
-        // Compute refund: 85% base + 75% per upgrade level. Mirrors
-        // `state::resource_management::sell_tower` so the lockstep path stays
-        // consistent with the legacy MQTT path.
+        // 計算退款：85% 基礎 + 每個升級等級 75%。鏡子
+        // `state::resource_management::sell_tower` 因此鎖步路徑保持不變
+        // 與傳統 MQTT 路徑一致。
         let refund = {
             let tags = world.read_storage::<crate::scripting::ScriptUnitTag>();
             let reg = world.read_resource::<crate::comp::tower_registry::TowerTemplateRegistry>();
@@ -858,8 +858,8 @@ impl GameProcessor {
             base_refund + upgrade_refund
         };
 
-        // Find the player's hero (TD wallet). Single Player-faction Hero in
-        // current TD mode; pick first match. Mirrors `sell_tower` lookup.
+        // 找到玩家的英雄（TD錢包）。單人陣營英雄
+        // 當前TD模式；選擇第一個匹配項。鏡像 `sell_tower` 查找。
         let hero_entity = {
             let entities = world.entities();
             let heroes = world.read_storage::<Hero>();
@@ -880,17 +880,17 @@ impl GameProcessor {
             }
         }
 
-        // Clear BuffStore residue (upgrade_* f32::MAX permanent buffs would
-        // leak otherwise — see `state::resource_management::sell_tower`).
+        // 清除 BuffStore 殘留物（upgrade_* f32::MAX 永久增益將
+        // 否則洩漏 - 請參閱“state::resource_management::sell_tower”）。
         {
             let mut store = world.write_resource::<crate::ability_runtime::BuffStore>();
             store.remove_all_for(target_entity);
         }
 
-        // Phase 1.6: enqueue Outcome::EntityRemoved — process_outcomes
-        // (runs after drain_pending_* in the same tick) handles the
-        // actual entities().delete() + RemovedEntitiesQueue push, and
-        // omfx render auto-cleans via snapshot.removed_entity_ids.
+        // 階段 1.6：入隊 Outcome::EntityRemoved — process_outcomes
+        // （在同一個tick中在drain_pending_*之後執行）處理
+        // 實際的Entity().delete()+RemovedEntitiesQueue推送，以及
+        // omfx 渲染透過 snapshot.removed_entity_ids 自動清理。
         world.write_resource::<Vec<Outcome>>()
             .push(Outcome::EntityRemoved { entity: target_entity });
 
@@ -901,10 +901,10 @@ impl GameProcessor {
         Ok(())
     }
 
-    /// Phase 2.2: drain `PendingTowerSellQueue` and process each sell request.
-    /// Must be called after the dispatcher's `player_input_tick::Sys` has
-    /// populated the queue but before the next snapshot extract — both host
-    /// `state::core::tick` and replica `omfx sim_runner` invoke this.
+    /// 階段 2.2：排空 `PendingTowerSellQueue` 並處理每個銷售請求。
+    /// 必須在調度程序的“player_input_tick::Sys”完成後調用
+    /// 填充隊列，但在下一個快照提取之前 - 兩個主機
+    /// `state::core::tick` 和副本 `omfx sim_runner` 呼叫它。
     pub fn drain_pending_tower_sells(world: &mut World) {
         let drained: Vec<crate::comp::PendingTowerSell> = {
             let mut q = world.write_resource::<crate::comp::PendingTowerSellQueue>();
@@ -920,34 +920,34 @@ impl GameProcessor {
         }
     }
 
-    /// Phase 2.3: lockstep `PlayerInputEnum::TowerUpgrade` handler.
+    /// 階段 2.3：鎖定步驟 `PlayerInputEnum::TowerUpgrade` 處理程序。
     ///
-    /// Mirrors the gameplay logic of
-    /// `state::resource_management::upgrade_tower` (the legacy MQTT entry):
-    ///   * Resolve `Entity` from `tower_entity_id` (Tower-storage join +
-    ///     `id() == tower_entity_id`).
-    ///   * Validate `Faction == Player`.
-    ///   * Compute target level = `tower.upgrade_levels[path] + 1`. The
-    ///     `level` field on the proto is treated as a hint only — it would
-    ///     otherwise force the omfx UI (Phase 4.3 hasn't yet exposed
-    ///     `upgrade_levels` via snapshot) to know the current level. Using
-    ///     the entity-side state guarantees correctness whatever the client
-    ///     sent.
-    ///   * Run `tower_upgrade_rules::validate_upgrade` on the current levels +
-    ///     path; reject if the rules say no.
-    ///   * Look up `UpgradeDef` from `TowerUpgradeRegistry`; reject if none.
-    ///   * Find Player-faction Hero (TD wallet); check Gold ≥ cost; deduct.
-    ///   * Apply the def's `effects`:
-    ///       - `BehaviorFlag` → push to `tower.upgrade_flags` if absent.
-    ///       - `StatMod`      → add a `BuffStore` entry with key
-    ///                          `upgrade_<path>_<level>_<i>` and a sentinel
-    ///                          `Fixed64::from_raw(i64::MAX)` duration so it
-    ///                          never expires (matches legacy convention).
-    ///   * Increment `tower.upgrade_levels[path]`.
+    /// 反映了遊戲的邏輯
+    /// `state::resource_management::upgrade_tower`（舊版 MQTT 條目）：
+    /// * 從`tower_entity_id`解析`Entity`（塔式儲存連線+
+    /// `id() == tower_entity_id`)。
+    /// * 驗證`派系==玩家`。
+    /// * 計算目標等級 = `tower.upgrade_levels[path] + 1`。這
+    /// 原型上的“level”字段僅被視為提示 - 它會
+    /// 否則強制使用 omfx UI（階段 4.3 尚未公開
+    /// `upgrade_levels` 透過快照）來了解目前層級。使用
+    /// 無論客戶端如何，實體端狀態都保證正確性
+    /// 發送。
+    /// * 在目前層級執行 `tower_upgrade_rules::validate_upgrade` +
+    /// 小路;如果規則不允許，則拒絕。
+    /// * 從`TowerUpgradeRegistry`尋找`UpgradeDef`；如果沒有則拒絕。
+    /// * 尋找玩家陣營英雄（TD錢包）；檢查金幣≥成本；扣除額。
+    /// * 應用 def 的 `effects`:
+    /// - `BehaviorFlag` → 如果不存在則推送到 `tower.upgrade_flags`。
+    /// - `StatMod` → 新增一個有金鑰的 `BuffStore` 條目
+    /// `upgrade_<path>_<level>_<i>` 和哨兵
+    /// `Fixed64::from_raw(i64::MAX)` 持續時間所以它
+    /// 永不過期（符合傳統約定）。
+    /// * 增加 `tower.upgrade_levels[path]`。
     ///
-    /// Runs deterministically on both host (omb) and replica (omfx sim_runner)
-    /// because the queue is filled identically on both sides from the same
-    /// `TickBatch.inputs` and drained at the same dispatch boundary.
+    /// 在主機 (omb) 和副本 (omfx sim_runner) 上確定性地運行
+    /// 因為隊列兩邊的填充量相同
+    /// `TickBatch.inputs` 並在同一調度邊界處耗盡。
     pub fn handle_tower_upgrade_from_input(
         world: &mut World,
         tower_entity_id: u32,
@@ -965,7 +965,7 @@ impl GameProcessor {
             )));
         }
 
-        // Resolve target tower entity + capture levels + unit_id.
+        // 解析目標塔實體+捕獲等級+unit_id。
         let target = {
             let entities = world.entities();
             let towers = world.read_storage::<Tower>();
@@ -989,7 +989,7 @@ impl GameProcessor {
             }
         };
 
-        // Ownership check (mirror handle_tower_sell_from_input).
+        // 所有權檢查（鏡像handle_tower_sell_from_input）。
         {
             let factions = world.read_storage::<Faction>();
             match factions.get(target_entity) {
@@ -1009,7 +1009,7 @@ impl GameProcessor {
             }
         }
 
-        // Rule validation (already-maxed / two-primary / two-secondary / etc.).
+        // 規則驗證（已最大化/兩個主要/兩個輔助/等）。
         if let Err(rej) = crate::comp::tower_upgrade_rules::validate_upgrade(levels, path) {
             return Err(failure::err_msg(format!(
                 "TowerUpgrade: rule rejection eid={} path={} levels={:?} → {:?} (pid={})",
@@ -1018,8 +1018,8 @@ impl GameProcessor {
         }
         let next_level = levels[path as usize] + 1;
 
-        // Look up UpgradeDef (clone out to release the borrow on the
-        // registry resource before we take other borrows).
+        // 尋找 UpgradeDef（克隆出來以釋放對
+        // 在我們借用其他資源之前先註冊資源）。
         let def = {
             let reg = world.read_resource::<crate::comp::tower_upgrade_registry::TowerUpgradeRegistry>();
             reg.get(&unit_id, path, next_level).cloned()
@@ -1034,7 +1034,7 @@ impl GameProcessor {
             }
         };
 
-        // Find player's hero (TD wallet) — mirror handle_tower_sell_from_input.
+        // 找到玩家的英雄（TD錢包）－鏡像handle_tower_sell_from_input。
         let hero_entity = {
             let entities = world.entities();
             let heroes = world.read_storage::<Hero>();
@@ -1058,7 +1058,7 @@ impl GameProcessor {
             }
         };
 
-        // Gold check (read).
+        // 黃金支票（閱讀）。
         let has_gold = {
             let golds = world.read_storage::<Gold>();
             golds.get(hero_entity).map(|g| g.0).unwrap_or(0) >= def.cost
@@ -1070,7 +1070,7 @@ impl GameProcessor {
             )));
         }
 
-        // Deduct gold.
+        // 扣金。
         {
             let mut golds = world.write_storage::<Gold>();
             if let Some(g) = golds.get_mut(hero_entity) {
@@ -1078,8 +1078,8 @@ impl GameProcessor {
             }
         }
 
-        // Sort effects into flag adds + stat-mod buff entries (so we can
-        // collect them without holding overlapping borrows on storages).
+        // 將效果分類為 flag adds + stat-mod buff 條目（這樣我們就可以
+        // 收集它們而不在存儲上持有重疊的借用）。
         let mut flags_to_add: Vec<String> = Vec::new();
         let mut stat_mods: Vec<(String, serde_json::Value)> = Vec::new();
         for (effect_idx, effect) in def.effects.iter().enumerate() {
@@ -1093,12 +1093,12 @@ impl GameProcessor {
         }
         for (buff_id, payload) in stat_mods {
             let mut store = world.write_resource::<crate::ability_runtime::BuffStore>();
-            // Sentinel "permanent" via raw i64::MAX, matches the legacy
-            // upgrade_tower convention (BuffStore::add takes Fixed64).
+            // Sentinel 透過原始 i64::MAX 實現“永久”，與傳統版本相匹配
+            // Upgrade_tower 約定（BuffStore::add 採用 Fix64）。
             store.add(target_entity, &buff_id, omoba_sim::Fixed64::from_raw(i64::MAX), payload);
         }
 
-        // Increment upgrade_levels[path] + dedupe upgrade_flags.
+        // 遞增upgrade_levels[path] + 重複資料刪除upgrade_flags。
         {
             let mut towers = world.write_storage::<Tower>();
             if let Some(t) = towers.get_mut(target_entity) {
@@ -1118,10 +1118,10 @@ impl GameProcessor {
         Ok(())
     }
 
-    /// Phase 2.3: drain `PendingTowerUpgradeQueue` and process each upgrade.
-    /// Must be called after the dispatcher's `player_input_tick::Sys` has
-    /// populated the queue but before the next snapshot extract — both host
-    /// `state::core::tick` and replica `omfx sim_runner` invoke this.
+    /// 階段 2.3：排空 `PendingTowerUpgradeQueue` 並處理每個升級。
+    /// 必須在調度程序的“player_input_tick::Sys”完成後調用
+    /// 填充隊列，但在下一個快照提取之前 - 兩個主機
+    /// `state::core::tick` 和副本 `omfx sim_runner` 呼叫它。
     pub fn drain_pending_tower_upgrades(world: &mut World) {
         let drained: Vec<crate::comp::PendingTowerUpgrade> = {
             let mut q = world.write_resource::<crate::comp::PendingTowerUpgradeQueue>();
@@ -1139,27 +1139,27 @@ impl GameProcessor {
         }
     }
 
-    /// Phase 2.4: lockstep `PlayerInputEnum::ItemUse` handler.
+    /// 階段 2.4：鎖定步驟 `PlayerInputEnum::ItemUse` 處理程序。
     ///
-    /// Mirrors the gameplay logic of
-    /// `state::resource_management::use_item` (the legacy MQTT entry):
-    ///   * Validate `slot < INVENTORY_SLOTS`.
-    ///   * Find the Player-faction Hero entity (TD single-player wallet);
-    ///     same lookup pattern as TowerSell / TowerUpgrade.
-    ///   * Read the slot, look up `ItemConfig` via `ItemRegistry`.
-    ///   * Reject if no item / cooldown not ready / no `active` effect.
-    ///   * Apply the active effect to the hero's `CProperty` (Shield → HP up
-    ///     to `mhp`, SprintBuff → `msd += bonus`, others log-only for now —
-    ///     matches the legacy MVP).
-    ///   * Set `item.cooldown_remaining = cfg.cooldown`.
+    /// 反映了遊戲的邏輯
+    /// `state::resource_management::use_item`（舊版 MQTT 條目）：
+    /// * 驗證`slot < INVENTORY_SLOTS`。
+    /// * 找到玩家派系英雄實體（TD單人錢包）；
+    /// 與 TowerSell / TowerUpgrade 相同的尋找模式。
+    /// * 讀取槽位，透過`ItemRegistry`查找`ItemConfig`。
+    /// * 如果沒有物品/冷卻時間未準備好/沒有「活動」效果，則拒絕。
+    /// * 將主動效果應用於英雄的`C屬性`（盾牌→HP up
+    /// 到 `mhp`，SprintBuff → `msd += Bonus`，其他的暫時只記錄 —
+    /// 與傳統 MVP 匹配）。
+    /// * 設定 `item.cooldown_remaining = cfg.cooldown`。
     ///
-    /// `target_pos` / `target_entity` from the proto are accepted but not
-    /// used by the current effect set; they are forwarded for future
-    /// targeted-active items.
+    /// 接受原型中的“target_pos”/“target_entity”，但不接受
+    /// 由當前效果集使用；它們被轉發給未來
+    /// 有針對性的活動項目。
     ///
-    /// Runs deterministically on both host (omb) and replica (omfx sim_runner)
-    /// because the queue is filled identically on both sides from the same
-    /// `TickBatch.inputs` and drained at the same dispatch boundary.
+    /// 在主機 (omb) 和副本 (omfx sim_runner) 上確定性地運行
+    /// 因為隊列兩邊的填充量相同
+    /// `TickBatch.inputs` 並在同一調度邊界處耗盡。
     pub fn handle_item_use_from_input(
         world: &mut World,
         item_slot: u32,
@@ -1178,9 +1178,9 @@ impl GameProcessor {
             )));
         }
 
-        // Find the Player-faction hero (TD single-player wallet — same
-        // pattern as handle_tower_sell_from_input). Multi-player support
-        // would compare a per-player marker instead of the first hit.
+        // 找到玩家派系英雄（TD單人錢包 - 相同
+        // 模式為handle_tower_sell_from_input）。多人支持
+        // 會比較每個玩家的標記而不是第一次命中。
         let hero_entity = {
             let entities = world.entities();
             let heroes = world.read_storage::<Hero>();
@@ -1204,7 +1204,7 @@ impl GameProcessor {
             }
         };
 
-        // Look up the slot's ItemConfig + readiness.
+        // 尋找插槽的 ItemConfig + 準備情況。
         let (item_cfg, can_use) = {
             let invs = world.read_storage::<crate::comp::Inventory>();
             let reg = world.read_resource::<crate::item::ItemRegistry>();
@@ -1245,9 +1245,9 @@ impl GameProcessor {
             }
         };
 
-        // Apply effect to hero CProperty. Mirrors the MVP from
-        // state::resource_management::use_item — Shield + SprintBuff actually
-        // mutate stats; the others log only (gameplay TBD, no buff system).
+        // 將效果應用於英雄 CProperty。反映 MVP 來自
+        // state::resource_management::use_item — 實際上是 Shield + SprintBuff
+        // 改變統計數據；其他的僅記錄（遊戲玩法待定，無增益系統）。
         {
             let mut props = world.write_storage::<CProperty>();
             if let Some(p) = props.get_mut(hero_entity) {
@@ -1276,7 +1276,7 @@ impl GameProcessor {
             }
         }
 
-        // Start cooldown on the slot.
+        // 在插槽上開始冷卻。
         {
             let mut invs = world.write_storage::<crate::comp::Inventory>();
             if let Some(inv) = invs.get_mut(hero_entity) {
@@ -1293,10 +1293,10 @@ impl GameProcessor {
         Ok(())
     }
 
-    /// Phase 2.4: drain `PendingItemUseQueue` and process each request.
-    /// Must be called after the dispatcher's `player_input_tick::Sys` has
-    /// populated the queue but before the next snapshot extract — both host
-    /// `state::core::tick` and replica `omfx sim_runner` invoke this.
+    /// 階段 2.4：排出 `PendingItemUseQueue` 並處理每個請求。
+    /// 必須在調度程序的“player_input_tick::Sys”完成後調用
+    /// 填充隊列，但在下一個快照提取之前 - 兩個主機
+    /// `state::core::tick` 和副本 `omfx sim_runner` 呼叫它。
     pub fn drain_pending_item_uses(world: &mut World) {
         let drained: Vec<crate::comp::PendingItemUse> = {
             let mut q = world.write_resource::<crate::comp::PendingItemUseQueue>();
@@ -1315,11 +1315,11 @@ impl GameProcessor {
     }
 
     /// MoveTo (右鍵移動): drain `PendingMoveQueue` and write `MoveTarget`
-    /// component on the player's hero entity. TD mode: single-player wallet,
-    /// pick first `(Hero, Faction == Player)` entity. Determinism: queue is
-    /// filled identically on host + replica from the same `TickBatch.inputs`,
-    /// drained at the same dispatch boundary, hero lookup uses the same join
-    /// order on both sides.
+    /// 玩家英雄實體上的組件。 TD模式：單人錢包，
+    /// 選擇第一個「(Hero, Faction == Player)」實體。確定性：隊列是
+    /// 來自相同“TickBatch.inputs”的主機+副本上的填充相同，
+    /// 在同一調度邊界耗盡，英雄查找使用相同的連接
+    /// 雙方訂購。
     pub fn drain_pending_moves(world: &mut World) {
         use specs::Join;
         let drained: Vec<crate::comp::PendingMoveTo> = {
@@ -1329,7 +1329,7 @@ impl GameProcessor {
         if drained.is_empty() {
             return;
         }
-        // Single-player TD: first Hero entity with Player faction.
+        // 單人 TD：第一個具有玩家派系的英雄實體。
         let hero_entity: Option<Entity> = {
             let entities = world.entities();
             let heroes = world.read_storage::<Hero>();
@@ -1363,8 +1363,8 @@ impl GameProcessor {
         let positions = ecs.read_storage::<Pos>();
         let pos = positions.get(target).ok_or_else(|| failure::err_msg("Creep position not found"))?;
 
-        // Phase 5.2: legacy 0x02 GameEvent broadcast cut. Lockstep TickBatch
-        // (0x10) carries authoritative state; client renders from sim.
+        // 階段 5.2：遺留 0x02 GameEvent 廣播剪輯。鎖步刻度批次處理
+        // (0x10) 攜帶權威狀態；客戶端從 sim 渲染。
         let (_px, _py) = pos.xy_f32();
         let _ = (mqtx, target);
         Ok(())
@@ -1416,7 +1416,7 @@ impl GameProcessor {
 
                 let (source_name, target_name) = Self::get_entity_names(ecs, source, target);
 
-                // NOTE: log uses f32 boundary — Fixed64 has no Display.
+                // 注意：log 使用 f32 邊界 — Fix64 沒有顯示。
                 let damage_parts = {
                     let mut parts = Vec::new();
                     if phys > Fixed64::ZERO { parts.push(format!("Phys {:.1}", phys.to_f32_for_render())); }

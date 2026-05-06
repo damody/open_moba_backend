@@ -1,6 +1,6 @@
 # 更新日誌
 
-## [Unreleased] - 2024-08-05
+# # [未發布] - 2024-08-05
 
 ### 更改
 - **重大變更**: 專案名稱從 `specs_td` 改名為 `omobab` (Open MOBA Backend)

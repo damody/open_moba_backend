@@ -63,58 +63,58 @@ pub struct State {
     /// 每個玩家最後一次已知可見的實體集合（分四類避免 entity id 重用衝突）
     #[cfg(any(feature = "grpc", feature = "kcp"))]
     client_visibility: HashMap<String, VisSet>,
-    /// Per-player diff cache: `entity_id → last_sent_quantized_hp`. Heartbeat
-    /// only re-emits HP entries where the quantized value differs from the
-    /// cached one. Pruned each tick to the entities currently in AOI so the
-    /// map can't grow unboundedly. Cleared on `ViewportMsg::Remove`.
+    /// 每位玩家的差異快取：`entity_id→last_sent_quantized_hp`。心跳
+    /// 僅在量化值與實際值不同的情況下重新發出 HP 條目
+    /// 緩存了一份。修剪目前 AOI 中實體的每個刻度，以便
+    /// 地圖不能無限增長。在“ViewportMsg::Remove”上清除。
     #[cfg(any(feature = "grpc", feature = "kcp"))]
     hb_last_hp_sent: HashMap<String, HashMap<u32, i32>>,
-    /// Per-player force-send timestamp: `game_time` of the last heartbeat we
-    /// emitted regardless of diff state. Used to drive the keepalive
-    /// (`HEARTBEAT_FORCE_SEND_INTERVAL`) so clients still receive `tick`/
-    /// `game_time` for clock sync even in idle periods with no HP change.
+    /// 每個玩家強制發送時間戳：我們最後一次心跳的“game_time”
+    /// 無論 diff 狀態如何，都會發出。用於驅動keepalive
+    /// (`HEARTBEAT_FORCE_SEND_INTERVAL`) 因此客戶端仍然會收到 `tick`/
+    /// 即使在空閒期間，「game_time」也可以進行時脈同步，HP 不會改變。
     #[cfg(any(feature = "grpc", feature = "kcp"))]
     hb_last_full_send: HashMap<String, f64>,
-    /// State-local tick counter, incremented every call to `tick()`.
-    /// Used to throttle visibility diff (don't rely on ECS `Tick`, which isn't maintained).
+    /// 狀態本地刻度計數器，每次呼叫 `tick()` 時都會增加。
+    /// 用於限制可見性差異（不要依賴 ECS `Tick`，它不被維護）。
     local_tick: u64,
-    /// Value of `local_tick` when visibility diff last ran
+    /// 上次執行可見度差異時「local_tick」的值
     last_visibility_tick: u64,
-    /// Loaded native script DLLs (H1 — process-lifetime, never reloaded).
+    /// 載入的本機腳本 DLL（H1 — 進程生命週期，從不重新載入）。
     script_registry: ScriptRegistry,
-    /// P5: shared AOI broadphase grid. Rebuilt per tick from the same
-    /// pre-gathered (id, pos) pass the heartbeat already uses. Transport
-    /// broadcast thread reads it for `BroadcastPolicy::AoiEntity` lookups.
-    /// `None` for non-kcp builds (mqtt/grpc don't drive AOI broadphase).
+    /// P5：共享 AOI 寬相網格。從相同的每個蜱蟲重建
+    /// 預先收集的（id，pos）傳遞已經使用的心跳。運輸
+    /// 廣播線程讀取它以進行“BroadcastPolicy::AoiEntity”查找。
+    /// 對於非 kcp 構建，“無”（mqtt/grpc 不驅動 AOI Broadphase）。
     #[cfg(feature = "kcp")]
     aoi_grid: Option<std::sync::Arc<std::sync::Mutex<crate::aoi::AoiGrid>>>,
-    /// Phase 3.4: optional outbound channel that publishes a freshly computed
-    /// ECS state hash every `STATE_HASH_INTERVAL_TICKS` dispatcher ticks. The
-    /// `lockstep::TickBroadcaster` (60Hz) `try_recv`s on this on its own
-    /// state-hash interval. `None` when running without lockstep enabled
-    /// (mqtt/grpc builds, or kcp builds where main.rs hasn't wired it).
+    /// 階段 3.4：可選的出站通道，發布新計算的結果
+    /// 每個“STATE_HASH_INTERVAL_TICKS”調度程序滴答聲的 ECS 狀態雜湊。這
+    /// `lockstep::TickBroadcaster` (60Hz) `try_recv` 獨立於此
+    /// 狀態哈希間隔。在未啟用鎖定步驟的情況下運作時為“無”
+    /// （mqtt/grpc 構建，或 kcp 構建，其中 main.rs 尚未連接它）。
     #[cfg(feature = "kcp")]
     state_hash_tx: Option<crossbeam_channel::Sender<crate::lockstep::tick_broadcaster::StateHashSample>>,
-    /// Phase 5.3: shared snapshot store for observer rejoin. Dispatcher writes
-    /// every `SNAPSHOT_INTERVAL_TICKS` ticks; KCP transport's 0x16 SnapshotResp
-    /// handler reads. `None` when main.rs hasn't wired the Arc (legacy /
-    /// non-lockstep builds — KCP transport falls back to empty bytes).
+    /// 階段 5.3：用於觀察者重新加入的共享快照儲存。調度員寫道
+    /// 每個“SNAPSHOT_INTERVAL_TICKS”滴答聲； KCP 傳輸的 0x16 SnapshotResp
+    /// 處理程序讀取。當 main.rs 未連接 Arc 時為「無」（舊版/
+    /// 非鎖步建置 - KCP 傳回落到空位元組）。
     #[cfg(feature = "kcp")]
     snapshot_store: Option<std::sync::Arc<std::sync::Mutex<crate::comp::SnapshotStore>>>,
-    /// Phase 5.x bridge: receiver paired with `TickBroadcaster::host_input_tx`.
-    /// Each broadcaster tick that drains inputs from `InputBuffer` for a
-    /// `TickBatch` also sends a copy down this channel; `State::tick` drains
-    /// it and writes the inputs into `PendingPlayerInputs` so the host's
-    /// `player_input_tick::Sys` sees them too. Without this, host runs at
-    /// 30Hz dispatcher tick while broadcaster runs at 60Hz with its own
-    /// counter — `drain_for_tick(my_local_tick)` never matches the keys
-    /// inputs were stored under.
+    /// 階段 5.x 橋接器：與 `TickBroadcaster::host_input_tx` 配對的接收器。
+    /// 每個廣播公司都會從「InputBuffer」消耗輸入一段時間
+    /// `TickBatch` 也會沿著這個通道發送一個副本； `State::tick` 排水溝
+    /// 並將輸入寫入“PendingPlayerInputs”，以便主機的
+    /// `player_input_tick::Sys` 也能看到它們。如果沒有這個，主機運行在
+    /// 30Hz 調度程序滴答聲，而廣播公司以其自己的頻率以 60Hz 運行
+    /// 計數器 - `drain_for_tick(my_local_tick)` 永遠不會與鍵匹配
+    /// 輸入儲存在下方。
     #[cfg(feature = "kcp")]
     host_input_rx: Option<crossbeam_channel::Receiver<Vec<(u32, crate::lockstep::PlayerInput)>>>,
 }
 
-/// Per-player visible entity sets, split by type so that specs `Entity::id()`
-/// reuse across different storages doesn't collide inside a single `HashSet<u32>`.
+/// 每個玩家可見的實體集，按類型劃分，以便規範“Entity::id()”
+/// 跨不同儲存的重複使用不會在單一「HashSet<u32>」內發生衝突。
 #[cfg(any(feature = "grpc", feature = "kcp"))]
 #[derive(Default, Debug)]
 struct VisSet {
@@ -127,24 +127,24 @@ struct VisSet {
 #[cfg(any(feature = "grpc", feature = "kcp"))]
 const VISIBILITY_DIFF_INTERVAL_TICKS: u64 = 6;
 
-/// Force-send a (possibly empty) heartbeat at least this often per player so
-/// clients still receive a `tick`/`game_time` heartbeat for clock sync and
-/// liveness even when no HP value has changed in the player's AOI. Empty
-/// heartbeats compress to ~50 bytes after prost+LZ4 — cheap keepalive.
+/// 每個玩家至少強制發送一個（可能是空的）心跳，這樣
+/// 客戶端仍然會收到“tick”/“game_time”心跳以進行時鐘同步和
+/// 即使玩家的 AOI 中的 HP 值沒有變化，也能保持活躍度。空的
+/// 在 prost+LZ4 之後，心跳壓縮到約 50 位元組 — 便宜的 keepalive。
 #[cfg(any(feature = "grpc", feature = "kcp"))]
 const HEARTBEAT_FORCE_SEND_INTERVAL: f64 = 5.0;
 
-/// Phase 3.4: emit one state-hash sample every N dispatcher ticks. Dispatcher
-/// runs at 30Hz so 300 = 10s — broadcaster's `state_hash_interval` default
-/// is 600 (10s @ 60Hz), so the channel always has a fresh sample by the time
-/// the broadcaster's interval fires (with at most one tick of staleness).
+/// 階段 3.4：每 N 個調度程式週期發出一個狀態雜湊樣本。調度員
+/// 以 30Hz 運行，因此 300 = 10s — 廣播公司的「state_hash_interval」預設值
+/// 是 600 (10s @ 60Hz)，因此通道總是有新的樣本
+/// 廣播公司的間隔觸發（最多有一個陳舊時間）。
 #[cfg(feature = "kcp")]
 const STATE_HASH_INTERVAL_TICKS: u64 = 300;
 
-/// Phase 5.3: serialize a fresh world snapshot every N dispatcher ticks.
-/// Dispatcher runs at 30Hz so 900 = 30s — observer rejoin gets at most a
-/// 30 s gap between snapshot capture and bootstrap. Skipped on `tick=0`
-/// (let the world finish init before the first capture).
+/// 階段 5.3：每 N 個調度程序週期序列化一個新的世界快照。
+/// 調度程式以 30Hz 運行，因此 900 = 30 秒 — 觀察者重新加入最多獲得一個
+/// 快照擷取和引導之間有 30 秒的間隔。跳過 `tick=0`
+/// （讓世界在第一次捕獲之前完成 init）。
 #[cfg(feature = "kcp")]
 const SNAPSHOT_INTERVAL_TICKS: u64 = 900;
 
@@ -208,8 +208,8 @@ impl State {
         state.initialize_standard_game();
         state.load_scripts();
 
-        // Phase 5.2: legacy 0x02 heartbeat broadcast cut. Lockstep TickBatch
-        // (0x10) handles client liveness via per-tick state_hash.
+        // 階段 5.2：遺留 0x02 心跳廣播切斷。鎖步刻度批次處理
+        // (0x10) 透過每週期 state_hash 處理客戶端活躍度。
 
         state
     }
@@ -218,10 +218,10 @@ impl State {
     /// 未設定時預設 `./scripts`（相對於執行目錄）。載入完就順便把塔 template
     /// 從腳本 `tower_metadata()` 收集到 `TowerTemplateRegistry` resource。
     ///
-    /// Phase 3.2: extracted populate_* helpers into
-    /// `state::initialization::{populate_tower_template_registry,
-    /// populate_tower_upgrade_registry, populate_ability_registry}` so
-    /// the omfx sim_runner can reuse the same bootstrap code.
+    /// 階段 3.2：將 populate_* 助手提取到
+    /// `狀態::初始化::{populate_tower_template_registry,
+    /// populate_tower_upgrade_registry、populate_ability_registry}` 所以
+    /// omfx sim_runner 可以重複使用相同的引導程式碼。
     fn load_scripts(&mut self) {
         let dir_str = std::env::var("OMB_SCRIPTS_DIR").unwrap_or_else(|_| "./scripts".to_string());
         let dir = std::path::Path::new(&dir_str);
@@ -291,7 +291,7 @@ impl State {
         state.load_scripts();
         state.initialize_campaign_game(&campaign_data);
 
-        // Phase 5.2: legacy 0x02 GameEvent broadcast cut.
+        // 階段 5.2：遺留 0x02 GameEvent 廣播剪輯。
 
         state
     }
@@ -307,10 +307,10 @@ impl State {
         #[cfg(any(feature = "grpc", feature = "kcp"))]
         self.drain_viewport_updates();
 
-        // Phase 5.x bridge: pull all pending broadcaster-drained inputs into
-        // PendingPlayerInputs so player_input_tick::Sys can route StartRound
-        // (and future commands). Drains all available batches in this tick to
-        // catch up if the host runs at lower TPS than the 60Hz broadcaster.
+        // 階段 5.x 橋接器：將所有待處理的廣播機構排出的輸入拉入
+        // PendingPlayerInputs 以便player_input_tick::Sys 可以路由 StartRound
+        // （以及未來的命令）。排出此刻度中的所有可用批次
+        // 如果主機以低於 60Hz 廣播器的 TPS 運行，則可以趕上。
         #[cfg(feature = "kcp")]
         if let Some(rx) = self.host_input_rx.as_ref() {
             let mut accumulated: Vec<(u32, crate::lockstep::PlayerInput)> = Vec::new();
@@ -333,34 +333,34 @@ impl State {
         self.system_dispatcher.run_systems(&self.ecs)?;
         let run_systems_ns = t_run.elapsed().as_nanos();
 
-        // Phase 2.1: drain `PendingTowerSpawnQueue` filled by
-        // `player_input_tick::Sys` during the dispatch above. Needs `&mut World`
-        // (TowerTemplateRegistry lookup + entity create + ScriptEvent::Spawn
-        // push) which a specs `System` can't borrow. Replica (omfx sim_runner)
-        // mirrors this call after its own dispatcher run.
+        // 階段 2.1：耗盡 `PendingTowerSpawnQueue` 填充
+        // 上述調度期間的`player_input_tick::Sys`。需要 `&mut World`
+        // （TowerTemplateRegistry 尋找 + 實體建立 + ScriptEvent::Spawn
+        // Push) 是「System」的規格無法借用。副本（omfx sim_runner）
+        // 在其自己的調度程序運行後鏡像此調用。
         crate::comp::GameProcessor::drain_pending_tower_spawns(&mut self.ecs);
 
-        // Phase 2.2: drain `PendingTowerSellQueue` (TowerSell lockstep input)
-        // — same `&mut World` requirement (Gold credit + BuffStore clear +
-        // entity delete). Replica mirrors this in sim_runner.
+        // 階段 2.2：排出`PendingTowerSellQueue`（TowerSell 鎖步輸入）
+        // — 相同的「&mut World」要求（金幣+BuffStore清除+
+        // 實體刪除）。副本在 sim_runner 中反映了這一點。
         crate::comp::GameProcessor::drain_pending_tower_sells(&mut self.ecs);
 
-        // Phase 2.3: drain `PendingTowerUpgradeQueue` (TowerUpgrade lockstep
-        // input) — needs `&mut World` (TowerUpgradeRegistry read, validate
-        // via tower_upgrade_rules, deduct Gold, write Tower.upgrade_levels +
-        // upgrade_flags, push StatMod into BuffStore). Replica mirrors this
-        // in sim_runner.
+        // 階段 2.3：排空`PendingTowerUpgradeQueue`（TowerUpgrade 鎖步
+        // 輸入） - 需要 `&mut World` （TowerUpgradeRegistry 讀取，驗證
+        // 透過 tower_upgrade_rules，扣除 Gold，寫入 Tower.upgrade_levels +
+        // Upgrade_flags，將 StatMod 推入 BuffStore）。複製品反映了這一點
+        // 在 sim_runner 中。
         crate::comp::GameProcessor::drain_pending_tower_upgrades(&mut self.ecs);
 
-        // Phase 2.4: drain `PendingItemUseQueue` (ItemUse lockstep input) —
-        // needs `&mut World` (ItemRegistry read, write Inventory cooldown,
-        // write CProperty for item effects). Replica mirrors this in
-        // sim_runner.
+        // 階段 2.4：排出 `PendingItemUseQueue` （ItemUse 鎖步輸入） —
+        // 需要`&mut World`（ItemRegistry讀取，寫入Inventory冷卻時間，
+        // 為專案效果編寫 CProperty）。副本反映了這一點
+        // sim_runner。
         crate::comp::GameProcessor::drain_pending_item_uses(&mut self.ecs);
 
         // MoveTo (右鍵移動): drain `PendingMoveQueue` — writes `MoveTarget`
-        // component on player's hero entity. Replica mirrors this in
-        // sim_runner.
+        // 玩家英雄實體上的組件。副本反映了這一點
+        // sim_runner。
         crate::comp::GameProcessor::drain_pending_moves(&mut self.ecs);
 
         // 腳本 dispatch 階段（E1 — 序列、獨佔 World）
@@ -401,23 +401,23 @@ impl State {
         #[cfg(any(feature = "grpc", feature = "kcp"))]
         self.process_queries();
 
-        // Phase 5.2: legacy 0x02 GameEvent broadcast cut. Lockstep TickBatch
-        // (0x10) carries heartbeat / hero stats / visibility diff equivalents.
+        // 階段 5.2：遺留 0x02 GameEvent 廣播剪輯。鎖步刻度批次處理
+        // (0x10) 攜帶心跳/英雄統計數據/可見度差異等價物。
 
         // 維護 ECS
         self.ecs.maintain();
 
-        // Phase 3.4: publish a deterministic ECS state hash every
-        // STATE_HASH_INTERVAL_TICKS dispatcher ticks (30Hz cadence). The
-        // 60Hz lockstep TickBroadcaster pulls the latest sample on its
-        // own state-hash interval (default 10s @ 60Hz), so a fresh sample
-        // is always pending. Skipped when state_hash_tx is None (legacy /
-        // non-lockstep builds).
+        // 階段 3.4：每隔一段時間發布一個確定性的 ECS 狀態哈希
+        // STATE_HASH_INTERVAL_TICKS 調度程式滴答聲（30Hz 節奏）。這
+        // 60Hz 鎖步 TickBroadcaster 在其上提取最新樣本
+        // 自己的狀態雜湊間隔（預設 10s @ 60Hz），因此是一個新鮮的樣本
+        // 始終處於待處理狀態。當 state_hash_tx 為 None 時跳過（舊版/
+        // 非鎖步建置）。
         #[cfg(feature = "kcp")]
         if self.local_tick % STATE_HASH_INTERVAL_TICKS == 0 {
             if let Some(tx) = &self.state_hash_tx {
                 let hash = crate::lockstep::compute_state_hash(&self.ecs);
-                // u32 wrap matches the proto StateHash.tick field.
+                // u32 包裝與原始 StateHash.tick 欄位相符。
                 let tick_u32 = self.local_tick as u32;
                 if let Err(e) = tx.send((tick_u32, hash)) {
                     log::warn!("State: failed to publish state hash: {e}");
@@ -425,29 +425,29 @@ impl State {
             }
         }
 
-        // Phase 5.3: serialize a fresh world snapshot for observer rejoin
-        // every SNAPSHOT_INTERVAL_TICKS dispatcher ticks (= 30 s @ 30 Hz).
-        // Skip tick 0 — the very first dispatch tick may run before all
-        // populate_* helpers have finished filling the registry, so wait
-        // until at least one full tick of game state has settled.
-        // Writes go to (1) the SnapshotStore ECS resource (always — query
-        // path) and (2) the optional `snapshot_store` Arc<Mutex<>> when
-        // wired by main.rs (the KCP transport reads from this).
+        // 階段 5.3：序列化新的世界快照以供觀察者重新加入
+        // 每個 SNAPSHOT_INTERVAL_TICKS 排程器滴答（= 30 s @ 30 Hz）。
+        // 跳過刻度 0 — 第一個調度刻度可能會在所有刻度之前運行
+        // populate_* 幫助程式已完成註冊表填充，所以請等待
+        // 直到遊戲狀態至少一整刻已經穩定下來。
+        // 寫入到 (1) SnapshotStore ECS 資源（始終 — 查詢
+        // 路徑）和（2）可選的 `snapshot_store` Arc<Mutex<>> 時
+        // 由 main.rs 連接（KCP 傳輸從中讀取）。
         #[cfg(feature = "kcp")]
         if self.local_tick > 0 && self.local_tick % SNAPSHOT_INTERVAL_TICKS == 0 {
             let bytes = crate::lockstep::serialize_snapshot(&self.ecs);
             let tick_u32 = self.local_tick as u32;
             let byte_len = bytes.len();
-            // Update the ECS resource first (cheap — same dispatcher thread).
+            // 首先更新 ECS 資源（便宜 — 相同的調度程序執行緒）。
             {
                 let mut store = self.ecs.write_resource::<crate::comp::SnapshotStore>();
                 store.tick = tick_u32;
                 store.bytes = bytes.clone();
             }
-            // Mirror to the shared Arc<Mutex<>> when transport is wired.
-            // `lock().unwrap()` is OK: the transport-side reader holds the
-            // lock for microseconds (clone + drop) and never panics under
-            // normal operation. A poisoned mutex here is unrecoverable.
+            // 當傳輸連線時，鏡像到共用 Arc<Mutex<>>。
+            // `lock().unwrap()` 可以：傳輸端讀取器持有
+            // 鎖定微秒（克隆+刪除）並且永遠不會出現恐慌
+            // 正常運轉。這裡中毒的互斥體是無法恢復的。
             if let Some(shared) = &self.snapshot_store {
                 let mut guard = shared.lock().expect("SnapshotStore mutex poisoned");
                 guard.tick = tick_u32;
@@ -459,7 +459,7 @@ impl State {
         Ok(())
     }
 
-    /// Drain viewport updates from transport layer. Called each tick.
+    /// 從傳輸層排出視窗更新。調用每個蜱蟲。
     #[cfg(any(feature = "grpc", feature = "kcp"))]
     fn drain_viewport_updates(&mut self) {
         while let Ok(msg) = self.viewport_rx.try_recv() {
@@ -473,10 +473,10 @@ impl State {
                     log::info!("📥 [State] ViewportMsg::Remove player='{}'", player_name);
                     self.client_viewports.remove(&player_name);
                     self.client_visibility.remove(&player_name);
-                    // Drop the player's heartbeat diff cache so a future
-                    // reconnect starts from a clean slate (full snapshot on
-                    // the first tick after rejoin — `prev` is None for every
-                    // entity → all included).
+                    // 刪除玩家的心跳差異緩存，以便未來
+                    // 重新連接從頭開始（完整快照
+                    // 重新加入後的第一個刻度 - 每個“prev”都是“None”
+                    // 實體 → 全部包括在內）。
                     self.hb_last_hp_sent.remove(&player_name);
                     self.hb_last_full_send.remove(&player_name);
                 }
@@ -504,19 +504,19 @@ impl State {
         }
     }
 
-    /// P5: plug in the shared `AoiGrid` from the KCP transport. State will
-    /// rebuild the grid each heartbeat tick using the same (id, pos) pre-gather
-    /// that builds the heartbeat snapshot. Safe to call once after
-    /// `TransportHandle` is obtained.
+    /// P5：插入 KCP 傳輸中的共用「AoiGrid」。國家將
+    /// 使用相同的（id，pos）預先收集重建網格每個心跳滴答
+    /// 建立心跳快照。之後可以安全撥打一次
+    /// 獲得“TransportHandle”。
     #[cfg(feature = "kcp")]
     pub fn attach_aoi_grid(&mut self, grid: std::sync::Arc<std::sync::Mutex<crate::aoi::AoiGrid>>) {
         self.aoi_grid = Some(grid);
     }
 
-    /// Phase 3.4: register the dispatcher → broadcaster state-hash channel.
-    /// Called from `main.rs` after creating both the State and the
-    /// `TickBroadcaster`'s receiver. If never called, hash publishing is a
-    /// no-op and the broadcaster falls back to its placeholder.
+    /// 階段 3.4：註冊調度程式 → 廣播程式狀態雜湊通道。
+    /// 建立 State 和 the 之後從 `main.rs` 調用
+    /// `TickBroadcaster` 的接收器。如果從未調用過，則哈希發布是
+    /// 無操作，廣播公司退回其占位符。
     #[cfg(feature = "kcp")]
     pub fn set_state_hash_tx(
         &mut self,
@@ -525,12 +525,12 @@ impl State {
         self.state_hash_tx = Some(tx);
     }
 
-    /// Phase 5.3: register the shared snapshot store. The dispatcher tick
-    /// loop will mirror its periodic `serialize_snapshot` output into this
-    /// `Arc<Mutex<>>` so the KCP transport's 0x16 SnapshotResp handler
-    /// (running in a tokio task — no direct World access) can serve real
-    /// bytes. If never called, snapshots still update the ECS resource
-    /// (queryable) but the transport sees empty bytes.
+    /// 階段 5.3：註冊共享快照儲存。調度員勾選
+    /// 循環會將其週期性的“serialize_snapshot”輸出鏡像到此
+    /// `Arc<Mutex<>>` 因此 KCP 傳輸的 0x16 SnapshotResp 處理程序
+    /// （在 tokio 任務中運行 - 沒有直接的 World 訪問）可以服務真實的
+    /// 位元組.如果從未調用，快照仍會更新 ECS 資源
+    /// （可查詢）但傳輸看到空字節。
     #[cfg(feature = "kcp")]
     pub fn attach_snapshot_store(
         &mut self,
@@ -539,11 +539,11 @@ impl State {
         self.snapshot_store = Some(store);
     }
 
-    /// Phase 5.x bridge: register the host input receiver paired with
-    /// `TickBroadcaster::with_host_input_tx`. Each `tick()` drains pending
-    /// per-tick input vecs and writes them into the ECS `PendingPlayerInputs`
-    /// resource, which `player_input_tick::Sys` then routes to game-side
-    /// handlers (StartRound flips CurrentCreepWave.is_running, etc.).
+    /// 階段 5.x 橋接器：註冊與配對的主機輸入接收器
+    /// `TickBroadcaster::with_host_input_tx`。每個 `tick()` 都會耗盡待處理的內容
+    /// 每個刻度輸入 vecs 並將它們寫入 ECS `PendingPlayerInputs`
+    /// 資源，然後將 `player_input_tick::Sys` 路由到遊戲端
+    /// 處理程序（StartRound 翻轉 CurrentCreepWave.is_running 等）。
     #[cfg(feature = "kcp")]
     pub fn attach_host_input_rx(
         &mut self,
@@ -621,7 +621,7 @@ impl State {
         StateInitializer::create_test_scene(&mut self.ecs);
         // 動態實體建完後再填 Region blockers（Searcher 索引一次性完成）
         StateInitializer::populate_region_blockers(&mut self.ecs);
-        // Phase 5.2: legacy 0x02 GameEvent broadcast cut. tower_templates
+        // 階段 5.2：遺留 0x02 GameEvent 廣播剪輯。塔模板
         // 仍在 — 前端 TD placement UI 需要 cost/footprint/label。
         self.send_tower_templates();
     }

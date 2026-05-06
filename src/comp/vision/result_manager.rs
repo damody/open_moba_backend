@@ -75,7 +75,7 @@ impl ResultManager {
         if let Some(observer_result) = self.entity_results.get(&observer) {
             all_entities.iter()
                 .filter(|(entity, pos)| {
-                    *entity != observer && observer_result.is_point_visible(*pos)
+                    * 實體！ =觀察者&&觀察者結果.is_point_visible(*pos)
                 })
                 .map(|(entity, _)| *entity)
                 .collect()

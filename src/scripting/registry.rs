@@ -1,6 +1,6 @@
-//! Maps `unit_id → UnitScript_TO` for dispatch.
-//! Also retains the loaded `RootModule` refs so the underlying DLLs stay
-//! alive for the entire process lifetime (H1 — no hot reload).
+//! 映射 `unit_id → UnitScript_TO` 以進行調度。
+//! 也保留載入的“RootModule”引用，以便底層 DLL 保留
+//! 在整個進程生命週期內都處於活動狀態（H1 - 無熱重載）。
 
 use abi_stable::std_types::RBox;
 use hashbrown::HashMap;
@@ -18,7 +18,7 @@ pub struct ScriptRegistry {
     /// dispatch 技能施放時呼叫。
     abilities: HashMap<String, (AbilityDef, AbilityScript_TO<'static, RBox<()>>)>,
     ability_order: Vec<String>,
-    /// Keep manifest refs alive → DLLs stay mapped.
+    /// 保持清單引用處於活動狀態 → DLL 保持映射狀態。
     _manifests: Vec<Manifest_Ref>,
 }
 

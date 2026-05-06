@@ -7,7 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::comp::circular_vision::{VisionResult, ShadowArea, ObstacleInfo, ObstacleType};
 
-// Import refactored modules from the vision module
+// 從視覺模組導入重構模組
 use super::spatial_index::{Bounds, Entry, SpatialIndex, SpatialIndexParams, build_spatial_index};
 use super::quadtree::QuadTree;
 use super::shadow_calculation::ShadowCalculator as ShadowCalc;

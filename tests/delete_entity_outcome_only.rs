@@ -1,17 +1,17 @@
-//! Phase 1.6b grep guard: ensure no source file in `omb/src/` calls
+//! 階段 1.6b grep Guard：確保 `omb/src/` 呼叫中沒有來源文件
 //! `world.entities().delete()` / `entities.delete()` / `world.delete_entity()`
-//! directly. Entity deletion in the omb sim path MUST go through
-//! `Outcome::EntityRemoved`, which `process_outcomes` handles uniformly
-//! (see `comp/outcome.rs::RemovedEntitiesQueue`).
+//! 直接地。 omb sim 路徑中的實體刪除必須經過
+//! `Outcome::EntityRemoved`，由 `process_outcomes` 統一處理
+//! （請參閱“comp/outcome.rs::RemovedEntitiesQueue”）。
 //!
-//! Allowlist: the one site in `comp/game_processor.rs` where
-//! `process_outcomes` itself calls `entities().delete()` is the canonical
-//! sink for the outcome and is allowed.
+//! 白名單：「comp/game_processor.rs」中的一個站點
+//! `process_outcomes` 本身呼叫 `entities().delete()` 是規範的
+//! 沉沒的結果是允許的。
 //!
-//! Why this matters: the snapshot extractor in `omfx/game/src/sim_runner.rs`
-//! drains `RemovedEntitiesQueue` to populate `SimWorldSnapshot.removed_entity_ids`.
-//! Render-side scene-node cleanup keys off that field. A direct `.delete(e)`
-//! that skips the queue would silently leak omfx render state.
+//! 為什麼這很重要：「omfx/game/src/sim_runner.rs」中的快照擷取器
+//! 排出“RemovedEntitiesQueue”以填入“SimWorldSnapshot.removed_entity_ids”。
+//! 渲染端場景節點清理鍵關閉該欄位。直接 `.delete(e)`
+//! 跳過佇列會默默地洩漏 omfx 渲染狀態。
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -21,11 +21,11 @@ const FORBIDDEN_PATTERNS: &[&str] = &[
     ".delete_entity(",
 ];
 
-/// File paths whose direct `entities().delete()` call is the canonical
-/// sink (process_outcomes' Outcome::EntityRemoved arm). Allowlisted by
-/// suffix-match relative to crate root.
+/// 直接呼叫 `entities().delete()` 的檔案路徑是規範的
+/// 接收器（process_outcomes'Outcome::EntityRemoved 手臂）。列入許可名單的人
+/// 相對於板條箱根的後綴匹配。
 const ALLOWLIST_SUFFIXES: &[&str] = &[
-    // process_outcomes itself: the single sink that the outcome routes to
+    // process_outcomes 本身：結果路由到的單一接收器
     "src/comp/game_processor.rs",
 ];
 

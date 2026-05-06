@@ -9,9 +9,9 @@ use omb_script_abi::stat_keys::StatKey;
 use omb_script_abi::types::DamageKind;
 use serde_json::json;
 
-/// Per-entity SimRng op_kind for combat_events. Phase 1de.2: replaces fastrand
-/// for the miss/evasion roll. Reordering or reusing this constant across systems
-/// would invalidate replay determinism.
+/// Battle_events 的每實體 SimRng op_kind。階段 1de.2：取代 fastrand
+/// 用於未擊中/迴避檢定。跨系統重新排序或重複使用此常數
+/// 將使重播決定論無效。
 const OP_COMBAT_MISS_ROLL: u32 = 30;
 
 /// 戰鬥事件處理器
@@ -35,7 +35,7 @@ impl CombatEventHandler {
         source: Entity,
         target: Entity,
     ) -> Vec<Outcome> {
-        // convert at boundary; redesign in Phase 2 KCP tag rework.
+        // 在邊界處轉換；第二階段 KCP 標籤重工中的重新設計。
         let phys_f = phys.to_f32_for_render();
         let magi_f = magi.to_f32_for_render();
         let real_f = real.to_f32_for_render();
@@ -49,10 +49,10 @@ impl CombatEventHandler {
             });
 
         // ---- Evasion / miss roll（基於 target 的閃避 + attacker 的 miss）----
-        // Phase 1de.2: deterministic per-(target, OP_COMBAT_MISS_ROLL) stream.
-        // The roll keys on `target.id()` so the victim-side state controls the
-        // outcome; sub-tick attack ordering won't shuffle which roll a given
-        // attack consumes.
+        // 階段 1de.2：確定性每（目標，OP_COMBAT_MISS_ROLL）流。
+        // 「target.id()」上的滾動鍵，以便受害者端狀態控制
+        // 結果;子蜱攻擊順序不會打亂給定的投擲順序
+        // 攻擊消耗。
         let (miss_chance, evasion): (f32, f32) = {
             let buffs = world.read_resource::<crate::ability_runtime::BuffStore>();
             let is_bldgs = world.read_storage::<IsBuilding>();
@@ -105,7 +105,7 @@ impl CombatEventHandler {
         let final_total = final_phys + final_magi + final_real;
 
         // ---- 先發 AttackHit / AttackLanded（含 final damage 數值）----
-        // Phase 1c.3: AttackLanded.damage is Fixed64 — convert at boundary.
+        // 階段 1c.3：AttackLanded.damage 為固定 64 — 在邊界處轉換。
         let final_total_fx = omoba_sim::Fixed64::from_raw((final_total * 1024.0) as i64);
         {
             let mut queue = world.write_resource::<crate::scripting::ScriptEventQueue>();
@@ -134,8 +134,8 @@ impl CombatEventHandler {
         {
             let mut properties = world.write_storage::<CProperty>();
             if let Some(target_props) = properties.get_mut(target) {
-                // Phase 1c.3: target_props.hp / mhp are Fixed64 (Phase 1c.2);
-                // final_total / min_health stay f32 here — boundary at the read.
+                // 階段1c.3：target_props.hp / mhp是Fixed64（階段1c.2）；
+                // Final_total / min_health 留在此處的 f32 — 讀取時的邊界。
                 let hp_before_f = target_props.hp.to_f32_for_render();
                 let mut hp_after_f = hp_before_f - final_total;
                 // MIN_HEALTH clamp：> 0 時 HP 不低於此值
@@ -231,7 +231,7 @@ impl CombatEventHandler {
                 actual_heal = hp_after - hp_before;
 
                 let target_name = Self::get_entity_name(world, target);
-                // NOTE: log uses f32 boundary — Fixed64 has no Display.
+                // 注意：log 使用 f32 邊界 — Fix64 沒有顯示。
                 log::info!("💚 {} 回復 {:.1} HP（原 {:.1} × 倍率）| HP: {:.1} → {:.1}/{:.1}",
                     target_name,
                     actual_heal.to_f32_for_render(),

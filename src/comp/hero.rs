@@ -306,8 +306,8 @@ impl Hero {
     /// 每個 tick 扣 dt；遞減到 0 以下的 entry 自動清除。
     pub fn tick_cooldowns(&mut self, dt: Fixed64) {
         self.ability_cooldowns.retain(|_, remaining| {
-            *remaining -= dt;
-            *remaining > Fixed64::ZERO
+            * 剩餘-= dt；
+            * 剩餘>固定64::零
         });
     }
 }

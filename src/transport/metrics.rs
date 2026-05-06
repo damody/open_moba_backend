@@ -1,11 +1,11 @@
-//! KCP transport byte/message counters.
+//! KCP 傳輸位元組/訊息計數器。
 //!
-//! These primitives exist so integration tests (and future optimization phases)
-//! can measure per-event bytes/msg totals and compare against a baseline.
+//! 這些原語的存在是為了進行整合測試（以及未來的最佳化階段）
+//! 可以測量每個事件的位元組/訊息總數並與基準進行比較。
 //!
-//! The counter is safe to call from the KCP broadcast thread: the per-event
-//! map uses a `parking_lot::Mutex` (short critical section — one `entry()`
-//! lookup + two `u64` adds), and the global totals use relaxed atomics.
+//! 計數器可以安全地從 KCP 廣播線程呼叫：每個事件
+//! 地圖使用 `parking_lot::Mutex` （短關鍵部分 - 一個 `entry()`
+//! 找出+兩個“u64”新增），全域總計使用寬鬆原子。
 
 use std::collections::HashMap as StdHashMap;
 use std::hash::{Hash, Hasher};
@@ -14,12 +14,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use hashbrown::{Equivalent, HashMap};
 use parking_lot::Mutex;
 
-/// Borrowed composite key used to probe `per_event` without allocating.
+/// 借用複合鍵用於探測“per_event”而不進行分配。
 ///
-/// Hashes and compares the same way the owned `(String, String)` key does
-/// (hashbrown's tuple `Hash` impl hashes each field in order), so the hot
-/// path can look up a stored `(String, String)` entry via a `(&str, &str)`
-/// wrapped in `BorrowedKey`.
+/// 以與擁有的“(String, String)”鍵相同的方式進行雜湊和比較
+/// （hashbrown 的元組 `Hash` impl 按順序對每個字段進行哈希），所以熱門
+/// 路徑可以透過「(&str, &str)」尋找儲存的「(String, String)」條目
+/// 包裹在“BorrowedKey”中。
 #[derive(Copy, Clone)]
 struct BorrowedKey<'a> {
     msg_type: &'a str,
@@ -28,9 +28,9 @@ struct BorrowedKey<'a> {
 
 impl Hash for BorrowedKey<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        // Must match `<(String, String) as Hash>::hash`, which hashes each
-        // field in order. `String`'s Hash defers to `str`'s Hash, so hashing
-        // `&str` here is identical.
+        // 必須匹配`<(String, String) as Hash>::hash`，它對每個進行散列
+        // 欄位按順序排列。 `String` 的哈希值遵循 `str` 的哈希值，因此哈希
+        // 這裡的「&str」是相同的。
         self.msg_type.hash(state);
         self.action.hash(state);
     }
@@ -42,16 +42,16 @@ impl Equivalent<(String, String)> for BorrowedKey<'_> {
     }
 }
 
-/// Per-event and global bytes/msg totals observed on the KCP wire.
+/// 在 KCP 線路上觀察到的每個事件和全域位元組/訊息總數。
 ///
-/// The per-event map is keyed on `(msg_type, action)` as owned strings, but
-/// the hot path looks up via `BorrowedKey<'_>` (a `(&str, &str)` wrapper)
-/// using hashbrown's `Equivalent` trait, so `record()` avoids any allocation
-/// once a key is registered.
+/// 每個事件映射以「(msg_type, action)」為鍵作為擁有的字串，但是
+/// 熱路徑透過 `BorrowedKey<'_>` （一個 `(&str, &str)` 包裝器尋找）
+/// 使用 hashbrown 的“Equivalent”特徵，因此“record()”避免任何分配
+/// 一旦註冊了密鑰。
 #[derive(Debug)]
 pub struct KcpBytesCounter {
-    /// key = (msg_type, action) e.g. ("hero", "stats"), ("creep", "M")
-    /// value = (bytes, msgs)
+    /// key = (msg_type, action) 例如（“英雄”，“統計數據”），（“蠕變”，“M”）
+    /// 值=（字節，訊息）
     per_event: Mutex<HashMap<(String, String), (u64, u64)>>,
     total_bytes: AtomicU64,
     total_msgs: AtomicU64,
@@ -66,18 +66,18 @@ impl KcpBytesCounter {
         }
     }
 
-    /// Record one event of `bytes` bytes under `(msg_type, action)`.
+    /// 在“(msg_type, action)”下記錄一個“bytes”位元組的事件。
     ///
-    /// Hot path (key already present): no allocation — probe the map with a
-    /// borrowed `BorrowedKey` wrapping `(&str, &str)` via hashbrown's
-    /// `Equivalent` trait.
+    /// 熱路徑（密鑰已存在）：無分配 - 使用 a 探測地圖
+    /// 透過 hashbrown 借用 `BorrowedKey` 包裝 `(&str, &str)`
+    /// “同等”特徵。
     ///
-    /// Cold path (first occurrence): allocates two `String`s for the key.
+    /// 冷路徑（第一次出現）：為鍵分配兩個“String”。
     pub fn record(&self, msg_type: &str, action: &str, bytes: usize) {
         let bytes = bytes as u64;
         {
             let mut map = self.per_event.lock();
-            // Hot path: already-registered keys skip the allocation.
+            // 熱路徑：已註冊的鍵跳過分配。
             let borrowed = BorrowedKey { msg_type, action };
             if let Some(entry) = map.get_mut(&borrowed) {
                 entry.0 += bytes;
@@ -90,8 +90,8 @@ impl KcpBytesCounter {
         self.total_msgs.fetch_add(1, Ordering::Relaxed);
     }
 
-    /// Take a deep-copy snapshot of the current totals. Caller can inspect the
-    /// snapshot even after `reset()` is called.
+    /// 取得目前總數的深層複製快照。呼叫者可以檢查
+    /// 即使在呼叫“reset()”之後也可以產生快照。
     pub fn snapshot(&self) -> KcpCounterSnapshot {
         let map = self.per_event.lock();
         let per_event: StdHashMap<(String, String), (u64, u64)> = map
@@ -105,7 +105,7 @@ impl KcpBytesCounter {
         }
     }
 
-    /// Clear all per-event entries and zero the global totals.
+    /// 清除所有每個事件條目並將全域總數歸零。
     pub fn reset(&self) {
         self.per_event.lock().clear();
         self.total_bytes.store(0, Ordering::Relaxed);
@@ -119,8 +119,8 @@ impl Default for KcpBytesCounter {
     }
 }
 
-/// Plain, owned copy of the counter's state. Crosses API boundaries, so the
-/// map uses `std::collections::HashMap` (not hashbrown).
+/// 櫃檯狀態的普通、擁有的副本。跨越 API 邊界，因此
+/// map 使用 `std::collections::HashMap` （不是 hashbrown）。
 #[derive(Debug, Clone, Default)]
 pub struct KcpCounterSnapshot {
     pub total_bytes: u64,
@@ -132,7 +132,7 @@ pub struct KcpCounterSnapshot {
 mod tests {
     use super::*;
 
-    /// Convenience for test assertions — look up by `(&str, &str)`.
+    /// 方便測試斷言－透過「(&str, &str)」尋找。
     fn get<'a>(
         snap: &'a KcpCounterSnapshot,
         msg_type: &str,
@@ -162,7 +162,7 @@ mod tests {
         c.record("a", "b", 10);
         let snap = c.snapshot();
 
-        // Mutating the live counter must not change the snapshot.
+        // 改變即時計數器不得改變快照。
         c.record("a", "b", 999);
         c.record("x", "y", 1);
         assert_eq!(snap.total_bytes, 10);
@@ -177,7 +177,7 @@ mod tests {
         c.record("hero", "stats", 100);
         c.record("creep", "M", 200);
 
-        // Keep a snapshot to prove reset doesn't touch previously-taken copies.
+        // 保留快照以證明重置不會影響先前拍攝的副本。
         let before = c.snapshot();
         c.reset();
 
@@ -186,11 +186,11 @@ mod tests {
         assert_eq!(after.total_msgs, 0);
         assert!(after.per_event.is_empty());
 
-        // Pre-reset snapshot still has its data.
+        // 預重置快照仍然有其數據。
         assert_eq!(before.total_bytes, 300);
         assert_eq!(before.total_msgs, 2);
 
-        // Can record again after reset.
+        // 重置後可以重新錄製。
         c.record("hero", "stats", 7);
         let again = c.snapshot();
         assert_eq!(again.total_bytes, 7);
@@ -198,11 +198,11 @@ mod tests {
         assert_eq!(get(&again, "hero", "stats"), Some(&(7u64, 1u64)));
     }
 
-    /// Regression test for the hot-path optimization: after a key is inserted
-    /// once, subsequent `record()` calls must not allocate new `String`s for
-    /// the key. We can't directly observe allocations, but we can at least
-    /// assert the map doesn't grow beyond one entry when the same `(msg_type,
-    /// action)` is recorded many times.
+    /// 熱路徑優化的回歸測試：插入密鑰後
+    /// 一旦，後續的“record()”呼叫不得分配新的“String”
+    /// 關鍵。我們無法直接觀察分配情況，但至少可以
+    /// 斷言當相同的 `(msg_type,
+    /// action)`被記錄了很多次。
     #[test]
     fn hot_path_does_not_duplicate_keys() {
         let c = KcpBytesCounter::new();

@@ -22,8 +22,8 @@ pub struct CreepRead<'a> {
     entities: Entities<'a>,
     time: Read<'a, Time>,
     dt: Read<'a, DeltaTime>,
-    /// P4: server tick counter; used as `start_tick` in creep.M for client
-    /// extrapolation anchor.
+    /// P4：伺服器滴答計數器；在客戶端的 cree.M 中用作 `start_tick`
+    /// 外推錨。
     tick: Read<'a, Tick>,
     paths: Read<'a, BTreeMap<String, Path>>,
     check_points : Read<'a, BTreeMap<String, CheckPoint>>,
@@ -41,9 +41,9 @@ pub struct CreepWrite<'a> {
     pos : WriteStorage<'a, Pos>,
     facings: WriteStorage<'a, Facing>,
     facing_bcs: WriteStorage<'a, FacingBroadcast>,
-    /// P4: per-creep last-broadcast snapshot for M-emit gating.
-    /// Inserted lazily on first emit (component may be absent for creeps
-    /// that existed before the P4 upgrade path).
+    /// P4：用於 M 發射選通的每個 Creep 最後廣播快照。
+    /// 在第一次發射時延遲插入（對於 Creep 來說組件可能不存在
+    /// 在 P4 升級路徑之前就存在）。
     mv_broadcasts: WriteStorage<'a, CreepMoveBroadcast>,
     outcomes: Write<'a, Vec<Outcome>>,
     taken_damages: Write<'a, Vec<TakenDamage>>,
@@ -64,21 +64,21 @@ impl<'a> System<'a> for Sys {
     fn run(_job: &mut Job<Self>, (tr, mut tw): Self::SystemData) {
         let time = tr.time.0;
         let dt = tr.dt.0;
-        // Legacy f32 view of dt for CProperty.msd (still f32; Phase 1c).
+        // CProperty.msd 的 dt 的舊版 f32 視圖（仍然是 f32；第 1c 階段）。
         let dt_f = dt.to_f32_for_render();
         let server_tick = tr.tick.0;
-        // omfx sim_runner does not wire a transport; fall back to a sink sender
-        // so broadcast sites silently no-op (try_send returns disconnected, ignored).
+        // omfx sim_runner 不連接傳輸；回退到接收器發送器
+        // 因此靜默廣播站點無操作（try_send 返回斷開連接，被忽略）。
         let tx = tw.mqtx.get(0).cloned().unwrap_or_else(|| {
             let (tx, _rx) = crossbeam_channel::unbounded::<OutboundMsg>();
             tx
         });
 
-        // P4 emit candidates collected from the par_join pass, keyed by entity.
-        // Carries current (target, velocity, start_pos, facing) — the gating +
-        // record update happens serially below so we can touch mv_broadcasts
-        // without fighting borrow rules inside the parallel closure.
-        // take Fixed64 payloads — redesign in Phase 2 KCP tag rework.
+        // P4 發出從 par_join 通道收集的候選者，由實體鍵入。
+        // 承載電流（目標、速度、起始位置、朝向）- 閘控 +
+        // 記錄更新在下面連續發生，因此我們可以觸摸 mv_broadcasts
+        // 無需在並行閉包內對抗借用規則。
+        // 採用固定 64 有效負載 — 在第 2 階段 KCP 標籤返工中重新設計。
         struct MoveCandidate {
             entity: specs::Entity,
             target: vek::Vec2<f32>,
@@ -105,9 +105,9 @@ impl<'a> System<'a> for Sys {
                 |_guard, (e, creep, pos, cp, facing, facing_bc)| {
                     let mut outcomes:Vec<Outcome> = Vec::new();
                     let mut cands: Vec<MoveCandidate> = Vec::new();
-                    // Inline boundary helpers — must be called with explicit `&*pos` /
-                    // `&*facing` to avoid capturing the storage refs as borrows that
-                    // would block subsequent mutations of pos.0 / facing.0.
+                    // 內聯邊界助手 - 必須使用明確的 `&*pos` / 來調用
+                    // `&*faceing` 以避免捕獲儲存引用作為借用
+                    // 會阻止 pos.0/faceing.0 的後續突變。
                     #[inline(always)]
                     fn p_to_f(p: SimVec2) -> vek::Vec2<f32> {
                         vek::Vec2::new(p.x.to_f32_for_render(), p.y.to_f32_for_render())
@@ -138,16 +138,16 @@ impl<'a> System<'a> for Sys {
                                 }
                             } else {
                                 if let Some(p) = path.check_points.get(creep.pidx) {
-                                    // CheckPoint.pos is still vek::Vec2<f32> (Phase 1c will migrate
-                                    // path data to Fixed64). Bridge once per iteration.
+                                    // CheckPoint.pos 仍然是 vek::Vec2<f32> （第 1c 階段將遷移
+                                    // 路徑資料到Fixed64）。每次迭代橋接一次。
                                     let target_point_f: vek::Vec2<f32> = p.pos;
                                     let target_point: SimVec2 = SimVec2::new(
                                         Fixed64::from_raw((target_point_f.x * omoba_sim::fixed::SCALE as f32) as i64),
                                         Fixed64::from_raw((target_point_f.y * omoba_sim::fixed::SCALE as f32) as i64),
                                     );
                                     let mut next_status = creep.status.clone();
-                                    // P4: compute effective move speed once per tick — shared
-                                    // between the movement step and the M emit candidate.
+                                    // P4：每個週期計算一次有效移動速度 - 分享
+                                    // 在移動步驟和 M 發射候選之間。
                                     let stats = crate::ability_runtime::UnitStats::from_refs(
                                         &*tr.buff_store,
                                         tr.is_buildings.get(e).is_some(),
@@ -155,7 +155,7 @@ impl<'a> System<'a> for Sys {
                                     let effective_msd = stats.final_move_speed(cp.msd, e);
                                     match creep.status {
                                         CreepStatus::PreWalk => {
-                                            // First emit on spawn / PreWalk → unconditional candidate.
+                                            // 首先在spawn / PreWalk → 無條件候選時發出。
                                             cands.push(MoveCandidate {
                                                 entity: e, target: target_point_f,
                                                 velocity: effective_msd.to_f32_for_render(),
@@ -168,16 +168,16 @@ impl<'a> System<'a> for Sys {
                                             if tr.buff_store.is_rooted(e) {
                                                 return (outcomes, cands);
                                             }
-                                            // Phase 1c.3: effective_msd is Fixed64 (UnitStats migrated).
-                                            // step = effective_msd × dt (Fixed64 × Fixed64).
+                                            // 階段 1c.3： effective_msd 為固定 64（UnitStats 已遷移）。
+                                            // 步驟 = effective_msd × dt (Fixed64 × Fix64)。
                                             let step = effective_msd * dt;
                                             let diff = target_point - pos.0;
                                             let dist_sq = diff.length_squared();
-                                            // 0.01 in Fixed64 raw = round(0.01 * 1024) = 10
+                                            // 0.01 在固定 64 原始 = 輪(0.01 * 1024) = 10
                                             let arrived_eps_sq = Fixed64::from_raw(10);
                                             if dist_sq < arrived_eps_sq {
                                                 // 已抵達 waypoint — pidx advances, new waypoint
-                                                // triggers an M candidate (target change).
+                                                // 觸發 M 候選（目標變更）。
                                                 creep.pidx += 1;
                                                 if let Some(t) = path.check_points.get(creep.pidx) {
                                                     cands.push(MoveCandidate {
@@ -214,8 +214,8 @@ impl<'a> System<'a> for Sys {
                                                 if signed_diff_ticks.abs() < MOVE_ANGLE_THRESHOLD_TICKS {
                                                     let radius = tr.radii.get(e).map(|r| r.0).unwrap_or(Fixed64::from_i32(20));
                                                     let self_entity = e;
-                                                    // NOTE: Searcher uses f32 internally for instant_distance lib compat.
-                                                    // Final distance check in caller is Fixed64.
+                                                    // 注意：搜尋器在內部使用 f32 來實作 instant_distance lib 相容性。
+                                                    // 呼叫者的最終距離檢查是固定64。
                                                     let radius_f = radius.to_f32_for_render();
                                                     let hits = |p_sim: SimVec2| -> bool {
                                                         let q_r = radius_f + MAX_COLLISION_RADIUS;
@@ -256,8 +256,8 @@ impl<'a> System<'a> for Sys {
                                                         if !hits(target_point) {
                                                             pos.0 = target_point;
                                                             creep.pidx += 1;
-                                                            // Reached waypoint mid-step: advance and
-                                                            // emit M for the NEXT waypoint (target change).
+                                                            // 到達中途航路點：前進並
+                                                            // 為下一個航路點發出 M（目標變更）。
                                                             if let Some(t) = path.check_points.get(creep.pidx) {
                                                                 cands.push(MoveCandidate {
                                                                     entity: e, target: t.pos,
@@ -272,10 +272,10 @@ impl<'a> System<'a> for Sys {
                                                     if blocked {
                                                         // 凍結前端 lerp（action="stall"），避免視覺上穿過其他單位。
                                                     } else {
-                                                        // Not a waypoint advance, not blocked — but
-                                                        // still consider emitting if velocity changed
-                                                        // (slow applied/removed). Gating pass below
-                                                        // compares to last broadcast and drops if same.
+                                                        // 不是一個航點前進，也沒有被阻擋──但是
+                                                        // 如果速度改變仍然考慮發射
+                                                        // （緩慢應用/刪除）。下面的門通行證
+                                                        // 與上次廣播相比，如果相同則丟棄。
                                                         cands.push(MoveCandidate {
                                                             entity: e, target: target_point_f,
                                                             velocity: effective_msd.to_f32_for_render(),
@@ -322,11 +322,11 @@ impl<'a> System<'a> for Sys {
                 },
             );
 
-        // P4 serial emit-gating pass: compare each candidate against the
-        // entity's last-broadcast snapshot (CreepMoveBroadcast component).
-        // Emit creep.M only if target diverged OR velocity changed > 5% /
-        // > 1.0 absolute OR the entity has no prior snapshot. Update the
-        // component after emit so next tick's compare uses the new baseline.
+        // P4 串行發射閘通：將每個候選者與
+        // 實體的最後廣播快照（CreepMoveBroadcast 元件）。
+        // 僅當目標偏離或速度變化 > 5% / 時才發出蠕變。
+        // > 1.0 絕對值或實體沒有先前的快照。更新
+        // 發出後的組件，因此下一個刻度的比較使用新的基線。
         for cand in move_candidates.into_iter() {
             let need_emit = match tw.mv_broadcasts.get(cand.entity) {
                 Some(bcast) => bcast.should_emit(cand.target, cand.velocity),
@@ -334,12 +334,12 @@ impl<'a> System<'a> for Sys {
             };
             if !need_emit { continue; }
 
-            // Phase 5.2: legacy 0x02 GameEvent producer cut. Lockstep TickBatch
-            // (0x10) carries authoritative pos; client renders from sim.
+            // 階段 5.2：遺留 0x02 GameEvent 製作人刪減。鎖步刻度批次處理
+            // (0x10)攜帶權威pos；客戶端從 sim 渲染。
 
-            // Update (or insert) the broadcast snapshot so subsequent ticks
-            // compare against fresh baseline. specs::WriteStorage::insert
-            // returns Err only on invalid entity — safe to ignore.
+            // 更新（或插入）廣播快照以便後續刻度
+            // 與新基線進行比較。規格::寫入儲存::插入
+            // 僅在無效實體上傳回 Err — 可以安全地忽略。
             let mut snap = tw.mv_broadcasts.get(cand.entity).cloned().unwrap_or_default();
             snap.record(cand.target, cand.velocity, server_tick);
             let _ = tw.mv_broadcasts.insert(cand.entity, snap);
@@ -369,7 +369,7 @@ impl<'a> System<'a> for Sys {
                 };
 
                 if total_damage > Fixed64::ZERO {
-                    // Phase 1c.4: Outcome::Damage.pos is SimVec2 (Phase 1c.2).
+                    // 階段 1c.4：Outcome::Damage.pos 是 SimVec2（階段 1c.2）。
                     let target_pos = tw.pos.get(td.ent)
                         .map(|p| p.0)
                         .unwrap_or(SimVec2::ZERO);

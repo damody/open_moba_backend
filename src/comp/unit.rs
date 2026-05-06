@@ -28,7 +28,7 @@ pub struct Unit {
     // 狀態追蹤
     pub current_target: Option<Entity>,
     pub last_attack_time: Fixed64,
-    // NOTE: spawn_position is f32 by design (initial pos, never mutated); sim-side reads Pos (Fixed64) directly.
+    // 注意：spawn_position 設計為 f32（初始位置，從未改變）；sim端直接讀取 Pos（Fixed64）。
     pub spawn_position: (f32, f32),
     
     // 獎勵和掉落
@@ -144,8 +144,8 @@ impl Unit {
             _ => AiType::Defensive,
         };
 
-        // template-ids creep_stats already Fixed64; we keep i32 for hp/damage by converting via render boundary.
-        // NOTE: Unit.{max_hp, base_damage} are i32 by design (integer game values); convert from Fixed64 at this boundary.
+        // template-ids Creep_stats 已固定64；我們透過渲染邊界進行轉換，保留 i32 的生命值/傷害。
+        // 注意：Unit.{max_hp, base_damage} 設計為 i32（整數遊戲值）；在此邊界處從固定64 轉換。
         let attack_range = if s.attack_range.raw() > 0 { s.attack_range } else { Fixed64::from_i32(150) };
         Unit {
             id: creep_data.id.clone(),
@@ -194,7 +194,7 @@ impl Unit {
             _ => AiType::Aggressive,
         };
 
-        // NOTE: Unit.{current_hp, max_hp, base_damage} are i32 by design (integer game values).
+        // 注意：Unit.{current_hp, max_hp, base_damage} 設計為 i32（整數遊戲值）。
         Unit {
             id: enemy_data.id.clone(),
             name: creep_display(cid).to_string(),
@@ -232,7 +232,7 @@ impl Unit {
     pub fn take_damage(&mut self, damage: i32, damage_type: DamageType) -> i32 {
         let actual_damage = match damage_type {
             DamageType::Physical => {
-                // damage_reduction = armor / (armor + 100)
+                // 傷害減免 = 護甲 / (護甲 + 100)
                 let armor = self.base_armor;
                 let denom = armor + Fixed64::from_i32(100);
                 let reduction = armor / denom;
@@ -240,7 +240,7 @@ impl Unit {
                 (Fixed64::from_i32(damage) * mult).to_f32_for_render() as i32
             },
             DamageType::Magical => {
-                // damage_reduction = magic_resistance / 100, clamped to 0.75
+                // Damage_reduction = magic_resistance / 100，固定為 0.75
                 let res_pct = self.magic_resistance / Fixed64::from_i32(100);
                 let cap = Fixed64::from_raw(768); // 0.75
                 let reduction = if res_pct > cap { cap } else { res_pct };
@@ -259,7 +259,7 @@ impl Unit {
         match self.ai_type {
             AiType::None => false, // 訓練假人等不能攻擊
             _ => {
-                // (current - last) >= 1 / attack_speed  ⇔  (current - last) * attack_speed >= 1
+                // (目前 - 最後) >= 1 / Attack_speed ⇔ (目前 - 最後) * Attack_speed >= 1
                 if self.attack_speed.raw() <= 0 {
                     return false;
                 }
@@ -480,8 +480,8 @@ impl SummonedUnit {
     /// 更新時間並檢查是否過期
     pub fn update(&mut self, dt: f32) -> bool {
         if let Some(ref mut remaining) = self.time_remaining {
-            *remaining -= dt;
-            *remaining <= 0.0
+            * 剩餘-= dt；
+            * 剩餘 <= 0.0
         } else {
             false // 永久召喚物不會過期
         }

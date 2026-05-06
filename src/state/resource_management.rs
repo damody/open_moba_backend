@@ -283,7 +283,7 @@ impl ResourceManager {
             let positions = world.read_storage::<Pos>();
             let radii = world.read_storage::<CollisionRadius>();
             for (_e, _t, p, r) in (&entities, &towers, &positions, &radii).join() {
-                // NOTE: Searcher / spatial index uses f32 internally for instant_distance lib compat.
+                // 注意：搜尋器/空間索引在內部使用 f32 來實作 instant_distance lib 相容性。
                 let (px, py) = p.xy_f32();
                 let dx = px - pos.x;
                 let dy = py - pos.y;
@@ -510,7 +510,7 @@ impl ResourceManager {
         }
         for (buff_id, payload) in stat_mods {
             let mut store = world.write_resource::<crate::ability_runtime::BuffStore>();
-            // Phase 1c.3: BuffStore::add takes Fixed64 — sentinel "permanent" via raw i64::MAX.
+            // 階段 1c.3：BuffStore::add 採用 Fix64 — 透過原始 i64::MAX 進行「永久」標記。
             store.add(tower_entity, &buff_id, omoba_sim::Fixed64::from_raw(i64::MAX), payload);
         }
         let new_levels = {
@@ -703,7 +703,7 @@ impl ResourceManager {
     fn use_skill(&self, world: &mut World, pd: &InboundMsg) -> Result<(), Error> {
         use crate::scripting::event::{ScriptEvent, ScriptEventQueue, SkillTarget};
 
-        // slot Q/W/E/R → index 0..3
+        // 插槽 Q/W/E/R → 索引 0..3
         let slot = pd.d.get("slot").and_then(|v| v.as_str()).unwrap_or("");
         let idx = match Self::slot_to_index(slot) {
             Some(i) => i,
@@ -915,7 +915,7 @@ impl ResourceManager {
         {
             let positions = world.read_storage::<Pos>();
             if let Some(p) = positions.get(hero_e) {
-                // NOTE: distance check at non-sim path (UI proximity); lossy f32 acceptable.
+                // 注意：非 sim 路徑的距離檢查（UI 鄰近度）；有損 f32 可接受。
                 let (px, py) = p.xy_f32();
                 if px * px + py * py > 800.0 * 800.0 {
                     log::info!("buy_item: 不在基地範圍內");
@@ -1149,12 +1149,12 @@ pub struct ResourceStats {
 /// 會把 `BuffStore` 身上的 `_bonus` / `_multiplier` 聚合回到 base 值上，讓前端
 /// 看到的攻擊力/射程/移速/攻速/護甲/魔抗 都是「實際生效值」。同時附上 buffs
 /// 陣列（id + 剩餘秒 + payload）供 UI 顯示。
-/// P2 binary-protocol helper: build a prost `HeartbeatTick` for the KCP path.
+/// P2 二進位協定助手：為 KCP 路徑建立一個 prost `HeartbeatTick`。
 ///
-/// Input `hp_snapshot` is a pre-filtered slice of `(entity_id, hp)` pairs
-/// (viewport filtering happens at the caller — the full-scan vs per-player
-/// logic already lives in `core::send_heartbeat`). HP values are quantized
-/// via `fixed_quant` (scale 0.1) to match the shared wire scale.
+/// 輸入“hp_snapshot”是“(entity_id, hp)”對的預濾切片
+/// （視口過濾發生在呼叫者處 - 全掃描與每個玩家
+/// 邏輯已經存在於 `core::send_heartbeat` 中）。 HP值被量化
+/// 透過「fixed_quant」（比例 0.1）來匹配共享線比例。
 #[cfg(feature = "kcp")]
 pub(crate) fn build_heartbeat_tick(
     tick: u64,
@@ -1207,8 +1207,8 @@ pub(crate) fn build_heartbeat_tick(
 }
 
 // ========================================================================
-// P2 full-migration helpers: prost builders for high-volume game events.
-// All gated behind the `kcp` feature so non-kcp builds stay cdep-free.
+// P2 完全遷移助手：用於大容量遊戲活動的 Prost 建構器。
+// 所有這些都在“kcp”功能後面進行門控，因此非 kcp 建置保持無 cdep。
 // ========================================================================
 
 #[cfg(feature = "kcp")]
@@ -1216,7 +1216,7 @@ pub(crate) mod proto_build {
     use crate::transport::kcp_transport::game_proto::*;
     use omoba_core::quant::{facing_quant, fixed_quant, pos_quant};
 
-    // P9: re-export EntityKind so call sites can do `proto_build::EntityKind::Hero`.
+    // P9：重新匯出 EntityKind，以便呼叫網站可以執行 `proto_build::EntityKind::Hero`。
     pub use crate::transport::kcp_transport::game_proto::EntityKind;
 
     pub fn pos16(x: f32, y: f32) -> Position16 {
@@ -1238,12 +1238,12 @@ pub(crate) mod proto_build {
         directional: bool,
         splash_radius: f32,
         hit_radius: f32,
-        // Template id from `omoba-template-ids` `ProjectileKindId.0` (sequential u16
-        // per projectile_kinds declaration order in scripts/lua_data/templates.lua; 0 = UNSPECIFIED).
-        // Replaced FNV-1a u32 hash — wire saving ~2 B per event under varint.
+        // 來自「omoba-template-ids」「ProjectileKindId.0」的範本 ID（順序 u16
+        // 依照scripts/lua_data/templates.lua中的projectile_kinds宣告順序；0 = 未指定）。
+        // 替換了 FNV-1a u32 哈希 — 在 varint 下每個事件節省了大約 2 B。
         kind_id: u16,
-        // P7: pre-declared single-target damage (splash_radius == 0 only);
-        // 0 => server will emit creep.H normally on impact.
+        // P7：預先聲明的單一目標傷害（僅splash_radius == 0）；
+        // 0 => 伺服器通常會在受到影響時發出 Cree.H 訊號。
         damage: f32,
     ) -> ProjectileCreate {
         ProjectileCreate {
@@ -1272,9 +1272,9 @@ pub(crate) mod proto_build {
         max_hp: f32,
         move_speed: f32,
         // Internal template id ("training_mage", not the Chinese display "訓練法師").
-        // Looked up in omoba-template-ids via `creep_by_name` → CreepId (u16).
-        // Unknown ids fall back to 0 (UNSPECIFIED); client logs a warning and
-        // renders entity_type as the label.
+        // 透過 `creep_by_name` → CreepId (u16) 在 omoba-template-ids 中尋找。
+        // 未知的 id 回落到 0（未指定）；客戶端記錄警告並
+        // 將entity_type渲染為標籤。
         internal_name: &str,
     ) -> CreepCreate {
         let name_id = omoba_template_ids::creep_by_name(internal_name)
@@ -1293,9 +1293,9 @@ pub(crate) mod proto_build {
         }
     }
 
-    /// Legacy helper: kept for call sites that don't yet carry velocity info
-    /// (e.g. the `handle_creep_stop` "freeze at pos" case). Emits zeros for
-    /// the P4 fields, which the client treats as "lerp-only, no extrapolation".
+    /// 舊版助手：為尚未攜帶速度資訊的呼叫網站保留
+    /// （例如`handle_creep_stop`「凍結在pos」情況）。發出零
+    /// P4 字段，客戶端將其視為「僅 lerp，無外推」。
     pub fn creep_move(id: u32, x: f32, y: f32, facing: f32) -> CreepMove {
         CreepMove {
             id: id as u64,
@@ -1308,11 +1308,11 @@ pub(crate) mod proto_build {
         }
     }
 
-    /// P4 full builder: includes velocity + arrival_tick + start_pos + start_tick
-    /// for client-side extrapolation. `tick_dt` is the server tick duration
-    /// (1.0 / TPS). `arrival_tick` is computed relative to `start_tick`; if
-    /// `velocity` is zero or the distance is zero we return `start_tick`
-    /// (client will lock at target immediately).
+    /// P4 完整建構器：包含速度 + 到達時間 + 開始位置 + 開始時間
+    /// 用於客戶端推斷。 `tick_dt` 是伺服器滴答持續時間
+    /// （1.0/TPS）。 `arrival_tick` 是相對於 `start_tick` 計算的；如果
+    /// `velocity` 為零或距離為零，我們回傳 `start_tick`
+    /// （客戶端將立即鎖定目標）。
     pub fn creep_move_full(
         id: u32,
         target_x: f32,
@@ -1343,8 +1343,8 @@ pub(crate) mod proto_build {
         }
     }
 
-    /// Default `creep_hp` — kind defaults to `Creep` (the most common case).
-    /// Use `creep_hp_with_kind` when emitting for hero / unit / generic entity.
+    /// 預設 `creep_hp` — 種類預設為 `Creep` （最常見的情況）。
+    /// 為英雄/單位/通用實體發射時使用“creep_hp_with_kind”。
     pub fn creep_hp(id: u32, hp: f32) -> CreepHp {
         CreepHp {
             id: id as u64,
@@ -1353,7 +1353,7 @@ pub(crate) mod proto_build {
         }
     }
 
-    /// P9: explicit-kind variant for HP updates (hero / unit / entity).
+    /// P9：HP 更新的明確變體（英雄/單位/實體）。
     pub fn creep_hp_with_kind(id: u32, hp: f32, kind: EntityKind) -> CreepHp {
         CreepHp {
             id: id as u64,
@@ -1384,9 +1384,9 @@ pub(crate) mod proto_build {
         }
     }
 
-    /// P9: minimal hero create — for visibility-diff spawn. Hero static + hot
-    /// payloads should be pushed alongside (or shortly after) so omfx can
-    /// hydrate the rest.
+    /// P9：最小英雄創建－用於可見性差異生成。英雄靜態+熱
+    /// 有效負載應與（或之後不久）一起推送，以便 omfx 可以
+    /// 給剩下的水份。
     pub fn hero_create(
         id: u32,
         x: f32,
@@ -1406,7 +1406,7 @@ pub(crate) mod proto_build {
         }
     }
 
-    /// P9: generic unit create.
+    /// P9：通用單位創建。
     pub fn unit_create(
         id: u32,
         x: f32,
@@ -1424,9 +1424,9 @@ pub(crate) mod proto_build {
         }
     }
 
-    /// P9: build a `LegacyJson` wrapper for low-frequency irregular events
-    /// (init/ack/reject/inventory). Steady-state hot paths must NOT use this —
-    /// migrate to a typed variant instead.
+    /// P9：為低頻不規則事件建構「LegacyJson」包裝器
+    /// （初始化/確認/拒絕/庫存）。穩態熱路徑不得使用此 —
+    /// 而是遷移到類型化變體。
     pub fn legacy_json(t: &str, a: &str, v: &serde_json::Value) -> LegacyJson {
         LegacyJson {
             msg_type: t.to_string(),

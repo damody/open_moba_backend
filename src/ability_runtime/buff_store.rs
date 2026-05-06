@@ -7,7 +7,7 @@
 //! 每筆 buff 可攜帶 `payload: serde_json::Value`，讓 host 系統（例如
 //! `creep_tick` 的移速計算）從 buff 身上讀出數值（如 slow factor）。
 //!
-//! ## Reserved payload conventions
+//! ## 保留的有效負載約定
 //!
 //! - `slow_factor: f64` — 觸發 add() 的「強蓋弱」語意：同 buff_id 已存在
 //!   且雙方 payload 都帶 `slow_factor` 時，較小者勝出（refresh duration 不變、
@@ -21,24 +21,24 @@ use serde_json::Value;
 use specs::Entity;
 use std::collections::HashMap;
 
-/// Read a numeric stat value out of a JSON payload as Fixed64.
+/// 從 JSON 負載中讀取固定 64 的數字統計值。
 ///
-/// Phase 1de.2 wire encoding: raw `Fixed64::raw()` i32 stored as a JSON Number
-/// (integer). Drops the f64 → `* 1024 as i32` quantization which lost up to
-/// 14 bits of precision and risked platform-divergent IEEE-754 multiply.
+/// 階段 1de.2 線路編碼：原始 `Fixed64::raw()` i32 儲存為 JSON 數字
+/// （整數）。刪除 f64 → `* 1024 as i32` 量化，最多遺失
+/// 14 位元精確度和有風險的平台發散 IEEE-754 乘法。
 ///
-/// Backward-compat: if the JSON Number is a float (legacy script payload that
-/// hasn't migrated to `.raw()` emission yet), fall back to the old
-/// quantization. Once every script writer is on `.raw()` we can drop this
-/// branch (PHASE 2).
+/// 向後相容：如果 JSON 數字是浮點數（舊腳本有效負載
+/// 尚未遷移到 `.raw()` 發射），回退到舊的
+/// 量化。一旦每個腳本編寫者都使用“.raw()”，我們就可以刪除它
+/// 分支（第 2 階段）。
 #[inline]
 fn read_fixed_from_payload(value: &serde_json::Value) -> Fixed64 {
     if let Some(i) = value.as_i64() {
-        // PHASE 1de.2 lockstep-correct form: raw Fixed64 integer.
+        // PHASE 1de.2 鎖步正確形式：原始固定 64 整數。
         Fixed64::from_raw(i as i64)
     } else if let Some(f) = value.as_f64() {
-        // PHASE 2 legacy: f64 → Fixed64 quantization. Deprecated; remove once all
-        // script payload writers emit `.raw()` integers.
+        // 階段 2 遺留：f64 → 固定 64 量化。已棄用；全部刪除一次
+        // 腳本有效負載編寫器發出“.raw()”整數。
         Fixed64::from_raw((f * 1024.0) as i64)
     } else {
         Fixed64::ZERO
@@ -68,7 +68,7 @@ impl BuffStore {
     /// 新增或刷新 buff。若已存在：duration 取 max、payload 依 should_replace
     /// 策略決定是否覆寫——例如 slow 採單一 instance（buff_id = "slow"），
     /// 由 payload 的 `slow_factor` 欄位驅動「強蓋弱」比較（見上方 Reserved
-    /// payload conventions）。
+    /// 負載約定）。
     pub fn add(&mut self, entity: Entity, buff_id: &str, duration: Fixed64, payload: Value) {
         let key = (entity, buff_id.to_string());
         match self.buffs.get_mut(&key) {
@@ -182,7 +182,7 @@ impl BuffStore {
 
     fn index_inc(&mut self, entity: Entity, key: &str) {
         let inner = self.entities_by_key.entry(key.to_string()).or_default();
-        *inner.entry(entity).or_insert(0) += 1;
+        * inner.entry(實體).or_insert(0) += 1;
     }
 
     fn index_dec(&mut self, entity: Entity, key: &str) {
@@ -211,8 +211,8 @@ impl BuffStore {
 
     /// 加法聚合：對 entity 身上所有 buff，若 `payload[stat]` 是數字則加總。
     /// 慣例：`_bonus` 後綴的 stat 用這個（例 `range_bonus`、`damage_bonus`）。
-    /// Phase 1de.2: payload prefers raw i32 (lockstep-correct); legacy f64 still
-    /// accepted via `read_fixed_from_payload` fallback.
+    /// 階段 1de.2：有效負載偏好原始 i32（鎖步正確）；傳統 f64 仍然
+    /// 透過「read_fixed_from_payload」後備接受。
     pub fn sum_add(&self, entity: Entity, stat: StatKey) -> Fixed64 {
         let key = stat.as_str();
         self.iter_for(entity)
@@ -224,8 +224,8 @@ impl BuffStore {
     /// 乘法聚合：對 entity 身上所有 buff，若 `payload[stat]` 是數字則連乘。
     /// 空集合回 1.0 (Fixed64::ONE)。慣例：`_multiplier` 後綴的 stat 用這個
     /// （例 `attack_speed_multiplier`、`move_speed_multiplier`）。
-    /// Phase 1de.2: payload prefers raw i32 (lockstep-correct); legacy f64 still
-    /// accepted via `read_fixed_from_payload` fallback.
+    /// 階段 1de.2：有效負載偏好原始 i32（鎖步正確）；傳統 f64 仍然
+    /// 透過「read_fixed_from_payload」後備接受。
     pub fn product_mult(&self, entity: Entity, stat: StatKey) -> Fixed64 {
         let key = stat.as_str();
         self.iter_for(entity)
@@ -251,7 +251,7 @@ impl BuffStore {
     /// 倒數所有 buff 並回傳過期的 `(Entity, buff_id, payload)` 清單。
     /// 呼叫端可依 payload 內容決定是否廣播（例：payload 含 move_speed_bonus
     /// 表示這是移速影響類 buff，要發 creep/S 還原訊息）。
-    /// Phase 1c.3: dt is Fixed64 seconds.
+    /// 階段 1c.3：dt 為固定 64 秒。
     pub fn tick(&mut self, dt: Fixed64) -> Vec<(Entity, String, Value)> {
         let mut expired = Vec::new();
         // 先收集 expired，避免 retain 內動態借 self（index_dec 也要 &mut self）
@@ -347,16 +347,16 @@ mod tests {
         s.add(e, "buff1", fx(5.0), json!({ "k": 1.0 }));
         s.add(e, "buff2", fx(5.0), json!({ "k": 2.0 }));
 
-        // both present — entity still in index
+        // 兩者都存在 - 實體仍在索引中
         assert_eq!(s.entities_with_key("k").count(), 1);
 
         s.remove(e, "buff1");
-        // one still left → still indexed
+        // 還剩下一個 → 仍然被索引
         let found: Vec<Entity> = s.entities_with_key("k").collect();
         assert_eq!(found, vec![e], "after removing 1 of 2, entity should still be indexed");
 
         s.remove(e, "buff2");
-        // both gone → not indexed
+        // 都消失了 → 未編入索引
         assert!(s.entities_with_key("k").next().is_none());
     }
 
@@ -376,15 +376,15 @@ mod tests {
 
     #[test]
     fn read_fixed_from_payload_prefers_raw_i64() {
-        // Phase 1de.2: integer payload → raw Fixed64 (lockstep-correct).
-        // 0.5 in Fixed64 raw = 512.
+        // 階段 1de.2：整數有效負載 → 原始固定 64（鎖步正確）。
+        // 0.5（固定 64 原始資料 = 512）。
         let v = serde_json::json!(512);
         assert_eq!(read_fixed_from_payload(&v), Fixed64::from_raw(512));
     }
 
     #[test]
     fn read_fixed_from_payload_legacy_f64_fallback() {
-        // Backward compat: float payload still parsed via *1024 quantization.
+        // 向後相容：浮點有效負載仍然透過 *1024 量化進行解析。
         let v = serde_json::json!(0.5);
         assert_eq!(read_fixed_from_payload(&v), Fixed64::from_raw(512));
     }
@@ -401,9 +401,9 @@ mod tests {
     fn sum_add_handles_mixed_raw_and_legacy_encodings() {
         let mut s = BuffStore::new();
         let e = ent(1, 1);
-        // Old script (legacy f64): 0.3 → raw 307
+        // 舊腳本（舊版 f64）：0.3 → 原始 307
         s.add(e, "old_buff", fx(5.0), json!({ "move_speed_bonus": 0.3 }));
-        // New script (raw i32): 0.2 → raw 204
+        // 新腳本（原始 i32）：0.2 → 原始 204
         s.add(e, "new_buff", fx(5.0), json!({ "move_speed_bonus": 204 }));
         let total = s.sum_add(e, StatKey::MoveSpeedBonus);
         // 307 + 204 = 511

@@ -1,5 +1,5 @@
-//! Parse script-abi source files using syn to extract ApiMethod lists and
-//! StatKey tables for the reference section.
+//! 使用 syn 解析 script-abi 原始檔以提取 ApiMethod 列表並
+//! 參考部分的 StatKey 表。
 
 use crate::lib::model::{ApiGroup, ApiMethod, ApiSpec, StatKey, StatSection};
 use anyhow::{Context, Result};
@@ -180,7 +180,7 @@ pub fn scan_stat_keys(_src: &str) -> Result<Vec<StatKey>> {
         })
         .collect();
 
-    // Silence unused-import warnings on StatKeyEnum (kept for future per-variant doc hooks).
+    // 靜默 StatKeyEnum 上未使用的導入警告（保留用於將來的每個變體文檔掛鉤）。
     let _ = std::marker::PhantomData::<StatKeyEnum>;
     Ok(out)
 }
@@ -191,10 +191,10 @@ mod tests {
 
     const FAKE: &str = r#"
         pub trait UnitScript: Send + Sync {
-            /// Called once when the entity is spawned.
+            /// 當實體生成時呼叫一次。
             fn on_spawn(&self, _e: EntityHandle, _w: &mut GameWorldDyn<'_>) {}
-            /// Called every tick.
-            /// `dt` is the tick delta in seconds.
+            /// 呼叫每一個蜱蟲。
+            /// `dt` 是以秒為單位的刻度增量。
             fn on_tick(&self, _e: EntityHandle, _dt: f32, _w: &mut GameWorldDyn<'_>) {}
         }
     "#;
@@ -220,7 +220,7 @@ mod tests {
         assert!(spec.world_methods.iter().any(|m| m.name == "get_final_armor"));
         assert!(spec.stat_keys.iter().any(|k| k.const_name == "PreattackBonusDamage"));
 
-        // Regression guard for I1: un-`----` sections must not end up as WorldLog
+        // I1 的回歸保護：un-`----` 部分不得以 WorldLog 結尾
         let armor = spec.world_methods.iter().find(|m| m.name == "get_final_armor")
             .expect("get_final_armor should be present");
         assert!(

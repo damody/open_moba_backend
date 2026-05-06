@@ -1,4 +1,4 @@
-//! Summon tick：
+//! 召喚勾選：
 //! 1. 倒數 `SummonedUnit.time_remaining`，歸零時 despawn（廣播 `unit/D` 清除渲染）。
 //! 2. 處理玩家對召喚物下的 MoveTarget：simple lerp 位移 + facing 更新，抵達後 remove。
 //!    召喚物的自動攻擊 / 追敵 AI 在 UnitScript::on_tick（script 端）跑，這裡只做
@@ -62,14 +62,14 @@ impl<'a> System<'a> for Sys {
             let dist = dist_sq.sqrt();
             if dist <= step {
                 pos.0 = mt.0;
-                *facing = Facing::from_rad_f32(dy.atan2(dx));
+                * 面向=面向::from_rad_f32(dy.atan2(dx));
                 arrived.push(e);
             } else {
                 let inv = 1.0 / dist;
                 let new_x = px + dx * inv * step;
                 let new_y = py + dy * inv * step;
                 *pos = Pos::from_xy_f32(new_x, new_y);
-                *facing = Facing::from_rad_f32(dy.atan2(dx));
+                * 面向=面向::from_rad_f32(dy.atan2(dx));
             }
         }
         for e in arrived {

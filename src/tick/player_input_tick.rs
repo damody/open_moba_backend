@@ -1,25 +1,25 @@
-//! Phase 3.4: drain `PendingPlayerInputs` each dispatcher tick.
+//! 階段 3.4：每次調度程式勾選時都會耗盡「PendingPlayerInputs」。
 //!
-//! The lockstep wire (or omfx sim_runner) writes a fresh map of
-//! `player_id → PlayerInput` into the resource on every TickBatch. This
-//! system consumes them (clearing the resource so stale inputs don't
-//! accumulate) and routes each variant to the appropriate game-side
-//! handler.
+//! 鎖步線（或 omfx sim_runner）寫入新的地圖
+//! 每個 TickBatch 上的資源中都包含「player_id → PlayerInput」。這
+//! 系統消耗它們（清除資源，這樣過時的輸入就不會
+//! 累積）並將每個變體路由到適當的遊戲端
+//! 處理程序。
 //!
-//! Phase 3.4 routing is intentionally a stub: every variant is logged at
-//! `trace` and otherwise dropped. Phase 4 will:
-//!   - `MoveTo`         → write `MoveTarget` on the player's hero entity.
-//!   - `CastAbility`    → enqueue an ability-script invocation through the
-//!                        existing `scripting::dispatch` boundary.
+//! 階段 3.4 路由有意成為一個存根：每個變體都記錄在
+//! `trace` 或以其他方式丟棄。第四階段將：
+//! - `MoveTo` → 在玩家的英雄實體上寫入`MoveTarget`。
+//! - `CastAbility` → 透過以下方式將能力腳本呼叫排入佇列
+//! 現有的“scripting::dispatch”邊界。
 //!   - `TowerPlace` /
-//!     `TowerUpgrade*` /
-//!     `TowerSell`      → route through `comp::game_processor::GameProcessor`
-//!                        which already implements every TD command.
-//!   - `ItemUse`        → route through the inventory effect pipeline.
+//! `塔升級*` /
+//! `TowerSell` → 透過 `comp::game_processor::GameProcessor` 路由
+//! 它已經實現了每個 TD 命令。
+//! - `ItemUse` → 透過庫存效果管道進行路由。
 //!
-//! The point of doing the consumer in Phase 3.4 (with a stub body) is that
-//! the dispatcher always drains the resource so the kcp lockstep wire test
-//! in Phase 3.5 doesn't see a leak.
+//! 在第 3.4 階段（使用存根主體）處理消費者的要點是
+//! 調度程序總是耗盡資源，因此 kcp 鎖步線路測試
+//! 在階段 3.5 中沒有看到洩漏。
 
 use specs::{Read, Write};
 
@@ -80,7 +80,7 @@ impl<'a> System<'a> for Sys {
 
 #[cfg(not(feature = "kcp"))]
 impl<'a> System<'a> for Sys {
-    // Non-kcp builds have an empty marker resource; nothing to drain.
+    // Non-kcp builds have an empty marker resource;沒有什麼可以排出的。
     type SystemData = specs::Read<'a, PendingPlayerInputs>;
 
     const NAME: &'static str = "player_input";
@@ -105,9 +105,9 @@ fn route_input(
 
     match input.action {
         Some(PlayerInputEnum::StartRound(_)) => {
-            // TD: client pressed "Start Round". Flip is_running so creep_wave_tick
-            // begins emitting the next wave. wave_start_time anchors per-creep
-            // delays at the moment the round started.
+            // TD：客戶按下「開始回合」。翻轉 is_running 所以 cree_wave_tick
+            // 開始發射下一波。 wave_start_time 每個蠕動錨點
+            // 回合開始時出現延誤。
             if !cw.is_running {
                 cw.is_running = true;
                 cw.wave_start_time = totaltime;
@@ -123,7 +123,7 @@ fn route_input(
             }
         }
         Some(PlayerInputEnum::NoOp(_)) => {
-            // Ack-only — keepalive heartbeat with no side effects.
+            // 僅確認 - 保持活動心跳，沒有副作用。
         }
         Some(PlayerInputEnum::MoveTo(m)) => {
             let (x, y) = m.target.map(|v| (v.x, v.y)).unwrap_or((0, 0));
@@ -131,12 +131,12 @@ fn route_input(
                 "player_input_tick: pid={} tick={} MoveTo target_raw=({}, {})",
                 player_id, tick, x, y,
             );
-            // Defer to PendingMoveQueue: writing MoveTarget on the player's
-            // hero needs join over (Hero, Faction) storages which the System
-            // already could do, but we keep the queue pattern for symmetry
-            // with TowerPlace/Sell/Upgrade/ItemUse — drained via
-            // `GameProcessor::drain_pending_moves` after dispatch on both
-            // host and replica.
+            // 遵循 PendingMoveQueue：將 MoveTarget 寫入玩家的佇列中
+            // 英雄需要加入系統儲存的（英雄、派系）
+            // 已經可以了，但是我們保持隊列模式的對稱性
+            // 與 TowerPlace/Sell/Upgrade/ItemUse — 透過
+            // 雙方調度後的“GameProcessor::drain_pending_moves”
+            // 主機和副本。
             let pos = omoba_sim::Vec2::new(
                 omoba_sim::Fixed64::from_raw(x as i64),
                 omoba_sim::Fixed64::from_raw(y as i64),
@@ -162,8 +162,8 @@ fn route_input(
                 c.ability_index,
                 c.target_entity
             );
-            // Phase 4: route to scripting::dispatch with the player's hero
-            // entity as the caster.
+            // 第 4 階段：使用玩家英雄編寫腳本::dispatch
+            // 實體作為施法者。
         }
         Some(PlayerInputEnum::TowerPlace(t)) => {
             let pos_raw = t.pos.as_ref();
@@ -172,11 +172,11 @@ fn route_input(
                 "player_input_tick: pid={} tick={} TowerPlace kind_id={} pos_raw=({}, {})",
                 player_id, tick, t.tower_kind_id, px, py,
             );
-            // Defer to PendingTowerSpawnQueue: spawn_td_tower needs &mut World
-            // (TowerTemplateRegistry lookup + entity creation + ScriptEvent::
-            // Spawn push) which a specs `System` can't borrow. The queue is
-            // drained right after dispatch on both host and replica via
-            // `GameProcessor::drain_pending_tower_spawns`.
+            // 遵循 PendingTowerSpawnQueue：spawn_td_tower 需要 &mut World
+            // （TowerTemplateRegistry 尋找 + 實體建立 + ScriptEvent::
+            // 產生推送），這是“系統”規格無法借用的。隊列是
+            // 在主機和副本上調度後立即耗盡
+            // `GameProcessor::drain_pending_tower_spawns`。
             let pos = omoba_sim::Vec2::new(
                 omoba_sim::Fixed64::from_raw(px as i64),
                 omoba_sim::Fixed64::from_raw(py as i64),
@@ -192,17 +192,17 @@ fn route_input(
                 "player_input_tick: pid={} tick={} TowerUpgrade eid={} path={} level={}",
                 player_id, tick, u.tower_entity_id, u.path, u.level,
             );
-            // Defer to PendingTowerUpgradeQueue: rule validation + Gold
-            // deduction + Tower.upgrade_levels write + BuffStore add for
-            // StatMod effects all need `&mut World` which a specs `System`
-            // can't borrow. Drained right after dispatch on both host and
-            // replica via `GameProcessor::drain_pending_tower_upgrades`.
+            // 遵循 PendingTowerUpgradeQueue：規則驗證 + Gold
+            // 扣除 + Tower.upgrade_levels 寫入 + BuffStore 添加
+            // StatMod 效果都需要“&mut World”，其中一個規格為“System”
+            // 借不到。在主機和主機上發送後立即排空
+            // 透過“GameProcessor::drain_pending_tower_upgrades”複製。
             //
-            // `level` is treated as a hint by the handler — the actual
-            // target level is computed from the tower's current
-            // `upgrade_levels[path] + 1` so a stale client (one that hasn't
-            // yet observed the entity's upgrade_levels via snapshot) still
-            // produces the correct result.
+            // `level` 被處理程序視為提示 - 實際的
+            // 目標液位是根據塔的當前電流計算的
+            // `upgrade_levels[path] + 1` 所以一個過時的客戶端（一個沒有
+            // 但仍透過快照觀察到實體的upgrade_levels）
+            // 產生正確的結果。
             upgrade_q.requests.push(crate::comp::PendingTowerUpgrade {
                 tower_entity_id: u.tower_entity_id,
                 path: u.path as u8,
@@ -215,12 +215,12 @@ fn route_input(
                 "player_input_tick: pid={} tick={} TowerSell tower_entity_id={}",
                 player_id, tick, s.tower_entity_id,
             );
-            // Defer to PendingTowerSellQueue: refund + entity delete + buff
-            // cleanup all need `&mut World` (read TowerTemplateRegistry +
-            // TowerUpgradeRegistry, write Gold storage, write BuffStore,
-            // delete entity) which a specs `System` can't borrow. Drained
-            // right after dispatch on both host and replica via
-            // `GameProcessor::drain_pending_tower_sells`.
+            // 遵循 PendingTowerSellQueue：退款 + 實體刪除 + buff
+            // 清理所有需要 `&mut World` （閱讀 TowerTemplateRegistry +
+            // TowerUpgradeRegistry，寫入Gold存儲，寫入BuffStore，
+            // 刪除實體），這是「系統」規範無法借用的。瀝乾
+            // 在主機和副本上分派後立即透過
+            // `GameProcessor::drain_pending_tower_sells`。
             sell_q.requests.push(crate::comp::PendingTowerSell {
                 tower_entity_id: s.tower_entity_id,
                 owner_pid: player_id,
@@ -231,10 +231,10 @@ fn route_input(
                 "player_input_tick: pid={} tick={} ItemUse slot={} target_entity={:?}",
                 player_id, tick, i.item_slot, i.target_entity,
             );
-            // Defer to PendingItemUseQueue: ItemRegistry read + Inventory
-            // write + CProperty (HP / msd) write all need `&mut World`.
-            // Drained right after dispatch on both host and replica via
-            // `GameProcessor::drain_pending_item_uses`.
+            // 遵循 PendingItemUseQueue：ItemRegistry 讀取 + Inventory
+            // write + CProperty (HP / msd) 寫入所有需要的`&mut World`。
+            // 透過在主機和副本上調度後立即耗盡
+            // `GameProcessor::drain_pending_item_uses`。
             let target_pos = i.target_pos.as_ref().map(|v| {
                 omoba_sim::Vec2::new(
                     omoba_sim::Fixed64::from_raw(v.x as i64),

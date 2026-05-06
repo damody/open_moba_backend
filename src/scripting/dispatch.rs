@@ -1,8 +1,8 @@
-//! Drain `ScriptEventQueue` and dispatch hooks to the matching `UnitScript`s.
+//! 排空「ScriptEventQueue」並將鉤子分派到符合的「UnitScript」。
 //!
-//! This runs on the main thread with exclusive `&mut World` (E1), so
-//! `WorldAdapter` does not need any locking. Every hook invocation is
-//! wrapped in `catch_unwind` (P1 — panic → log + skip).
+//! 它在具有獨佔“&mut World”（E1）的主線程上運行，因此
+//! `WorldAdapter` 不需要任何鎖定。每個鉤子調用都是
+//! 包裹在 `catch_unwind` 中（P1 — 恐慌 → 日誌 + 跳過）。
 
 use abi_stable::{
     RMut,
@@ -25,8 +25,8 @@ use super::registry::ScriptRegistry;
 use super::tag::ScriptUnitTag;
 use super::world_adapter::{AdapterCache, WorldAdapter};
 
-/// Main entry point — call once per tick, AFTER all parallel tick systems
-/// have finished and BEFORE `world.maintain()`.
+/// 主入口點 - 在所有平行報價系統之後，每個報價調用一次
+/// 已經完成並且在 `world.maintain()` 之前。
 ///
 /// 每 tick 先對所有有 `ScriptUnitTag` 的 entity 派發 `on_tick`，然後 drain
 /// `ScriptEventQueue` 處理其他 hooks（`AttackHit`, `Death` 等）。
@@ -53,13 +53,13 @@ pub fn run_script_dispatch(
         return;
     }
 
-    // One adapter per tick; RNG is local to this dispatch pass for
-    // deterministic replay (seed driven by tick counter upstream).
+    // 每個刻度一個適配器； RNG 對此調度通道而言是本地的
+    // 確定性重播（由上游滴答計數器驅動的種子）。
     // Cached storages 在這個 adapter 生命週期內共用，所有 GameWorld API 不再
     // 重新 borrow specs storage（單筆 4.17µs → 預期 ~1.5µs）。
     let mut adapter = WorldAdapter::new(&*world, rng_seed, mqtx);
 
-    // Dispatch queued events first（Spawn / AttackHit / Damage / Death / ...）
+    // 首先調度排隊事件（Spawn / AttackHit / Damage / Death / ...）
     // 這樣新 spawn 的塔 on_spawn 能先初始化 stats，第一次 on_tick 看得到正確值
     let event_count = events.len();
     let event_t = Instant::now();
@@ -133,12 +133,12 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
                     Some(h) => RSome(h),
                     None => RNone,
                 },
-                // Phase 1c.3: amount is already Fixed64 (ScriptEvent::Damage migrated 1c.2).
+                // 階段 1c.3：金額已固定64（ScriptEvent::Damage 已遷移 1c.2）。
                 amount,
                 kind,
             };
 
-            // 1) victim.on_damage_taken (may mutate info.amount)
+            // 1）victim.on_damage_taken（可能會改變info.amount）
             if let Some(uid) = script_id_of(&adapter.cache, victim) {
                 if let Some(script) = registry.get(&uid) {
                     let mut world_dyn = world_dyn_of(adapter);
@@ -151,7 +151,7 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
                 }
             }
 
-            // 2) attacker.on_damage_dealt (reads final amount)
+            // 2）attacker.on_damage_dealt（讀取最終金額）
             if let (Some(att), Some(att_h)) = (attacker, attacker_handle_opt) {
                 if let Some(uid) = script_id_of(&adapter.cache, att) {
                     if let Some(script) = registry.get(&uid) {
@@ -166,8 +166,8 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
                 }
             }
 
-            // 3) host applies final amount
-            // Outcome::Damage redesign in Phase 2 KCP tag rework.
+            // 3) 主辦單位申請最終金額
+            // 結果::第二階段 KCP 標籤返工中的損壞重新設計。
             apply_damage(adapter, victim, info.amount.to_f32_for_render(), info.kind);
         }
 
@@ -182,12 +182,12 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
                 return;
             }
 
-            // Cooldown / Passive gate：
+            // 冷卻/被動門：
             // - Passive 技能不該走 SkillCast 路徑（on_learn 已處理）
             // - Active / Toggle / Ultimate：若仍在 CD 中直接拒絕
             if let Some(hero) = adapter.cache.hero.get(caster) {
                 if hero.is_on_cooldown(&skill_id) {
-                    // NOTE: log uses f32 boundary — Fixed64 has no Display.
+                    // 注意：log 使用 f32 邊界 — Fix64 沒有顯示。
                     log::info!(
                         "[scripting] skill '{}' blocked — on cooldown ({:.1}s remaining)",
                         skill_id,
@@ -209,7 +209,7 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
             let caster_handle = WorldAdapter::entity_to_handle(caster);
             let target_abi = match target {
                 SkillTarget::Entity(e) => Target::Entity(WorldAdapter::entity_to_handle(e)),
-                // Phase 1c.3: SkillTarget::Point now { x: Fixed64, y: Fixed64 } (Phase 1c.2).
+                // 階段 1c.3：SkillTarget::Point now { x：Fixed64，y：Fixed64 }（階段 1c.2）。
                 SkillTarget::Point { x, y } => Target::Point(Vec2 { x, y }),
                 SkillTarget::None => Target::None,
             };
@@ -278,7 +278,7 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
                 // 執行成功後啟動 CD；失敗不扣 CD（讓玩家重試）
                 if exec_ok && cd_seconds > 0.0 {
                     if let Some(hero) = adapter.cache.hero.get_mut(caster) {
-                        // ability metadata redesign in Phase 2 KCP tag rework.
+                        // 階段 2 KCP 標籤重新設計中的能力元資料重新設計。
                         hero.start_cooldown(&skill_id, Fixed64::from_raw((cd_seconds * 1024.0) as i64));
                     }
                 }
@@ -374,7 +374,7 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
 
         ScriptEvent::AttackLanded { attacker, victim, damage } => {
             let victim_handle = WorldAdapter::entity_to_handle(victim);
-            // Phase 1c.3: damage already Fixed64 (ScriptEvent migrated 1c.2).
+            // 階段 1c.3：損壞已修復 64（ScriptEvent 遷移到 1c.2）。
             with_script(adapter, registry, attacker, |script, handle, world_dyn| {
                 script.on_attack_landed(handle, victim_handle, damage, world_dyn);
             });
@@ -395,14 +395,14 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
         }
 
         ScriptEvent::HealthGained { e, amount } => {
-            // Phase 1c.3: amount already Fixed64.
+            // 階段 1c.3：金額已固定64。
             with_script(adapter, registry, e, |script, handle, world_dyn| {
                 script.on_health_gained(handle, amount, world_dyn);
             });
         }
 
         ScriptEvent::ManaGained { e, amount } => {
-            // Phase 1c.3: amount already Fixed64.
+            // 階段 1c.3：金額已固定64。
             with_script(adapter, registry, e, |script, handle, world_dyn| {
                 script.on_mana_gained(handle, amount, world_dyn);
             });
@@ -410,7 +410,7 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
 
         ScriptEvent::SpentMana { caster, cost, ability_id } => {
             let id_clone = ability_id.clone();
-            // Phase 1c.3: cost already Fixed64.
+            // 階段 1c.3：成本已固定64。
             with_script(adapter, registry, caster, move |script, handle, world_dyn| {
                 script.on_spent_mana(handle, cost, (&*id_clone).into(), world_dyn);
             });
@@ -421,7 +421,7 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
                 Some(h) => RSome(h),
                 None => RNone,
             };
-            // Phase 1c.3: amount already Fixed64.
+            // 階段 1c.3：金額已固定64。
             with_script(adapter, registry, target, move |script, handle, world_dyn| {
                 script.on_heal_received(handle, amount, source_opt, world_dyn);
             });
@@ -452,7 +452,7 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
             let kind_clone = order_kind.clone();
             let target_abi = match target {
                 SkillTarget::Entity(t) => Target::Entity(WorldAdapter::entity_to_handle(t)),
-                // Phase 1c.3: SkillTarget::Point now { x: Fixed64, y: Fixed64 } (Phase 1c.2).
+                // 階段 1c.3：SkillTarget::Point now { x：Fixed64，y：Fixed64 }（階段 1c.2）。
                 SkillTarget::Point { x, y } => Target::Point(Vec2 { x, y }),
                 SkillTarget::None => Target::None,
             };
@@ -463,12 +463,12 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
     }
 }
 
-/// Look up the `ScriptUnitTag` for an entity, returning its `unit_id`.
+/// 尋找實體的“ScriptUnitTag”，並返回其“unit_id”。
 fn script_id_of(cache: &AdapterCache, e: Entity) -> Option<String> {
     cache.tags.get(e).map(|t| t.unit_id.clone())
 }
 
-/// Helper: fetch script for an entity and invoke `f` with (script, handle, world).
+/// Helper：取得實體的腳本並使用（腳本、句柄、世界）呼叫「f」。
 fn with_script<F>(
     adapter: &mut WorldAdapter<'_>,
     registry: &ScriptRegistry,
@@ -493,20 +493,20 @@ fn with_script<F>(
     }
 }
 
-/// Build a `GameWorldDyn` borrowing the adapter for one hook call.
+/// 建構一個“GameWorldDyn”，借用適配器進行一次鉤子呼叫。
 fn world_dyn_of<'a>(adapter: &'a mut WorldAdapter<'_>) -> GameWorldDyn<'a> {
     GameWorld_TO::from_ptr(RMut::new(adapter), TD_Opaque)
 }
 
-/// Host side of damage application (mirrors what `damage_tick` does for
-/// non-scripted units, kept minimal for the PoC).
+/// 損壞應用程式的主機端（鏡像“damage_tick”的作用
+/// 非腳本單元，在 PoC 中保持最少）。
 ///
-/// NOTE — for PoC-1 the host damage pipeline (`Outcome::Damage` →
-/// `CombatEventHandler::handle_damage`) is still the authoritative path.
-/// `ScriptEvent::Damage` is not currently enqueued, so this helper only
-/// exists for future use when we wire scripts into the damage pipeline.
+/// 注意 - 對於 PoC-1 主機損壞管道（`Outcome::Damage` →
+/// `CombatEventHandler::handle_damage`) 仍然是權威路徑。
+/// `ScriptEvent::Damage` 目前未排隊，因此僅此幫助器
+/// 當我們將腳本連接到損壞管道時，它會存在以供將來使用。
 fn apply_damage(adapter: &mut WorldAdapter<'_>, victim: Entity, amount: f32, _kind: DamageKind) {
-    // Phase 1c.3: CProperty.hp is Fixed64 (Phase 1c.2); convert at boundary from f32 amount.
+    // 階段 1c.3：CProperty.hp 為 Fix64（階段 1c.2）；在邊界處從 f32 數量轉換。
     let amount_fx = Fixed64::from_raw((amount * 1024.0) as i64);
     if let Some(p) = adapter.cache.cprop.get_mut(victim) {
         let new_hp = p.hp - amount_fx;

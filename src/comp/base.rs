@@ -1,16 +1,16 @@
-#![feature(fundamental)]
+# ![功能（基本）]
 
 
 #[cfg(feature = "tracy")] pub use tracy_client;
 
-/// Allows downstream crates to conditionally do things based on whether tracy
-/// is enabled without having to expose a cargo feature themselves.
+/// 允許下游 crates 根據 tracy 是否有條件地執行操作
+/// 無需公開貨物功能即可啟用。
 pub const TRACY_ENABLED: bool = cfg!(feature = "tracy");
 
 #[cfg(not(feature = "tracy"))]
 macro_rules! plot {
     ($name:expr, $value:expr) => {
-        // type check
+        // 類型檢查
         let _: f64 = $value;
     };
 }
@@ -23,7 +23,7 @@ macro_rules! plot {
     }};
 }
 
-// Panic in debug or tests, warn in release
+// 調試或測試時出現恐慌，發佈時發出警告
 
 macro_rules! dev_panic {
     ($msg:expr) => {
@@ -76,13 +76,13 @@ macro_rules! span {
         let $guard_name = span.enter();
     };
     ($guard_name:tt, $name:expr) => {
-        // Directly use `tracy_client` to decrease overhead for better timing
+        // 直接使用“tracy_client”來減少開銷以獲得更好的時序
         let $guard_name = $crate::tracy_client::Span::new(
             $name,
             "",
             module_path!(),
             line!(),
-            // No callstack since this has significant overhead
+            // 沒有呼叫堆疊，因為這會產生很大的開銷
             0,
         );
     };
@@ -96,21 +96,21 @@ pub struct ProfSpan(pub tracy_client::Span);
 #[cfg(not(feature = "tracy"))]
 pub struct ProfSpan;
 
-/// Like the span macro but only used when profiling and not in regular tracing
-/// operations
+/// 與 span 巨集類似，但僅在分析時使用，而不是在常規追蹤中使用
+/// 營運
 
 #[cfg(not(feature = "tracy"))]
 macro_rules! prof_span {
     ($guard_name:tt, $name:expr) => {
         let $guard_name = $crate::ProfSpan;
     };
-    // Shorthand for when you want the guard to just be dropped at the end of the scope instead
-    // of controlling it manually
+    // 當您希望將防護裝置放在範圍末端時的簡寫
+    // 手動控制它
     ($name:expr) => {};
 }
 pub(crate) use prof_span;
-/// Like the span macro but only used when profiling and not in regular tracing
-/// operations
+/// 與 span 巨集類似，但僅在分析時使用，而不是在常規追蹤中使用
+/// 營運
 
 #[cfg(feature = "tracy")]
 macro_rules! prof_span {
@@ -120,18 +120,18 @@ macro_rules! prof_span {
             "",
             module_path!(),
             line!(),
-            // No callstack since this has significant overhead
+            // 沒有呼叫堆疊，因為這會產生很大的開銷
             0,
         ));
     };
-    // Shorthand for when you want the guard to just be dropped at the end of the scope instead
-    // of controlling it manually
+    // 當您希望將防護裝置放在範圍末端時的簡寫
+    // 手動控制它
     ($name:expr) => {
         $crate::prof_span!(_guard, $name);
     };
 }
 
-/// There's no guard, but really this is actually the guard
+/// 沒有警衛，但這確實是警衛
 pub struct GuardlessSpan {
     span: tracing::Span,
     subscriber: tracing::Dispatch,

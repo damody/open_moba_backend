@@ -1,5 +1,5 @@
-//! Load base_content.dll via abi_stable, extract unit ids + tower_metadata
-//! and ability definitions.
+//! 透過abi_stable載入base_content.dll，提取單元id + tower_metadata
+//! 和能力定義。
 
 use crate::lib::model::{AbilityEntry, TowerStats, UnitKind};
 use abi_stable::library::RootModule;
@@ -34,9 +34,9 @@ pub fn load(dll_path: &Path) -> Result<DllData> {
     let mut units = Vec::new();
     for def in units_fn() {
         let id = def.unit_id.to_string();
-        // gen_docs_lib::model::TowerStats is a reporting struct (f32 for HTML
-        // display); convert from ABI Fixed64 at this boundary.
-        // NOTE: render-only HTML reporting struct; intentional f32 boundary at gen-docs sink.
+        // gen_docs_lib::model::TowerStats 是一個報告結構（f32 用於 HTML
+        // 展示）;在此邊界處從 ABI Fix64 轉換。
+        // 注意：僅渲染 HTML 報告結構； gen-docs 接收器有意設定 f32 邊界。
         let tower = def.script.tower_metadata().into_option().map(|tm| TowerStats {
             atk: tm.atk.to_f32_for_render(),
             asd_interval: tm.asd_interval.to_f32_for_render(),

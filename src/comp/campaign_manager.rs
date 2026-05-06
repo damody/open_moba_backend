@@ -5,7 +5,7 @@ use crate::comp::*;
 use crate::ue4::import_campaign::CampaignData;
 use omoba_sim::Fixed64;
 
-/// NOTE: boundary helper retained — Unit hp/damage are i32 by design and CircularVision is render-side fog of war.
+/// 注意：保留邊界助手 - 單位生命值/傷害按設計為 i32，而 CircularVision 是渲染端戰爭迷霧。
 #[inline]
 fn f32_to_fx(v: f32) -> Fixed64 {
     Fixed64::from_raw((v * omoba_sim::fixed::SCALE as f32) as i64)
@@ -96,8 +96,8 @@ impl CampaignManager {
             hero_data.abilities.clone()
         };
 
-        // NOTE: Unit.{current_hp, max_hp, base_damage} are i32 by design (integer game values);
-        // convert from Fixed64 template at this boundary.
+        // 注意：Unit.{current_hp, max_hp, base_damage} 設計為 i32（整數遊戲值）；
+        // 在此邊界處從固定64 模板轉換。
         let max_hp_i = hero.get_max_hp().to_f32_for_render() as i32;
         let base_damage_i = hero.get_base_damage().to_f32_for_render() as i32;
         let attack_range_fx = s.attack_range;
@@ -127,7 +127,7 @@ impl CampaignManager {
         let hero_faction = Faction::new(FactionType::Player, 0);
         let hero_pos = Pos::from_xy_f32(0.0, 0.0);
         let hero_vel = Vel::zero();
-        // NOTE: CircularVision is client-side render hint (fog of war); per-tick rebuild from authoritative Pos keeps it cross-client consistent.
+        // 注意：CircularVision 是客戶端渲染提示（戰爭迷霧）；從權威 Pos 進行的每次報價重建可保持跨客戶端的一致性。
         let hero_vision = CircularVision::new(
             (attack_range_fx + Fixed64::from_i32(300)).to_f32_for_render(),
             30.0,
@@ -164,7 +164,7 @@ impl CampaignManager {
     fn create_hero_attack(hero: &Hero, attack_range: Fixed64) -> TAttack {
         let base_damage = hero.get_base_damage();
         let attack_speed_multiplier = hero.get_attack_speed_multiplier();
-        // 1.0 / attack_speed_multiplier — Fixed64 division.
+        // 1.0 / Attack_speed_multiplier — 固定 64 格。
         let attack_interval = Fixed64::ONE / attack_speed_multiplier;
 
         TAttack {
@@ -215,7 +215,7 @@ impl CampaignManager {
                     bullet_speed: Fixed64::from_i32(800),
                 };
 
-                // NOTE: CircularVision is client-side render hint (fog of war); per-tick rebuild from authoritative Pos keeps it cross-client consistent.
+                // 注意：CircularVision 是客戶端渲染提示（戰爭迷霧）；從權威 Pos 進行的每次報價重建可保持跨客戶端的一致性。
                 let enemy_vision = CircularVision::new(
                     (unit.attack_range + Fixed64::from_i32(150)).to_f32_for_render(),
                     20.0,

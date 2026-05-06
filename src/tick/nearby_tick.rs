@@ -110,15 +110,15 @@ impl<'a> System<'a> for Sys {
                 );
                 
             // 合併所有實體到 creep 索引中（向後兼容）— 走 CollisionIndex::rebuild_from
-            // NOTE: Searcher / spatial index uses f32 internally for instant_distance lib compat.
-            // Cache rebuilt per tick from authoritative Pos; entries sorted by Entity id below
-            // for deterministic insertion order across par_join. Final distance check in caller is Fixed64.
+            // 注意：搜尋器/空間索引在內部使用 f32 來實作 instant_distance lib 相容性。
+            // 根據權威 Pos 在每次更新時重建快取；下面按實體 ID 排序的條目
+            // 用於 par_join 的確定性插入順序。呼叫者的最終距離檢查是固定64。
             let mut combined: Vec<(Entity, vek::Vec2<f32>)> = unit_ents.iter().zip(unit_pos.iter())
                 .map(|(e, p)| { let (x, y) = p.xy_f32(); (*e, vek::Vec2::new(x, y)) })
                 .chain(creep_ents.iter().zip(creep_pos.iter()).map(|(e, p)| { let (x, y) = p.xy_f32(); (*e, vek::Vec2::new(x, y)) }))
                 .collect();
-            // Determinism: par_join collect order is non-deterministic; sort by Entity id to
-            // ensure cross-host insertion order into the spatial index is identical.
+            // 確定性：par_join 收集順序是不確定的；依實體 id 排序
+            // 確保空間索引的跨主機插入順序相同。
             combined.sort_by_key(|(e, _)| (e.id(), e.gen().id()));
             tw.searcher.creep.rebuild_from(combined);
 
@@ -157,13 +157,13 @@ impl<'a> System<'a> for Sys {
                     },
                 );
 
-            // NOTE: Searcher / spatial index uses f32 internally for instant_distance lib compat.
-            // Cache rebuilt per tick from authoritative Pos; entries sorted by Entity id below
-            // for deterministic insertion order across par_join. Final distance check in caller is Fixed64.
+            // 注意：搜尋器/空間索引在內部使用 f32 來實作 instant_distance lib 相容性。
+            // 根據權威 Pos 在每次更新時重建快取；下面按實體 ID 排序的條目
+            // 用於 par_join 的確定性插入順序。呼叫者的最終距離檢查是固定64。
             let mut hero_items: Vec<(Entity, vek::Vec2<f32>)> = hero_ents.iter().zip(hero_pos.iter())
                 .map(|(e, p)| { let (x, y) = p.xy_f32(); (*e, vek::Vec2::new(x, y)) })
                 .collect();
-            // Determinism: par_join collect order is non-deterministic; sort by Entity id.
+            // 確定性：par_join 收集順序是不確定的；依實體 ID 排序。
             hero_items.sort_by_key(|(e, _)| (e.id(), e.gen().id()));
             tw.searcher.hero.rebuild_from(hero_items);
         }
@@ -201,13 +201,13 @@ impl<'a> System<'a> for Sys {
                 );
             if tw.searcher.tower.is_dirty() {
                 let time1 = Instant::now();
-                // NOTE: Searcher / spatial index uses f32 internally for instant_distance lib compat.
-            // Cache rebuilt per tick from authoritative Pos; entries sorted by Entity id below
-            // for deterministic insertion order across par_join. Final distance check in caller is Fixed64.
+                // 注意：搜尋器/空間索引在內部使用 f32 來實作 instant_distance lib 相容性。
+            // 根據權威 Pos 在每次更新時重建快取；下面按實體 ID 排序的條目
+            // 用於 par_join 的確定性插入順序。呼叫者的最終距離檢查是固定64。
                 let mut tower_items: Vec<(Entity, vek::Vec2<f32>)> = ents.iter().zip(pos.iter())
                     .map(|(e, p)| { let (x, y) = p.xy_f32(); (*e, vek::Vec2::new(x, y)) })
                     .collect();
-                // Determinism: par_join collect order is non-deterministic; sort by Entity id.
+                // 確定性：par_join 收集順序是不確定的；依實體 ID 排序。
                 tower_items.sort_by_key(|(e, _)| (e.id(), e.gen().id()));
                 tw.searcher.tower.rebuild_from(tower_items);
                 let time2 = Instant::now();

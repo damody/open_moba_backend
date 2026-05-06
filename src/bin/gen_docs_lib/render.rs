@@ -1,4 +1,4 @@
-//! Render Catalog into a single self-contained HTML string using maud.
+//! 使用 maud 將 Catalog 渲染為單一獨立的 HTML 字串。
 
 use crate::lib::model::{Catalog, UnitKind};
 use crate::lib::model::UnitEntry;
@@ -238,7 +238,7 @@ fn ability_card(a: &crate::lib::model::AbilityEntry) -> Markup {
     }
 }
 fn section_api(c: &Catalog) -> Markup {
-    // Compute which methods are actually used (to dim unused)
+    // 計算實際使用了哪些方法（調暗未使用的方法）
     let used: std::collections::HashSet<&str> = c.units.iter()
         .flat_map(|u| u.world_calls.iter().map(|s| s.as_str()))
         .collect();
@@ -314,7 +314,7 @@ fn section_stat_keys(c: &Catalog) -> Markup {
 }
 
 fn section_coverage(c: &Catalog) -> Markup {
-    // Only units with impl data
+    // 僅具有 impl 資料的單位
     let units: Vec<&UnitEntry> = c.units.iter()
         .filter(|u| !u.overrides.is_empty() || !u.world_calls.is_empty())
         .collect();

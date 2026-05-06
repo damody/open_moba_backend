@@ -8,21 +8,21 @@ use omoba_sim::{Fixed64, Angle};
 pub struct Facing(pub Angle);
 
 impl Facing {
-    /// Boundary helper: construct from radian f32. Used at script / config / spawn boundary.
-    /// NOTE: legacy f32-radian helper retained as transition utility for wire-format / config read boundary.
+    /// 邊界助手：從弧度 f32 構造。用於腳本/配置/產生邊界。
+    /// 注意：傳統的 f32 弧度幫助程式保留為線格式/配置讀取邊界的轉換實用程式。
     #[inline]
     pub fn from_rad_f32(rad: f32) -> Self {
         let ticks = (rad / (2.0 * std::f32::consts::PI)
-            * omoba_sim::trig::TAU_TICKS as f32).round() as i32;
+            * omoba_sim::trig::TAU_TICKS 作為 f32).round() 作為 i32;
         Facing(Angle::from_ticks(ticks))
     }
 
-    /// Boundary helper: lossy radian projection. Used at wire-format / battle-tick sites.
-    /// NOTE: legacy f32-radian projection retained for wire-format / log boundary; sim-side uses Angle natively.
+    /// 邊界助手：有損弧度投影。用於有線格式/戰鬥蜱站點。
+    /// 注意：傳統的 f32 弧度投影保留用於線格式/對數邊界； sim-side 原生使用 Angle。
     #[inline]
     pub fn rad_f32(&self) -> f32 {
         (self.0.ticks() as f32 / omoba_sim::trig::TAU_TICKS as f32)
-            * 2.0 * std::f32::consts::PI
+            * 2.0 * std::f32::常數::PI
     }
 }
 
@@ -67,9 +67,9 @@ impl Component for TurnSpeed {
 
 /// 將角度標準化到 [-π, π]
 ///
-/// **Phase 1b.4 deprecation note**: legacy f32-radian helper kept only for
-/// `hero_tick.rs` / `tower_tick.rs` until those migrate to `Angle`. New code
-/// must use `omoba_sim::trig::Angle` arithmetic + `angle_rotate_toward` instead.
+/// **階段 1b.4 棄用說明**：遺留的 f32 弧度助手僅保留用於
+/// `hero_tick.rs` / `tower_tick.rs` 直到它們遷移到 `Angle`。新程式碼
+/// 必須使用 `omoba_sim::trig::Angle` 算術 + `angle_rotate_toward` 來代替。
 pub fn normalize_angle(a: f32) -> f32 {
     let tau = std::f32::consts::TAU;
     let mut a = a % tau;
@@ -83,9 +83,9 @@ pub fn normalize_angle(a: f32) -> f32 {
 
 /// 往 `target` 旋轉至多 `max_step` 弧度，回傳新角度。f32 radians, legacy.
 ///
-/// **Phase 1b.4 deprecation note**: f32-radian helper kept only for `hero_tick.rs` /
-/// `tower_tick.rs` until those migrate to `Angle`. New code must use
-/// `omoba_sim::trig::angle_rotate_toward` instead.
+/// **階段 1b.4 棄用說明**：僅為 `hero_tick.rs` / 保留 f32 弧度幫助程序
+/// `tower_tick.rs` 直到遷移到 `Angle`。新代碼必須使用
+/// 改為 `omoba_sim::trig::angle_rotate_toward`。
 pub fn rotate_toward(current: f32, target: f32, max_step: f32) -> f32 {
     let diff = normalize_angle(target - current);
     if diff.abs() <= max_step {
@@ -100,6 +100,6 @@ pub fn rotate_toward(current: f32, target: f32, max_step: f32) -> f32 {
 /// 可移動角度門檻：面向與目標方向夾角 < 30° 才能移動（f32-radian, legacy）
 pub const MOVE_ANGLE_THRESHOLD: f32 = std::f32::consts::FRAC_PI_6; // 30° = π/6
 
-/// Angle-tick equivalent of `MOVE_ANGLE_THRESHOLD`. 30° = `TAU_TICKS / 12`.
-/// Used by tick systems that are on Angle (creep_tick, hero_move_tick).
+/// 相當於“MOVE_ANGLE_THRESHOLD”的角度刻度。 30° = `TAU_TICKS / 12`。
+/// 由角度上的刻度系統使用（creep_tick、hero_move_tick）。
 pub const MOVE_ANGLE_THRESHOLD_TICKS: i32 = omoba_sim::trig::TAU_TICKS / 12;

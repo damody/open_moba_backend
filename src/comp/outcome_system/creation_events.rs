@@ -19,7 +19,7 @@ impl CreationEventHandler {
         mqtx: &Sender<OutboundMsg>,
         cd: CreepData,
     ) -> Vec<Outcome> {
-        // NOTE: log uses f32 boundary — Fixed64 has no Display.
+        // 注意：log 使用 f32 邊界 — Fix64 沒有顯示。
         let pos_x_f = cd.pos.x.to_f32_for_render();
         let pos_y_f = cd.pos.y.to_f32_for_render();
         info!("創建小兵於位置: ({}, {})", pos_x_f, pos_y_f);
@@ -49,7 +49,7 @@ impl CreationEventHandler {
         let msd_f = msd.to_f32_for_render();
         let radius_f = radius.to_f32_for_render();
 
-        // Payload shape matches client expectations (top-level position/hp/max_hp/name)
+        // 有效負載形狀符合客戶期望（頂級位置/hp/max_hp/name）
         let payload = json!({
             "entity_id": entity.id(),
             "id": entity.id(),
@@ -61,8 +61,8 @@ impl CreationEventHandler {
             "collision_radius": radius_f,
         });
 
-        // Phase 5.2: legacy 0x02 GameEvent producer cut. ECS spawn above is
-        // authoritative; lockstep clients hydrate via render_bridge.
+        // 階段 5.2：遺留 0x02 GameEvent 製作人刪減。上面的 ECS 生成是
+        // 權威性;鎖步客戶端透過 render_bridge 進行水合。
         let _ = (mqtx, payload, hp_f, mhp_f, msd_f, radius_f, creep_name);
 
         // 小兵創建成功，無需產生額外事件
@@ -77,7 +77,7 @@ impl CreationEventHandler {
         pos: omoba_sim::Vec2,
         td: TowerData,
     ) -> Vec<Outcome> {
-        // NOTE: log uses f32 boundary — Fixed64 has no Display.
+        // 注意：log 使用 f32 邊界 — Fix64 沒有顯示。
         let pos_x_f = pos.x.to_f32_for_render();
         let pos_y_f = pos.y.to_f32_for_render();
         info!("創建塔於位置: ({}, {})", pos_x_f, pos_y_f);
@@ -99,7 +99,7 @@ impl CreationEventHandler {
             obj.insert("pos".to_owned(), json!({"x": pos_x_f, "y": pos_y_f}));
         }
 
-        // Phase 5.2: legacy 0x02 GameEvent producer cut.
+        // 階段 5.2：遺留 0x02 GameEvent 製作人刪減。
         let _ = (mqtx, cjs);
 
 
@@ -128,7 +128,7 @@ impl CreationEventHandler {
         damage_real: Option<f32>,
     ) -> Vec<Outcome> {
         use omoba_sim::{Fixed64, Vec2 as SimVec2};
-        // NOTE: log uses f32 boundary — Fixed64 has no Display.
+        // 注意：log 使用 f32 邊界 — Fix64 沒有顯示。
         let pos_x_f = pos.x.to_f32_for_render();
         let pos_y_f = pos.y.to_f32_for_render();
         info!("創建彈道從實體 {} 到實體 {} 於位置 ({}, {})",
@@ -200,7 +200,7 @@ impl CreationEventHandler {
 
         // 前端自管子彈動畫：提供 target_id / move_speed / flight_time_ms，
         // 由前端用 pursuit 公式 lerp 到目標當下位置，保證命中時剛好落到 creep 身上。
-        // Wire format f32 (Phase 2 boundary).
+        // 接線格式 f32（第 2 階段邊界）。
         let source_x_f = source_pos.x.to_f32_for_render();
         let source_y_f = source_pos.y.to_f32_for_render();
         let target_x_f = target_pos.x.to_f32_for_render();
@@ -230,9 +230,9 @@ impl CreationEventHandler {
             "flight_time_ms": flight_time_ms,
         });
 
-        // P7: non-AOE (splash=0) single-target → pre-declared physical damage.
+        // P7：非AOE（濺鍍=0）單體目標→預宣告物理傷害。
         let predeclared_dmg: f32 = (phys_damage + magi_damage + real_damage).to_f32_for_render();
-        // Mirror damage into JSON so non-kcp path also supplies it to omfx shim.
+        // 將損壞鏡像到 JSON，以便非 kcp 路徑也將其提供給 omfx shim。
         let mut projectile_data_with_dmg = projectile_data.clone();
         if let Some(obj) = projectile_data_with_dmg.as_object_mut() {
             obj.insert("damage".into(), json!(predeclared_dmg));
@@ -241,7 +241,7 @@ impl CreationEventHandler {
             obj.insert("directional".into(), json!(false));
             obj.insert("kind".into(), json!(""));
         }
-        // Phase 5.2: legacy 0x02 GameEvent producer cut.
+        // 階段 5.2：遺留 0x02 GameEvent 製作人刪減。
         let _ = (mqtx, projectile_data_with_dmg, source_x_f, source_y_f, target_x_f, target_y_f, flight_time_ms, predeclared_dmg, target);
 
         // 彈道創建成功，無需產生額外事件
@@ -258,7 +258,7 @@ impl CreationEventHandler {
         faction: Faction,
         duration: Option<omoba_sim::Fixed64>,
     ) -> Vec<Outcome> {
-        // NOTE: log uses f32 boundary — Fixed64 has no Display.
+        // 注意：log 使用 f32 邊界 — Fix64 沒有顯示。
         let pos_x_f = pos.x.to_f32_for_render();
         let pos_y_f = pos.y.to_f32_for_render();
         info!("生成單位於位置 ({}, {})，陣營: {:?}", pos_x_f, pos_y_f, faction);
@@ -274,12 +274,12 @@ impl CreationEventHandler {
         if let Some(duration) = duration {
             // 這裡需要一個 TemporaryUnit 組件來處理有時間限制的單位
             info!("單位將在 {:.1} 秒後消失", duration.to_f32_for_render());
-            // entity_builder = entity_builder.with(TemporaryUnit { remaining_time: duration });
+            // entity_builder =entity_builder.with(TemporaryUnit {剩餘時間:持續時間});
         }
 
         let entity = entity_builder.build();
 
-        // Phase 5.2: legacy 0x02 GameEvent producer cut.
+        // 階段 5.2：遺留 0x02 GameEvent 製作人刪減。
         let _ = (mqtx, entity, duration, faction_clone, pos_x_f, pos_y_f);
 
         Vec::new()

@@ -19,8 +19,8 @@ use specs::Entity;
 
 use crate::ability_runtime::BuffStore;
 
-/// Per-tick snapshot of a unit's stat-aggregation context.
-/// Build once, query N times — cheap (holds references only).
+/// 單位統計聚合上下文的每個刻度快照。
+/// 建置一次，查詢 N 次－便宜（僅儲存引用）。
 pub struct UnitStats<'a> {
     pub buffs: &'a BuffStore,
     pub is_building: bool,
@@ -32,9 +32,9 @@ impl<'a> UnitStats<'a> {
     /// 避免在 System 內部再 `read_resource` 衝突。
     ///
     /// 典型用法（System run 裡）：
-    /// ```ignore
-    /// let stats = UnitStats::from_refs(&*buffs, is_buildings.get(e).is_some());
-    /// let msd = stats.final_move_speed(cp.msd, e);
+    /// 『忽略
+    /// 讓 stats = UnitStats::from_refs(&*buffs, is_buildings.get(e).is_some());
+    /// 讓 msd = stats.final_move_speed(cp.msd, e);
     /// ```
     pub fn from_refs(buffs: &'a BuffStore, is_building: bool) -> Self {
         Self { buffs, is_building }
@@ -104,7 +104,7 @@ impl<'a> UnitStats<'a> {
     }
 
     /// 攻速倍數（乘到 base attack interval 上）。
-    /// Dota: effective_attacks_per_sec = base × (1 + as_bonus / 100)
+    /// Dota：每秒有效攻擊數 = 基礎 × (1 + as_bonus / 100)
     /// 簡化：以 bonus/100 當 multiplier 加成；fixed_attack_rate 若設則覆蓋。
     /// 另疊 `ATTACK_SPEED_MULTIPLIER`（專案自訂 product_mult，tower upgrade 用）。
     pub fn final_attack_speed_mult(&self, e: Entity) -> Fixed64 {
@@ -164,8 +164,8 @@ impl<'a> UnitStats<'a> {
         // Dota 疊加公式：1 - (1-r1)(1-r2)...
         let combined = Fixed64::ONE
             - (Fixed64::ONE - base)
-                * (Fixed64::ONE - bonus / hundred)
-                * (Fixed64::ONE - decrepify / hundred);
+                * （Fixed64::ONE - 獎金/百）
+                * （Fixed64::ONE - 老化/一百）；
         clamp_fx(combined, Fixed64::ZERO - Fixed64::ONE, Fixed64::ONE)
     }
 
@@ -199,7 +199,7 @@ impl<'a> UnitStats<'a> {
 
     // ================= CD / 施法 =================
 
-    /// Cooldown percentage multiplier: final_cd = base_cd × (1 + pct + stacking)
+    /// 冷卻百分比乘數：final_cd = base_cd × (1 + pct + 疊加)
     pub fn cooldown_mult(&self, e: Entity) -> Fixed64 {
         let pct = self.buffs.sum_add(e, StatKey::CooldownPercentage);
         let stacking = self.buffs.sum_add(e, StatKey::CooldownPercentageStacking);
@@ -298,7 +298,7 @@ impl<'a> UnitStats<'a> {
             .to_f32_for_render();
         let after_unavoid = (raw - unavoid_block).max(0.0);
 
-        // 3. Armor / Resist
+        // 3. 護甲/抵抗
         let after_defense = match kind {
             DamageKind::Physical => {
                 let armor = self.final_armor(Fixed64::from_raw((base_armor * 1024.0) as i64), e)
@@ -326,7 +326,7 @@ impl<'a> UnitStats<'a> {
         ).to_f32_for_render();
         let after_kind_block = (after_defense - kind_block).max(0.0);
 
-        // 5. Incoming percentage
+        // 5. 收入百分比
         let pct_all = 1.0 + self.buffs.sum_add(e, StatKey::IncomingDamagePercentage)
             .to_f32_for_render();
         let pct_kind = 1.0
@@ -337,7 +337,7 @@ impl<'a> UnitStats<'a> {
             };
         let after_pct = after_kind_block * pct_all * pct_kind;
 
-        // 6. Incoming constant
+        // 6.傳入常數
         let k_const = match kind {
             DamageKind::Physical => self.buffs.sum_add(e, StatKey::IncomingPhysicalDamageConstant)
                 .to_f32_for_render(),
@@ -349,13 +349,13 @@ impl<'a> UnitStats<'a> {
     }
 }
 
-/// Helper: clamp a Fixed64 to [min, max] (no f32 detour).
+/// Helper：將固定 64 固定到 [min, max]（無 f32 繞行）。
 #[inline]
 fn clamp_fx(v: Fixed64, lo: Fixed64, hi: Fixed64) -> Fixed64 {
     if v < lo { lo } else if v > hi { hi } else { v }
 }
 
-/// Dota armor → damage multiplier。
+/// Dota護甲→傷害倍增。
 /// armor > 0 → 減傷；armor < 0 → 增傷；armor = 0 → 1.0。
 /// 公式：`1 - (0.06 * armor) / (1 + 0.06 * |armor|)`
 pub fn armor_to_mult(armor: f32) -> f32 {
@@ -379,7 +379,7 @@ mod tests {
     }
 
     fn fx_huge() -> Fixed64 {
-        // Stand-in for "infinity" — large enough that tick decay won't reach 0 in the test window.
+        // 代表「無窮大」——足夠大，以至於測試視窗中的蜱蟲衰減不會達到 0。
         Fixed64::from_i32(1_000_000)
     }
 
@@ -407,7 +407,7 @@ mod tests {
     }
 
     // Dota 順序：equipment bonus（boots 等）跟 base 一起被 percentage 縮放。
-    // base=300、boots +90、slow -50% → (300+90)*0.5 = 195。
+    // 基本=300、靴子+90、緩慢-50% → (300+90)*0.5 = 195。
     #[test]
     fn move_speed_equipment_bonus_scales_with_percentage() {
         let mut world = World::new();
@@ -435,7 +435,7 @@ mod tests {
     }
 
     // Buff flat post-pct：不被 percentage 縮放，純加在最末端。
-    // base=300、boots +90、slow -50%、buff +60 → (300+90)*0.5 + 60 = 255。
+    // 基本=300、靴子 +90、減速 -50%、增益 +60 → (300+90)*0.5 + 60 = 255。
     #[test]
     fn move_speed_buff_bonus_is_flat_post_percentage() {
         let mut world = World::new();

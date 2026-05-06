@@ -18,9 +18,9 @@ use omoba_sim::{Fixed64, Vec2 as SimVec2};
 /// MOBA 鏡頭下肉眼無感的 facing 變化量（~15°）。舊值 0.05 (~3°) 造成過多 F event。
 const FACING_BROADCAST_THRESHOLD_RAD: f32 = 0.26;
 
-/// Per-entity SimRng op_kind for tower_tick. Phase 1de.2: replaces fastrand for
-/// the no-target attack-cooldown jitter. Reordering or reusing this constant
-/// across systems would invalidate replay determinism.
+/// tower_tick 的每實體 SimRng op_kind。階段 1de.2：取代 fastrand
+/// 無目標攻擊冷卻時間抖動。重新排序或重複使用該常數
+/// 跨系統將使重播決定論無效。
 const OP_TOWER_NO_TARGET_JITTER: u32 = 11;
 
 #[derive(SystemData)]
@@ -62,12 +62,12 @@ impl<'a> System<'a> for Sys {
 
     fn run(_job: &mut Job<Self>, (tr, mut tw): Self::SystemData) {
         let time = tr.time.0;
-        // Phase 1c.4: dt is Fixed64 throughout battle tick.
+        // 階段 1c.4：dt 在整個戰鬥週期中固定為 64。
         let dt: Fixed64 = tr.dt.0;
-        // Lossy projection retained ONLY for facing-radian arithmetic + Searcher boundary.
-        // NOTE: Searcher uses f32 internally for instant_distance lib compat; Facing radians is log-only.
+        // 有損投影僅保留面向弧度算術+搜尋器邊界。
+        // 注意：搜尋器內部使用 f32 來實作 instant_distance lib 相容性；面對弧度僅是對數。
         let dt_f = dt.to_f32_for_render();
-        // Phase 1de.2: SimRng seed inputs hoisted into Copy locals for the par_join closure.
+        // 階段 1de.2：SimRng 種子輸入提升到 Par_join 閉包的 Copy 局部變數。
         let master_seed: u64 = tr.master_seed.0;
         let tick: u32 = tr.tick.0 as u32;
         let time1 = Instant::now();
@@ -89,7 +89,7 @@ impl<'a> System<'a> for Sys {
                 },
                 |_guard, (e, tower, pty, atk, pos, facing, facing_bc)| {
                     let mut outcomes:Vec<Outcome> = Vec::new();
-                    // NOTE: Searcher uses f32 internally for instant_distance lib compat; final distance check in caller is Fixed64.
+                    // 注意：搜尋器內部使用 f32 來實作 instant_distance lib 相容性；呼叫者的最終距離檢查是固定64。
                     let (pos_x_f, pos_y_f) = pos.xy_f32();
                     let pos_vek = vek::Vec2::new(pos_x_f, pos_y_f);
 
@@ -139,7 +139,7 @@ impl<'a> System<'a> for Sys {
                         let elpsed = time2.duration_since(time1);
                         if elpsed.as_secs_f32() < 0.05 {
                             let search_n = 1.max(pty.mblock).max(6) as usize;
-                            // NOTE: Searcher uses f32 internally for instant_distance lib compat; final distance check in caller is Fixed64.
+                            // 注意：搜尋器內部使用 f32 來實作 instant_distance lib 相容性；呼叫者的最終距離檢查是固定64。
                             let range_f = atk.range.val().to_f32_for_render();
                             let (creeps, near_creeps) =
                                 tr.searcher.creep.search_nn_two_radii(pos_vek, range_f, range_f + 30., search_n);
@@ -161,7 +161,7 @@ impl<'a> System<'a> for Sys {
                                 if pty.mblock > 0 {
                                     tower.nearby_creeps.clear();
                                     for c in hostile_creeps.iter() {
-                                        // NOTE: DisIndex.dis is f32 squared distance (Searcher boundary); convert to Fixed64 for sim arithmetic.
+                                        // 注意：DisIndex.dis 是 f32 平方距離（搜尋器邊界）；轉換為 Fix64 以進行 sim 算術。
                                         let dis_fx = Fixed64::from_raw((c.dis * 1024.0) as i64);
                                         tower.nearby_creeps.push(NearbyEnt { ent: c.e, dis: dis_fx });
                                     }
@@ -178,7 +178,7 @@ impl<'a> System<'a> for Sys {
                                         .unwrap_or(std::f32::consts::FRAC_PI_2);
                                     let cur_rad = facing.rad_f32();
                                     let new_rad = rotate_toward(cur_rad, desired, turn * dt_f);
-                                    *facing = Facing::from_rad_f32(new_rad);
+                                    * 面向=面向::from_rad_f32(new_rad);
 
                                     // 廣播 facing 變化：和「上次廣播」差 > 15° 才送。
                                     // 必須比較 last_broadcast 而不是 per-tick old_facing —
@@ -209,8 +209,8 @@ impl<'a> System<'a> for Sys {
                                 }
                             } else {
                                 if !is_scripted && near_creeps.len() == 0 {
-                                    // 0.3 ≈ 307/1024 raw; jitter raw ∈ [0, 256) ≈ 0..0.25.
-                                    // Phase 1de.2: deterministic per-(tower, tick) jitter via SimRng.
+                                    // 0.3 ≈ 307/1024 原始；原始抖動 ε [0, 256) ≈ 0..0.25。
+                                    // 階段 1de.2：透過 SimRng 確定的每（塔、滴答）抖動。
                                     let mut rng = omoba_sim::SimRng::from_master_entity(
                                         master_seed, tick, e.id(), OP_TOWER_NO_TARGET_JITTER,
                                     );
@@ -240,7 +240,7 @@ impl<'a> System<'a> for Sys {
             );
         let time2 = Instant::now();
         let elpsed = time2.duration_since(time1);
-        //log::info!("tower update1 time {:?}", elpsed);
+        // log::info!("塔更新1時間{:?}", elpsed);
         tw.outcomes.append(&mut outcomes);
     }
 }

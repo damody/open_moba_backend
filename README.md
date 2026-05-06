@@ -1,4 +1,4 @@
-# Open MOBA Backend (omobab)
+# 開放 MOBA 後端 (omobab)
 
 一個使用 Rust 開發的高效能 MOBA 遊戲後端服務器，採用 ECS (Entity Component System) 架構，支援即時多人對戰、塔防機制和豐富的遊戲道具系統。
 

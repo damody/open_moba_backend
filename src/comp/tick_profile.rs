@@ -8,14 +8,14 @@ pub struct TickProfile {
     pub script_dispatch_ns: u128,
     pub process_outcomes_ns: u128,
     pub variant_stats: BTreeMap<&'static str, VariantStat>,
-    /// Per-script-id timing：script id（"dart" / "ice" / ...）→ (count, total_ns)。
+    /// Per-script-id計時：腳本id（"dart" / "ice" / ...）→ (count,total_ns)。
     /// 在 dispatch.rs 的 on_tick 迴圈每次量測後 record。Window 結束時 emit_log 印
     /// top N 最耗時 scripts，可確認 script_dispatch_ns 主要花在哪。
     pub script_stats: BTreeMap<String, VariantStat>,
     /// 本 window 累積的 queued events 總耗時（Spawn / Death / AttackHit ... 之類）
     pub script_events_ns: u128,
     pub script_events_count: u64,
-    /// Per-system timing：tower_sys / creep_sys / projectile_sys ... → (count, total_ns)。
+    /// 每個系統的計時：tower_sys / Creep_sys / Projectile_sys ... → (count,total_ns)。
     /// 由 `Job::<T>::run` 每次系統跑完寫入。Mutex 是必要的：specs 並行系統用
     /// `ReadExpect<TickProfile>` 取資源（不會 serialize 系統），但寫入仍要避競爭。
     /// 鎖只在系統結束時短暫持有 ~50ns，contention 可忽略。

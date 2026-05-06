@@ -128,7 +128,7 @@ impl<'a> System<'a> for VisionUpdateSystem {
             }
 
             // 計算新的視野
-            // NOTE: vision is client-side render hint (fog of war); per-tick rebuild from authoritative Pos keeps it cross-client consistent.
+            // 注意：視覺是客戶端渲染提示（戰爭迷霧）；從權威 Pos 進行的每次報價重建可保持跨客戶端的一致性。
             let (px, py) = position.xy_f32();
             let vision_result = self.shadow_calculator.calculate_optimized_vision(
                 vek::Vec2::new(px, py),
@@ -276,7 +276,7 @@ impl VisionEventFilter {
         let mut visible_entities = Vec::new();
 
         for (entity, position) in (entities, positions).join() {
-            // NOTE: vision is client-side render hint (fog of war); per-tick rebuild from authoritative Pos keeps it cross-client consistent.
+            // 注意：視覺是客戶端渲染提示（戰爭迷霧）；從權威 Pos 進行的每次報價重建可保持跨客戶端的一致性。
             let (px, py) = position.xy_f32();
             if self.is_entity_visible_to_player(player_name, entity, vek::Vec2::new(px, py), cache) {
                 visible_entities.push(entity);

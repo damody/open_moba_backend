@@ -8,11 +8,11 @@ rustflags = [
 
 # 如果有安裝其他連結器，可以取消註釋使用：
 # 使用 mold（最快）：
-# linker = "clang"
-# rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+# 連結器=“鏗鏘”
+# rustflags = [“-C”，“link-arg=-fuse-ld=模具”]
 #
 # 使用 lld（次快）：
-# linker = "clang"
+# 連結器=“鏗鏘”
 # rustflags = ["-C", "link-arg=-fuse-ld=lld"]
 
 [build]

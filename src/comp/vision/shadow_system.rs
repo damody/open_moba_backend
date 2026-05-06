@@ -298,7 +298,7 @@ impl ShadowSystem {
     fn is_valid_shadow(shadow: &ShadowArea) -> bool {
         match &shadow.geometry {
             ShadowGeometry::Sector { start_angle, end_angle, radius, .. } => {
-                *radius > 0.0 && (*end_angle - *start_angle).abs() > 0.01
+                * 半徑 > 0.0 && (*end_angle - *start_angle).abs() > 0.01
             }
             ShadowGeometry::Polygon { vertices } => {
                 vertices.len() >= 3

@@ -88,7 +88,7 @@
 - 暴擊和閃避判定
 - 傷害類型處理（物理/魔法/純粹）
 
-**death_tick.rs**
+* *死亡_tick.rs**
 - 死亡判定和處理
 - 經驗值和金錢獎勵
 - 重生邏輯
@@ -101,7 +101,7 @@
 - 使用 voracious_radix_sort 多緒優化
 - 支援高效的範圍搜尋
 
-**creep_wave.rs**
+* *蠕動波.rs**
 - 小兵生成波次控制
 - 兵線平衡管理
 - 遊戲節奏調控
@@ -114,7 +114,7 @@
 use specs::{System, SystemData, Read, WriteStorage, ReadStorage, Entities, Join};
 use crate::comp::*;
 
-#[derive(SystemData)]
+# [匯出（系統資料）]
 pub struct MySystemRead<'a> {
     entities: Entities<'a>,
     time: Read<'a, Time>,
@@ -123,14 +123,14 @@ pub struct MySystemRead<'a> {
     // 所有只讀組件放在這裡
 }
 
-#[derive(SystemData)]
+# [匯出（系統資料）]
 pub struct MySystemWrite<'a> {
     outcomes: Write<'a, Vec<Outcome>>,
     velocities: WriteStorage<'a, Vel>,
     // 所有需要修改的組件放在這裡
 }
 
-#[derive(Default)]
+# [導出（預設）]
 pub struct Sys;
 
 impl<'a> crate::comp::ecs::System<'a> for Sys {

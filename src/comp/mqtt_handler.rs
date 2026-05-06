@@ -229,8 +229,8 @@ impl MqttHandler {
     ///
     /// Payload 格式：
     /// ```json
-    /// { "t": "skill", "a": "cast", "name": "player1",
-    ///   "d": { "ability_id": "sniper_mode",
+    /// { "t": "技能", "a": "演員", "name": "玩家1",
+    /// "d": { "ability_id": "狙擊模式",
     ///          "target_entity": 42,          // 可選
     ///          "target_position": [x, y] } } // 可選
     /// ```

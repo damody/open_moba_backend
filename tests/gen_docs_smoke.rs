@@ -1,8 +1,8 @@
-//! Smoke test: run gen-docs end-to-end and check the output HTML contains
-//! expected markers. Only runs when the base_content DLL is discoverable
-//! via the same candidate list gen_docs uses; otherwise gracefully skips.
+//! 冒煙測試：端對端執行 gen-docs 並檢查輸出 HTML 包含
+//! 預期標記。僅在可發現 base_content DLL 時運行
+//! 透過 gen_docs 使用的相同候選清單；否則優雅地跳過。
 //!
-//! Run explicitly with: `cargo test --features gen-docs -- --ignored`
+//! 明確運作：`cargo test --features gen-docs -- --ignored`
 
 #![cfg(feature = "gen-docs")]
 
