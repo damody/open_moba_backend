@@ -55,7 +55,7 @@ impl<'a> System<'a> for Sys {
     const NAME: &'static str = "buff";
 
     fn run(_job: &mut Job<Self>, mut data: Self::SystemData) {
-        // Phase 1c.3: BuffStore::tick now takes Fixed64 directly.
+        // 階段 1c.3：BuffStore::tick 現在直接採用 Fix64。
         let dt = data.dt.0;
         let expired = data.buffs.tick(dt);
         let tx = data.mqtx.get(0).cloned();

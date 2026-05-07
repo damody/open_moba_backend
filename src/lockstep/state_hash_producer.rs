@@ -1,31 +1,31 @@
-//! Phase 3.4: deterministic ECS state-hash producer.
+//! 階段 3.4：確定性 ECS 狀態雜湊產生器。
 //!
-//! Walks the authoritative specs `World` and feeds a stable subset of entity
-//! state (entity id + `Pos.x/y` raw + `CProperty.hp` raw) through
-//! `omoba_sim::state_hash::hash_sorted_by_id` to produce a single u64 used
-//! by lockstep clients for desync detection.
+//! 行走權威規範「World」並提供穩定的實體子集
+//! 狀態（實體 id + `Pos.x/y` raw + `CProperty.hp` raw）透過
+//! `omoba_sim::state_hash::hash_sorted_by_id` 用於產生單一 u64
+//! 由鎖步客戶端進行非同步檢測。
 //!
-//! # Why not done inside `TickBroadcaster`?
+//! # 為什麼不在 `TickBroadcaster` 內完成？
 //!
-//! `TickBroadcaster::run()` is a tokio task; the specs `World` is `!Send`
-//! (some script-related storages hold non-`Send` interiors). Producer runs
-//! in `State::tick()` (the dispatcher thread), publishes the hash through
-//! a `crossbeam_channel`, and the broadcaster `try_recv`s the latest value
-//! at its 60Hz cadence.
+//! `TickBroadcaster::run()` 是一個 tokio 任務；規範“World”是“!Send”
+//! （一些與腳本相關的儲存包含非「發送」內部）。生產者運作
+//! 在 `State::tick()` （調度程序線程）中，透過以下方式發布哈希值
+//! `crossbeam_channel`，廣播者 `try_recv` 是最新值
+//! 以 60Hz 的節奏。
 //!
-//! # Determinism contract
+//! # 確定性合約
 //!
-//! - `Pos.0.x.raw()` / `Pos.0.y.raw()` are `i64` Q53.10 fixed-point — the
-//!   same representation server and clients run.
-//! - `CProperty.hp.raw()` is the same `Fixed64` raw `i64` (clients without
-//!   a `CProperty` get `0` so towers / projectiles don't drift hash output
-//!   between machines that store them differently).
-//! - The sort step inside `hash_sorted_by_id` makes the hash invariant of
-//!   ECS storage / join order — only state values matter.
+//! - `Pos.0.x.raw()` / `Pos.0.y.raw()` 是 `i64` Q53.10 定點 —
+//! 運行相同的表示伺服器和客戶端。
+//! - `CProperty.hp.raw()` 與 `Fixed64` 原始 `i64` 相同（沒有
+//! `CProperty` 得到 `0` 所以塔/彈不會漂移哈希輸出
+//! 在以不同方式儲存它們的機器之間）。
+//! - `hash_sorted_by_id` 中的排序步驟使雜湊不變
+//! ECS 儲存/連線順序 — 只有狀態值才重要。
 //!
-//! Phase 3.4 hashes only `Pos` + `hp`. Phase 4+ may add `Facing`, `Vel`,
-//! ability cooldowns, etc. — but adding fields breaks pinning so should be
-//! done in a single migration.
+//! 階段 3.4 僅對 `Pos` + `hp` 進行哈希處理。第 4+ 階段可能會增加「Facing」、「Vel」、
+//! 能力冷卻時間等 - 但添加字段會破壞固定，所以應該是
+//! 在一次遷移中完成。
 
 use specs::{Join, World, WorldExt};
 
@@ -35,14 +35,14 @@ use crate::comp::creep::CProperty;
 use crate::comp::facing::Facing;
 use crate::comp::phys::{Pos, Vel};
 
-/// Stable subset hashed per state-hash tick. `#[derive(Hash)]` order matches
-/// field declaration order; do not rearrange without bumping the protocol
-/// version (clients compare against this exact byte sequence).
+/// 每個狀態哈希滴答的穩定子集進行哈希處理。 `#[derive(Hash)]` 訂單匹配
+/// 現場申報單；在不破壞協議的情況下不要重新安排
+/// 版本（客戶端與這個確切的位元組序列進行比較）。
 ///
-/// Phase 4 widens from `(id, pos.x, pos.y, hp)` to add velocity + facing
-/// (ticks). BuffStore aggregations are still excluded — they're a Resource
-/// not a per-entity Component, and the BuffStore wire payload migration is
-/// scheduled for Phase 4d (76 PHASE 2 marker cleanup).
+/// 第 4 階段從「(id, pos.x, pos.y, hp)」擴大到增加速度 + 朝向
+/// （勾選）。 BuffStore 聚合仍然被排除在外——它們是一個資源
+/// 不是每個實體元件，且 BuffStore 線路負載遷移是
+/// 計劃進行第 4d 階段（76 個第 2 階段標記清理）。
 #[derive(std::hash::Hash)]
 struct HashItem {
     id: u32,
@@ -54,10 +54,10 @@ struct HashItem {
     hp_raw: i64,
 }
 
-/// Computes a deterministic state hash over every entity that has a `Pos`
-/// component. Entities without `Vel` / `Facing` / `CProperty` substitute zeros
-/// so their absence/presence (e.g. towers vs creeps) doesn't shift the hash
-/// for cosmetic-only differences.
+/// 對每個具有“Pos”的實體計算確定性狀態哈希
+/// 成分。沒有 `Vel` / `Facing` / `CProperty` 的實體取代零
+/// 所以它們的缺席/存在（例如塔與小兵）不會改變哈希值
+/// 僅用於外觀差異。
 pub fn compute_state_hash(world: &World) -> u64 {
     let entities = world.entities();
     let pos_storage = world.read_storage::<Pos>();
@@ -197,8 +197,8 @@ mod tests {
 
     #[test]
     fn missing_cproperty_uses_zero() {
-        // Two worlds, one with hp=0 explicit, one without CProperty: should
-        // produce the same hash because we substitute hp_raw=0 for missing.
+        // 兩個世界，一個有 hp=0 顯式，一個沒有 CProperty：應該
+        // 產生相同的雜湊，因為我們用 hp_raw=0 代替丟失。
         let mut w1 = make_world();
         w1.create_entity().with(pos_xy(5, 5)).build();
         let h1 = compute_state_hash(&w1);

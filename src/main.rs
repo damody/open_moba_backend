@@ -103,15 +103,15 @@ async fn main() -> std::result::Result<(), Error> {
         server_port.clone(),
     ).await?;
 
-    // Phase 2 lockstep: create shared state up-front so we can pass it into
-    // both the kcp transport (Task 2.3 — handles 0x10/0x13/0x15) and the
-    // TickBroadcaster (spawned below). MasterSeed::default() returns the same
-    // value the ECS resource is initialised with in state::initialization, so
-    // both code paths see the same seed.
+    // 步驟 2 鎖定步驟：預先建立共用狀態，以便我們可以將其傳遞給
+    // kcp 傳輸（任務 2.3 — 處理 0x10/0x13/0x15）和
+    // TickBroadcaster（在下面生成）。 MasterSeed::default() 傳回相同的結果
+    // ECS 資源在 state::initialization 中初始化的值，因此
+    // 兩個程式碼路徑看到相同的種子。
     //
-    // Phase 5.3 adds a third Arc<Mutex<>> — the SnapshotStore — written by
-    // the dispatcher tick loop every 30 s and read by the kcp transport's
-    // 0x16 SnapshotResp handler.
+    // 階段 5.3 新增了第三個 Arc<Mutex<>> — SnapshotStore — 由以下人員編寫
+    // 調度程式每 30 秒循環一次並由 kcp 傳輸讀取
+    // 0x16 SnapshotResp 處理程序。
     #[cfg(feature = "kcp")]
     let (lockstep_state_handle, input_buffer_handle, snapshot_store_handle) = {
         use std::sync::{Arc, Mutex as StdMutex};
@@ -132,7 +132,7 @@ async fn main() -> std::result::Result<(), Error> {
         snapshot_store_handle.clone(),
     ).await?;
 
-    // === TEMP: P7 checkpoint dumper — revert after measurement ===
+    // === TEMP：P7 檢查點轉儲器 — 測量後恢復 ===
     // 顯示 per-window delta（不是累積！）— 修正前一版誤導。
     #[cfg(feature = "kcp")]
     {
@@ -153,7 +153,7 @@ async fn main() -> std::result::Result<(), Error> {
                     "[kcp-p7 Δ5s] bytes={} ({}B/s)  msgs={} ({}m/s)  cum_total={}B",
                     dbytes, dbytes / 5, dmsgs, dmsgs / 5, snap.total_bytes
                 );
-                // Per-event delta
+                // 每個事件的增量
                 let mut deltas: Vec<((String, String), (u64, u64))> = Vec::new();
                 for (k, v) in snap.per_event.iter() {
                     let prev = last_per.get(k).copied().unwrap_or((0, 0));
@@ -174,9 +174,9 @@ async fn main() -> std::result::Result<(), Error> {
             }
         });
     }
-    // === END TEMP ===
+    // === 結束溫度 ===
 
-    // Prevent enabling multiple transport features simultaneously
+    // 防止同時啟用多個傳輸功能
     #[cfg(all(feature = "mqtt", feature = "grpc"))]
     compile_error!("Cannot enable both 'mqtt' and 'grpc' features simultaneously");
     #[cfg(all(feature = "mqtt", feature = "kcp"))]
@@ -187,8 +187,8 @@ async fn main() -> std::result::Result<(), Error> {
     thread::sleep(Duration::from_millis(500));
 
     // 初始化 ECS
-    // P5: pull the shared AOI grid Arc out before moving handle fields, so we
-    // can plug it back into State after construction.
+    // P5：在移動手柄字段之前拉出共享 AOI 網格弧，所以我們
+    // 施工完成後可以插回狀態。
     #[cfg(feature = "kcp")]
     let aoi_grid = handle.aoi.clone();
     let mut state = State::new_with_campaign(
@@ -202,14 +202,14 @@ async fn main() -> std::result::Result<(), Error> {
     );
     #[cfg(feature = "kcp")]
     state.attach_aoi_grid(aoi_grid);
-    // Phase 5.3: thread the shared SnapshotStore so the dispatcher tick loop
-    // mirrors its periodic snapshot bytes into the same Arc the kcp transport
-    // reads from when serving 0x16 SnapshotResp.
+    // 階段 5.3：對共享 SnapshotStore 進行執行緒化，以便調度程式循環
+    // 將其週期性快照位元組鏡像到相同的 Arc kcp 傳輸中
+    // 從提供 0x16 SnapshotResp 時讀取。
     #[cfg(feature = "kcp")]
     state.attach_snapshot_store(snapshot_store_handle.clone());
-    // Phase 5.x bridge: receiver paired with TickBroadcaster's host_input_tx
-    // (wired below). State::tick drains drained-input batches per tick and
-    // mirrors them into PendingPlayerInputs for the dispatcher.
+    // 階段 5.x 橋接器：與 TickBroadcaster 的 host_input_tx 配對的接收器
+    // （連線如下）。 State::tick Drains 每個tick 排出的輸入批次，並且
+    // 將它們鏡像到調度程式的 PendingPlayerInputs 中。
     #[cfg(feature = "kcp")]
     let host_input_tx = {
         let (host_input_tx, host_input_rx) = crossbeam_channel::unbounded();
@@ -217,19 +217,19 @@ async fn main() -> std::result::Result<(), Error> {
         host_input_tx
     };
 
-    // Phase 2 lockstep: spawn the 60Hz TickBroadcaster alongside the legacy
-    // 30Hz simulation dispatcher. The broadcaster drains the InputBuffer per
-    // tick and emits TickBatch (tag 0x11) + periodic StateHash (tag 0x12) via
-    // the existing OutboundMsg channel; the kcp transport's broadcast thread
-    // routes lockstep frames distinctly from GameEvent.
+    // 階段 2 鎖定步：與舊版本一起產生 60Hz TickBroadcaster
+    // 30Hz類比調度員。廣播者每消耗一次InputBuffer
+    // 勾選並透過以下方式發出 TickBatch（標籤 0x11）+ 週期性 StateHash（標籤 0x12）
+    // 現有的 OutboundMsg 通道； kcp 傳輸的廣播線程
+    // 與 GameEvent 不同的是，路由鎖定步幀。
     //
-    // InputBuffer / LockstepState were created above (before transport.start)
-    // and shared with the kcp transport's JoinRequest / InputSubmit handlers.
+    // InputBuffer / LockstepState 是在上面建立的（在transport.start之前）
+    // 並與 kcp 傳輸的 JoinRequest / InputSubmit 處理程序共用。
     //
-    // Phase 3.4: also create the dispatcher → broadcaster `state_hash`
-    // channel and wire both ends. Sender side is registered with the State
-    // (called from `tick()` every STATE_HASH_INTERVAL_TICKS); receiver side
-    // is attached to the broadcaster via `with_state_hash_rx`.
+    // 階段 3.4：同時建立排程器 → 廣播程式 `state_hash`
+    // 通道和電線兩端。發送方已在國家註冊
+    // （每個 STATE_HASH_INTERVAL_TICKS 從 `tick()` 呼叫）；接收端
+    // 透過“with_state_hash_rx”附加到廣播公司。
     #[cfg(feature = "kcp")]
     {
         use crate::lockstep::{TickBroadcaster, TickBroadcasterConfig};
@@ -250,7 +250,7 @@ async fn main() -> std::result::Result<(), Error> {
             TickBroadcasterConfig::default().state_hash_interval,
         );
     }
-    // Keep handles alive so shared state isn't dropped.
+    // 保持句柄處於活動狀態，這樣共享狀態就不會被丟棄。
     #[cfg(feature = "kcp")]
     let _lockstep_handles = (lockstep_state_handle, input_buffer_handle, snapshot_store_handle);
 
@@ -302,7 +302,7 @@ async fn main() -> std::result::Result<(), Error> {
             }
         }
 
-        // Wait for the next tick.
+        // 等待下一個滴答聲。
         clock.tick();
     }
     Ok(())

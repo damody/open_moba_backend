@@ -36,10 +36,10 @@ fn create_mqtt_client(
     Ok((mqtt_cli, connection))
 }
 
-/// Start the MQTT transport layer.
+/// 啟動 MQTT 傳輸層。
 ///
-/// Returns a `TransportHandle` whose `tx` feeds outbound messages to MQTT
-/// and whose `rx` yields inbound player data from MQTT subscriptions.
+/// 傳回一個“TransportHandle”，其“tx”將出站訊息提供給 MQTT
+/// 其「rx」從 MQTT 訂閱產生入站玩家資料。
 pub fn start(
     server_addr: String,
     server_port: String,
@@ -81,7 +81,7 @@ pub fn start(
                                         topic_name, msg
                                     );
 
-                                    // Parse as InboundMsg (same JSON shape as old PlayerData)
+                                    // 解析為 InboundMsg（與舊 PlayerData 相同的 JSON 形狀）
                                     let vo: serde_json::Result<InboundMsg> =
                                         serde_json::from_str(msg);
                                     if let Ok(v) = vo {

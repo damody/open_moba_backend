@@ -1,9 +1,9 @@
-//! Lockstep session state — players, current tick, master seed.
+//! 鎖步會話狀態－玩家、目前刻度、主種子。
 //!
-//! Held inside an `Arc<Mutex<LockstepState>>` shared between:
-//!  - the `TickBroadcaster` task (advances `current_tick` each tick),
-//!  - the kcp transport (Task 2.3) JoinRequest handler (registers players),
-//!  - the game loop (reads master_seed for deterministic SimRng streams).
+//! 保存在以下之間共用的 `Arc<Mutex<LockstepState>>` 內：
+//! - `TickBroadcaster` 任務（每個刻度推進 `current_tick`），
+//! - kcp 傳輸（任務 2.3）JoinRequest 處理程序（註冊玩家），
+//! - 遊戲循環（讀取確定性 SimRng 流的 master_seed）。
 
 use std::collections::BTreeMap;
 
@@ -18,18 +18,18 @@ pub struct PlayerSession {
     pub player_id: u32,
     pub player_name: String,
     pub role: JoinRoleEnum,
-    /// The most recent target_tick this player has successfully submitted
-    /// for. Used to detect stuck clients (Phase 3+ may pause the tick loop
-    /// when a player's lag exceeds a budget).
+    /// 該玩家最近成功提交的target_tick
+    /// 為了。用於偵測卡住的客戶端（階段 3+ 可能會暫停滴答循環
+    /// 當玩家的滯後超過預算時）。
     pub last_input_tick: u32,
 }
 
 pub struct LockstepState {
-    /// Authoritative server tick counter — advanced by `TickBroadcaster`
-    /// once per 16.67ms.
+    /// 權威伺服器滴答計數器 — 由 `TickBroadcaster` 改進
+    /// 每 16.67 毫秒一次。
     pub current_tick: u32,
-    /// Seed broadcast in `GameStart` — clients feed it into omoba_sim's
-    /// `SimRng::from_master_*` constructors. Must match across all peers.
+    /// 在「GameStart」中進行種子廣播 — 用戶端將其輸入 omoba_sim
+    /// `SimRng::from_master_*` 建構子。必須匹配所有同行。
     pub master_seed: u64,
     pub players: BTreeMap<u32, PlayerSession>,
     pub next_player_id: u32,

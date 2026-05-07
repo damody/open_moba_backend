@@ -20,13 +20,13 @@
 pub struct ServerConfig {
     // 地圖配置
     pub map: String,           // 地圖檔案路徑
-    
+
     // 服務器設定
     pub max_player: u32,       // 最大玩家數
     pub server_ip: String,     // MQTT Broker IP
     pub server_port: String,   // MQTT Broker 端口
     pub client_id: String,     // MQTT 客戶端 ID
-    
+
     // 遊戲參數（可擴展）
     // pub tick_rate: u32,     // 更新頻率
     // pub spawn_interval: f32, // 小兵生成間隔
@@ -61,7 +61,7 @@ CLIENT_ID = "omobab"
 # [game]
 # TICK_RATE = 10
 # SPAWN_INTERVAL = 30.0
-# 
+#
 # [balance]
 # TOWER_DAMAGE_MULTIPLIER = 1.0
 # CREEP_HEALTH_MULTIPLIER = 1.0
@@ -76,7 +76,7 @@ CLIENT_ID = "omobab"
 #[derive(Debug, Deserialize, Clone)]
 pub struct ServerConfig {
     // 現有欄位...
-    
+
     // 新增配置
     pub new_setting: String,
 }

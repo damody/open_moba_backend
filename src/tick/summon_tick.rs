@@ -1,4 +1,4 @@
-//! Summon tick：
+//! 召喚勾選：
 //! 1. 倒數 `SummonedUnit.time_remaining`，歸零時 despawn（廣播 `unit/D` 清除渲染）。
 //! 2. 處理玩家對召喚物下的 MoveTarget：simple lerp 位移 + facing 更新，抵達後 remove。
 //!    召喚物的自動攻擊 / 追敵 AI 在 UnitScript::on_tick（script 端）跑，這裡只做

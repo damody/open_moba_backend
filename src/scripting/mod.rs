@@ -1,11 +1,11 @@
-//! Host-side integration for native `UnitScript` DLLs.
+//! 本機「UnitScript」DLL 的主機端整合。
 //!
-//! - [`loader`]: load manifest DLLs from a directory.
-//! - [`registry`]: `unit_id → UnitScript_TO` dispatch table.
-//! - [`world_adapter`]: implements `omb_script_abi::GameWorld` over `&mut specs::World`.
-//! - [`event`]: `ScriptEvent` enum + `ScriptEventQueue` resource.
-//! - [`dispatch`]: drain the event queue and fire hooks.
-//! - [`tag`]: `ScriptUnitTag` component — marks which entities have a script.
+//! - [`loader`]：從目錄載入清單 DLL。
+//! - [`registry`]：`unit_id → UnitScript_TO` 調度表。
+//! - [`world_adapter`]：在`&mut specs::World`上實作`omb_script_abi::GameWorld`。
+//! - [`event`]：`ScriptEvent` 枚舉 + `ScriptEventQueue` 資源。
+//! - [`dispatch`]：排空事件佇列並觸發鉤子。
+//! - [`tag`]：`ScriptUnitTag` 元件 — 標記哪些實體有腳本。
 
 pub mod event;
 pub mod registry;

@@ -95,7 +95,7 @@ omobab/
 
 ### 環境要求
 
-- Rust 1.70+ 
+- Rust 1.70+
 - MQTT Broker (如 Mosquitto)
 
 ### 安裝與運行
@@ -107,7 +107,7 @@ omobab/
    ```
 
 2. **配置遊戲參數**
-   
+
    編輯 `game.toml` 文件：
    ```toml
    [server]

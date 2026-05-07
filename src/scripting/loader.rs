@@ -1,4 +1,4 @@
-//! Scan a directory for script DLLs and load each as a `Manifest_Ref`.
+//! 掃描目錄中的腳本 DLL 並將每個腳本載入為「Manifest_Ref」。
 
 use abi_stable::library::{LibraryError, RootModule};
 use omb_script_abi::manifest::Manifest_Ref;
@@ -13,9 +13,9 @@ const DLL_EXT: &str = "so";
 #[cfg(target_os = "macos")]
 const DLL_EXT: &str = "dylib";
 
-/// Load all script DLLs under `dir` (non-recursive).
-/// Errors on individual DLLs are logged and skipped; the registry always
-/// returns (potentially empty).
+/// 載入 `dir` 下的所有腳本 DLL（非遞歸）。
+/// 記錄並跳過各個 DLL 上的錯誤；註冊表總是
+/// 返回（可能為空）。
 pub fn load_scripts_dir(dir: &Path) -> ScriptRegistry {
     let mut reg = ScriptRegistry::new();
 

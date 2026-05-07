@@ -182,7 +182,7 @@ impl TimeManager {
     pub fn get_time_stats(world: &World) -> TimeStats {
         let time_of_day = world.read_resource::<TimeOfDay>().0;
         let total_time = world.read_resource::<Time>().0;
-        // NOTE: TimeStats is diagnostic / log f32; sim-side reads DeltaTime.0 (Fixed64) directly.
+        // 注意：TimeStats 是診斷/日誌 f32；sim端直接讀取DeltaTime.0（Fixed64）。
         let delta_time = world.read_resource::<DeltaTime>().0.to_f32_for_render();
 
         TimeStats {

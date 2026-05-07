@@ -166,11 +166,11 @@ pub struct TowerData {
     pub tatk: TAttack,        // 塔的攻擊資料
 }
 
-/// Phase 4.2: render-only explosion FX entry.
-/// Produced by `process_outcomes` Outcome::Explosion arm; drained per tick by
-/// the omfx sim_runner snapshot extractor and shipped through the snapshot to
-/// the render thread. NOT part of the deterministic ECS state — sim never
-/// reads it back.
+/// 階段 4.2：僅渲染爆炸 FX 條目。
+/// 由 `process_outcomes` 結果產生::爆炸臂；每蜱排出
+/// omfx sim_runner 快照擷取器並透過快照傳送到
+/// 渲染線程。不是確定性 ECS 狀態的一部分 — sim 永遠不會
+/// 讀回來。
 #[derive(Clone, Debug)]
 pub struct ExplosionFx {
     pub pos_x: f32,
@@ -180,21 +180,21 @@ pub struct ExplosionFx {
     pub spawn_tick: u32,
 }
 
-/// Phase 4.2: pending explosion-FX queue resource. Pushed by
-/// `process_outcomes` Outcome::Explosion arm; drained (`std::mem::take`) by
-/// the snapshot extractor each tick. Resource is NOT hashed in `state_hash`,
-/// so writes here don't break replay determinism.
+/// 階段4.2：待爆炸-FX隊列資源。推動者
+/// `process_outcomes` 結果::爆炸臂；耗盡 (`std::mem::take`)
+/// 每個刻度的快照提取器。資源未在「state_hash」中進行哈希處理，
+/// 所以在這裡寫不要打破重播決定論。
 #[derive(Default)]
 pub struct ExplosionFxQueue {
     pub pending: Vec<ExplosionFx>,
 }
 
-/// Pending entity-removed queue resource. Pushed by `process_outcomes`
-/// when handling `Outcome::EntityRemoved`; drained (`std::mem::take`) by
-/// the snapshot extractor each tick into
-/// `SimWorldSnapshot.removed_entity_ids`. Same lifecycle pattern as
-/// `ExplosionFxQueue` — NOT hashed in `state_hash`, replay-deterministic
-/// because pushes happen at deterministic outcome processing.
+/// 待實體刪除的佇列資源。由“process_outcomes”推動
+/// 處理 `Outcome::EntityRemoved` 時；耗盡 (`std::mem::take`)
+/// 快照擷取器每次勾選進入
+/// `SimWorldSnapshot.removed_entity_ids`。相同的生命週期模式
+/// `ExplosionFxQueue` — 未在 `state_hash` 中進行雜湊，重播確定性
+/// 因為推送發生在確定性結果處理。
 #[derive(Default)]
 pub struct RemovedEntitiesQueue {
     pub pending: Vec<u32>,

@@ -136,15 +136,15 @@ pub struct Sys;
 impl<'a> crate::comp::ecs::System<'a> for Sys {
     type SystemData = (MySystemRead<'a>, MySystemWrite<'a>);
     const NAME: &'static str = "my_system";
-    
+
     fn run(_job: &mut Job<Self>, (tr, mut tw): Self::SystemData) {
         let dt = tr.dt.0;
-        
+
         // 直接修改組件內容 ✅
         for (entity, pos, vel) in (&tr.entities, &tr.positions, &mut tw.velocities).join() {
             vel.0 += pos.0 * dt; // 直接修改組件
         }
-        
+
         // 實體操作使用事件 ✅
         if some_condition {
             tw.outcomes.push(Outcome::Death {
@@ -171,7 +171,7 @@ impl<'a> crate::comp::ecs::System<'a> for Sys {
 ```rust
 let mut outcomes = Vec::new();
 // 收集所有結果
-for (...) { 
+for (...) {
     outcomes.push(outcome);
 }
 // 批次處理

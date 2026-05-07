@@ -1,6 +1,6 @@
-//! Walk base_content source files to detect `impl UnitScript for X` /
-//! `impl AbilityScript for X` blocks and collect overridden methods + the
-//! GameWorld method names called inside each impl.
+//! 遍歷 base_content 原始檔以偵測 `impl UnitScript for X` /
+//! `impl TalentScript for X` 區塊並收集覆蓋的方法 +
+//! 每個 impl 內呼叫的 GameWorld 方法名稱。
 
 use anyhow::{Context, Result};
 use std::collections::{BTreeSet, HashSet};
@@ -238,13 +238,13 @@ mod tests {
         assert!(entries.len() >= 8, "expected >=8 impls, found {}: {:?}",
                 entries.len(), entries.iter().map(|e| &e.self_ty).collect::<Vec<_>>());
 
-        // Every entry should resolve to a non-empty id (C1 regression guard)
+        // 每個條目都應解析為非空 ID（C1 回歸防護）
         for e in &entries {
             assert!(e.id.is_some(),
                     "{} in {} has no id (C1 regression)", e.self_ty, e.source_file);
         }
 
-        // Paths should use forward slashes (M5 regression guard)
+        // 路徑應使用正斜線（M5 回歸防護）
         for e in &entries {
             assert!(!e.source_file.contains('\\'),
                     "source_file {} contains backslash", e.source_file);

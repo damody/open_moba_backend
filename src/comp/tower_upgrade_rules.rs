@@ -1,4 +1,4 @@
-//! Bloons 2.5 upgrade rule validator.
+//! Bloons 2.5 升級規則驗證器。
 //!
 //! 對任一 tower 的 `[u8; 3]` path levels，要求升第 i 條路線：
 //! - 主路線（level ≥ 3）最多 1 條

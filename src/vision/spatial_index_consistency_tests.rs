@@ -220,9 +220,9 @@ fn stress_1000_obstacles_four_impls_agree() {
 
 /// 四個 spatial index impl 的 micro-bench。預設 #[ignore]，需顯式 --release 跑：
 ///
-/// ```bash
-/// cargo test --release --manifest-path omb/Cargo.toml -p omobab \
-///     vision::spatial_index_consistency_tests::bench_four_impls -- --ignored --nocapture
+/// ````重擊
+/// 貨物測試 --release --manifest-path omb/Cargo.toml -p omobab \
+/// 視覺::spatial_index_consistency_tests::bench_four_impls -- --ignored --nocapture
 /// ```
 ///
 /// 量測：
@@ -310,7 +310,7 @@ fn bench_four_impls() {
         for &kind in KINDS {
             let mut row: BTreeMap<&'static str, f64> = BTreeMap::new();
 
-            // initialize (cold)
+            // 初始化（冷）
             let mut times = Vec::new();
             for _ in 0..RUNS {
                 let mut idx = build(kind);
@@ -320,7 +320,7 @@ fn bench_four_impls() {
             }
             row.insert("initialize", median(&mut times));
 
-            // bulk_replace with various %-moved diff
+            // bulk_replace 與各種 %-moved diff
             for (label, set) in [
                 ("bulk_replace 0%", &entries),
                 ("bulk_replace 10%", &moved_10),
@@ -338,7 +338,7 @@ fn bench_four_impls() {
                 row.insert(label, median(&mut times));
             }
 
-            // 100× query
+            // 100×查詢
             let mut idx = build(kind);
             idx.initialize(world_bounds(), entries.clone());
             let mut times = Vec::new();

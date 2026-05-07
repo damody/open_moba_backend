@@ -239,6 +239,6 @@ mod tests {
         // 第二次應該更快（使用緩存）
         println!("第一次生成: {:?}, 第二次生成: {:?}", first_duration, second_duration);
         // 注意：在測試環境中時間差可能很小，這個斷言可能不總是成功
-        // assert!(second_duration <= first_duration);
+        // 斷言！ （第二持續時間<=第一持續時間）；
     }
 }

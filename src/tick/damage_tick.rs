@@ -10,9 +10,9 @@ use std::{
 };
 use omoba_sim::Fixed64;
 
-/// Per-entity SimRng op kinds for damage_tick. Each (entity, op) pair gets its
-/// own deterministic stream — keep these constants stable; reordering would
-/// invalidate replay determinism.
+/// Damage_tick 的每實體 SimRng 操作類型。每個（實體，操作）對都得到它的
+/// 自己的確定性流－保持這些常數穩定；重新排序會
+/// 使重播決定論無效。
 const OP_DODGE: u32 = 0;
 const OP_CRIT: u32 = 1;
 
@@ -54,7 +54,7 @@ impl<'a> System<'a> for Sys {
         let tick: u32 = tr.tick.0 as u32;
 
         // 收集所有單位的屬性用於傷害計算
-        // (armor, magic_resist, crit_chance, dodge_chance) — all Fixed64 (Phase 1c.3).
+        // (armor, magic_resist, crit_chance, dodge_chance) — 全部固定 64（階段 1c.3）。
         let mut unit_stats: HashMap<Entity, (Fixed64, Fixed64, Fixed64, Fixed64)> = HashMap::new();
 
         // 收集 Unit 屬性
@@ -87,7 +87,7 @@ impl<'a> System<'a> for Sys {
 
             // 生成傷害事件而不是直接修改組件
             if !result.is_dodged && result.total_damage > Fixed64::ZERO {
-                // Phase 1c.3: Outcome::Damage.pos now omoba_sim::Vec2 (Phase 1c.2).
+                // 階段 1c.3：Outcome::Damage.pos 現在為 omoba_sim::Vec2（階段 1c.2）。
                 let target_pos = tr.positions.get(damage_inst.target)
                     .map(|p| p.0)
                     .unwrap_or(omoba_sim::Vec2::ZERO);
@@ -114,7 +114,7 @@ impl<'a> System<'a> for Sys {
             // 生命偷取 / 法術吸血：calculate_damage 已聚合到 result.healing，這裡 emit Heal 給來源
             if !result.is_dodged && result.healing > Fixed64::ZERO {
                 let source_entity = damage_inst.source.source_entity;
-                // Phase 1c.3: Outcome::Heal.pos now omoba_sim::Vec2 (Phase 1c.2).
+                // 階段 1c.3：Outcome::Heal.pos 現在為 omoba_sim::Vec2（階段 1c.2）。
                 let source_pos = tr.positions.get(source_entity)
                     .map(|p| p.0)
                     .unwrap_or_else(|| {
@@ -137,7 +137,7 @@ impl<'a> System<'a> for Sys {
 }
 
 /// 計算傷害的核心函數
-/// Phase 1c.3: full Fixed64 — armor / resist / damage / crit / dodge all deterministic.
+/// 階段 1c.3：完整固定 64 — 護甲/抵抗/傷害/爆擊/閃避全部確定。
 fn calculate_damage(
     damage_inst: &DamageInstance,
     unit_stats: &HashMap<Entity, (Fixed64, Fixed64, Fixed64, Fixed64)>,
@@ -173,7 +173,7 @@ fn calculate_damage(
     if damage_inst.damage_flags.can_dodge && dodge_chance > Fixed64::ZERO {
         let mut dodge_rng =
             omoba_sim::SimRng::from_master_entity(master_seed, tick, victim_id, OP_DODGE);
-        // gen_fixed64_unit returns Fixed64 in [0, 1) with raw in [0, 1024).
+        // gen_fixed64_unit 在 [0, 1) 中傳回固定64，在 [0, 1024) 中傳回原始資料。
         let dodge_roll: Fixed64 = dodge_rng.gen_fixed64_unit();
         if dodge_roll < dodge_chance {
             result.is_dodged = true;

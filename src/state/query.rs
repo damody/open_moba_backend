@@ -43,9 +43,9 @@ pub fn query_list_players(world: &World) -> QueryResponse {
                     "hero_name": hero.name,
                     "title": hero.title,
                     "level": hero.level,
-                    // NOTE: omb-mcp query response — f32 is the intentional public diagnostic
-                    // API. omb-mcp consumers don't run sim; lockstep determinism is not needed
-                    // here. Do NOT migrate to Fixed64 wire format.
+                    // 注意： omb-mcp 查詢回應 — f32 是有意的公共診斷
+                    // API。 omb-mcp 消費者不運行 sim；不需要步調一致的決定論
+                    // 這裡。不要遷移到固定64 線格式。
                     "hp": prop.map(|p| p.hp.to_f32_for_render()).unwrap_or(0.0),
                     "max_hp": prop.map(|p| p.mhp.to_f32_for_render()).unwrap_or(0.0),
                     "pos_x": pos.0.x.to_f32_for_render(),
@@ -147,9 +147,9 @@ pub fn query_inspect_player_view(world: &World, player_name: &str) -> QueryRespo
             "name": hero.name,
             "title": hero.title,
             "level": hero.level,
-            // NOTE: omb-mcp query response — f32 is the intentional public diagnostic
-            // API. omb-mcp consumers don't run sim; lockstep determinism is not needed
-            // here. Do NOT migrate to Fixed64 wire format.
+            // 注意： omb-mcp 查詢回應 — f32 是有意的公共診斷
+            // API。 omb-mcp 消費者不運行 sim；不需要步調一致的決定論
+            // 這裡。不要遷移到固定64 線格式。
             "hp": prop.map(|p| p.hp.to_f32_for_render()).unwrap_or(0.0),
             "max_hp": prop.map(|p| p.mhp.to_f32_for_render()).unwrap_or(0.0),
             "x": pos.0.x.to_f32_for_render(),
@@ -164,9 +164,9 @@ pub fn query_inspect_player_view(world: &World, player_name: &str) -> QueryRespo
     for (ent, unit, pos) in (&entities, &units, &positions).join() {
         let mt = move_targets.get(ent);
 
-        // NOTE: omb-mcp query response — Unit hp i32 / pos Fixed64 boundary. f32 is the
-        // intentional public diagnostic API. omb-mcp consumers don't run sim; lockstep
-        // determinism is not needed here. Do NOT migrate to Fixed64 wire format.
+        // 注意： omb-mcp 查詢回應 — 單位 hp i32 / pos 固定 64 邊界。 f32 是
+        // 有意的公共診斷 API。 omb-mcp 消費者不運作 sim；步調一致
+        // 這裡不需要決定論。不要遷移到固定64 線格式。
         unit_list.push(json!({
             "entity_id": ent.id(),
             "name": unit.name,
@@ -190,9 +190,9 @@ pub fn query_inspect_player_view(world: &World, player_name: &str) -> QueryRespo
             "name": creep.name,
             "path": creep.path,
             "status": format!("{:?}", creep.status),
-            // NOTE: omb-mcp query response — f32 is the intentional public diagnostic
-            // API. omb-mcp consumers don't run sim; lockstep determinism is not needed
-            // here. Do NOT migrate to Fixed64 wire format.
+            // 注意： omb-mcp 查詢回應 — f32 是有意的公共診斷
+            // API。 omb-mcp 消費者不運行 sim；不需要步調一致的決定論
+            // 這裡。不要遷移到固定64 線格式。
             "hp": prop.map(|p| p.hp.to_f32_for_render()).unwrap_or(0.0),
             "max_hp": prop.map(|p| p.mhp.to_f32_for_render()).unwrap_or(0.0),
             "x": pos.0.x.to_f32_for_render(),
@@ -207,9 +207,9 @@ pub fn query_inspect_player_view(world: &World, player_name: &str) -> QueryRespo
         let tatk = tattacks.get(ent);
         let tprop = tproperties.get(ent);
 
-        // NOTE: omb-mcp query response — f32 is the intentional public diagnostic
-        // API. omb-mcp consumers don't run sim; lockstep determinism is not needed
-        // here. Do NOT migrate to Fixed64 wire format.
+        // 注意： omb-mcp 查詢回應 — f32 是有意的公共診斷
+        // API。 omb-mcp 消費者不運行 sim；不需要步調一致的決定論
+        // 這裡。不要遷移到固定64 線格式。
         tower_list.push(json!({
             "entity_id": ent.id(),
             "x": pos.0.x.to_f32_for_render(),

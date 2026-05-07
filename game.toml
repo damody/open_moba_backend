@@ -32,7 +32,7 @@ BVH_MAX_LEAF = 4
 # - tower: 變更罕見（mark_dirty 觸發）+ tower_tick 每 tick query → BVH
 #          (5000 entry: query 2.5 ms vs SAP 5.9 ms；rebuild 5 ms 罕見可吞)
 # - creep: 每 tick rebuild_from + 大量 entries → SAP（diff + voracious_mt_sort）
-#          (5000 entry: bulk 0.65 ms vs hash_grid 1.66 ms vs quadtree 4.48 ms)
+# （5000 個條目：批次 0.65 毫秒 vs hash_grid 1.66 毫秒 vs 四叉樹 4.48 毫秒）
 # - hero: N 通常 < 10，演算法差異不可量；用 SAP 沿用 creep 風格保持一致
 # - region: 一次性 init 後永遠 query → BVH（query 最快、rebuild 只發生一次）
 [collision]

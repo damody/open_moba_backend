@@ -52,7 +52,7 @@ pub(crate) fn hits_any(
     self_entity: specs::Entity,
     _regions: &BlockedRegions,
 ) -> bool {
-    // NOTE: Searcher uses f32 internally for instant_distance lib compat; final distance check in caller is Fixed64.
+    // 注意：搜尋器內部使用 f32 來實作 instant_distance lib 相容性；呼叫者的最終距離檢查是固定64。
     let radius_f = radius.to_f32_for_render();
     let q_r = radius_f + MAX_COLLISION_RADIUS;
     let center_vek = vek::Vec2::new(
@@ -62,7 +62,7 @@ pub(crate) fn hits_any(
     for di in searcher.search_collidable(center_vek, q_r, 16) {
         if di.e == self_entity { continue; }
         let Some(other_r) = radii.get(di.e).map(|cr| cr.0) else { continue };
-        // touch = radius + other_r — keep in Fixed64 for consistency with caller.
+        // touch = radius + other_r — 保持固定64 以便與呼叫者保持一致。
         let touch = radius + other_r;
         let touch_f = touch.to_f32_for_render();
         if di.dis < touch_f * touch_f {
@@ -86,14 +86,14 @@ pub(crate) fn advance_with_collision(
 ) -> (SimVec2, bool) {
     let diff = target - pos;
     let distance = diff.length();
-    // 0.5 = Fixed64::from_raw(512)
+    // 0.5 = 固定64::from_raw(512)
     let arrived_eps = Fixed64::from_raw(512);
     if distance < arrived_eps {
         return (target, true);
     }
-    // normalized() handles zero internally — but we already early-out on distance < 0.5.
+    // Normalized() 在內部處理零—但我們已經提前確定了距離 < 0.5。
     let direction = diff.normalized();
-    // step.max(1.0) → if step < 1, treat threshold as 1.0
+    // step.max(1.0) → 如果step < 1，則將閾值視為1.0
     let one = Fixed64::ONE;
     let snap_threshold = if step > one { step } else { one };
     if distance <= snap_threshold {
@@ -130,8 +130,8 @@ impl<'a> System<'a> for Sys {
         if dt <= Fixed64::ZERO {
             return;
         }
-        // dt_f only kept for the legacy f32 broadcast wire format + CProperty.msd
-        // (still f32; Phase 1c will migrate). Angle math is fully Fixed64/Angle now.
+        // dt_f 僅保留用於舊版 f32 廣播有線格式 + CProperty.msd
+        // （仍然是 f32；階段 1c 將遷移）。角度數學現在完全是固定64/角度。
         let dt_f = dt.to_f32_for_render();
 
         // 每 120 tick (~2s) log 一次 searcher 各 index 大小，確認 region 已載入
@@ -149,9 +149,9 @@ impl<'a> System<'a> for Sys {
         // par_join 並行處理所有 hero — 各 hero 的 collision query 是 Searcher 的 read-only
         // 操作，可安全並行；&mut tw.pos / &mut tw.facings 由 specs 保證同 entity 只被一個
         // thread 寫入。collect 結果後再一次性 remove move_targets + 廣播 OutboundMsg。
-        // NOTE: ParJoin is determinism-safe here — each hero writes only to its own pos/facing storage slot
-        // (specs enforces per-entity isolation), and the per-entity Fixed64/Angle math is order-independent.
-        // The collected `results` Vec ordering is wire-format-only (broadcast order); lockstep state is unaffected.
+        // 注意：ParJoin 在這裡是確定性安全的——每個英雄只寫入自己的 pos/face 儲存槽
+        // （規範強制每個實體隔離），且每個實體的固定64/角度數學是與順序無關的。
+        // 收集到的「結果」Vec 排序僅是有線格式（廣播順序）；鎖步狀態不受影響。
         let results: Vec<(Option<specs::Entity>, (u32, f32, f32, f32))> = (
             &tr.entities,
             &tr.heroes,
@@ -167,7 +167,7 @@ impl<'a> System<'a> for Sys {
                     guard
                 },
                 |_guard, (entity, _hero, property, pos, move_target, facing)| {
-                    // Broadcast values (legacy f32 wire format).
+                    // 廣播值（傳統 f32 有線格式）。
                     let pos_x_f = pos.0.x.to_f32_for_render();
                     let pos_y_f = pos.0.y.to_f32_for_render();
                     let facing_rad_out = angle_to_rad_f32(facing.0);
@@ -182,28 +182,28 @@ impl<'a> System<'a> for Sys {
                     let distance = diff.length();
                     // 用 UnitStats 聚合移速（對應 Dota MOVESPEED_BONUS_* / MOVESPEED_ABSOLUTE /
                     // MOVESPEED_MAX/MIN/LIMIT）；建築物會被 is_buildings 跳過（hero 不會）。
-                    // CProperty.msd is still f32 (Phase 1c migration); keep f32 path.
+                    // CProperty.msd 仍然是 f32（第 1c 階段遷移）；保留 f32 路徑。
                     let stats = crate::ability_runtime::UnitStats::from_refs(
                         &*tr.buff_store,
                         tr.is_buildings.get(entity).is_some(),
                     );
-                    // Phase 1c.4: CProperty.msd / final_move_speed are Fixed64 (Phase 1c.2 / 1c.3).
-                    // dt is Fixed64. step = effective_msd * dt — stays in Fixed64 throughout.
+                    // 階段 1c.4：CProperty.msd / Final_move_speed 為 Fix64（階段 1c.2 / 1c.3）。
+                    // dt 是固定64。 step = effective_msd * dt — 總是保持固定64。
                     let effective_msd: Fixed64 = stats.final_move_speed(property.msd, entity);
                     let step: Fixed64 = effective_msd * dt;
 
                     let mut arrived_entity: Option<specs::Entity> = None;
 
-                    // distance > 0.5 — Fixed64 from_raw(512) = 0.5
+                    // 距離 > 0.5 — 固定 64 from_raw(512) = 0.5
                     if distance > Fixed64::from_raw(512) {
-                        // Compute desired facing using deterministic Fixed64 atan2.
+                        // 使用確定性的 Fix64 atan2 計算所需的朝向。
                         let desired_angle: Angle = sim_atan2(diff.y, diff.x);
                         let turn_rate = tr
                             .turn_speeds
                             .get(entity)
                             .map(|t| t.0)
                             .unwrap_or(Fixed64::from_raw(1608)); // π/2 rad/s default
-                        // Convert (rad/s × s) Fixed64 → Angle ticks via deterministic helper.
+                        // 透過確定性助手轉換（rad/s × s）Fixed64 → 角度刻度。
                         let max_step_ticks = fixed_rad_to_ticks(turn_rate * dt);
                         facing.0 = angle_rotate_toward(facing.0, desired_angle, max_step_ticks);
 
@@ -237,7 +237,7 @@ impl<'a> System<'a> for Sys {
                         arrived_entity = Some(entity);
                     }
 
-                    // Broadcast values use post-step pos + post-rotate facing.
+                    // 廣播值使用後步位置+後旋轉面向。
                     let out_x = pos.0.x.to_f32_for_render();
                     let out_y = pos.0.y.to_f32_for_render();
                     let out_facing = angle_to_rad_f32(facing.0);
@@ -256,8 +256,8 @@ impl<'a> System<'a> for Sys {
     }
 }
 
-/// Angle → f32 radians for the legacy hero.M wire format. Lossy boundary;
-/// internal sim math now stays in Angle.
+/// 角度 → f32 弧度用於舊版 Hero.M 線格式。有損邊界；
+/// 內部模擬數學現在保留在角度中。
 #[inline]
 fn angle_to_rad_f32(a: omoba_sim::Angle) -> f32 {
     (a.ticks() as f32 / TAU_TICKS as f32) * std::f32::consts::TAU

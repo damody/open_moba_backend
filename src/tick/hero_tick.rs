@@ -15,9 +15,9 @@ use omoba_sim::{Fixed64, Vec2 as SimVec2};
 /// MOBA 鏡頭下肉眼無感的 facing 變化量（~15°）。舊值 0.05 (~3°) 造成過多 F event。
 const FACING_BROADCAST_THRESHOLD_RAD: f32 = 0.26;
 
-/// Per-entity SimRng op_kind for hero_tick. Phase 1de.2: replaces fastrand for
-/// the no-target attack-cooldown jitter. Reordering or reusing this constant
-/// across systems would invalidate replay determinism.
+/// Hero_tick 的每實體 SimRng op_kind。階段 1de.2：取代 fastrand
+/// 無目標攻擊冷卻時間抖動。重新排序或重複使用該常數
+/// 跨系統將使重播決定論無效。
 const OP_HERO_NO_TARGET_JITTER: u32 = 10;
 
 #[derive(SystemData)]
@@ -61,13 +61,13 @@ impl<'a> System<'a> for Sys {
 
     fn run(_job: &mut Job<Self>, (tr, mut tw): Self::SystemData) {
         let time = tr.time.0;
-        // Phase 1c.4: dt is now Fixed64 throughout battle tick.
+        // 階段 1c.4：dt 現在在整個戰鬥週期中固定為 64。
         let dt: Fixed64 = tr.dt.0;
-        // Lossy projection retained ONLY for Searcher boundary + facing radians math.
-        // NOTE: Searcher uses f32 internally for instant_distance lib compat; Facing radians is log-only.
+        // 有損投影僅保留用於搜尋者邊界+面向弧度數學。
+        // 注意：搜尋器內部使用 f32 來實作 instant_distance lib 相容性；面對弧度僅是對數。
         let dt_f = dt.to_f32_for_render();
-        // Phase 1de.2: SimRng seed inputs hoisted out of the par_join closure
-        // (Read<'_, _> isn't Sync-safe across rayon, but bare u64/u32 are Copy).
+        // 階段 1de.2：SimRng 種子輸入從 par_join 閉包中提升出來
+        // （讀<'_，_>在人造絲上不是同步安全的，但裸露的u64/u32是複製的）。
         let master_seed: u64 = tr.master_seed.0;
         let tick: u32 = tr.tick.0 as u32;
         let time1 = Instant::now();
@@ -110,7 +110,7 @@ impl<'a> System<'a> for Sys {
                 |_guard, (e, hero, pty, atk, pos, facing, facing_bc)| {
                     let mut outcomes: Vec<Outcome> = Vec::new();
 
-                    // NOTE: Searcher uses f32 internally for instant_distance lib compat; final distance check in caller is Fixed64.
+                    // 注意：搜尋器內部使用 f32 來實作 instant_distance lib 相容性；呼叫者的最終距離檢查是固定64。
                     let (pos_x_f, pos_y_f) = pos.xy_f32();
                     let pos_vek = vek::Vec2::new(pos_x_f, pos_y_f);
 
@@ -124,7 +124,7 @@ impl<'a> System<'a> for Sys {
                         &*tr.buff_store,
                         tr.is_buildings.get(e).is_some(),
                     );
-                    // 0.01 ≈ 10/1024 raw — floor to avoid div-by-zero divergence.
+                    // 0.01 ≈ 10/1024 raw — 下限以避免被零除的發散。
                     let asd_mult_raw = stats.final_attack_speed_mult(e);
                     let min_asd_mult = Fixed64::from_raw(10);
                     let asd_mult = if asd_mult_raw < min_asd_mult { min_asd_mult } else { asd_mult_raw };
@@ -154,7 +154,7 @@ impl<'a> System<'a> for Sys {
                             let attack_range: Fixed64 = stats.final_attack_range(atk.range.v, e);
                             let range_bonus: Fixed64 = attack_range - atk.range.v;
                             let search_range: Fixed64 = attack_range + Fixed64::from_i32(50); // 稍微擴大搜尋範圍以確保不遺漏邊界目標
-                            // NOTE: Searcher uses f32 internally for instant_distance lib compat; final distance check in caller is Fixed64.
+                            // 注意：搜尋器內部使用 f32 來實作 instant_distance lib 相容性；呼叫者的最終距離檢查是固定64。
                             let attack_range_f = attack_range.to_f32_for_render();
                             let search_range_f = search_range.to_f32_for_render();
                             let (creep_targets, _) =
@@ -184,7 +184,7 @@ impl<'a> System<'a> for Sys {
                             }
 
                             // 過濾出可攻擊的敵對目標（必須在攻擊範圍內）
-                            // NOTE: Searcher returns f32 squared distance; comparison in f32 acceptable (boundary lossy ok).
+                            // 注意：搜尋器返回 f32 平方距離； f32 中的比較可接受（邊界有損還可以）。
                             let mut valid_targets = Vec::new();
                             let attack_range_squared = attack_range_f * attack_range_f; // 計算攻擊範圍的平方
                             
@@ -210,7 +210,7 @@ impl<'a> System<'a> for Sys {
                             if valid_targets.len() > 0 {
                                 // 攻擊最近的敵人：先轉向，角度 < 30° 才能開火
                                 let target = valid_targets[0].e;
-                                // NOTE: turn-toward log uses f32 boundary — Fixed64 has no Display.
+                                // 注意：轉向日誌使用 f32 邊界 — Fix64 沒有顯示。
                                 let target_pos = tr.pos.get(target)
                                     .map(|p| { let (x, y) = p.xy_f32(); vek::Vec2::new(x, y) })
                                     .unwrap_or(pos_vek);
@@ -249,8 +249,8 @@ impl<'a> System<'a> for Sys {
                                 }
                             } else {
                                 // 沒有有效目標時，減少一些攻擊冷卻時間避免過度檢查
-                                // 0.3 ≈ 307/1024 raw; jitter raw ∈ [0, 256) ≈ 0..0.25.
-                                // Phase 1de.2: deterministic per-(hero, tick) jitter via SimRng.
+                                // 0.3 ≈ 307/1024 原始；原始抖動 ε [0, 256) ≈ 0..0.25。
+                                // 階段 1de.2：透過 SimRng 確定性每（英雄、刻度）抖動。
                                 let mut rng = omoba_sim::SimRng::from_master_entity(
                                     master_seed, tick, e.id(), OP_HERO_NO_TARGET_JITTER,
                                 );

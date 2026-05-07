@@ -1,4 +1,4 @@
-//! Merge DllData + EntityData + ApiSpec + ImplEntry list into final Catalog.
+//! 將 DllData + EntityData + ApiSpec + ImplEntry 清單合併到最終目錄中。
 
 use crate::lib::coverage::ImplEntry;
 use crate::lib::dll::DllData;
@@ -16,7 +16,7 @@ pub fn merge(
     warnings: Vec<Warning>,
     meta: BuildMeta,
 ) -> Catalog {
-    // Build impl lookup keyed by resolved id.
+    // 建構由已解析 id 鍵入的 impl 查找。
     let mut by_id: HashMap<String, ImplEntry> = HashMap::new();
     for i in impls {
         let key = i.id.clone().unwrap_or_else(|| snake(&i.self_ty));
@@ -25,7 +25,7 @@ pub fn merge(
 
     let mut units: Vec<UnitEntry> = Vec::new();
 
-    // 1. DLL-provided units (towers + Unknown)
+    // 1. DLL提供的單位（塔+未知）
     for u in dll.units {
         let imp = by_id.remove(&u.id);
         let (overrides, world_calls, src) = match imp {
@@ -47,7 +47,7 @@ pub fn merge(
         });
     }
 
-    // 2. Heroes from generated story/template data
+    // 2. 來自生成的故事/模板資料的英雄
     for (id, h) in entity.heroes {
         let imp = by_id.remove(&id);
         let (overrides, world_calls, src) = match imp {
@@ -68,7 +68,7 @@ pub fn merge(
         });
     }
 
-    // 3. Creeps from generated story/template data
+    // 3. 從生成的故事/模板資料爬行
     for (id, c) in entity.creeps {
         let imp = by_id.remove(&id);
         let (overrides, world_calls, src) = match imp {
@@ -89,8 +89,8 @@ pub fn merge(
         });
     }
 
-    // 3.5. Collect dangling ability references (hero/creep lists that name
-    //      ability ids not exported by the DLL manifest).
+    // 3.5.收集懸空能力參考（英雄/小兵列出名稱
+    // DLL 清單未匯出的能力 ID）。
     let dangling_ability_refs: Vec<(String, String)> = {
         let known: std::collections::HashSet<&str> =
             dll.abilities.iter().map(|a| a.id.as_str()).collect();

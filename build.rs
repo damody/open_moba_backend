@@ -1,4 +1,6 @@
 fn main() {
+    println!("cargo:rerun-if-changed=../proto/game.proto");
+
     #[cfg(feature = "grpc")]
     {
         tonic_build::configure()

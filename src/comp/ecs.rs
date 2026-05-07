@@ -8,9 +8,9 @@ pub struct SysMetrics {
     pub stats: Mutex<HashMap<String, CpuTimeline>>,
 }
 
-/// measuring the level of threads a unit of code ran on. Use Rayon when it ran
-/// on their threadpool. Use Exact when you know on how many threads your code
-/// ran on exactly.
+/// 測量程式碼單元運行的執行緒級別。運行時使用 Rayon
+/// 在他們的線程池上。當您知道程式碼有多少個執行緒時使用 Exact
+/// 準確地跑下去。
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum ParMode {
     None, /* Job is not running at all */
@@ -21,27 +21,27 @@ pub enum ParMode {
 
 #[derive(Default, Debug, Clone)]
 pub struct CpuTimeline {
-    /// measurements for a System
-    /// - The first entry will always be ParMode::Single, as when the
-    ///   System::run is executed, we run
-    /// single threaded until we start a Rayon::ParIter or similar
-    /// - The last entry will contain the end time of the System. To mark the
-    ///   End it will always contain
-    /// ParMode::None, which means from that point on 0 CPU threads work in this
-    /// system
+    /// 系統測量
+    /// - 第一個條目將始終是 ParMode::Single，就像當
+    /// System::run執行完畢，我們運行
+    /// 單線程，直到我們啟動 Rayon::ParIter 或類似的
+    /// - 最後一個條目將包含系統的結束時間。來標記
+    /// 結束它總是包含
+    /// ParMode::None，這意味著從那時起有 0 個 CPU 執行緒在此工作
+    /// 系統
     measures: Vec<(Instant, ParMode)>,
 }
 
 #[derive(Default)]
 pub struct CpuTimeStats {
-    /// the first entry will always be 0, the last entry will always be `dt`
-    /// `usage` starting from `ns`
+    /// 第一個條目始終為 0，最後一個條目始終為“dt”
+    /// 從“ns”開始的“usage”
     measures: Vec<(/* ns */ u64, /* usage */ f32)>,
 }
 
-/// Parallel Mode tells us how much you are scaling. `None` means your code
-/// isn't running. `Single` means you are running single threaded.
-/// `Rayon` means you are running on the rayon threadpool.
+/// 並行模式告訴我們您的擴充程度。 「無」表示您的程式碼
+/// 沒有運行。 「單」表示您正在運行單執行緒。
+/// `Rayon` 表示您正在 rayon 執行緒池上執行。
 impl ParMode {
     fn threads(&self, rayon_threads: u32) -> u32 {
         match self {
@@ -59,8 +59,8 @@ impl CpuTimeline {
         self.measures.push((Instant::now(), ParMode::Single));
     }
 
-    /// Start a new measurement. par will be covering the parallelisation AFTER
-    /// this statement, till the next / end of the System.
+    /// 開始新的測量。 par will be covering the parallelisation AFTER
+    /// 這條語句，直到系統的下一個/結束。
     pub fn measure(&mut self, par: ParMode) { self.measures.push((Instant::now(), par)); }
 
     fn end(&mut self) -> std::time::Duration {
@@ -107,30 +107,30 @@ impl CpuTimeStats {
     }
 }
 
-/// The Idea is to transform individual timelines per system to a map of all
-/// cores and what they (prob) are working on.
+/// 這個想法是將每個系統的單獨時間線轉換為所有系統的地圖
+/// 核心以及它們（可能）正在做什麼。
 ///
-/// # Example
+/// ＃ 例子
 ///
-/// - Input: 3 services, 0 and 1 are 100% parallel and 2 is single threaded. `-`
-///   means no work for *0.5s*. `#` means full work for *0.5s*. We see the first
-///   service starts after 1s and runs for 3s The second one starts a sec later
-///   and runs for 4s. The last service runs 2.5s after the tick start and runs
-///   for 1s. Read left to right.
-/// ```ignore
+/// - 輸入：3 個服務，0 和 1 是 100% 並行，2 是單執行緒。 ``-``
+/// 意味著 *0.5 秒* 內不工作。 `#` 表示*0.5s* 的完整工作。我們看到第一個
+/// 服務在 1 秒後啟動並運行 3 秒第二個服務在一秒後啟動
+/// 並運轉 4 秒。最後一個服務在tick啟動後運行2.5s並運行
+/// 1秒。從左到右閱讀。
+/// 『忽略
 /// [--######------]
 /// [----########--]
 /// [-----##-------]
 /// ```
 ///
-/// - Output: a Map that calculates where our 6 cores are spending their time.
-///   Here each number means 50% of a core is working on it. A '-' represents an
-///   idling core. We start with all 6 cores idling. Then all cores start to
-///   work on task 0. 2s in, task1 starts and we have to split cores. 2.5s in
-///   task2 starts. We have 6 physical threads but work to fill 13. Later task 2
-///   and task 0 will finish their work and give more threads for task 1 to work
-///   on. Read top to bottom
-/// ```ignore
+/// - 產出：一張地圖，計算我們的 6 個核心將時間花在哪裡。
+/// 這裡每個數字表示 50% 的核心正在處理它。 「-」代表一個
+/// 空轉核心。我們從所有 6 個核心都處於空閒狀態開始。然後所有核心開始
+/// 處理任務 0。2 秒後，任務 1 啟動，我們必須拆分核心。 2.5秒內
+/// 任務2開始。我們有 6 個實體線程，但需要填充 13 個。稍後的任務 2
+/// 任務 0 將完成其工作並為任務 1 提供更多執行緒來工作
+/// 在。從上到下閱讀
+/// 『忽略
 /// 0-1s     [------------]
 /// 1-2s     [000000000000]
 /// 2-2.5s   [000000111111]
@@ -160,7 +160,7 @@ pub fn gen_stats(
     all.dedup();
     for time in all {
         let relative_time = time.duration_since(tick_work_start).as_nanos() as u64;
-        // get all parallelisation at this particular time
+        // 在這個特定時間獲得所有並行化
         let individual_cores_wanted = timelines
             .iter()
             .map(|(k, t)| (k, t.get(*time).threads(rayon_threads)))
@@ -171,7 +171,7 @@ pub fn gen_stats(
             .sum::<u32>()
             .max(1) as f32;
         let total_or_max = total.max(physical_threads as f32);
-        // update ALL states
+        // 更新所有狀態
         for individual in individual_cores_wanted.iter() {
             let actual = (individual.1 as f32 / total_or_max) * physical_threads as f32;
             if let Some(p) = result.get_mut(individual.0) {
@@ -191,19 +191,19 @@ pub fn gen_stats(
     result
 }
 
-/// This trait wraps around specs::System and does additional metrics collection
+/// 此特徵圍繞著specs::System 並進行額外的指標收集
 ///
 /// ```
-/// use specs::Read;
-/// use omobab::comp::ecs::{Job, ParMode, System};
-/// # use std::time::Duration;
-/// pub struct Sys;
+/// 使用規範::閱讀；
+/// 使用 omobab::comp::ecs::{作業、ParMode、系統}；
+/// # 使用 std::time::Duration；
+/// pub 結構系統；
 /// impl<'a> System<'a> for Sys {
-///     type SystemData = (Read<'a, ()>, Read<'a, ()>);
+/// 類型 SystemData = (Read<'a, ()>, Read<'a, ()>);
 ///
-///     const NAME: &'static str = "example";
+/// const NAME: &'static str = "範例";
 ///
-///     fn run(job: &mut Job<Self>, (_read, _read2): Self::SystemData) {
+/// fn run(作業: &mut Job<Self>, (_read, _read2): Self::SystemData) {
 ///         std::thread::sleep(Duration::from_millis(100));
 ///         job.cpu_stats.measure(ParMode::Rayon);
 ///         std::thread::sleep(Duration::from_millis(500));
@@ -234,8 +234,8 @@ where
     Job::<T>::default().run_now(world);
 }
 
-/// This Struct will wrap the System in order to avoid the can only impl trait
-/// for local defined structs error It also contains the cpu measurements
+/// 該結構將包裝系統以避免 can only impl 特徵
+/// 對於本地定義的結構錯誤它還包含 cpu 測量
 pub struct Job<T>
 where
     T: ?Sized,

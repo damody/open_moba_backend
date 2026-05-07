@@ -96,7 +96,7 @@ impl Enemy {
     /// 從戰役資料創建敵人。
     ///
     /// **單一來源**：所有 intrinsic stats（hp/damage/armor/...）走
-    /// `omoba_template_ids::creep_stats(id)` const lookup，`EnemyJD`（generated story）
+    /// `omoba_template_ids::creep_stats(id)` const 查找，`EnemyJD`（產生的故事）
     /// 只剩 `id` 拿來查 generated templates。abilities 仍允許 story override。
     pub fn from_campaign_data(enemy_data: &crate::ue4::import_campaign::EnemyJD) -> Self {
         use omoba_template_ids::{creep_by_name, creep_display, creep_stats};
@@ -123,8 +123,8 @@ impl Enemy {
             _ => AiType::Aggressive,
         };
 
-        // NOTE: Enemy is a spawn template (analogous to Unit i32 design); template-ids creep_stats
-        // is Fixed64 source-of-truth, Enemy struct fields stay f32/i32 by design and convert at spawn boundary.
+        // 注意：敵人是一個生成模板（類似 Unit i32 設計）；模板 ID cree_stats
+        // 是固定 64 真相來源，敵人結構字段按設計保持 f32/i32 並在生成邊界轉換。
         Enemy {
             id: enemy_data.id.clone(),
             name: creep_display(id).to_string(),

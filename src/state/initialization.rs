@@ -138,7 +138,7 @@ impl StateInitializer {
         }
         log::warn!("▶▶ populate_region_blockers DONE: {} blockers created (polygons={})", n, polys.len());
         for (idx, (e, p)) in created.iter().take(3).enumerate() {
-            // NOTE: log uses f32 boundary — Fixed64 has no Display.
+            // 注意：log 使用 f32 邊界 — Fix64 沒有顯示。
             let r = ecs.read_storage::<CollisionRadius>().get(*e).map(|c| c.0.to_f32_for_render()).unwrap_or(0.0);
             log::warn!("▶▶   blocker[{}] entity={:?} pos=({:.1},{:.1}) r={:.1}",
                 idx, e, p.x, p.y, r);
@@ -330,48 +330,57 @@ impl StateInitializer {
         ecs.insert(TimeOfDay(0.0));
         ecs.insert(Time(0.0));
         ecs.insert(DeltaTime(omoba_sim::Fixed64::ZERO));
-        // Phase 1c.3: master seed for deterministic SimRng streams. Phase 2 will
-        // overwrite this from the GameStart message; for now use a fixed default.
+        // 階段 1c.3：確定性 SimRng 流的主種子。第二階段將
+        // 從 GameStart 訊息中覆寫它；現在使用固定的預設值。
         ecs.insert(crate::comp::MasterSeed::default());
 
-        // Phase 3.4: pending lockstep player inputs. Filled by the omfx
-        // sim_runner from each TickBatch (or by host-side test code) and
-        // drained by `tick::player_input_tick::Sys` every dispatcher tick.
-        // Inserted unconditionally so the consumer system's `Write<>` always
-        // resolves; non-kcp builds use the empty unit-struct variant.
+        // 階段 3.4：等待同步玩家輸入。由 omfx 填充
+        // 來自每個 TickBatch 的 sim_runner （或透過主機端測試程式碼）和
+        // 每個調度程序滴答聲都會被 `tick::player_input_tick::Sys` 耗盡。
+        // 無條件插入，以便消費者係統的 `Write<>` 始終
+        // 解決；非 kcp 構建使用空的單元結構變體。
         ecs.insert(crate::comp::PendingPlayerInputs::default());
 
-        // Phase 2.1: deferred tower-spawn requests from lockstep TowerPlace
-        // inputs. Drained by `GameProcessor::drain_pending_tower_spawns` after
-        // the dispatcher run on both host (omb) and replica (omfx sim_runner).
+        // 階段 2.1：延遲來自同步 TowerPlace 的塔生成請求
+        // 輸入。之後被 `GameProcessor::drain_pending_tower_spawns` 耗盡
+        // 調度程式在主機 (omb) 和副本 (omfx sim_runner) 上執行。
         ecs.insert(crate::comp::PendingTowerSpawnQueue::default());
 
-        // Phase 2.2: deferred tower-sell requests from lockstep TowerSell
-        // inputs. Drained by `GameProcessor::drain_pending_tower_sells` after
-        // the dispatcher run on both host (omb) and replica (omfx sim_runner).
+        // 階段 2.2：延後來自同步 TowerSell 的塔樓銷售請求
+        // 輸入。之後被 `GameProcessor::drain_pending_tower_sells` 耗盡
+        // 調度程式在主機 (omb) 和副本 (omfx sim_runner) 上執行。
         ecs.insert(crate::comp::PendingTowerSellQueue::default());
 
-        // Phase 2.3: deferred tower-upgrade requests from lockstep
-        // TowerUpgrade inputs. Drained by
-        // `GameProcessor::drain_pending_tower_upgrades` after the dispatcher
-        // run on both host (omb) and replica (omfx sim_runner).
+        // 階段 2.3：延遲塔升級請求
+        // TowerUpgrade 輸入。耗盡於
+        // 調度程式之後的“GameProcessor::drain_pending_tower_upgrades”
+        // 在主機 (omb) 和副本 (omfx sim_runner) 上執行。
         ecs.insert(crate::comp::PendingTowerUpgradeQueue::default());
 
-        // Phase 2.4: deferred item-use requests from lockstep ItemUse inputs.
-        // Drained by `GameProcessor::drain_pending_item_uses` after the
-        // dispatcher run on both host (omb) and replica (omfx sim_runner).
+        // 階段 2.4：延遲來自鎖步 ItemUse 輸入的物品使用請求。
+        // 在之後由 `GameProcessor::drain_pending_item_uses` 耗盡
+        // 調度程式在主機 (omb) 和副本 (omfx sim_runner) 上執行。
         ecs.insert(crate::comp::PendingItemUseQueue::default());
 
+        // Deferred hero ability upgrade requests from lockstep UpgradeAbility
+        // inputs. Drained before script dispatch so SkillLearn hooks run in the
+        // same tick on host and replica.
+        ecs.insert(crate::comp::PendingAbilityUpgradeQueue::default());
+
+        // Deferred hero ability cast requests from lockstep CastAbility inputs.
+        // Drained before script dispatch so SkillCast runs in the same tick.
+        ecs.insert(crate::comp::PendingAbilityCastQueue::default());
+
         // MoveTo (右鍵移動): deferred hero MoveTarget writes from lockstep
-        // MoveTo inputs. Drained by `GameProcessor::drain_pending_moves` after
-        // the dispatcher run on both host (omb) and replica (omfx sim_runner).
+        // 移至輸入。之後被 `GameProcessor::drain_pending_moves` 耗盡
+        // 調度程式在主機 (omb) 和副本 (omfx sim_runner) 上執行。
         ecs.insert(crate::comp::PendingMoveQueue::default());
 
-        // Phase 5.3: latest serialized world snapshot for observer rejoin.
-        // Refreshed every SNAPSHOT_INTERVAL_TICKS (= 30 s @ 30 Hz) by the
-        // dispatcher tick loop; consumed by the KCP transport's 0x16
-        // SnapshotResp handler via a shared `Arc<Mutex<SnapshotStore>>`.
-        // Empty (`tick=0`, `bytes=[]`) until the first save fires.
+        // 階段 5.3：觀察者重新加入的最新序列化世界快照。
+        // 每 SNAPSHOT_INTERVAL_TICKS (= 30 s @ 30 Hz) 刷新一次
+        // 調度程序滴答循環；由 KCP 傳輸的 0x16 消耗
+        // 透過共享「Arc<Mutex<SnapshotStore>>」的 SnapshotResp 處理程序。
+        // 為空（`tick=0`、`bytes=[]`），直到第一次儲存觸發。
         ecs.insert(crate::comp::SnapshotStore::default());
 
         // 初始化集合資源
@@ -415,7 +424,7 @@ impl StateInitializer {
         // 抽取器每 tick drain 給前端渲染。非 sim 狀態，不影響 determinism hash。
         ecs.insert(crate::comp::ExplosionFxQueue::default());
 
-        // Phase 1b: entity-removed queue — delete_entity_tracked helper
+        // 階段 1b：實體刪除隊列－delete_entity_tracked 助手
         // 推入，sim_runner snapshot extractor 每 tick drain 進
         // SimWorldSnapshot.removed_entity_ids。同 ExplosionFxQueue 模式，
         // 非 sim 狀態，不影響 determinism hash。
@@ -505,7 +514,7 @@ impl StateInitializer {
                 180.0   // 英雄高度
             ).with_precision(720); // 高精度視野
 
-            // hero_template_stats.turn_speed is Fixed64 in degrees; convert to radians (f32) for omb internal.
+            // Hero_template_stats.turn_speed 為固定 64 度；轉換為 omb 內部弧度 (f32)。
             let hero_turn_rad = hero_template_stats.turn_speed.to_f32_for_render() * std::f32::consts::PI / 180.0;
             // Hero collision_radius 暫定 30（之前由 story source optional override，
             // 簡化後固定）。
@@ -638,7 +647,7 @@ impl StateInitializer {
         let asd_fx = Fixed64::from_raw((asd * 1024.0) as i64);
         let prop = TProperty::new(hp_fx, 0, Fixed64::from_i32(120));
         let atk_c = TAttack::new(atk_fx, asd_fx, range_fx, Fixed64::from_i32(1200));
-        // Team id 0 for Player, 1 for Enemy (matches create_campaign_heroes convention)
+        // 隊伍 ID 0 代表玩家，1 代表敵人（符合 create_campaign_heroes 約定）
         let team_id = if faction_type == FactionType::Player { 0 } else { 1 };
         let faction = Faction::new(faction_type.clone(), team_id);
         let vision = CircularVision::new(range + 200.0, 40.0).with_precision(180);
@@ -702,7 +711,7 @@ impl StateInitializer {
                 let unit_vel = Vel::zero();
 
                 let unit_properties = CProperty {
-                    // NOTE: Unit.{current_hp, max_hp, base_damage} are i32 by design (integer game values).
+                    // 注意：Unit.{current_hp, max_hp, base_damage} 設計為 i32（整數遊戲值）。
                     hp: omoba_sim::Fixed64::from_i32(unit.current_hp),
                     mhp: omoba_sim::Fixed64::from_i32(unit.max_hp),
                     msd: unit.move_speed,
@@ -712,7 +721,7 @@ impl StateInitializer {
 
                 let unit_attack = TAttack {
                     atk_physic: Vf32::new(omoba_sim::Fixed64::from_i32(unit.base_damage)),
-                    // NOTE: Fixed64::ONE / attack_speed exercises Fixed64 division at spawn boundary; sim-side reads asd.v directly.
+                    // 注意：Fixed64::ONE / Attack_speed 在生成邊界處練習固定 64 分割；sim端直接讀取asd.v。
                     asd: Vf32::new(omoba_sim::Fixed64::ONE / unit.attack_speed),
                     range: Vf32::new(unit.attack_range),
                     asd_count: omoba_sim::Fixed64::ZERO,
@@ -720,7 +729,7 @@ impl StateInitializer {
                 };
 
                 let enemy_vision = CircularVision::new(
-                    // NOTE: CircularVision is client-side render hint (fog of war); per-tick rebuild from authoritative Pos keeps it cross-client consistent.
+                    // 注意：CircularVision 是客戶端渲染提示（戰爭迷霧）；從權威 Pos 進行的每次報價重建可保持跨客戶端的一致性。
                     unit.attack_range.to_f32_for_render() + 150.0,
                     20.0
                 ).with_precision(360);
@@ -753,32 +762,32 @@ impl StateInitializer {
 }
 
 // =====================================================================
-// Phase 3 omfx-side helpers
+// 第 3 階段 omfx 端助手
 //
-// Expose a slim, transport-free bootstrap path that produces a fully
-// initialized ECS World for the omfx sim_runner worker. The legacy
-// `State::new_with_campaign` path also uses these same building blocks,
-// so the omfx-side simulator stays in sync with omobab.exe.
+// 露出一條細長的、無傳輸的引導路徑，產生完全
+// 為 omfx sim_runner 工作執行緒初始化了 ECS World。遺產
+// `State::new_with_campaign` 路徑也使用這些相同的建構塊，
+// 因此 omfx 端模擬器與 omobab.exe 保持同步。
 //
-// Notes:
-//   * The world has an empty `Vec<Sender<OutboundMsg>>` inserted (by
-//     `setup_campaign_ecs_world`); systems that try to push outbound
-//     messages will silently drop them which is exactly what the
-//     deterministic sim wants — wire emit is the host's job, not the
-//     replica simulator's.
-//   * `MasterSeed` is left at the default; the caller (sim_runner)
-//     overwrites it once the GameStart message arrives.
-//   * Script registries (Tower / Ability / Tower Upgrade) are filled
-//     here so unit tick can spawn / dispatch correctly.
+// 筆記：
+// * 世界插入了一個空的`Vec<Sender<OutboundMsg>>`（透過
+// `setup_campaign_ecs_world`);嘗試推播出站的系統
+// 訊息會默默地丟棄它們，這正是
+// 確定性模擬想要 — 線發射是主機的工作，而不是
+// 複製模擬器的。
+// * `MasterSeed` 保留預設值；呼叫者 (sim_runner)
+// 一旦 GameStart 訊息到達，就會覆蓋它。
+// * 腳本註冊表（塔/能力/塔升級）已滿
+// 在這裡，單位蜱可以正確產生/調度。
 // =====================================================================
 
-/// Build a fully-initialized ECS World from a campaign scene path
-/// (e.g. `scripts/lua_data/MVP_1`). The path is used only to derive the
-/// generated story id; runtime gameplay does not read story JSON/Lua files.
-/// Inserts campaign + scripts + tower / ability
-/// registries. Used by Phase 3 omfx sim_runner; mirrors what
-/// `State::new_with_campaign` does minus all the transport / heartbeat
-/// plumbing.
+/// 從戰役場景路徑建立完全初始化的 ECS 世界
+/// （例如`scripts/lua_data/MVP_1`）。此路徑僅用於匯出
+/// 產生的故事 ID；運行時遊戲不會讀取故事 JSON/Lua 檔案。
+/// 插入戰役+腳本+塔/能力
+/// 註冊表。由階段 3 omfx sim_runner 使用；反映什麼
+/// `State::new_with_campaign` 確實減去了所有傳輸/心跳
+/// 管道。
 pub fn create_world_for_scene(scene_path: &std::path::Path) -> Result<World, failure::Error> {
     use failure::err_msg;
     let story_id = scene_path
@@ -799,8 +808,8 @@ pub fn create_world_for_scene(scene_path: &std::path::Path) -> Result<World, fai
     let thread_pool = StateInitializer::create_thread_pool();
     let mut ecs = StateInitializer::setup_campaign_ecs_world(&thread_pool);
 
-    // Load scripts BEFORE scene init so spawn_td_tower can resolve
-    // unit_id → script template.
+    // 在場景初始化之前載入腳本，以便spawn_td_tower可以解析
+    // unit_id → 腳本模板。
     let dir_str = std::env::var("OMB_SCRIPTS_DIR").unwrap_or_else(|_| "./scripts".to_string());
     let dir = std::path::Path::new(&dir_str);
     let registry = crate::scripting::loader::load_scripts_dir(dir);
@@ -809,7 +818,7 @@ pub fn create_world_for_scene(scene_path: &std::path::Path) -> Result<World, fai
     populate_ability_registry(&mut ecs, &registry);
     ecs.insert(registry);
 
-    // Apply campaign / map data.
+    // 應用戰役/地圖資料。
     StateInitializer::init_campaign_data(&mut ecs, &campaign_data);
     StateInitializer::init_creep_wave(&mut ecs, &campaign_data.map);
     StateInitializer::create_campaign_scene(&mut ecs, &campaign_data);
@@ -819,8 +828,8 @@ pub fn create_world_for_scene(scene_path: &std::path::Path) -> Result<World, fai
     Ok(ecs)
 }
 
-/// Phase 3 omfx-side helper: populate `TowerTemplateRegistry` from a
-/// `ScriptRegistry`. Mirror of the private method in `state::core::State`.
+/// 第 3 階段 omfx 端幫助程式：從 a 填入 `TowerTemplateRegistry`
+/// `腳本註冊表`。 `state::core::State` 中私有方法的鏡像。
 pub fn populate_tower_template_registry(
     ecs: &mut World,
     registry: &crate::scripting::ScriptRegistry,
@@ -854,14 +863,14 @@ pub fn populate_tower_template_registry(
     ecs.insert(reg);
 }
 
-/// Phase 3 omfx-side helper: build the static 48-tower upgrade table.
+/// 第 3 階段 omfx 端助手：建立靜態 48 塔升級表。
 pub fn populate_tower_upgrade_registry(ecs: &mut World) {
     let reg = crate::comp::tower_upgrade_registry::TowerUpgradeRegistry::new();
     ecs.insert(reg);
 }
 
-/// Phase 3 omfx-side helper: copy ability metadata from script registry
-/// into ECS-side `AbilityRegistry` resource.
+/// 第 3 階段 omfx 端幫助程式：從腳本登錄複製能力元數據
+/// 進入 ECS 端“AbilityRegistry”資源。
 pub fn populate_ability_registry(
     ecs: &mut World,
     registry: &crate::scripting::ScriptRegistry,

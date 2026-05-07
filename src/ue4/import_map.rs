@@ -42,10 +42,10 @@ pub struct PathJD {
 }
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct CreepJD {
-    /// Generated creep template id. Map-local creep stats are rejected during
-    /// Lua codegen; runtime resolves stats through `omoba-template-ids`.
+    /// 產生的 Creep 模板 ID。地圖本地蠕變統計數據在期間被拒絕
+    /// Lua 程式碼產生器；執行時間透過 `omoba-template-ids` 解析統計資料。
     pub Name: String,
-    /// Legacy JSON-only field. Generated map data omits this.
+    /// 舊版純 JSON 欄位。產生的地圖資料忽略了這一點。
     #[serde(default)]
     pub Label: Option<String>,
     #[serde(default)]

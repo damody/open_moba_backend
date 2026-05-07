@@ -1,4 +1,4 @@
-//! Load hero / creep catalog data from generated story + template Rust data.
+//! 從生成的故事 + 模板 Rust 資料載入英雄/cr​​eep 目錄資料。
 
 use crate::lib::model::{CreepInfo, HeroInfo};
 use anyhow::{Context, Result};

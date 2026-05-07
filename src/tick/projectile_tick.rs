@@ -43,14 +43,14 @@ impl<'a> System<'a> for Sys {
 
     fn run(_job: &mut Job<Self>, (tr, mut tw): Self::SystemData) {
         let time = tr.time.0;
-        // dt is Fixed64; arithmetic against Projectile fields stays in Fixed64.
+        // dt 是固定64；針對彈道的算術保留在 Fix64 中。
         let dt: Fixed64 = tr.dt.0;
 
-        // Snapshot every entity's current Pos so projectiles can home toward the
-        // target's LIVE position each tick (homing). Previously `tpos` was frozen
-        // at firing time, so the bullet flew to where the target used to be — it
-        // visually missed a moving target even though damage was still applied
-        // via the stored `target` Entity.
+        // 快照每個實體目前的位置，以便彈體可以飛向目標
+        // 每個刻度（歸航）目標的即時位置。之前 `tpos` 被凍結
+        // 在射擊時，子彈飛到了原來目標所在的地方——它
+        // 儘管仍然受到傷害，但視覺上錯過了移動目標
+        // 透過儲存的“目標”實體。
         let target_positions: std::collections::HashMap<specs::Entity, SimVec2> = {
             use specs::Join;
             (&tr.entities, &tw.pos).join()
@@ -73,7 +73,7 @@ impl<'a> System<'a> for Sys {
                 },
                 |_guard, (e, proj, pos)| {
                     let mut outcomes: Vec<Outcome> = Vec::new();
-                    // Home onto target's current position if still alive；
+                    // 如果還活著，則返回目標目前位置；
                     // target 消失時用 stale tpos，靠 time_left 安全閥讓彈道自然消失。
                     if let Some(target) = proj.target {
                         if let Some(&current_tpos) = target_positions.get(&target) {
@@ -98,8 +98,8 @@ impl<'a> System<'a> for Sys {
                         let b: SimVec2 = if dist > Fixed64::ZERO {
                             a + delta.normalized() * step
                         } else { a };
-                        // NOTE: mid + half_len computed in f32 only at the search-call boundary
-                        // (Searcher uses f32 internally for instant_distance lib compat; final distance check in caller is Fixed64).
+                        // 注意：mid + half_len 僅在搜尋呼叫邊界在 f32 中計算
+                        // （搜尋器在內部使用 f32 來實作 instant_distance lib 相容性；呼叫者中的最終距離檢查是固定 64）。
                         let a_xf = a.x.to_f32_for_render();
                         let a_yf = a.y.to_f32_for_render();
                         let b_xf = b.x.to_f32_for_render();
@@ -149,7 +149,7 @@ impl<'a> System<'a> for Sys {
                         pos.0 = hit_pos;
                         if proj.radius > Fixed64::ONE {
                             // 範圍攻擊：以 hit_pos 為中心掃半徑內敵人。
-                            // NOTE: Searcher uses f32 internally for instant_distance lib compat; final distance check in caller is Fixed64.
+                            // 注意：搜尋器內部使用 f32 來實作 instant_distance lib 相容性；呼叫者的最終距離檢查是固定64。
                             let hit_pos_vek = vek::Vec2::new(
                                 hit_pos.x.to_f32_for_render(),
                                 hit_pos.y.to_f32_for_render(),
@@ -236,10 +236,10 @@ fn create_projectile_damage(
         proj.damage_magi.to_f32_for_render(),
         proj.damage_real.to_f32_for_render());
 
-    // P7 layered (re-enabled with heartbeat in_flight_projectiles set):
-    // single-target (radius < 1.0) with damage > 0 → predeclared = true. Server
-    // skips creep/H. Client maintains pending_pred_dmg, applies on visual hit
-    // (t≥1.0), and reconciles via heartbeat in_flight set when server settles.
+    // P7 分層（透過設定心跳 in_flight_projectiles 重新啟用）：
+    // 單一目標（半徑 < 1.0），傷害 > 0 → 預先聲明 = true。伺服器
+    // 跳過蠕動/H.客戶端維護pending_pred_dmg，應用於視覺點擊
+    // (t≥1.0)，並透過伺服器穩定時設定的心跳 in_flight 進行協調。
     let predeclared = proj.radius < Fixed64::ONE && proj.damage_phys > Fixed64::ZERO;
     outcomes.push(Outcome::Damage {
         pos,
@@ -253,7 +253,7 @@ fn create_projectile_damage(
 
     // Ice 塔：附加減速 debuff 到目標
     if proj.slow_factor > Fixed64::ZERO && proj.slow_factor < Fixed64::ONE && proj.slow_duration > Fixed64::ZERO {
-        // factor=0.5 → bonus=-0.5 ; bonus = -(1 - factor) = factor - 1
+        // 係數=0.5 → 獎金=-0.5 ;獎金 = -(1 - 因子) = 因子 - 1
         let bonus = proj.slow_factor - Fixed64::ONE;
         let mut payload = serde_json::Map::new();
         payload.insert(

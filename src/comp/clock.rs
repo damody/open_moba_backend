@@ -6,31 +6,31 @@ use std::{
 };
 use log::info;
 
-/// This Clock tries to make this tick a constant time by sleeping the rest of
-/// the tick
-/// - if we actually took less time than we planned: sleep and return planned
-///   time
-/// - if we ran behind: don't sleep and return actual time
-/// We DON'T do any fancy averaging of the deltas for tick for 2 reasons:
-///  - all Systems have to work based on `dt` and we cannot assume that this is
-///    const through all ticks
-///  - when we have a slow tick, a lag, it doesn't help that we have 10 fast
-///    ticks directly afterwards
-/// We return a smoothed version for display only!
+/// 這個時鐘試圖透過休眠其餘的時間來使這個滴答聲保持恆定的時間
+/// 蜱蟲
+/// - 如果我們實際花費的時間比計劃的少：按計劃睡覺和返回
+/// 時間
+/// - 如果我們落後了：不要睡覺並返回實際時間
+/// 我們不會對逐筆變動的增量進行任何花俏的平均，原因有二：
+/// - 所有系統都必須基於「dt」工作，我們不能假設這是
+/// 所有刻度都為常數
+/// - 當我們有一個緩慢的滴答聲、一個滯後時，我們有 10 個快速的滴答聲並沒有幫助
+/// 之後直接打勾
+/// 我們返回平滑版本僅供顯示！
 pub struct Clock {
-    /// This is the dt that the Clock tries to archive with each call of tick.
+    /// 這是時鐘嘗試在每次呼叫 tick 時存檔的 dt。
     target_dt: Duration,
-    /// Last time `tick` was called
+    /// 上次調用“tick”的時間
     last_sys_time: Instant,
-    /// Will be calculated in `tick` returns the dt used by the next iteration
-    /// of the main loop
+    /// 將在 `tick` 中計算傳回下次迭代使用的 dt
+    /// 主循環的
     last_dt: Duration,
-    /// Summed up `last_dt`
+    /// 總結`last_dt`
     total_tick_time: Duration,
     target_total_tick_time: Duration,
-    // Stats only
-    // uses f32 so we have enough precision to display fps values while saving space
-    // This is in seconds
+    // 僅統計數據
+    // 使用 f32，因此我們有足夠的精度來顯示 fps 值，同時節省空間
+    // 這是以秒為單位的
     last_dts: VecDeque<NotNan<f32>>,
     last_dts_sorted: Vec<NotNan<f32>>,
     last_busy_dts: VecDeque<NotNan<f32>>,
@@ -38,20 +38,20 @@ pub struct Clock {
 }
 
 pub struct ClockStats {
-    /// Busy dt is the part of the tick that we didn't sleep.
-    /// e.g. the total tick is 33ms, including 25ms sleeping. then this returns
+    /// Busy dt是我們沒有睡覺的tick部分。
+    /// 例如總時間為 33 毫秒，其中包括 25 毫秒休眠時間。然後這返回
     /// 8ms
-    /// This is in seconds
+    /// 這是以秒為單位的
     pub average_busy_dt: Duration,
-    /// avg over the last NUMBER_OF_OLD_DELTAS_KEPT ticks
+    /// 過去 NUMBER_OF_OLD_DELTAS_KEPT 個刻度的平均值
     pub average_tps: f64,
-    /// = 50% percentile
+    /// = 50% 百分位
     pub median_tps: f64,
-    /// lowest 10% of the frames
+    /// 最低 10% 的幀
     pub percentile_90_tps: f64,
-    /// lowest 5% of the frames
+    /// 最低 5% 的幀
     pub percentile_95_tps: f64,
-    /// lowest 1% of the frames
+    /// 最低 1% 的幀
     pub percentile_99_tps: f64,
 }
 
@@ -95,7 +95,7 @@ impl Clock {
         }
     }
 
-    /// Do not modify without asking @xMAC94x first!
+    /// 未經先詢問@xMAC94x，請勿修改！
     pub fn tick(&mut self) {
         span!(_guard, "tick", "Clock::tick");
         span!(guard, "clock work");
@@ -106,12 +106,12 @@ impl Clock {
         if let Some(busy_delta2) = busy_delta2 {
             busy_delta = busy_delta.checked_add(busy_delta2).unwrap();
         }
-        // Maintain TPS
+        // 維持TPS
         self.last_dts_sorted = self.last_dts.iter().copied().collect();
         self.last_dts_sorted.sort_unstable();
         self.stats = ClockStats::new(&self.last_dts_sorted, &self.last_busy_dts);
         drop(guard);
-        // Attempt to sleep to fill the gap.
+        // 嘗試睡覺來填補空白。
         if let Some(sleep_dur) = self.target_dt.checked_sub(busy_delta) {
             //log::info!("busy_delta {:?}", busy_delta);
             spin_sleep::sleep(sleep_dur);

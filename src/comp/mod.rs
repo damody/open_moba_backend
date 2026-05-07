@@ -48,7 +48,8 @@ pub mod creep_move_broadcast;
 pub use creep_move_broadcast::CreepMoveBroadcast;
 pub mod lockstep_resources;
 pub use lockstep_resources::{
-    PendingItemUse, PendingItemUseQueue, PendingMoveQueue, PendingMoveTo,
+    PendingAbilityCast, PendingAbilityCastQueue, PendingAbilityUpgrade,
+    PendingAbilityUpgradeQueue, PendingItemUse, PendingItemUseQueue, PendingMoveQueue, PendingMoveTo,
     PendingPlayerInputs, PendingTowerSell, PendingTowerSellQueue, PendingTowerSpawn,
     PendingTowerSpawnQueue, PendingTowerUpgrade, PendingTowerUpgradeQueue, SnapshotStore,
 };

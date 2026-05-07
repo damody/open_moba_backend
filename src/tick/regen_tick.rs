@@ -42,8 +42,8 @@ impl<'a> System<'a> for Sys {
     const NAME: &'static str = "regen";
 
     fn run(job: &mut Job<Self>, mut data: Self::SystemData) {
-        // Phase 1c.3: dt_acc kept f32 (small accumulator, threshold compare).
-        // The Fixed64 dt is converted at the boundary for the accumulator only.
+        // 階段 1c.3：dt_acc 保留 f32（小累加器，閾值比較）。
+        // Fix64 dt 僅在累加器的邊界處進行轉換。
         job.own.dt_acc += data.dt.0.to_f32_for_render();
         if job.own.dt_acc < REGEN_INTERVAL {
             return;
@@ -93,7 +93,7 @@ impl<'a> System<'a> for Sys {
             }
             let stats = UnitStats::from_refs(buffs, is_buildings.get(e).is_some());
             let regen = stats.hp_regen(omoba_sim::Fixed64::ZERO, e);
-            // |regen| < 0.0001 — using raw < 1 as Fixed64 epsilon (raw 1 = 1/1024 ≈ 0.001).
+            // |再生| < 0.0001 — 使用 raw < 1 作為固定 64 epsilon (raw 1 = 1/1024 ≈ 0.001)。
             if regen.raw().abs() < 1 {
                 return None;
             }
@@ -101,7 +101,7 @@ impl<'a> System<'a> for Sys {
             let mut new_hp = cp.hp + regen * dt;
             if new_hp < omoba_sim::Fixed64::ZERO { new_hp = omoba_sim::Fixed64::ZERO; }
             if new_hp > eff_max { new_hp = eff_max; }
-            // Threshold: only push if delta > raw 10 (~0.01).
+            // 閾值：僅當 delta > raw 10 (~0.01) 時才推送。
             if (new_hp - cp.hp).raw().abs() > 10 {
                 Some((e, new_hp, eff_max))
             } else {

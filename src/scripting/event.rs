@@ -1,13 +1,13 @@
-//! Events enqueued by the host's tick systems; drained by `run_script_dispatch`.
+//! 由主機的滴答系統排隊的事件；由「run_script_dispatch」耗盡。
 //!
-//! Uses `specs::Entity` directly on the host side (crossing the FFI boundary
-//! converts to `omb_script_abi::EntityHandle`).
+//! 直接在主機端使用“specs::Entity”（跨越 FFI 邊界
+//! 轉換為 `omb_script_abi::EntityHandle`)。
 //!
 //! 變種分類：
 //! * **生命週期**：Spawn / Death / Respawn
 //! * **傷害 / 攻擊**：Damage / AttackHit / AttackStart / AttackLanded / AttackFail / Attacked
 //! * **資源 / 狀態**：HealthGained / ManaGained / SpentMana / HealReceived
-//!   / StateChanged / ModifierAdded / ModifierRemoved
+//! / StateChanged / 修改器已新增 / 修改器已刪除
 //! * **技能 / 命令**：SkillCast / Order
 
 use omb_script_abi::types::DamageKind;
@@ -29,8 +29,8 @@ pub enum ScriptEvent {
     },
 
     // ---- 傷害 / 攻擊 ----
-    /// Raised by the damage pipeline BEFORE HP is decremented.
-    /// Scripts may mutate the amount during dispatch.
+    /// 在 HP 減少之前由傷害管道提高。
+    /// 腳本可能會在調度期間改變金額。
     Damage {
         attacker: Option<Entity>,
         victim: Entity,
@@ -123,7 +123,7 @@ pub enum SkillTarget {
     None,
 }
 
-/// specs `Resource` holding the queue of pending script events.
+/// 規範「資源」保存待處理腳本事件的佇列。
 #[derive(Default)]
 pub struct ScriptEventQueue {
     events: Vec<ScriptEvent>,

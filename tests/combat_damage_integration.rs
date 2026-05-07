@@ -1,18 +1,18 @@
-//! Combat damage integration test.
+//! 戰鬥傷害綜合測試。
 //!
-//! Phase 4-5 (lockstep cleanup) regression coverage. The user reported
-//! "creep HP bars stay full even though towers are firing". This test pins
-//! the authoritative damage path: an `Outcome::Damage` enqueued into the
-//! ECS `Vec<Outcome>` resource, drained through
-//! `GameProcessor::process_outcomes`, must decrement the target's
-//! `CProperty.hp` and emit a follow-up `Outcome::Death` once HP reaches 0.
+//! 第 4-5 階段（鎖步清理）回歸覆蓋率。該用戶舉報
+//! 「即使塔正在開火，蠕變 HP 條仍保持滿」。此測試引腳
+//! 權威的損害路徑：「Outcome::Damage」排隊到
+//! ECS `Vec<Outcome>` 資源，透過
+//! `GameProcessor::process_outcomes`，必須遞減目標的
+//! `CProperty.hp` 並在 HP 達到 0 時發出後續的 `Outcome::Death`。
 //!
-//! Avoids loading the script DLL (which would require `base_content.dll`
-//! staged and the `omoba_template_ids` registry populated). Just constructs
-//! a minimal World via `StateInitializer::setup_campaign_ecs_world`, spawns
-//! source / target entities with `CProperty`, and exercises
-//! `process_outcomes` directly. This isolates the *damage application*
-//! logic — the part that handle_damage cuts in Phase 1.4 could have broken.
+//! 避免載入腳本 DLL（這需要 `base_content.dll`
+//! 已上演並填入「omoba_template_ids」註冊表）。只是構造
+//! 透過 `StateInitializer::setup_campaign_ecs_world` 產生一個最小的世界
+//! 具有“CProperty”的來源/目標實體以及練習
+//! 直接“process_outcomes”。這隔離了*損壞應用程式*
+//! 邏輯 — 在第 1.4 階段中，handle_damage 刪除的部分可能已經損壞。
 
 use crossbeam_channel::unbounded;
 use omobab::comp::{CProperty, GameProcessor, Pos};
@@ -31,9 +31,9 @@ fn build_world() -> World {
             .expect("rayon pool"),
     );
     let mut world = omobab::state::StateInitializer::setup_campaign_ecs_world(&pool);
-    // get_entity_names path peeks at TowerTemplateRegistry; in production the
-    // registry is populated by load_scripts. For damage-path unit testing we
-    // just stash an empty default — `name_of` falls through to "Unknown".
+    // get_entity_names 路徑查看 TowerTemplateRegistry；在生產中
+    // 登錄由 load_scripts 填入。對於損壞路徑單元測試，我們
+    // 只需隱藏一個空的預設值 - `name_of` 會變成「未知」。
     world.insert(omobab::comp::tower_registry::TowerTemplateRegistry::default());
     world
 }
@@ -167,15 +167,15 @@ fn fatal_damage_emits_death_and_removes_entity() {
     }
 
     let (tx, _rx) = unbounded::<OutboundMsg>();
-    // First call: damage clamps HP to 0 and queues Outcome::Death in
-    // next_outcomes. The Death outcome is processed on the next call.
+    // 第一次呼叫：傷害將 HP 限制為 0 並排隊 Outcome::Death in
+    // 下一個結果。死亡結果將在下一次呼叫時處理。
     GameProcessor::process_outcomes(&mut world, &tx).expect("first process_outcomes");
     world.maintain();
     GameProcessor::process_outcomes(&mut world, &tx).expect("second process_outcomes");
     world.maintain();
 
-    // After second pass, the entity should be deleted (handle_death pushed
-    // it onto remove_uids).
+    // 第二遍之後，實體應該被刪除（handle_death Pushed
+    // 它到remove_uids）。
     assert!(
         !world.is_alive(target),
         "target entity should be dead/removed after fatal damage",

@@ -9,7 +9,7 @@ use async_stream::stream;
 
 use super::types::{InboundMsg, OutboundMsg, TransportHandle, QueryRequest, QueryResponse, ViewportMsg};
 
-// Include the generated proto code
+// 包含生成的原始程式碼
 pub mod game_proto {
     tonic::include_proto!("game");
 }
@@ -17,13 +17,13 @@ pub mod game_proto {
 use game_proto::game_service_server::{GameService, GameServiceServer};
 use game_proto::*;
 
-/// gRPC service implementation
+/// gRPC服務實現
 pub struct GameServiceImpl {
-    /// Channel to send inbound messages (from player) to game logic
+    /// 將入站訊息（來自玩家）傳送到遊戲邏輯的通道
     in_tx: Sender<InboundMsg>,
-    /// Broadcast channel for outbound game events
+    /// 出站遊戲事件轉播頻道
     event_tx: broadcast::Sender<OutboundMsg>,
-    /// Channel to send query requests to game loop
+    /// 將查詢請求傳送到遊戲循環的通道
     query_tx: Sender<QueryRequest>,
 }
 
@@ -74,15 +74,15 @@ impl GameService for GameServiceImpl {
             loop {
                 match rx.recv().await {
                     Ok(msg) => {
-                        // Parse topic to check if this event is for this player or broadcast
+                        // 解析主題以檢查此事件是針對該玩家還是廣播
                         let is_broadcast = msg.topic.contains("/all/");
                         let is_for_player = msg.topic.contains(&format!("/{}/", player_name));
                         if is_broadcast || is_for_player || player_name.is_empty() {
-                            // P9: gRPC path doesn't carry typed prost variants
-                            // (broadcast::Sender<OutboundMsg> only sees JSON msgs
-                            // built via OutboundMsg::new_s* — `typed` field is
-                            // gated behind feature="kcp"). So we wrap the JSON
-                            // into the LegacyJson variant.
+                            // P9：gRPC 路徑不攜帶類型化的 prost 變體
+                            // （broadcast::Sender<OutboundMsg> 只能看到 JSON 訊息
+                            // 透過 OutboundMsg::new_s* 建置 - `typed` 欄位是
+                            // 門控在 feature="kcp" 後面）。所以我們包裝 JSON
+                            // 進入 LegacyJson 變體。
                             let (msg_type, action, data_bytes) = if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&msg.msg) {
                                 let t = parsed.get("t").and_then(|v| v.as_str()).unwrap_or("").to_string();
                                 let a = parsed.get("a").and_then(|v| v.as_str()).unwrap_or("").to_string();
@@ -121,7 +121,7 @@ impl GameService for GameServiceImpl {
         request: Request<TestCommandRequest>,
     ) -> Result<Response<TestCommandResponse>, Status> {
         let cmd_json = request.into_inner().command_json;
-        // For now, echo back. Can be connected to test_commands handler later.
+        // 現在，迴響一下。稍後可以連接到 test_commands 處理程序。
         Ok(Response::new(TestCommandResponse {
             response_json: format!("{{\"echo\": {}}}", cmd_json),
         }))
@@ -156,10 +156,10 @@ impl GameService for GameServiceImpl {
     }
 }
 
-/// Start the gRPC transport layer.
+/// 啟動 gRPC 傳輸層。
 ///
-/// Returns a `TransportHandle` whose `tx` feeds outbound messages
-/// and whose `rx` yields inbound player commands.
+/// 傳回一個“TransportHandle”，其“tx”提供出站訊息
+/// 其“rx”產生入站玩家命令。
 pub async fn start(
     server_addr: String,
     server_port: String,
@@ -167,16 +167,16 @@ pub async fn start(
     let (out_tx, out_rx): (Sender<OutboundMsg>, Receiver<OutboundMsg>) = bounded(10000);
     let (in_tx, in_rx): (Sender<InboundMsg>, Receiver<InboundMsg>) = bounded(10000);
 
-    // Broadcast channel for fanning out outbound messages to all subscribed clients
+    // 用於將出站訊息扇出到所有訂閱用戶端的廣播通道
     let (event_tx, _) = broadcast::channel::<OutboundMsg>(10000);
     let event_tx_clone = event_tx.clone();
 
-    // Background thread: read from out_rx and broadcast to all subscribers
+    // 後台執行緒：從out_rx讀取並廣播給所有訂閱者
     thread::spawn(move || {
         loop {
             match out_rx.recv() {
                 Ok(msg) => {
-                    // Broadcast to all connected gRPC stream subscribers
+                    // 向所有連接的 gRPC 串流訂閱者廣播
                     let _ = event_tx_clone.send(msg);
                 }
                 Err(_) => {
@@ -195,7 +195,7 @@ pub async fn start(
         query_tx,
     };
 
-    // Resolve hostname to a bindable SocketAddr (e.g. "localhost" → "0.0.0.0")
+    // 將主機名稱解析為可綁定的 SocketAddr（例如“localhost”→“0.0.0.0”）
     let bind_ip = match server_addr.as_str() {
         "localhost" | "127.0.0.1" => "0.0.0.0".to_string(),
         other => other.to_string(),
@@ -215,8 +215,8 @@ pub async fn start(
         }
     });
 
-    // gRPC does not implement viewport updates; provide an always-empty channel
-    // so the State API stays uniform with the KCP transport.
+    // gRPC 不實現視口更新；提供始終為空的通道
+    // 因此 State API 與 KCP 傳輸保持一致。
     let (_viewport_tx, viewport_rx): (Sender<ViewportMsg>, Receiver<ViewportMsg>) = bounded(1);
     drop(_viewport_tx);
 

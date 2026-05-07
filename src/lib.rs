@@ -1,6 +1,6 @@
-/// Open MOBA Backend Library
+/// 開啟MOBA後端庫
 /// 
-/// Main library crate for the Open MOBA game backend
+/// Open MOBA 遊戲後端的主庫箱
 
 pub mod ability_runtime;
 pub mod aoi;
@@ -21,7 +21,7 @@ pub mod transport;
 #[cfg(feature = "kcp")]
 pub mod lockstep;
 
-// Re-export commonly used types
+// 重新匯出常用類型
 pub use crate::comp::*;
 pub use crate::vision::*;
 pub use crate::msg::MqttMsg;

@@ -1,7 +1,7 @@
-//! gen-docs — produce a self-contained HTML catalog of units, abilities,
-//! and script API coverage.
+//! gen-docs — 產生一個獨立的 HTML 單元、能力目錄，
+//! 和腳本 API 覆蓋率。
 //!
-//! Design: docs/plans/2026-04-23-build-time-catalog-design.md
+//! 設計：docs/plans/2026-04-23-build-time-catalog-design.md
 
 #[path = "gen_docs_lib/mod.rs"]
 mod lib;
@@ -14,25 +14,25 @@ use std::path::{Path, PathBuf};
 #[derive(Parser, Debug)]
 #[command(name = "gen-docs", about = "Generate omoba unit & script API catalog HTML")]
 struct Args {
-    /// Output HTML path (relative to cwd)
+    /// 輸出 HTML 路徑（相對於 cwd）
     #[arg(long, default_value = "target/docs/index.html")]
     out: PathBuf,
-    /// Generated story id (overrides game.toml)
+    /// 產生的故事 ID（覆蓋 game.toml）
     #[arg(long)]
     story: Option<String>,
-    /// Path to base_content.dll (auto-detected if omitted)
+    /// base_content.dll 的路徑（如果省略則自動偵測）
     #[arg(long)]
     dll: Option<PathBuf>,
-    /// script-abi source directory
+    /// 腳本abi源目錄
     #[arg(long, default_value = "../scripts/script-abi/src")]
     abi_src: PathBuf,
-    /// base_content source directory (for coverage scan)
+    /// base_content來源目錄（用於覆蓋掃描）
     #[arg(long, default_value = "../scripts/base_content/src")]
     content_src: PathBuf,
-    /// Deprecated: generated story data is loaded from omoba-template-ids.
+    /// 已棄用：產生的故事資料是從 omoba-template-ids 載入的。
     #[arg(long, default_value = "../scripts/lua_data")]
     story_root: PathBuf,
-    /// game.toml path (to read STORY if --story is omitted)
+    /// game.toml 路徑（如果省略 --story 則讀取 STORY）
     #[arg(long, default_value = "game.toml")]
     game_toml: PathBuf,
 }
@@ -47,15 +47,15 @@ fn main() -> Result<()> {
 
     let mut warnings: Vec<lib::model::Warning> = Vec::new();
 
-    // 1. DLL (fatal)
+    // 1.DLL（致命）
     let dll = lib::dll::load(&dll_path)
         .with_context(|| format!("loading DLL {}", dll_path.display()))?;
 
-    // 2. API scan (fatal)
+    // 2. API掃描（致命）
     let api = lib::api_scan::scan(&args.abi_src)
         .with_context(|| format!("scanning script-abi at {}", args.abi_src.display()))?;
 
-    // 3. Coverage (soft)
+    // 3. 覆蓋範圍（軟）
     let world_names: HashSet<String> =
         api.world_methods.iter().map(|m| m.name.clone()).collect();
     let impls = match lib::coverage::scan_dir(&args.content_src, &world_names) {
@@ -69,7 +69,7 @@ fn main() -> Result<()> {
         }
     };
 
-    // 4. Generated story/template data (soft)
+    // 4.產生的故事/模板資料（軟）
     let entity = match lib::entity::load(&story) {
         Ok(d) => d,
         Err(e) => {
@@ -84,7 +84,7 @@ fn main() -> Result<()> {
         }
     };
 
-    // 5. merge
+    // 5.合併
     let meta = lib::model::BuildMeta {
         timestamp: now_rfc3339(),
         git_sha: git_short_sha().unwrap_or_else(|_| "unknown".into()),
@@ -98,7 +98,7 @@ fn main() -> Result<()> {
     };
     let catalog = lib::merge::merge(dll, entity, api, impls, warnings, meta);
 
-    // 6. render & write
+    // 6. 渲染和寫入
     let html = lib::render::page(&catalog);
     if let Some(parent) = args.out.parent() {
         std::fs::create_dir_all(parent)
@@ -133,7 +133,7 @@ fn read_story_from_game_toml(path: &Path) -> String {
 }
 
 fn default_dll_path() -> PathBuf {
-    // Try common locations in order. First existing wins.
+    // 按順序嘗試常見位置。第一個現有的獲勝。
     // NOTE: staged DLL (scripts/base_content.dll, 由 run.bat / stress 腳本 copy
     // 過來) 是最權威的正本，必須放第一位；避免誤載到陳舊的 target/release/。
     let candidates: &[&str] = &[
@@ -152,7 +152,7 @@ fn default_dll_path() -> PathBuf {
             return p;
         }
     }
-    // Fall back to the conventional staged path for a clear error message
+    // 回到傳統的分階段路徑以獲得清晰的錯誤訊息
     PathBuf::from("scripts/base_content.dll")
 }
 

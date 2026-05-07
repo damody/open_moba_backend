@@ -1,41 +1,41 @@
-//! Phase 3.5 determinism test: two independent omobab Worlds initialized
-//! with the same MasterSeed and ticked with identical input sequences must
-//! produce bit-identical state hashes.
+//! 階段 3.5 確定性測試：初始化兩個獨立的 omobab 世界
+//! 必須使用相同的 MasterSeed 並勾選相同的輸入序列
+//! 產生位元相同的狀態哈希。
 //!
-//! This is the most important Phase 3 invariant: the server's
-//! `compute_state_hash` and a client running the same simulation must
-//! produce identical hashes. We can't easily run a real 8-client KCP
-//! roundtrip in a unit test, but we can verify that running the same
-//! input sequence on two independent World instances yields the same hash.
+//! 這是最重要的第 3 階段不變量：伺服器的
+//! `compute_state_hash` 和執行相同模擬的客戶端必須
+//! 產生相同的哈希值。我們無法輕鬆運行真正的 8 客戶端 KCP
+//! 單元測試中的往返，但我們可以驗證運行相同的
+//! 兩個獨立 World 實例上的輸入序列產生相同的雜湊值。
 //!
-//! # Running
+//! ＃ 跑步
 //!
-//! Marked `#[ignore]` because it requires the prebuilt
-//! `scripts/target/release/base_content.dll` (skips if missing) and is
-//! slow (loads campaign + scripts twice and runs 60 dispatcher ticks).
+//! 標記為“#[ignore]”，因為它需要預先構建
+//! `scripts/target/release/base_content.dll`（如果遺失則跳過）且是
+//! 慢（載入活動 + 腳本兩次並執行 60 個調度程序滴答）。
 //!
-//! ```text
-//! # 1. Build the script DLL
-//! cargo build --manifest-path scripts/Cargo.toml -p base_content --release
+//! ````文本
+//! # 1. 建置腳本DLL
+//! 貨物建構 --manifest-path 腳本/Cargo.toml -p base_content --release
 //!
-//! # 2. Run the test
-//! cargo test --manifest-path omb/Cargo.toml --test lockstep_state_hash_determinism \
-//!     -- --ignored --nocapture
+//! # 2. 運行測試
+//! 貨物測試 --manifest-path omb/Cargo.toml --test lockstep_state_hash_definism \
+//! -- --忽略 --nocapture
 //! ```
 //!
-//! # What it verifies
+//! # 它驗證什麼
 //!
-//! 1. `create_world_for_scene(TD_1)` x2 yields two worlds whose
-//!    `compute_state_hash` matches at tick 0.
-//! 2. Running `build_phase3_dispatcher` 60 times on each world (with empty
-//!    PendingPlayerInputs) keeps hashes byte-identical at every tick.
-//! 3. If a hash diverges, the test reports the exact tick where divergence
-//!    started — that's a Phase 4 determinism bug to investigate.
+//! 1. `create_world_for_scene(TD_1)` x2 產生兩個世界，其
+//! `compute_state_hash` 在刻度 0 處符合。
+//! 2. 在每個世界運行 `build_phase3_dispatcher` 60 次（空
+//! PendingPlayerInputs) 在每次更新時都保持雜湊位元組相同。
+//! 3. 如果雜湊出現分歧，測試會報告出現分歧的確切刻度
+//! 開始了——這是一個需要調查的第四階段決定論錯誤。
 //!
-//! Phase 3 only hashes `Pos.x.raw + Pos.y.raw + Hp.raw` (see
-//! `state_hash_producer::HashItem`); creep waves + tower attacks + projectile
-//! motion are the deterministic forcing functions in this idle-input
-//! scenario. If they pass, the foundation is sound.
+//! 第 3 階段僅對 `Pos.x.raw + Pos.y.raw + Hp.raw` 進行雜湊處理（請參閱
+//! `state_hash_ Producer::HashItem`);蠕動波+塔攻擊+彈
+//! 運動是該空閒輸入中的確定性強迫函數
+//! 設想。如果他們通過了，那麼基礎就牢固了。
 
 use std::path::PathBuf;
 
@@ -53,7 +53,7 @@ fn dll_dir() -> Option<PathBuf> {
     if primary.exists() {
         return Some(primary.parent().unwrap().to_path_buf());
     }
-    // Fallback: omb-staged copy used by run.bat.
+    // 後備：run.bat 使用的 omb 階段副本。
     let staged = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scripts/base_content.dll");
     if staged.exists() {
         return Some(staged.parent().unwrap().to_path_buf());
@@ -64,8 +64,8 @@ fn dll_dir() -> Option<PathBuf> {
 #[test]
 #[ignore]
 fn two_worlds_same_seed_same_hashes() -> TestResult {
-    // Use TD_1 — simpler than MVP_1, has deterministic creep waves running
-    // even without any player input.
+    // 使用 TD_1 — 比 MVP_1 更簡單，具有確定性的蠕變波運行
+    // 即使沒有任何玩家輸入。
     let scene = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("omb must live under the monorepo root")
@@ -90,17 +90,17 @@ fn two_worlds_same_seed_same_hashes() -> TestResult {
     let mut world_b = omobab::state::initialization::create_world_for_scene(&scene)
         .map_err(|e| format!("create_world_for_scene(world_b) failed: {}", e))?;
 
-    // Override MasterSeed in both worlds. create_world_for_scene installs
-    // the default (0xDEAD_BEEF_CAFE_BABE) but we want this explicit so a
-    // future default-change doesn't silently weaken the test.
+    // 在兩個世界中覆蓋 MasterSeed。 create_world_for_scene 安裝
+    // 預設值（0xDEAD_BEEF_CAFE_BABE），但我們希望它是明確的，因此
+    // 未來的預設更改不會默默地削弱測試。
     use specs::WorldExt;
     world_a.write_resource::<omobab::comp::resources::MasterSeed>().0 = master_seed;
     world_b.write_resource::<omobab::comp::resources::MasterSeed>().0 = master_seed;
 
-    // Each world gets its own ScriptRegistry (load_scripts_dir is non-pure
-    // — opens DLLs into abi_stable handles — but the loaded Manifest_Refs
-    // are deterministic and the scripts themselves are stateless given the
-    // same MasterSeed).
+    // 每個世界都有自己的 ScriptRegistry （load_scripts_dir 是非純的
+    // — 將 DLL 開啟到 abi_stable 句柄中 — 但載入的 Manifest_Refs
+    // 是確定性的，並且腳本本身是無狀態的
+    // 相同的 MasterSeed）。
     let registry_a = omobab::scripting::loader::load_scripts_dir(&dir);
     let registry_b = omobab::scripting::loader::load_scripts_dir(&dir);
     world_a.insert(registry_a);
@@ -111,7 +111,7 @@ fn two_worlds_same_seed_same_hashes() -> TestResult {
     let mut dispatcher_b = omobab::state::system_dispatcher::build_phase3_dispatcher()
         .map_err(|e| format!("build_phase3_dispatcher(b) failed: {}", e))?;
 
-    // Tick 0 baseline.
+    // 勾選 0 基線。
     let h0_a = omobab::lockstep::compute_state_hash(&world_a);
     let h0_b = omobab::lockstep::compute_state_hash(&world_b);
     assert_eq!(
@@ -121,16 +121,16 @@ fn two_worlds_same_seed_same_hashes() -> TestResult {
     );
     eprintln!("[determinism] tick=0 hash=0x{:016x} (worlds match)", h0_a);
 
-    // Run 60 ticks. Both worlds receive the same (empty) input batch via
-    // the PendingPlayerInputs resource which is already inserted by
-    // create_world_for_scene → setup_campaign_ecs_world.
+    // 運行 60 個刻度。兩個世界透過以下方式接收相同的（空）輸入批次
+    // 已插入的 PendingPlayerInputs 資源
+    // create_world_for_scene → setup_campaign_ecs_world。
     use omobab::comp::resources::Tick;
 
     for tick in 1..=60u32 {
-        // Empty PendingPlayerInputs (creep waves run regardless).
-        // (PendingPlayerInputs is drained by player_input_tick at the start
-        // of each dispatch — by leaving it empty here, both worlds see the
-        // exact same empty batch.)
+        // 清空 PendingPlayerInputs（無論如何，蠕變波都會運作）。
+        // （PendingPlayerInputs 在開始時由player_input_tick 耗盡
+        // 每份派遣的訊息 — 透過將其留空，兩個世界都能看到
+        // 完全相同的空白批次。 ）
 
         dispatcher_a.dispatch(&world_a);
         world_a.maintain();

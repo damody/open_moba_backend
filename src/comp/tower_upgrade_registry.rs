@@ -14,7 +14,7 @@ use omoba_template_ids::{
 };
 
 pub struct TowerUpgradeRegistry {
-    /// key = (tower_kind, path, level)
+    /// key = (塔類型、路徑、等級)
     defs: HashMap<(String, u8, u8), TowerUpgradeDef>,
 }
 

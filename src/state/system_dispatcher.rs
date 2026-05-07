@@ -76,9 +76,9 @@ impl SystemDispatcher {
 
     // 私有方法：構建系統依賴關係
     fn build_system_dependencies(&self, dispatch_builder: &mut DispatcherBuilder<'_, '_>) {
-        // Phase 3.4: drain PendingPlayerInputs first so any per-tick input
-        // routing happens before the rest of the dispatcher reads game
-        // state. No data dependencies on later systems → parallel-safe.
+        // 階段 3.4：先耗盡 PendingPlayerInputs，以便任何每刻輸入
+        // 路由發生在調度程序的其餘部分讀取遊戲之前
+        // 狀態。對後續系統沒有資料依賴性→並行安全。
         dispatch::<player_input_tick::Sys>(dispatch_builder, &[]);
 
         // 第一階段：不需要 Vec<Outcome> 的系統，可以並行執行
@@ -86,7 +86,7 @@ impl SystemDispatcher {
         dispatch::<player_tick::Sys>(dispatch_builder, &[]);
 
         // 視野系統：在遊戲邏輯之前更新（暫時註解掉）
-        // dispatch::<VisionSystem>(dispatch_builder, &["nearby_sys", "player_sys"]);
+        // 調度::<VisionSystem>(dispatch_builder, &["nearby_sys", "player_sys"]);
 
         // 第二階段：需要 Vec<Outcome> 的系統，按依賴順序執行
         dispatch::<projectile_tick::Sys>(dispatch_builder, &["nearby_sys", "player_sys"]);
@@ -103,7 +103,7 @@ impl SystemDispatcher {
         dispatch::<death_tick::Sys>(dispatch_builder, &["damage_sys"]);
 
         // 戰爭迷霧整合系統：在所有其他系統完成後處理事件（暫時註解掉）
-        // dispatch::<FogOfWarIntegrationSystem>(dispatch_builder, &["death_sys"]);
+        // 調度::<FogOfWarIntegrationSystem>(dispatch_builder, &["death_sys"]);
     }
 
     fn build_core_systems(&self, dispatch_builder: &mut DispatcherBuilder<'_, '_>) {
@@ -199,14 +199,14 @@ impl SystemDispatcher {
     }
 }
 
-/// Phase 3 omfx-side helper: build the same simulation dispatcher
-/// `SystemDispatcher::run_systems` would build, but as a free standalone
-/// `Dispatcher<'static, 'static>` owned by the caller (omfx sim_runner
-/// worker thread). Uses an internal rayon thread pool — caller does not
-/// need to share one with omobab.exe.
+/// 第 3 階段 omfx 端助手：建立相同的類比調度程序
+/// `SystemDispatcher::run_systems` 將構建，但作為一個免費的獨立版本
+/// 呼叫者擁有的 `Dispatcher<'static, 'static>` (omfx sim_runner
+/// 工作線程）。使用內部人造絲線程池 - 呼叫者不使用
+/// 需要與 omobab.exe 共用一個。
 ///
-/// Mirrors the dependency chain in
-/// `SystemDispatcher::build_system_dependencies`.
+/// 鏡像依賴鏈
+/// `SystemDispatcher::build_system_dependency`。
 pub fn build_phase3_dispatcher() -> Result<Dispatcher<'static, 'static>, Error> {
     use rayon::ThreadPoolBuilder;
     use crate::tick::*;
@@ -220,15 +220,15 @@ pub fn build_phase3_dispatcher() -> Result<Dispatcher<'static, 'static>, Error> 
 
     let mut builder = DispatcherBuilder::new().with_pool(pool);
 
-    // Phase 3.4: PendingPlayerInputs drainer. Runs first so input-driven
-    // state changes (Phase 4 wiring) land before everything else reads.
+    // 階段 3.4：PendingPlayerInputs 消耗器。首先運行，因此由輸入驅動
+    // 狀態變化（第 4 階段接線）在其他所有內容讀取之前發生。
     dispatch::<player_input_tick::Sys>(&mut builder, &[]);
 
-    // Phase 1 — no Vec<Outcome> dependency, parallelizable.
+    // 第 1 階段 — 無 Vec<Outcome> 依賴性，可並行化。
     dispatch::<nearby_tick::Sys>(&mut builder, &[]);
     dispatch::<player_tick::Sys>(&mut builder, &[]);
 
-    // Phase 2 — Vec<Outcome> producers / consumers, ordered.
+    // 第 2 階段 — Vec<Outcome> 生產者/消費者，已排序。
     dispatch::<projectile_tick::Sys>(&mut builder, &["nearby_sys", "player_sys"]);
     dispatch::<tower_tick::Sys>(&mut builder, &["projectile_sys"]);
     dispatch::<hero_move_tick::Sys>(&mut builder, &["projectile_sys"]);

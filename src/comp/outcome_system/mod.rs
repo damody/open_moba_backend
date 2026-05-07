@@ -14,5 +14,5 @@ pub use creation_events::CreationEventHandler;
 pub use system_events::SystemEventHandler;
 pub use event_dispatcher::EventDispatcher;
 
-// Re-export common types
+// 重新匯出常見類型
 pub use crate::comp::outcome::*;
