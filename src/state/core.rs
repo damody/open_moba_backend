@@ -311,7 +311,7 @@ impl State {
         // 階段 5.x 橋接器：將所有待處理的廣播機構排出的輸入拉入
         // PendingPlayerInputs 以便player_input_tick::Sys 可以路由 StartRound
         // （以及未來的命令）。排出此刻度中的所有可用批次
-        // 如果主機以低於 60Hz 廣播器的 TPS 運行，則可以趕上。
+        // 如果主機短暫落後於 broadcaster，則可以趕上。
         #[cfg(feature = "kcp")]
         if let Some(rx) = self.host_input_rx.as_ref() {
             let mut accumulated: Vec<(u32, crate::lockstep::PlayerInput)> = Vec::new();
@@ -417,9 +417,9 @@ impl State {
         self.ecs.maintain();
 
         // 階段 3.4：每隔一段時間發布一個確定性的 ECS 狀態哈希
-        // STATE_HASH_INTERVAL_TICKS 調度程式滴答聲（30Hz 節奏）。這
-        // 60Hz 鎖步 TickBroadcaster 在其上提取最新樣本
-        // 自己的狀態雜湊間隔（預設 10s @ 60Hz），因此是一個新鮮的樣本
+        // STATE_HASH_INTERVAL_TICKS 調度程式滴答聲（120Hz cadence）。這
+        // 120Hz 鎖步 TickBroadcaster 在其上提取最新樣本
+        // 自己的狀態雜湊間隔（預設 10s @ 120Hz），因此是一個新鮮的樣本
         // 始終處於待處理狀態。當 state_hash_tx 為 None 時跳過（舊版/
         // 非鎖步建置）。
         #[cfg(feature = "kcp")]
@@ -435,7 +435,7 @@ impl State {
         }
 
         // 階段 5.3：序列化新的世界快照以供觀察者重新加入
-        // 每個 SNAPSHOT_INTERVAL_TICKS 排程器滴答（= 30 s @ 30 Hz）。
+        // 每個 SNAPSHOT_INTERVAL_TICKS 排程器滴答（= 30 s @ 120Hz）。
         // 跳過刻度 0 — 第一個調度刻度可能會在所有刻度之前運行
         // populate_* 幫助程式已完成註冊表填充，所以請等待
         // 直到遊戲狀態至少一整刻已經穩定下來。

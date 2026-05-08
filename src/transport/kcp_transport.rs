@@ -979,8 +979,8 @@ async fn handle_client(
                                             .submit(current_tick, player_id, target_tick, input, input_id);
                                         if !accepted {
                                             warn!(
-                                                "late InputSubmit from player {} target_tick={} current_tick={}",
-                                                player_id, target_tick, current_tick
+                                                "late InputSubmit from player {} input_id={} target_tick={} current_tick={}",
+                                                player_id, input_id, target_tick, current_tick
                                             );
                                         }
                                     }

@@ -1,7 +1,7 @@
 //! 伺服器節奏鎖步的輸入緩衝。
 //!
-//! 玩家提交攜帶target_tick的InputSubmit資料包（通常是
-//! current_server_tick + 3（60Hz 時輸入延遲 50ms）。伺服器收集
+//! 玩家提交攜帶target_tick的InputSubmit資料包（目前是
+//! current_server_tick + 2；120Hz 時輸入延遲約 16.7ms）。伺服器收集
 //! 每刻他們。當蜱蟲觸發時，緩衝區會耗盡所有目標輸入
 //! 在那一刻進入“TickBatch”。
 //!
@@ -10,12 +10,15 @@
 //! 第 3+ 階段可能會新增「軟延遲擴展」政策。
 
 use std::collections::BTreeMap;
+use std::time::Instant;
 use crate::lockstep::PlayerInput;
 
 #[derive(Clone, Debug)]
 pub struct BufferedPlayerInput {
     pub input: PlayerInput,
     pub input_id: u32,
+    pub server_receive_tick: u32,
+    pub server_receive_instant: Instant,
 }
 
 #[derive(Default)]
@@ -54,7 +57,12 @@ impl InputBuffer {
         self.by_tick
             .entry(target_tick)
             .or_insert_with(BTreeMap::new)
-            .insert(player_id, BufferedPlayerInput { input, input_id });
+            .insert(player_id, BufferedPlayerInput {
+                input,
+                input_id,
+                server_receive_tick: current_tick,
+                server_receive_instant: Instant::now(),
+            });
         true
     }
 
@@ -103,6 +111,8 @@ mod tests {
         assert_eq!(drained[1].0, 2);
         assert_eq!(drained[0].1.input_id, 41);
         assert_eq!(drained[1].1.input_id, 42);
+        assert_eq!(drained[0].1.server_receive_tick, 0);
+        assert_eq!(drained[1].1.server_receive_tick, 0);
         // 已排空 — 第二個排水管已空。
         assert!(b.drain_for_tick(5).is_empty());
     }

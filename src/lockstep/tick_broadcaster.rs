@@ -182,6 +182,9 @@ impl TickBroadcaster {
                 player_id,
                 input: Some(buffered.input),
                 input_id: buffered.input_id,
+                server_receive_tick: buffered.server_receive_tick,
+                server_drain_tick: tick,
+                server_queue_us: buffered.server_receive_instant.elapsed().as_micros().min(u64::MAX as u128) as u64,
             })
             .collect();
 
@@ -343,6 +346,10 @@ mod tests {
                         assert_eq!(b.inputs[1].player_id, 7);
                         assert_eq!(b.inputs[0].input_id, 103);
                         assert_eq!(b.inputs[1].input_id, 107);
+                        assert_eq!(b.inputs[0].server_receive_tick, 0);
+                        assert_eq!(b.inputs[1].server_receive_tick, 0);
+                        assert_eq!(b.inputs[0].server_drain_tick, 5);
+                        assert_eq!(b.inputs[1].server_drain_tick, 5);
                     } else {
                         assert!(b.inputs.is_empty(), "tick {} should be empty", expect_tick);
                     }

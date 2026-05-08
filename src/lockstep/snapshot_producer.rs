@@ -6,7 +6,7 @@
 //! 其 sim_runner 狀態然後透過後續的 TickBatches 向前播放。
 //!
 //! 從調度程序滴答循環（在“State::tick()”中）運行
-//! `SNAPSHOT_INTERVAL_TICKS` 刻度（= 30 s @ 30 Hz 調度程式）。輸出
+//! `SNAPSHOT_INTERVAL_TICKS` 刻度（= 30 s @ 120 Hz 調度程式）。輸出
 //! 位元組儲存在「SnapshotStore」資源中； KCP 運輸
 //! 0x16 SnapshotResp 處理程序從共用「Arc<Mutex<SnapshotStore>>」讀取。
 //!

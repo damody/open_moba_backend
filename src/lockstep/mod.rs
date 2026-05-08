@@ -1,8 +1,7 @@
 //! 鎖步線層（二期鷹架）。
 //!
-//! 與傳統 30Hz GameEvent 調度程式一起運作。第 2 階段僅處理
-//! 輸入緩衝和 60Hz TickBatch 廣播；類比本身仍然存在
-//! 在現有的 30Hz 管道上。第 3 階段將把 sim 執行移至此
+//! 與 authoritative 120Hz 調度程式一起運作。第 2 階段僅處理
+//! 輸入緩衝和 120Hz TickBatch 廣播；第 3 階段將把 sim 執行移至此
 //! 鎖步循環，第 4 階段將停用舊的 GameEvent 廣播。
 //!
 //! 該模組位於`#[cfg(feature = "kcp")]`後面，因為它依賴於
@@ -76,7 +75,7 @@ pub use crate::transport::kcp_transport::game_proto::server_event::Event as Serv
 /// `OutboundMsg`（類型化/JSON）流未更改。
 #[derive(Clone, Debug)]
 pub enum LockstepFrame {
-    /// 60Hz 廣播到每個連接的鎖步客戶端。
+    /// 120Hz 廣播到每個連接的鎖步客戶端。
     TickBatch(TickBatch),
     /// 定期不同步探測－向所有人廣播。
     StateHash(StateHash),
