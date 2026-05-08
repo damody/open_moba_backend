@@ -1,4 +1,4 @@
-//! 60Hz 滴答廣播。在從 main.rs 產生的 tokio 任務中運行。
+//! 120Hz 滴答廣播。在從 main.rs 產生的 tokio 任務中運行。
 //!
 //! 每個刻度：
 //! 1. 前進 `LockstepState.current_tick`。
@@ -13,7 +13,7 @@
 //! - `placeholder_state_hash` 是一個替代品 (`tick * Golden_ratio`)；第三階段
 //! 將其替換為 `omoba_sim::state_hash::hash_sorted_by_id`
 //! 真實的 ECS 狀態。
-//! - 傳統的 30Hz 類比調度程式繼續運作不變。
+//! - 類比調度程式與 broadcaster 使用相同 120Hz lockstep cadence。
 //! - 在第 2 階段，`server_events` 永遠為空；第5階段將注入
 //! player_join / wave_start / 等伺服器權威事件。
 //!
@@ -21,13 +21,10 @@
 //! - 可選的“state_hash_rx”通道由調度程序滴答循環提供
 //! `state::core::State::tick`，呼叫 `compute_state_hash(&world)`
 //! 每個“state_hash_interval”刻度（使用其自己的調度程序刻度號）。
-//! 廣播者「try_recv」是其 60Hz 狀態時的最新待定值 -
+//! 廣播者「try_recv」是其 120Hz 狀態時的最新待定值 -
 //! 哈希間隔觸發。
-//! - 調度員（30Hz）和廣播員（60Hz）未對齊；這是
-//! 故意。哈希值帶有調度程序的時間戳
-//! 計算時間；廣播公司逐字轉寄「(tick, hash)」。滯後是
-//! 僅限於一個調度程式刻度（30Hz 時約 33 毫秒），遠低於任何調度程式刻度
-//! 合理的不同步檢測視窗。
+//! - 調度員和廣播員都使用 120Hz cadence。哈希值帶有調度程序的時間戳
+//! 計算時間；廣播公司逐字轉寄「(tick, hash)」。
 //! - 當「state_hash_rx」為「None」（遺留/測試設定）時，廣播者
 //! 回退到“placeholder_state_hash”，以便現有測試繼續通過。
 
@@ -39,26 +36,30 @@ use crate::lockstep::{
     InputBuffer, InputForPlayer, LockstepFrame, LockstepState, StateHash, TickBatch,
 };
 use crate::transport::OutboundMsg;
+use omoba_core::lockstep_timing::{
+    LOCKSTEP_ONE_SECOND_TICKS_U32, LOCKSTEP_TEN_SECONDS_TICKS_U32,
+    LOCKSTEP_TICK_PERIOD_US,
+};
 
 /// 階段3.4：調度程序tick循環計算後發布的有效負載
 /// `compute_state_hash(&world)`。廣播公司逐字轉發—‘tick’
-/// 這是調度員的滴答聲（30Hz 節奏），與
-/// 廣播公司自己的 60Hz `LockstepState.current_tick`。
+/// 這是調度員的滴答聲（120Hz 節奏），與
+/// 廣播公司自己的 120Hz `LockstepState.current_tick`。
 pub type StateHashSample = (u32, u64);
 
 #[derive(Clone, Copy, Debug)]
 pub struct TickBroadcasterConfig {
-    /// 以微秒為單位的刻度週期。 16_667 = 60赫茲。
+    /// 以微秒為單位的刻度週期。預設由 `LOCKSTEP_TPS` 推導。
     pub tick_period_us: u64,
-    /// 每 N 個週期發出一個 StateHash。 600 = 10 秒 @ 60Hz。
+    /// 每 N 個週期發出一個 StateHash。預設 10 秒 @ `LOCKSTEP_TPS`。
     pub state_hash_interval: u32,
 }
 
 impl Default for TickBroadcasterConfig {
     fn default() -> Self {
         Self {
-            tick_period_us: 16_667,
-            state_hash_interval: 600,
+            tick_period_us: LOCKSTEP_TICK_PERIOD_US,
+            state_hash_interval: LOCKSTEP_TEN_SECONDS_TICKS_U32,
         }
     }
 }
@@ -117,7 +118,7 @@ impl TickBroadcaster {
         self
     }
 
-    /// 產生 60Hz 滴答循環。運行直到“out_tx”關閉（通道
+    /// 產生 120Hz 滴答循環。運行直到“out_tx”關閉（通道
     /// 作為發送錯誤斷開表面，然後我們記錄+退出）。
     pub async fn run(self) {
         // 階段 4：如果未連接 state_hash_rx，則會發出響亮的啟動時警告。
@@ -213,11 +214,11 @@ impl TickBroadcaster {
         // 定期清理過時的未來輸入（例如提交的內容）
         // 引用了我們已經通過的勾號，因為玩家是
         // 斷開連接並重新連接）。
-        if tick % 60 == 0 {
+        if tick % LOCKSTEP_ONE_SECOND_TICKS_U32 == 0 {
             self.input_buffer
                 .lock()
                 .unwrap()
-                .evict_older(tick.saturating_sub(120));
+                .evict_older(tick.saturating_sub(LOCKSTEP_ONE_SECOND_TICKS_U32 * 2));
         }
 
         true
@@ -235,8 +236,7 @@ impl TickBroadcaster {
     /// - 如果 `state_hash_rx` 已連線：排空頻道並轉送
     /// 最新的待處理樣本（較新的調度程序樣本丟棄較舊的樣本）。
     /// 傳回的刻度是計算時調度程序的刻度，
-    /// 可能會滯後廣播公司的「tick」最多一個調度程式tick（~33ms
-    /// 30Hz）。清空通道 → 記錄警告 + 回傳 `(tick, 0)`。
+    /// 可能會滯後廣播公司的「tick」最多一個調度程式 tick。清空通道 → 記錄警告 + 回傳 `(tick, 0)`。
     /// - 如果 `state_hash_rx` 為 None：回退到 `placeholder_state_hash`。
     fn latest_state_hash(&self, broadcaster_tick: u32) -> (u32, u64) {
         match &self.state_hash_rx {
@@ -310,7 +310,7 @@ mod tests {
     #[test]
     fn fires_tick_batches_with_buffered_inputs() {
         let cfg = TickBroadcasterConfig {
-            tick_period_us: 16_667,
+            tick_period_us: LOCKSTEP_TICK_PERIOD_US,
             state_hash_interval: 600,
         };
         let (bc, buf, _state, rx) = make_broadcaster(cfg);
@@ -356,7 +356,7 @@ mod tests {
     fn emits_state_hash_at_interval_multiples() {
         // 使用較小的間隔 (3) 以避免在測試中觸發 600 個刻度。
         let cfg = TickBroadcasterConfig {
-            tick_period_us: 16_667,
+            tick_period_us: LOCKSTEP_TICK_PERIOD_US,
             state_hash_interval: 3,
         };
         let (bc, _buf, _state, rx) = make_broadcaster(cfg);
@@ -412,10 +412,10 @@ mod tests {
     }
 
     #[test]
-    fn evicts_old_inputs_every_60_ticks() {
-        // 驗證定期清理分支（`tick % 60 == 0`）。
+    fn evicts_old_inputs_every_second() {
+        // 驗證定期清理分支（`tick % LOCKSTEP_ONE_SECOND_TICKS_U32 == 0`）。
         let cfg = TickBroadcasterConfig {
-            tick_period_us: 16_667,
+            tick_period_us: LOCKSTEP_TICK_PERIOD_US,
             state_hash_interval: 100_000, // disable state hash for this test
         };
         let (bc, buf, _state, _rx) = make_broadcaster(cfg);
@@ -431,17 +431,15 @@ mod tests {
             assert_eq!(b.pending_count(), 1);
         }
 
-        // 發射 60 個刻度。在tick=60時，呼叫evict_older(60-120=saturating 0)
-        // —tick=60 上的 saturating_sub(120) 為 0，因此 tick-0 之前沒有任何內容
+        // 發射一秒的刻度。在第一秒時，保留兩秒視窗，因此 tick=200 輸入仍存在。
         // 被驅逐（tick=200 輸入仍然存在）。
-        for _ in 0..60 {
+        for _ in 0..LOCKSTEP_ONE_SECOND_TICKS_U32 {
             assert!(bc.fire_one_tick());
         }
         assert_eq!(buf.lock().unwrap().pending_count(), 1, "tick=200 input should survive");
 
-        // 觸發到刻度 180。在刻度 = 120 時，我們 evict_older(0);在刻度 = 180 時，我們
-        // evict_older(60) — 仍然沒有達到 tick=200 條目。
-        for _ in 60..180 {
+        // 觸發到 tick=180，仍然未達 tick=200 條目。
+        for _ in LOCKSTEP_ONE_SECOND_TICKS_U32..180 {
             assert!(bc.fire_one_tick());
         }
         assert_eq!(buf.lock().unwrap().pending_count(), 1);
@@ -461,7 +459,7 @@ mod tests {
     #[test]
     fn broadcaster_uses_real_hash_when_rx_provided() {
         let cfg = TickBroadcasterConfig {
-            tick_period_us: 16_667,
+            tick_period_us: LOCKSTEP_TICK_PERIOD_US,
             state_hash_interval: 3, // small interval so we hit it quickly
         };
         let (buf, state) = (
@@ -496,7 +494,7 @@ mod tests {
                 );
                 assert_eq!(
                     sh.tick, dispatcher_tick,
-                    "broadcaster must forward the dispatcher's tick stamp, not its own 60Hz tick"
+                    "broadcaster must forward the dispatcher's tick stamp, not its own 120Hz tick"
                 );
                 // 理智：broadcaster_tick=3 的佔位符是
                 // 3 * 0x9E3779B97F4A7C15 — 不應匹配。
