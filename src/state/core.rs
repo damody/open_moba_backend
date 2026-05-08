@@ -7,6 +7,10 @@ use crossbeam_channel::{Receiver, Sender};
 use failure::Error;
 use core::time::Duration;
 use std::time::Instant;
+use omoba_core::lockstep_timing::{
+    LOCKSTEP_TEN_SECONDS_TICKS_U64, LOCKSTEP_THIRTY_SECONDS_TICKS_U64,
+    LOCKSTEP_TPS_U64,
+};
 
 use crate::{comp::*, CreepWave};
 use crate::ue4::import_map::CreepWaveData;
@@ -90,7 +94,7 @@ pub struct State {
     aoi_grid: Option<std::sync::Arc<std::sync::Mutex<crate::aoi::AoiGrid>>>,
     /// 階段 3.4：可選的出站通道，發布新計算的結果
     /// 每個“STATE_HASH_INTERVAL_TICKS”調度程序滴答聲的 ECS 狀態雜湊。這
-    /// `lockstep::TickBroadcaster` (60Hz) `try_recv` 獨立於此
+    /// `lockstep::TickBroadcaster` (120Hz) `try_recv` 獨立於此
     /// 狀態哈希間隔。在未啟用鎖定步驟的情況下運作時為“無”
     /// （mqtt/grpc 構建，或 kcp 構建，其中 main.rs 尚未連接它）。
     #[cfg(feature = "kcp")]
@@ -105,10 +109,8 @@ pub struct State {
     /// 每個廣播公司都會從「InputBuffer」消耗輸入一段時間
     /// `TickBatch` 也會沿著這個通道發送一個副本； `State::tick` 排水溝
     /// 並將輸入寫入“PendingPlayerInputs”，以便主機的
-    /// `player_input_tick::Sys` 也能看到它們。如果沒有這個，主機運行在
-    /// 30Hz 調度程序滴答聲，而廣播公司以其自己的頻率以 60Hz 運行
-    /// 計數器 - `drain_for_tick(my_local_tick)` 永遠不會與鍵匹配
-    /// 輸入儲存在下方。
+    /// `player_input_tick::Sys` 也能看到它們。主機與 broadcaster 現在同為
+    /// 120Hz，但仍排空所有可用批次以便短暫 stall 後追上。
     #[cfg(feature = "kcp")]
     host_input_rx: Option<crossbeam_channel::Receiver<Vec<(u32, crate::lockstep::PlayerInput)>>>,
 }
@@ -125,7 +127,7 @@ struct VisSet {
 }
 
 #[cfg(any(feature = "grpc", feature = "kcp"))]
-const VISIBILITY_DIFF_INTERVAL_TICKS: u64 = 6;
+const VISIBILITY_DIFF_INTERVAL_TICKS: u64 = LOCKSTEP_TPS_U64 / 5;
 
 /// 每個玩家至少強制發送一個（可能是空的）心跳，這樣
 /// 客戶端仍然會收到“tick”/“game_time”心跳以進行時鐘同步和
@@ -135,18 +137,17 @@ const VISIBILITY_DIFF_INTERVAL_TICKS: u64 = 6;
 const HEARTBEAT_FORCE_SEND_INTERVAL: f64 = 5.0;
 
 /// 階段 3.4：每 N 個調度程式週期發出一個狀態雜湊樣本。調度員
-/// 以 30Hz 運行，因此 300 = 10s — 廣播公司的「state_hash_interval」預設值
-/// 是 600 (10s @ 60Hz)，因此通道總是有新的樣本
+/// 以 lockstep cadence 運行，因此此值代表約 10 秒。
 /// 廣播公司的間隔觸發（最多有一個陳舊時間）。
 #[cfg(feature = "kcp")]
-const STATE_HASH_INTERVAL_TICKS: u64 = 300;
+const STATE_HASH_INTERVAL_TICKS: u64 = LOCKSTEP_TEN_SECONDS_TICKS_U64;
 
 /// 階段 5.3：每 N 個調度程序週期序列化一個新的世界快照。
-/// 調度程式以 30Hz 運行，因此 900 = 30 秒 — 觀察者重新加入最多獲得一個
+/// 調度程式以 lockstep cadence 運行，因此此值代表約 30 秒 — 觀察者重新加入最多獲得一個
 /// 快照擷取和引導之間有 30 秒的間隔。跳過 `tick=0`
 /// （讓世界在第一次捕獲之前完成 init）。
 #[cfg(feature = "kcp")]
-const SNAPSHOT_INTERVAL_TICKS: u64 = 900;
+const SNAPSHOT_INTERVAL_TICKS: u64 = LOCKSTEP_THIRTY_SECONDS_TICKS_U64;
 
 impl State {
     /// 創建新的遊戲狀態（標準模式）

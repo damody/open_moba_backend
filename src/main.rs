@@ -45,8 +45,9 @@ use specs::{
 use serde_json::{self, json};
 use crate::ue4::import_map::CreepWaveData;
 use crate::ue4::import_campaign::CampaignData;
+use omoba_core::lockstep_timing::LOCKSTEP_TPS_U64;
 
-const TPS: u64 = 30;
+const TPS: u64 = LOCKSTEP_TPS_U64;
 
 fn read_input() -> Option<String> {
     let mut buffer = String::new();
@@ -217,8 +218,8 @@ async fn main() -> std::result::Result<(), Error> {
         host_input_tx
     };
 
-    // 階段 2 鎖定步：與舊版本一起產生 60Hz TickBroadcaster
-    // 30Hz類比調度員。廣播者每消耗一次InputBuffer
+    // 階段 2 鎖定步：產生 120Hz TickBroadcaster，與 authoritative dispatcher
+    // 使用相同 cadence。廣播者每消耗一次InputBuffer
     // 勾選並透過以下方式發出 TickBatch（標籤 0x11）+ 週期性 StateHash（標籤 0x12）
     // 現有的 OutboundMsg 通道； kcp 傳輸的廣播線程
     // 與 GameEvent 不同的是，路由鎖定步幀。
@@ -245,7 +246,8 @@ async fn main() -> std::result::Result<(), Error> {
         .with_host_input_tx(host_input_tx.clone());
         tokio::spawn(broadcaster.run());
         log::info!(
-            "Lockstep TickBroadcaster spawned at 60Hz (period {}us, state_hash every {} ticks)",
+            "Lockstep TickBroadcaster spawned at {}Hz (period {}us, state_hash every {} ticks)",
+            TPS,
             TickBroadcasterConfig::default().tick_period_us,
             TickBroadcasterConfig::default().state_hash_interval,
         );
