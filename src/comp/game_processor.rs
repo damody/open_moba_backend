@@ -86,6 +86,7 @@ fn outcome_kind(o: &Outcome) -> &'static str {
         Outcome::AddBuff { .. } => "AddBuff",
         Outcome::Explosion { .. } => "Explosion",
         Outcome::ProjectileDirectional { .. } => "ProjectileDirectional",
+        Outcome::AttackPhaseCue { .. } => "AttackPhaseCue",
         Outcome::EntityRemoved { .. } => "EntityRemoved",
     }
 }
@@ -263,6 +264,32 @@ impl GameProcessor {
                             radius: radius.to_f32_for_render(),
                             duration_ms,
                             spawn_tick: current_tick,
+                        });
+                    }
+                    Outcome::AttackPhaseCue {
+                        entity,
+                        target,
+                        target_pos,
+                        windup_ms,
+                        backswing_ms,
+                        dir_rad,
+                    } => {
+                        let current_tick = ecs.read_resource::<Tick>().0 as u32;
+                        let mut q = ecs.write_resource::<AttackPhaseFxQueue>();
+                        let attack_seq = q.next_seq;
+                        q.next_seq = q.next_seq.wrapping_add(1);
+                        q.pending.push(AttackPhaseFx {
+                            entity_id: entity.id(),
+                            entity_gen: entity.gen().id() as u32,
+                            spawn_tick: current_tick,
+                            attack_seq,
+                            windup_ms,
+                            impact_at_ms: windup_ms,
+                            backswing_ms,
+                            dir_rad,
+                            target_entity_id: target.map(|t| t.id()),
+                            target_pos_x: target_pos.map(|p| p.x.to_f32_for_render()),
+                            target_pos_y: target_pos.map(|p| p.y.to_f32_for_render()),
                         });
                     }
                     Outcome::EntityRemoved { entity } => {

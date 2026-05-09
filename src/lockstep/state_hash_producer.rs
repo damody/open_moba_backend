@@ -221,4 +221,47 @@ mod tests {
 
         assert_eq!(h1, h2, "no-CProperty must hash same as hp=0");
     }
+
+    #[test]
+    fn render_only_fx_queues_do_not_affect_hash() {
+        let mut w = make_world();
+        w.create_entity().with(pos_xy(5, 5)).with(cprop(100, 100)).build();
+        let before = compute_state_hash(&w);
+        w.insert(crate::comp::TowerFireFxQueue {
+            pending: vec![crate::comp::TowerFireFx {
+                entity_id: 1,
+                entity_gen: 1,
+                spawn_tick: 10,
+                dir_rad: 0.5,
+            }],
+        });
+        w.insert(crate::comp::AttackPhaseFxQueue {
+            pending: vec![crate::comp::AttackPhaseFx {
+                entity_id: 1,
+                entity_gen: 1,
+                spawn_tick: 9,
+                attack_seq: 3,
+                windup_ms: 100,
+                impact_at_ms: 100,
+                backswing_ms: 200,
+                dir_rad: 0.5,
+                target_entity_id: None,
+                target_pos_x: None,
+                target_pos_y: None,
+            }],
+            next_seq: 4,
+        });
+        let after_insert = compute_state_hash(&w);
+        {
+            let mut fire = w.write_resource::<crate::comp::TowerFireFxQueue>();
+            let _ = std::mem::take(&mut fire.pending);
+        }
+        {
+            let mut phases = w.write_resource::<crate::comp::AttackPhaseFxQueue>();
+            let _ = std::mem::take(&mut phases.pending);
+        }
+        let after_drain = compute_state_hash(&w);
+        assert_eq!(before, after_insert);
+        assert_eq!(before, after_drain);
+    }
 }

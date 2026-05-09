@@ -55,6 +55,24 @@ pub fn load(dll_path: &Path) -> Result<DllData> {
                 hp: tm.hp.to_f32_for_render(),
                 turn_speed_deg: tm.turn_speed_deg.to_f32_for_render(),
                 label: tm.label.to_string(),
+                render_mode: tm.render.render_mode.to_string(),
+                base_image: tm.render.base.to_string(),
+                barrel_image: tm.render.barrel.to_string(),
+                barrel_frames: tm.render.barrel_frames.iter().map(|s| s.to_string()).collect(),
+                body_frames: tm.render.body_frames.iter().map(|s| s.to_string()).collect(),
+                rotation_mode: tm.render.rotation_mode.to_string(),
+                barrel_layout: tm.render.barrel_layout.to_string(),
+                barrel_variants: tm
+                    .render
+                    .barrel_variants
+                    .iter()
+                    .map(|v| format!("{}:{}", v.count, v.image))
+                    .collect(),
+                recoil_mode: tm.render.recoil.mode.to_string(),
+                recoil_distance: tm.render.recoil.distance.to_f32_for_render(),
+                recoil_scale: tm.render.recoil.scale.to_f32_for_render(),
+                attack_windup: tm.attack_timing.windup,
+                attack_backswing: tm.attack_timing.backswing,
             });
         let kind = if tower.is_some() {
             UnitKind::Tower

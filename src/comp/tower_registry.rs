@@ -8,6 +8,63 @@
 
 use std::collections::HashMap;
 
+#[derive(Clone, Debug)]
+pub struct TowerRenderPoint {
+    pub x: f32,
+    pub y: f32,
+}
+
+#[derive(Clone, Debug)]
+pub struct TowerRenderAnimation {
+    pub fps: f32,
+    pub loop_animation: bool,
+    pub fire_fps: f32,
+    pub fire_once: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct TowerBarrelVariant {
+    pub min_path: u8,
+    pub min_level: u8,
+    pub count: u16,
+    pub image: String,
+    pub frames: Vec<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct TowerRecoil {
+    pub mode: String,
+    pub distance: f32,
+    pub scale: f32,
+    pub duration_ms: u32,
+    pub return_ms: u32,
+}
+
+#[derive(Clone, Debug)]
+pub struct TowerRenderMetadata {
+    pub render_mode: String,
+    pub base: String,
+    pub barrel: String,
+    pub barrel_frames: Vec<String>,
+    pub body_frames: Vec<String>,
+    pub barrel_animation: TowerRenderAnimation,
+    pub body_animation: TowerRenderAnimation,
+    pub rotation_mode: String,
+    pub barrel_layout: String,
+    pub barrel_variants: Vec<TowerBarrelVariant>,
+    pub barrel_offset: TowerRenderPoint,
+    pub barrel_pivot: TowerRenderPoint,
+    pub muzzle_offset: TowerRenderPoint,
+    pub default_angle_deg: f32,
+    pub recoil: TowerRecoil,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct AttackTimingMetadata {
+    pub windup: u16,
+    pub backswing: u16,
+}
+
 /// 一座塔的完整模板：與腳本的 `TowerMetadata` 一對一，但用 owned `String` 方便 host 使用。
 #[derive(Clone, Debug)]
 pub struct TowerTemplate {
@@ -27,6 +84,8 @@ pub struct TowerTemplate {
     pub footprint: f32,
     pub hp: f32,
     pub turn_speed_deg: f32,
+    pub render: TowerRenderMetadata,
+    pub attack_timing: AttackTimingMetadata,
 }
 
 /// 所有已註冊塔的 registry。順序 = 腳本 DLL `units()` 回傳順序，供前端 UI 按鈕排序用。

@@ -10,7 +10,7 @@ use abi_stable::std_types::{RNone, ROption, RSome, RStr, RVec};
 use crossbeam_channel::Sender;
 use omb_script_abi::{
     stat_keys::StatKey,
-    types::{Angle, DamageKind, EntityHandle, Fixed64, PathSpec, ProjectileSpec, Vec2},
+    types::{Angle, DamageKind, EntityHandle, Fixed64, PathSpec, ProjectileSpec, Target, Vec2},
     world::GameWorld,
 };
 use rand::{RngCore, SeedableRng};
@@ -62,6 +62,8 @@ pub struct AdapterCache<'a> {
     /// 階段 4.2：explosion-FX 佇列（腳本端 `emit_explosion` 推送
     /// 這裡而不是通過“mqtx”； sim_runner 提取器排水管）。
     pub explosion_fx: Write<'a, ExplosionFxQueue>,
+    pub tower_fire_fx: Write<'a, TowerFireFxQueue>,
+    pub attack_phase_fx: Write<'a, AttackPhaseFxQueue>,
     /// 階段 4.2：目前刻度 — 印在每個 ExplosionFx 上，以便
     /// 渲染側可依 omfx 掛鐘開始老化戒指
     /// 它到達的快照。
@@ -99,6 +101,8 @@ impl<'a> AdapterCache<'a> {
             blocked: world.read_resource::<BlockedRegions>().into(),
             time: world.read_resource::<Time>().into(),
             explosion_fx: world.write_resource::<ExplosionFxQueue>().into(),
+            tower_fire_fx: world.write_resource::<TowerFireFxQueue>().into(),
+            attack_phase_fx: world.write_resource::<AttackPhaseFxQueue>().into(),
             tick: world.read_resource::<Tick>().into(),
             outcomes: world.write_resource::<Vec<crate::comp::Outcome>>().into(),
         }
@@ -140,6 +144,33 @@ impl<'a> WorldAdapter<'a> {
             return None;
         }
         Some(Entity::new(h.id, Generation::new(gen_i)))
+    }
+
+    fn angle_to_rad_f32(angle: Angle) -> f32 {
+        angle.ticks() as f32 / omoba_sim::trig::TAU_TICKS as f32 * std::f32::consts::TAU
+    }
+
+    fn push_tower_fire_fx(&mut self, owner: Entity, dir_rad: f32) {
+        if self.cache.tower.get(owner).is_none() {
+            return;
+        }
+        let spawn_tick = self.cache.tick.0 as u32;
+        let entity_id = owner.id();
+        if self
+            .cache
+            .tower_fire_fx
+            .pending
+            .iter()
+            .any(|fx| fx.entity_id == entity_id && fx.spawn_tick == spawn_tick)
+        {
+            return;
+        }
+        self.cache.tower_fire_fx.pending.push(TowerFireFx {
+            entity_id,
+            entity_gen: owner.gen().id() as u32,
+            spawn_tick,
+            dir_rad,
+        });
     }
 }
 
@@ -507,6 +538,11 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         let safety: Fixed64 = Fixed64::from_raw(
             ((flight_time_s * 3.0 + 1.5) * omoba_sim::fixed::SCALE as f32) as i64,
         );
+        let fire_angle = omoba_sim::trig::atan2(tpos.y - from.y, tpos.x - from.x);
+        if let Some(facing) = self.cache.facing.get_mut(owner_ent) {
+            facing.0 = fire_angle;
+        }
+        self.push_tower_fire_fx(owner_ent, Self::angle_to_rad_f32(fire_angle));
 
         // LazyUpdate spawn — 同 frame 後續系統已跑完，maintain 在 core.rs tick 結尾。
         let e = self
@@ -912,16 +948,6 @@ impl<'a> GameWorld for WorldAdapter<'a> {
             .push(ScriptEvent::ManaGained { e: ent, amount });
     }
 
-    fn trigger_modifier_added(&mut self, e: EntityHandle, modifier_id: RStr<'_>) {
-        let Some(ent) = Self::handle_to_entity(e) else {
-            return;
-        };
-        self.cache.events.push(ScriptEvent::ModifierAdded {
-            e: ent,
-            modifier_id: modifier_id.as_str().to_string(),
-        });
-    }
-
     fn trigger_state_changed(&mut self, e: EntityHandle, state_id: RStr<'_>, active: bool) {
         let Some(ent) = Self::handle_to_entity(e) else {
             return;
@@ -1062,9 +1088,70 @@ impl<'a> GameWorld for WorldAdapter<'a> {
             ROption::RSome(h) => h,
             ROption::RNone => return,
         };
+        if let Some(source_ent) = Self::handle_to_entity(of) {
+            let dir = self
+                .cache
+                .facing
+                .get(source_ent)
+                .map(|f| Self::angle_to_rad_f32(f.0))
+                .unwrap_or(0.0);
+            self.push_tower_fire_fx(source_ent, dir);
+        }
         let targets = self.query_enemies_in_range(at, radius, of);
         for th in targets.iter() {
             self.deal_damage(*th, damage, kind, source);
         }
+    }
+
+    fn emit_attack_phase_fx(
+        &mut self,
+        entity: EntityHandle,
+        target: Target,
+        windup_ms: u32,
+        backswing_ms: u32,
+    ) {
+        let Some(ent) = Self::handle_to_entity(entity) else {
+            return;
+        };
+        let Some(pos) = self.cache.pos.get(ent).map(|p| p.0) else {
+            return;
+        };
+        let (target_entity_id, target_pos) = match target {
+            Target::Entity(handle) => {
+                let target_ent = Self::handle_to_entity(handle);
+                let tpos = target_ent.and_then(|te| self.cache.pos.get(te).map(|p| p.0));
+                (target_ent.map(|te| te.id()), tpos)
+            }
+            Target::Point(point) => (None, Some(point)),
+            Target::None => (None, None),
+        };
+        let dir_angle = if let Some(tpos) = target_pos {
+            omoba_sim::trig::atan2(tpos.y - pos.y, tpos.x - pos.x)
+        } else {
+            self.cache
+                .facing
+                .get(ent)
+                .map(|f| f.0)
+                .unwrap_or(Angle::ZERO)
+        };
+        if let Some(facing) = self.cache.facing.get_mut(ent) {
+            facing.0 = dir_angle;
+        }
+        let q = &mut self.cache.attack_phase_fx;
+        let attack_seq = q.next_seq;
+        q.next_seq = q.next_seq.wrapping_add(1);
+        q.pending.push(AttackPhaseFx {
+            entity_id: ent.id(),
+            entity_gen: ent.gen().id() as u32,
+            spawn_tick: self.cache.tick.0 as u32,
+            attack_seq,
+            windup_ms,
+            impact_at_ms: windup_ms,
+            backswing_ms,
+            dir_rad: Self::angle_to_rad_f32(dir_angle),
+            target_entity_id,
+            target_pos_x: target_pos.map(|p| p.x.to_f32_for_render()),
+            target_pos_y: target_pos.map(|p| p.y.to_f32_for_render()),
+        });
     }
 }

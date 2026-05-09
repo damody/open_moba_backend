@@ -23,6 +23,19 @@ pub struct TowerStats {
     pub hp: f32,
     pub turn_speed_deg: f32,
     pub label: String,
+    pub render_mode: String,
+    pub base_image: String,
+    pub barrel_image: String,
+    pub barrel_frames: Vec<String>,
+    pub body_frames: Vec<String>,
+    pub rotation_mode: String,
+    pub barrel_layout: String,
+    pub barrel_variants: Vec<String>,
+    pub recoil_mode: String,
+    pub recoil_distance: f32,
+    pub recoil_scale: f32,
+    pub attack_windup: u16,
+    pub attack_backswing: u16,
 }
 
 #[derive(Debug, Clone, Default)]

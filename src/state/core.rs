@@ -686,6 +686,49 @@ impl State {
                 "hit_radius": tpl.hit_radius,
                 "slow_factor": tpl.slow_factor,
                 "slow_duration": tpl.slow_duration,
+                "render": {
+                    "render_mode": tpl.render.render_mode,
+                    "base": tpl.render.base,
+                    "barrel": tpl.render.barrel,
+                    "barrel_frames": tpl.render.barrel_frames,
+                    "body_frames": tpl.render.body_frames,
+                    "barrel_animation": {
+                        "fps": tpl.render.barrel_animation.fps,
+                        "loop": tpl.render.barrel_animation.loop_animation,
+                        "fire_fps": tpl.render.barrel_animation.fire_fps,
+                        "fire_once": tpl.render.barrel_animation.fire_once,
+                    },
+                    "body_animation": {
+                        "fps": tpl.render.body_animation.fps,
+                        "loop": tpl.render.body_animation.loop_animation,
+                        "fire_fps": tpl.render.body_animation.fire_fps,
+                        "fire_once": tpl.render.body_animation.fire_once,
+                    },
+                    "rotation_mode": tpl.render.rotation_mode,
+                    "barrel_layout": tpl.render.barrel_layout,
+                    "barrel_variants": tpl.render.barrel_variants.iter().map(|v| json!({
+                        "min_path": v.min_path,
+                        "min_level": v.min_level,
+                        "count": v.count,
+                        "image": v.image,
+                        "frames": v.frames,
+                    })).collect::<Vec<_>>(),
+                    "barrel_offset": { "x": tpl.render.barrel_offset.x, "y": tpl.render.barrel_offset.y },
+                    "barrel_pivot": { "x": tpl.render.barrel_pivot.x, "y": tpl.render.barrel_pivot.y },
+                    "muzzle_offset": { "x": tpl.render.muzzle_offset.x, "y": tpl.render.muzzle_offset.y },
+                    "default_angle_deg": tpl.render.default_angle_deg,
+                    "recoil": {
+                        "mode": tpl.render.recoil.mode,
+                        "distance": tpl.render.recoil.distance,
+                        "scale": tpl.render.recoil.scale,
+                        "duration_ms": tpl.render.recoil.duration_ms,
+                        "return_ms": tpl.render.recoil.return_ms,
+                    },
+                },
+                "attack_timing": {
+                    "windup": tpl.attack_timing.windup,
+                    "backswing": tpl.attack_timing.backswing,
+                },
             }));
         }
         let n = templates.len();

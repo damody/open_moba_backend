@@ -1,4 +1,7 @@
 use crate::comp::*;
+use crate::tick::attack_phase::{
+    advance_attack_phase, fixed_secs_to_ms, start_attack_windup, AttackPhaseStep,
+};
 use crate::transport::OutboundMsg;
 use crossbeam_channel::Sender;
 use instant_distance::Point;
@@ -90,9 +93,11 @@ impl<'a> System<'a> for Sys {
                     // 腳本塔：開火/asd_count 由 on_tick 自管；但「找目標 + 轉向」仍由 host 做。
                     // 非腳本塔：host 管全部（累計 asd、找目標、轉向、開火）。
                     let is_scripted = tr.script_tags.get(e).is_some();
-                    if !is_scripted && atk.asd_count < atk.asd.val() {
-                        atk.asd_count += dt;
-                    }
+                    let attack_phase = if is_scripted {
+                        AttackPhaseStep::Charging
+                    } else {
+                        advance_attack_phase(&mut atk.asd_count, dt, atk.asd.val())
+                    };
                     if pty.mblock > 0 {
                         // 確認所有檔的怪死了沒
                         let mut rm_ids = vec![];
@@ -135,7 +140,7 @@ impl<'a> System<'a> for Sys {
                     // 找目標 + 轉向：
                     //   - 腳本塔：每 tick 都做（host 負責平滑旋轉、對齊到 script 選的目標）
                     //   - 非腳本塔：asd_count 就緒才做（效能優化）
-                    let do_seek = is_scripted || atk.asd_count >= atk.asd.val();
+                    let do_seek = is_scripted || !matches!(attack_phase, AttackPhaseStep::Charging);
                     if do_seek {
                         let time2 = Instant::now();
                         let elpsed = time2.duration_since(time1);
@@ -215,21 +220,36 @@ impl<'a> System<'a> for Sys {
                                         return outcomes;
                                     }
 
-                                    // MOBA 塔：角度對齊就發單體 homing 彈
+                                    // MOBA 塔：Ready 先進 windup；Impact tick 才發單體 homing 彈。
                                     if normalize_angle(desired - new_rad).abs()
                                         < MOVE_ANGLE_THRESHOLD
                                     {
-                                        atk.asd_count -= atk.asd.val();
-                                        outcomes.push(Outcome::ProjectileLine2 {
-                                            pos: pos.0,
-                                            source: Some(e.clone()),
-                                            target: Some(target_entity),
-                                        });
+                                        if matches!(attack_phase, AttackPhaseStep::Ready) {
+                                            let (windup, backswing) =
+                                                start_attack_windup(&mut atk.asd_count, atk.asd.val());
+                                            outcomes.push(Outcome::AttackPhaseCue {
+                                                entity: e,
+                                                target: Some(target_entity),
+                                                target_pos: tr.pos.get(target_entity).map(|p| p.0),
+                                                windup_ms: fixed_secs_to_ms(windup),
+                                                backswing_ms: fixed_secs_to_ms(backswing),
+                                                dir_rad: desired,
+                                            });
+                                        } else {
+                                            outcomes.push(Outcome::ProjectileLine2 {
+                                                pos: pos.0,
+                                                source: Some(e.clone()),
+                                                target: Some(target_entity),
+                                            });
+                                        }
                                     }
                                     // 角度太大 → 繼續轉，本 tick 不開火
                                 }
                             } else {
-                                if !is_scripted && near_creeps.len() == 0 {
+                                if !is_scripted
+                                    && matches!(attack_phase, AttackPhaseStep::Ready)
+                                    && near_creeps.len() == 0
+                                {
                                     // 0.3 ≈ 307/1024 原始；原始抖動 ε [0, 256) ≈ 0..0.25。
                                     // 階段 1de.2：透過 SimRng 確定的每（塔、滴答）抖動。
                                     let mut rng = omoba_sim::SimRng::from_master_entity(

@@ -119,6 +119,15 @@ pub enum Outcome {
         source: Option<Entity>,
         end_pos: SimVec2,
     },
+    /// Render-only windup cue for legacy host-driven attacks.
+    AttackPhaseCue {
+        entity: Entity,
+        target: Option<Entity>,
+        target_pos: Option<SimVec2>,
+        windup_ms: u32,
+        backswing_ms: u32,
+        dir_rad: f32,
+    },
     /// 唯一的 entity-removal entry point。系統 / handler / script 端 push
     /// 此 outcome 後，`process_outcomes` 統一在當 tick 結尾呼叫
     /// `entities().delete(entity)` 並把 `entity.id()` 推進
@@ -187,6 +196,40 @@ pub struct ExplosionFx {
 #[derive(Default)]
 pub struct ExplosionFxQueue {
     pub pending: Vec<ExplosionFx>,
+}
+
+#[derive(Clone, Debug)]
+pub struct TowerFireFx {
+    pub entity_id: u32,
+    pub entity_gen: u32,
+    pub spawn_tick: u32,
+    pub dir_rad: f32,
+}
+
+#[derive(Default)]
+pub struct TowerFireFxQueue {
+    pub pending: Vec<TowerFireFx>,
+}
+
+#[derive(Clone, Debug)]
+pub struct AttackPhaseFx {
+    pub entity_id: u32,
+    pub entity_gen: u32,
+    pub spawn_tick: u32,
+    pub attack_seq: u32,
+    pub windup_ms: u32,
+    pub impact_at_ms: u32,
+    pub backswing_ms: u32,
+    pub dir_rad: f32,
+    pub target_entity_id: Option<u32>,
+    pub target_pos_x: Option<f32>,
+    pub target_pos_y: Option<f32>,
+}
+
+#[derive(Default)]
+pub struct AttackPhaseFxQueue {
+    pub pending: Vec<AttackPhaseFx>,
+    pub next_seq: u32,
 }
 
 /// 待實體刪除的佇列資源。由“process_outcomes”推動
@@ -297,5 +340,53 @@ impl Searcher {
 impl Default for Searcher {
     fn default() -> Self {
         Self::from_config()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tower_fire_fx_queue_drains_once() {
+        let mut queue = TowerFireFxQueue::default();
+        queue.pending.push(TowerFireFx {
+            entity_id: 7,
+            entity_gen: 1,
+            spawn_tick: 42,
+            dir_rad: 0.25,
+        });
+
+        let drained = std::mem::take(&mut queue.pending);
+        assert_eq!(drained.len(), 1);
+        assert!(queue.pending.is_empty());
+        let drained_again = std::mem::take(&mut queue.pending);
+        assert!(drained_again.is_empty());
+    }
+
+    #[test]
+    fn attack_phase_fx_queue_drains_once_and_keeps_sequence_resource() {
+        let mut queue = AttackPhaseFxQueue::default();
+        queue.next_seq = 5;
+        queue.pending.push(AttackPhaseFx {
+            entity_id: 7,
+            entity_gen: 1,
+            spawn_tick: 42,
+            attack_seq: 4,
+            windup_ms: 120,
+            impact_at_ms: 120,
+            backswing_ms: 240,
+            dir_rad: 0.25,
+            target_entity_id: Some(99),
+            target_pos_x: None,
+            target_pos_y: None,
+        });
+
+        let drained = std::mem::take(&mut queue.pending);
+        assert_eq!(drained.len(), 1);
+        assert!(queue.pending.is_empty());
+        assert_eq!(queue.next_seq, 5);
+        let drained_again = std::mem::take(&mut queue.pending);
+        assert!(drained_again.is_empty());
     }
 }

@@ -1,4 +1,7 @@
 use crate::comp::*;
+use crate::tick::attack_phase::{
+    advance_attack_phase, fixed_secs_to_ms, start_attack_windup, AttackPhaseStep,
+};
 use instant_distance::Point;
 use omoba_sim::{Fixed64, Vec2 as SimVec2};
 use specs::prelude::ParallelIterator;
@@ -126,10 +129,8 @@ impl<'a> System<'a> for Sys {
                     let asd_mult = if asd_mult_raw < min_asd_mult { min_asd_mult } else { asd_mult_raw };
                     let effective_interval: Fixed64 = atk.asd.v / asd_mult;
 
-                    // 直接更新攻擊冷卻時間
-                    if atk.asd_count < effective_interval {
-                        atk.asd_count += dt;
-                    }
+                    let attack_phase =
+                        advance_attack_phase(&mut atk.asd_count, dt, effective_interval);
 
                     // 移動優先於自動攻擊：有 MoveTarget 時不自動攻擊
                     // （否則 hero 會一直想轉向敵人，與移動轉向互相拉扯卡住）
@@ -137,8 +138,8 @@ impl<'a> System<'a> for Sys {
                         return outcomes;
                     }
 
-                    // 當攻擊冷卻時間到達時，嘗試攻擊
-                    if atk.asd_count >= effective_interval {
+                    // 當攻擊前搖完成或冷卻就緒時，嘗試攻擊。
+                    if !matches!(attack_phase, AttackPhaseStep::Charging) {
                         let time2 = Instant::now();
                         let elpsed = time2.duration_since(time1);
 
@@ -230,20 +231,34 @@ impl<'a> System<'a> for Sys {
 
                                     let angle_diff = normalize_angle(desired - new_rad).abs();
                                     if angle_diff < MOVE_ANGLE_THRESHOLD {
-                                        atk.asd_count -= effective_interval;
-                                        outcomes.push(Outcome::ProjectileLine2 {
-                                            pos: pos.0,
-                                            source: Some(e.clone()),
-                                            target: Some(target)
-                                        });
-                                        let actual_distance = valid_targets[0].dis.sqrt();
-                                        log::info!("⚔️ {} 發射彈道攻擊，距離: {:.0}，攻擊力: {:.1}",
-                                            hero_name, actual_distance,
-                                            atk.atk_physic.v.to_f32_for_render());
+                                        if matches!(attack_phase, AttackPhaseStep::Ready) {
+                                            let (windup, backswing) = start_attack_windup(
+                                                &mut atk.asd_count,
+                                                effective_interval,
+                                            );
+                                            outcomes.push(Outcome::AttackPhaseCue {
+                                                entity: e,
+                                                target: Some(target),
+                                                target_pos: tr.pos.get(target).map(|p| p.0),
+                                                windup_ms: fixed_secs_to_ms(windup),
+                                                backswing_ms: fixed_secs_to_ms(backswing),
+                                                dir_rad: desired,
+                                            });
+                                        } else {
+                                            outcomes.push(Outcome::ProjectileLine2 {
+                                                pos: pos.0,
+                                                source: Some(e.clone()),
+                                                target: Some(target)
+                                            });
+                                            let actual_distance = valid_targets[0].dis.sqrt();
+                                            log::info!("⚔️ {} 發射彈道攻擊，距離: {:.0}，攻擊力: {:.1}",
+                                                hero_name, actual_distance,
+                                                atk.atk_physic.v.to_f32_for_render());
+                                        }
                                     }
                                     // 角度太大 → 繼續轉，本 tick 不開火
                                 }
-                            } else {
+                            } else if matches!(attack_phase, AttackPhaseStep::Ready) {
                                 // 沒有有效目標時，減少一些攻擊冷卻時間避免過度檢查
                                 // 0.3 ≈ 307/1024 原始；原始抖動 ε [0, 256) ≈ 0..0.25。
                                 // 階段 1de.2：透過 SimRng 確定性每（英雄、刻度）抖動。

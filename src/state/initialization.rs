@@ -490,6 +490,8 @@ impl StateInitializer {
         // Phase 4.2: 爆炸 FX queue — process_outcomes 推入，sim_runner snapshot
         // 抽取器每 tick drain 給前端渲染。非 sim 狀態，不影響 determinism hash。
         ecs.insert(crate::comp::ExplosionFxQueue::default());
+        ecs.insert(crate::comp::TowerFireFxQueue::default());
+        ecs.insert(crate::comp::AttackPhaseFxQueue::default());
 
         // 階段 1b：實體刪除隊列－delete_entity_tracked 助手
         // 推入，sim_runner snapshot extractor 每 tick drain 進
@@ -950,13 +952,63 @@ pub fn populate_tower_template_registry(
     ecs: &mut World,
     registry: &crate::scripting::ScriptRegistry,
 ) {
-    use crate::comp::tower_registry::{TowerTemplate as RuntimeTpl, TowerTemplateRegistry};
+    use crate::comp::tower_registry::{
+        AttackTimingMetadata as RuntimeAttackTiming, TowerBarrelVariant as RuntimeBarrelVariant,
+        TowerRecoil as RuntimeRecoil, TowerRenderAnimation as RuntimeRenderAnimation,
+        TowerRenderMetadata as RuntimeRenderMetadata, TowerRenderPoint as RuntimeRenderPoint,
+        TowerTemplate as RuntimeTpl, TowerTemplateRegistry,
+    };
     use abi_stable::std_types::RSome;
+    use omb_script_abi::types as abi_types;
     let mut reg = TowerTemplateRegistry::default();
     for (uid, script) in registry.iter_ordered() {
         let meta = match script.tower_metadata() {
             RSome(m) => m,
             _ => continue,
+        };
+        let render = RuntimeRenderMetadata {
+            render_mode: meta.render.render_mode.to_string(),
+            base: meta.render.base.to_string(),
+            barrel: meta.render.barrel.to_string(),
+            barrel_frames: meta
+                .render
+                .barrel_frames
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+            body_frames: meta
+                .render
+                .body_frames
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+            barrel_animation: runtime_animation(meta.render.barrel_animation),
+            body_animation: runtime_animation(meta.render.body_animation),
+            rotation_mode: meta.render.rotation_mode.to_string(),
+            barrel_layout: meta.render.barrel_layout.to_string(),
+            barrel_variants: meta
+                .render
+                .barrel_variants
+                .iter()
+                .map(|v| RuntimeBarrelVariant {
+                    min_path: v.min_path,
+                    min_level: v.min_level,
+                    count: v.count,
+                    image: v.image.to_string(),
+                    frames: v.frames.iter().map(|s| s.to_string()).collect(),
+                })
+                .collect(),
+            barrel_offset: runtime_point(meta.render.barrel_offset),
+            barrel_pivot: runtime_point(meta.render.barrel_pivot),
+            muzzle_offset: runtime_point(meta.render.muzzle_offset),
+            default_angle_deg: meta.render.default_angle_deg.to_f32_for_render(),
+            recoil: RuntimeRecoil {
+                mode: meta.render.recoil.mode.to_string(),
+                distance: meta.render.recoil.distance.to_f32_for_render(),
+                scale: meta.render.recoil.scale.to_f32_for_render(),
+                duration_ms: meta.render.recoil.duration_ms,
+                return_ms: meta.render.recoil.return_ms,
+            },
         };
         reg.insert(RuntimeTpl {
             unit_id: uid.to_string(),
@@ -973,10 +1025,31 @@ pub fn populate_tower_template_registry(
             footprint: meta.footprint.to_f32_for_render(),
             hp: meta.hp.to_f32_for_render(),
             turn_speed_deg: meta.turn_speed_deg.to_f32_for_render(),
+            render,
+            attack_timing: RuntimeAttackTiming {
+                windup: meta.attack_timing.windup,
+                backswing: meta.attack_timing.backswing,
+            },
         });
     }
     log::info!("[tower_registry] {} templates loaded", reg.templates.len());
     ecs.insert(reg);
+
+    fn runtime_point(point: abi_types::TowerRenderPoint) -> RuntimeRenderPoint {
+        RuntimeRenderPoint {
+            x: point.x.to_f32_for_render(),
+            y: point.y.to_f32_for_render(),
+        }
+    }
+
+    fn runtime_animation(animation: abi_types::TowerRenderAnimation) -> RuntimeRenderAnimation {
+        RuntimeRenderAnimation {
+            fps: animation.fps.to_f32_for_render(),
+            loop_animation: animation.loop_animation,
+            fire_fps: animation.fire_fps.to_f32_for_render(),
+            fire_once: animation.fire_once,
+        }
+    }
 }
 
 /// 第 3 階段 omfx 端助手：建立靜態 48 塔升級表。
