@@ -60,18 +60,28 @@ pub fn spawn_td_tower(world: &mut World, pos: Vec2<f32>, unit_id: &str) -> Optio
         .with(vision)
         .with(Facing(omoba_sim::Angle::ZERO))
         .with(crate::comp::FacingBroadcast(None))
-        .with(TurnSpeed(omoba_sim::Fixed64::from_raw((tpl.turn_speed_deg.to_radians() * 1024.0) as i64)))
-        .with(CollisionRadius(omoba_sim::Fixed64::from_raw((tpl.footprint * 1024.0) as i64)))
-        .with(crate::scripting::ScriptUnitTag { unit_id: unit_id.to_string() })
+        .with(TurnSpeed(omoba_sim::Fixed64::from_raw(
+            (tpl.turn_speed_deg.to_radians() * 1024.0) as i64,
+        )))
+        .with(CollisionRadius(omoba_sim::Fixed64::from_raw(
+            (tpl.footprint * 1024.0) as i64,
+        )))
+        .with(crate::scripting::ScriptUnitTag {
+            unit_id: unit_id.to_string(),
+        })
         .build();
 
     // 排入 Spawn 事件，讓腳本 on_spawn 初始化 stats（atk/asd/range 等）
-    world.write_resource::<crate::scripting::ScriptEventQueue>()
+    world
+        .write_resource::<crate::scripting::ScriptEventQueue>()
         .push(crate::scripting::ScriptEvent::Spawn { e: entity });
 
     // 標記 Searcher.tower 索引髒污 → 下個 nearby_tick 重建。
     // 否則 collision system 看不到塔，creep / hero 會穿過塔。
-    world.write_resource::<crate::comp::outcome::Searcher>().tower.mark_dirty();
+    world
+        .write_resource::<crate::comp::outcome::Searcher>()
+        .tower
+        .mark_dirty();
 
     Some(entity)
 }

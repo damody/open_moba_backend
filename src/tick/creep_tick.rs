@@ -1,18 +1,18 @@
-use rayon::iter::IntoParallelRefIterator;
-use specs::{
-    shred, Entities, Join, LazyUpdate, Read, ReadExpect, ReadStorage, SystemData,
-    Write, WriteStorage, ParJoin, World,
-};
-use std::{thread, ops::Deref, collections::BTreeMap};
-use std::ops::Sub;
-use crate::comp::*;
 use crate::comp::phys::MAX_COLLISION_RADIUS;
-use specs::prelude::ParallelIterator;
+use crate::comp::*;
 use crate::transport::OutboundMsg;
 use crossbeam_channel::Sender;
-use serde_json::json;
-use omoba_sim::{Fixed64, Vec2 as SimVec2, Angle};
 use omoba_sim::trig::{angle_rotate_toward, atan2 as sim_atan2, fixed_rad_to_ticks, TAU_TICKS};
+use omoba_sim::{Angle, Fixed64, Vec2 as SimVec2};
+use rayon::iter::IntoParallelRefIterator;
+use serde_json::json;
+use specs::prelude::ParallelIterator;
+use specs::{
+    shred, Entities, Join, LazyUpdate, ParJoin, Read, ReadExpect, ReadStorage, SystemData, World,
+    Write, WriteStorage,
+};
+use std::ops::Sub;
+use std::{collections::BTreeMap, ops::Deref, thread};
 
 /// MOBA 鏡頭下肉眼無感的 facing 變化量（~15°）。舊值 0.05 (~3°) 造成過多 F event。
 const FACING_BROADCAST_THRESHOLD_RAD: f32 = 0.26;
@@ -26,8 +26,8 @@ pub struct CreepRead<'a> {
     /// 外推錨。
     tick: Read<'a, Tick>,
     paths: Read<'a, BTreeMap<String, Path>>,
-    check_points : Read<'a, BTreeMap<String, CheckPoint>>,
-    cpropertys : ReadStorage<'a, CProperty>,
+    check_points: Read<'a, BTreeMap<String, CheckPoint>>,
+    cpropertys: ReadStorage<'a, CProperty>,
     turn_speeds: ReadStorage<'a, TurnSpeed>,
     radii: ReadStorage<'a, CollisionRadius>,
     searcher: Read<'a, Searcher>,
@@ -37,8 +37,8 @@ pub struct CreepRead<'a> {
 
 #[derive(SystemData)]
 pub struct CreepWrite<'a> {
-    creeps : WriteStorage<'a, Creep>,
-    pos : WriteStorage<'a, Pos>,
+    creeps: WriteStorage<'a, Creep>,
+    pos: WriteStorage<'a, Pos>,
     facings: WriteStorage<'a, Facing>,
     facing_bcs: WriteStorage<'a, FacingBroadcast>,
     /// P4：用於 M 發射選通的每個 Creep 最後廣播快照。
@@ -54,10 +54,7 @@ pub struct CreepWrite<'a> {
 pub struct Sys;
 
 impl<'a> System<'a> for Sys {
-    type SystemData = (
-        CreepRead<'a>,
-        CreepWrite<'a>,
-    );
+    type SystemData = (CreepRead<'a>, CreepWrite<'a>);
 
     const NAME: &'static str = "creep";
 
@@ -96,14 +93,14 @@ impl<'a> System<'a> for Sys {
             &mut tw.facing_bcs,
         )
             .par_join()
-            .filter(|(_e, _creep, _p, _cp, _f, _fb)| true )
+            .filter(|(_e, _creep, _p, _cp, _f, _fb)| true)
             .map_init(
                 || {
                     prof_span!(guard, "creep update rayon job");
                     guard
                 },
                 |_guard, (e, creep, pos, cp, facing, facing_bc)| {
-                    let mut outcomes:Vec<Outcome> = Vec::new();
+                    let mut outcomes: Vec<Outcome> = Vec::new();
                     let mut cands: Vec<MoveCandidate> = Vec::new();
                     // 內聯邊界助手 - 必須使用明確的 `&*pos` / 來調用
                     // `&*faceing` 以避免捕獲儲存引用作為借用
@@ -119,12 +116,17 @@ impl<'a> System<'a> for Sys {
 
                     if cp.hp <= Fixed64::ZERO {
                         // [DEBUG-STRESS] creep_tick 看到的 hp 值（應該與 handle_damage 寫入後的 hp 一致）
-                        log::info!("☠️ creep_tick sees hp<=0: name={} hp={:.1} mhp={:.1} ent={}",
+                        log::info!(
+                            "☠️ creep_tick sees hp<=0: name={} hp={:.1} mhp={:.1} ent={}",
                             creep.name,
                             cp.hp.to_f32_for_render(),
                             cp.mhp.to_f32_for_render(),
-                            e.id());
-                        outcomes.push(Outcome::Death { pos: pos.0, ent: e.clone() });
+                            e.id()
+                        );
+                        outcomes.push(Outcome::Death {
+                            pos: pos.0,
+                            ent: e.clone(),
+                        });
                     } else {
                         if let Some(path) = tr.paths.get(&creep.path) {
                             if let Some(_b) = creep.block_tower {
@@ -142,8 +144,14 @@ impl<'a> System<'a> for Sys {
                                     // 路徑資料到Fixed64）。每次迭代橋接一次。
                                     let target_point_f: vek::Vec2<f32> = p.pos;
                                     let target_point: SimVec2 = SimVec2::new(
-                                        Fixed64::from_raw((target_point_f.x * omoba_sim::fixed::SCALE as f32) as i64),
-                                        Fixed64::from_raw((target_point_f.y * omoba_sim::fixed::SCALE as f32) as i64),
+                                        Fixed64::from_raw(
+                                            (target_point_f.x * omoba_sim::fixed::SCALE as f32)
+                                                as i64,
+                                        ),
+                                        Fixed64::from_raw(
+                                            (target_point_f.y * omoba_sim::fixed::SCALE as f32)
+                                                as i64,
+                                        ),
                                     );
                                     let mut next_status = creep.status.clone();
                                     // P4：每個週期計算一次有效移動速度 - 分享
@@ -157,9 +165,11 @@ impl<'a> System<'a> for Sys {
                                         CreepStatus::PreWalk => {
                                             // 首先在spawn / PreWalk → 無條件候選時發出。
                                             cands.push(MoveCandidate {
-                                                entity: e, target: target_point_f,
+                                                entity: e,
+                                                target: target_point_f,
                                                 velocity: effective_msd.to_f32_for_render(),
-                                                start_pos: p_to_f(pos.0), facing: a_to_rad(facing.0),
+                                                start_pos: p_to_f(pos.0),
+                                                facing: a_to_rad(facing.0),
                                             });
                                             next_status = CreepStatus::Walk;
                                         }
@@ -181,38 +191,60 @@ impl<'a> System<'a> for Sys {
                                                 creep.pidx += 1;
                                                 if let Some(t) = path.check_points.get(creep.pidx) {
                                                     cands.push(MoveCandidate {
-                                                        entity: e, target: t.pos,
+                                                        entity: e,
+                                                        target: t.pos,
                                                         velocity: effective_msd.to_f32_for_render(),
-                                                        start_pos: p_to_f(pos.0), facing: a_to_rad(facing.0),
+                                                        start_pos: p_to_f(pos.0),
+                                                        facing: a_to_rad(facing.0),
                                                     });
                                                 }
                                             } else {
                                                 // 先轉向目標
-                                                let desired_angle: Angle = sim_atan2(diff.y, diff.x);
-                                                let turn_rate = tr.turn_speeds.get(e)
+                                                let desired_angle: Angle =
+                                                    sim_atan2(diff.y, diff.x);
+                                                let turn_rate = tr
+                                                    .turn_speeds
+                                                    .get(e)
                                                     .map(|t| t.0)
                                                     .unwrap_or(Fixed64::from_raw(1608)); // π/2 rad/s default
-                                                let max_step_ticks = fixed_rad_to_ticks(turn_rate * dt);
-                                                facing.0 = angle_rotate_toward(facing.0, desired_angle, max_step_ticks);
+                                                let max_step_ticks =
+                                                    fixed_rad_to_ticks(turn_rate * dt);
+                                                facing.0 = angle_rotate_toward(
+                                                    facing.0,
+                                                    desired_angle,
+                                                    max_step_ticks,
+                                                );
                                                 let new_facing_rad = a_to_rad(facing.0);
                                                 // 廣播 facing 變化：和「上次廣播」差 > 15° 才送。
                                                 let needs_emit = match facing_bc.0 {
                                                     None => true,
-                                                    Some(last) => (new_facing_rad - last).abs() > FACING_BROADCAST_THRESHOLD_RAD,
+                                                    Some(last) => {
+                                                        (new_facing_rad - last).abs()
+                                                            > FACING_BROADCAST_THRESHOLD_RAD
+                                                    }
                                                 };
                                                 if needs_emit {
                                                     facing_bc.0 = Some(new_facing_rad);
                                                 }
 
                                                 // 角度對齊（<30°）才移動 — Angle ticks comparison.
-                                                let diff_ticks = (desired_angle.ticks() - facing.0.ticks()).rem_euclid(TAU_TICKS);
-                                                let signed_diff_ticks = if diff_ticks > TAU_TICKS / 2 {
-                                                    diff_ticks - TAU_TICKS
-                                                } else {
-                                                    diff_ticks
-                                                };
-                                                if signed_diff_ticks.abs() < MOVE_ANGLE_THRESHOLD_TICKS {
-                                                    let radius = tr.radii.get(e).map(|r| r.0).unwrap_or(Fixed64::from_i32(20));
+                                                let diff_ticks = (desired_angle.ticks()
+                                                    - facing.0.ticks())
+                                                .rem_euclid(TAU_TICKS);
+                                                let signed_diff_ticks =
+                                                    if diff_ticks > TAU_TICKS / 2 {
+                                                        diff_ticks - TAU_TICKS
+                                                    } else {
+                                                        diff_ticks
+                                                    };
+                                                if signed_diff_ticks.abs()
+                                                    < MOVE_ANGLE_THRESHOLD_TICKS
+                                                {
+                                                    let radius = tr
+                                                        .radii
+                                                        .get(e)
+                                                        .map(|r| r.0)
+                                                        .unwrap_or(Fixed64::from_i32(20));
                                                     let self_entity = e;
                                                     // 注意：搜尋器在內部使用 f32 來實作 instant_distance lib 相容性。
                                                     // 呼叫者的最終距離檢查是固定64。
@@ -223,9 +255,18 @@ impl<'a> System<'a> for Sys {
                                                             p_sim.x.to_f32_for_render(),
                                                             p_sim.y.to_f32_for_render(),
                                                         );
-                                                        for di in tr.searcher.search_collidable(p_vek, q_r, 16) {
-                                                            if di.e == self_entity { continue; }
-                                                            let Some(other_r) = tr.radii.get(di.e).map(|cr| cr.0) else { continue };
+                                                        for di in tr
+                                                            .searcher
+                                                            .search_collidable(p_vek, q_r, 16)
+                                                        {
+                                                            if di.e == self_entity {
+                                                                continue;
+                                                            }
+                                                            let Some(other_r) =
+                                                                tr.radii.get(di.e).map(|cr| cr.0)
+                                                            else {
+                                                                continue;
+                                                            };
                                                             let touch = radius + other_r;
                                                             let touch_f = touch.to_f32_for_render();
                                                             if di.dis < touch_f * touch_f {
@@ -242,8 +283,14 @@ impl<'a> System<'a> for Sys {
                                                         if !hits(full) {
                                                             pos.0 = full;
                                                         } else {
-                                                            let only_x = SimVec2::new(pos.0.x + v.x, pos.0.y);
-                                                            let only_y = SimVec2::new(pos.0.x, pos.0.y + v.y);
+                                                            let only_x = SimVec2::new(
+                                                                pos.0.x + v.x,
+                                                                pos.0.y,
+                                                            );
+                                                            let only_y = SimVec2::new(
+                                                                pos.0.x,
+                                                                pos.0.y + v.y,
+                                                            );
                                                             if !hits(only_x) {
                                                                 pos.0 = only_x;
                                                             } else if !hits(only_y) {
@@ -258,11 +305,16 @@ impl<'a> System<'a> for Sys {
                                                             creep.pidx += 1;
                                                             // 到達中途航路點：前進並
                                                             // 為下一個航路點發出 M（目標變更）。
-                                                            if let Some(t) = path.check_points.get(creep.pidx) {
+                                                            if let Some(t) =
+                                                                path.check_points.get(creep.pidx)
+                                                            {
                                                                 cands.push(MoveCandidate {
-                                                                    entity: e, target: t.pos,
-                                                                    velocity: effective_msd.to_f32_for_render(),
-                                                                    start_pos: p_to_f(pos.0), facing: a_to_rad(facing.0),
+                                                                    entity: e,
+                                                                    target: t.pos,
+                                                                    velocity: effective_msd
+                                                                        .to_f32_for_render(),
+                                                                    start_pos: p_to_f(pos.0),
+                                                                    facing: a_to_rad(facing.0),
                                                                 });
                                                             }
                                                         } else {
@@ -277,9 +329,12 @@ impl<'a> System<'a> for Sys {
                                                         // （緩慢應用/刪除）。下面的門通行證
                                                         // 與上次廣播相比，如果相同則丟棄。
                                                         cands.push(MoveCandidate {
-                                                            entity: e, target: target_point_f,
-                                                            velocity: effective_msd.to_f32_for_render(),
-                                                            start_pos: p_to_f(pos.0), facing: a_to_rad(facing.0),
+                                                            entity: e,
+                                                            target: target_point_f,
+                                                            velocity: effective_msd
+                                                                .to_f32_for_render(),
+                                                            start_pos: p_to_f(pos.0),
+                                                            facing: a_to_rad(facing.0),
                                                         });
                                                     }
                                                 }
@@ -314,8 +369,7 @@ impl<'a> System<'a> for Sys {
             )
             .reduce(
                 || (Vec::new(), Vec::<MoveCandidate>::new()),
-                |(mut outcomes_a, mut cands_a),
-                 (mut outcomes_b, mut cands_b)| {
+                |(mut outcomes_a, mut cands_a), (mut outcomes_b, mut cands_b)| {
                     outcomes_a.append(&mut outcomes_b);
                     cands_a.append(&mut cands_b);
                     (outcomes_a, cands_a)
@@ -332,7 +386,9 @@ impl<'a> System<'a> for Sys {
                 Some(bcast) => bcast.should_emit(cand.target, cand.velocity),
                 None => true, // first-ever candidate for this entity
             };
-            if !need_emit { continue; }
+            if !need_emit {
+                continue;
+            }
 
             // 階段 5.2：遺留 0x02 GameEvent 製作人刪減。鎖步刻度批次處理
             // (0x10)攜帶權威pos；客戶端從 sim 渲染。
@@ -340,7 +396,11 @@ impl<'a> System<'a> for Sys {
             // 更新（或插入）廣播快照以便後續刻度
             // 與新基線進行比較。規格::寫入儲存::插入
             // 僅在無效實體上傳回 Err — 可以安全地忽略。
-            let mut snap = tw.mv_broadcasts.get(cand.entity).cloned().unwrap_or_default();
+            let mut snap = tw
+                .mv_broadcasts
+                .get(cand.entity)
+                .cloned()
+                .unwrap_or_default();
             snap.record(cand.target, cand.velocity, server_tick);
             let _ = tw.mv_broadcasts.insert(cand.entity, snap);
         }
@@ -355,9 +415,17 @@ impl<'a> System<'a> for Sys {
 
                 // Phase 1c.4: cp.* / td.* / Outcome::Damage.{phys,magi,real} 全 Fixed64。
                 let phys_raw = td.phys - cp.def_physic;
-                let phys_damage: Fixed64 = if phys_raw < Fixed64::ZERO { Fixed64::ZERO } else { phys_raw };
+                let phys_damage: Fixed64 = if phys_raw < Fixed64::ZERO {
+                    Fixed64::ZERO
+                } else {
+                    phys_raw
+                };
                 let magi_raw = td.magi - cp.def_magic;
-                let magi_damage: Fixed64 = if magi_raw < Fixed64::ZERO { Fixed64::ZERO } else { magi_raw };
+                let magi_damage: Fixed64 = if magi_raw < Fixed64::ZERO {
+                    Fixed64::ZERO
+                } else {
+                    magi_raw
+                };
                 let total_damage: Fixed64 = phys_damage + magi_damage;
 
                 // 獲取目標名稱用於日誌
@@ -370,9 +438,7 @@ impl<'a> System<'a> for Sys {
 
                 if total_damage > Fixed64::ZERO {
                     // 階段 1c.4：Outcome::Damage.pos 是 SimVec2（階段 1c.2）。
-                    let target_pos = tw.pos.get(td.ent)
-                        .map(|p| p.0)
-                        .unwrap_or(SimVec2::ZERO);
+                    let target_pos = tw.pos.get(td.ent).map(|p| p.0).unwrap_or(SimVec2::ZERO);
 
                     // 生成傷害事件（日誌將在 state.rs 中統一處理）
                     tw.outcomes.push(Outcome::Damage {
@@ -386,10 +452,13 @@ impl<'a> System<'a> for Sys {
                     });
                 } else if td.phys > Fixed64::ZERO || td.magi > Fixed64::ZERO {
                     // 只有在有原始傷害但被完全防禦時才顯示
-                    log::info!("🛡️ {} | Damage BLOCKED: Phys {:.1} vs Def {:.1}, Magi {:.1} vs Def {:.1}",
+                    log::info!(
+                        "🛡️ {} | Damage BLOCKED: Phys {:.1} vs Def {:.1}, Magi {:.1} vs Def {:.1}",
                         target_name,
-                        td.phys.to_f32_for_render(), cp.def_physic.to_f32_for_render(),
-                        td.magi.to_f32_for_render(), cp.def_magic.to_f32_for_render()
+                        td.phys.to_f32_for_render(),
+                        cp.def_physic.to_f32_for_render(),
+                        td.magi.to_f32_for_render(),
+                        cp.def_magic.to_f32_for_render()
                     );
                 }
             }

@@ -1,9 +1,8 @@
-/// 系統分派器 - 負責協調和運行所有遊戲系統
-
-use std::sync::Arc;
-use rayon::ThreadPool;
-use specs::{World, Dispatcher, DispatcherBuilder};
 use failure::Error;
+use rayon::ThreadPool;
+use specs::{Dispatcher, DispatcherBuilder, World};
+/// 系統分派器 - 負責協調和運行所有遊戲系統
+use std::sync::Arc;
 
 use crate::comp::*;
 use crate::tick::*;
@@ -21,14 +20,16 @@ pub struct SystemDispatcher {
 impl SystemDispatcher {
     /// 創建新的系統分派器
     pub fn new(thread_pool: Arc<ThreadPool>) -> Self {
-        Self { thread_pool, dispatcher: None }
+        Self {
+            thread_pool,
+            dispatcher: None,
+        }
     }
 
     /// 運行所有遊戲系統
     pub fn run_systems(&mut self, world: &World) -> Result<(), Error> {
         if self.dispatcher.is_none() {
-            let mut builder = DispatcherBuilder::new()
-                .with_pool(Arc::clone(&self.thread_pool));
+            let mut builder = DispatcherBuilder::new().with_pool(Arc::clone(&self.thread_pool));
             self.build_system_dependencies(&mut builder);
             self.dispatcher = Some(builder.build());
         }
@@ -38,8 +39,8 @@ impl SystemDispatcher {
 
     /// 運行特定系統組
     pub fn run_system_group(&self, world: &World, group: SystemGroup) -> Result<(), Error> {
-        let mut dispatch_builder = DispatcherBuilder::new()
-            .with_pool(Arc::clone(&self.thread_pool));
+        let mut dispatch_builder =
+            DispatcherBuilder::new().with_pool(Arc::clone(&self.thread_pool));
 
         match group {
             SystemGroup::Core => {
@@ -141,38 +142,38 @@ impl SystemDispatcher {
     /// 檢查系統健康狀態
     pub fn check_system_health(&self) -> Vec<String> {
         let mut issues = Vec::new();
-        
+
         let stats = self.get_system_stats();
-        
+
         if stats.thread_count == 0 {
             issues.push("執行緒池無可用執行緒".to_string());
         }
-        
+
         if stats.active_systems == 0 {
             issues.push("無活躍系統運行".to_string());
         }
-        
+
         if stats.thread_count < num_cpus::get() / 2 {
             issues.push("執行緒數量可能不足".to_string());
         }
-        
+
         issues
     }
 
     /// 重新配置執行緒池
     pub fn reconfigure_thread_pool(&mut self, new_thread_count: usize) -> Result<(), Error> {
         use rayon::ThreadPoolBuilder;
-        
+
         let new_pool = Arc::new(
             ThreadPoolBuilder::new()
                 .num_threads(new_thread_count)
                 .thread_name(move |i| format!("rayon-{}", i))
-                .build()?
+                .build()?,
         );
-        
+
         self.thread_pool = new_pool;
         log::info!("執行緒池重新配置為 {} 個執行緒", new_thread_count);
-        
+
         Ok(())
     }
 
@@ -191,10 +192,10 @@ impl SystemDispatcher {
     /// 獲取系統性能分析
     pub fn get_performance_analysis(&self) -> SystemPerformanceAnalysis {
         SystemPerformanceAnalysis {
-            average_dispatch_time: 0.0, // 需要實際測量
-            peak_dispatch_time: 0.0,    // 需要實際測量
+            average_dispatch_time: 0.0,     // 需要實際測量
+            peak_dispatch_time: 0.0,        // 需要實際測量
             system_bottlenecks: Vec::new(), // 需要實際分析
-            thread_utilization: 0.0,    // 需要實際測量
+            thread_utilization: 0.0,        // 需要實際測量
         }
     }
 }
@@ -208,8 +209,8 @@ impl SystemDispatcher {
 /// 鏡像依賴鏈
 /// `SystemDispatcher::build_system_dependency`。
 pub fn build_phase3_dispatcher() -> Result<Dispatcher<'static, 'static>, Error> {
-    use rayon::ThreadPoolBuilder;
     use crate::tick::*;
+    use rayon::ThreadPoolBuilder;
 
     let pool = Arc::new(
         ThreadPoolBuilder::new()

@@ -93,28 +93,36 @@ where
                     min: Vec2::new(bounds.min.x, mid_y),
                     max: Vec2::new(mid_x, bounds.max.y),
                 },
-                children: None, entries: Vec::new(), depth: node.depth + 1,
+                children: None,
+                entries: Vec::new(),
+                depth: node.depth + 1,
             },
             QuadTreeNode {
                 bounds: Bounds {
                     min: Vec2::new(mid_x, mid_y),
                     max: bounds.max.clone(),
                 },
-                children: None, entries: Vec::new(), depth: node.depth + 1,
+                children: None,
+                entries: Vec::new(),
+                depth: node.depth + 1,
             },
             QuadTreeNode {
                 bounds: Bounds {
                     min: bounds.min.clone(),
                     max: Vec2::new(mid_x, mid_y),
                 },
-                children: None, entries: Vec::new(), depth: node.depth + 1,
+                children: None,
+                entries: Vec::new(),
+                depth: node.depth + 1,
             },
             QuadTreeNode {
                 bounds: Bounds {
                     min: Vec2::new(mid_x, bounds.min.y),
                     max: Vec2::new(bounds.max.x, mid_y),
                 },
-                children: None, entries: Vec::new(), depth: node.depth + 1,
+                children: None,
+                entries: Vec::new(),
+                depth: node.depth + 1,
             },
         ]);
 
@@ -147,8 +155,7 @@ where
     }
 
     fn bounds_intersect(b1: &Bounds, b2: &Bounds) -> bool {
-        b1.min.x <= b2.max.x && b1.max.x >= b2.min.x &&
-        b1.min.y <= b2.max.y && b1.max.y >= b2.min.y
+        b1.min.x <= b2.max.x && b1.max.x >= b2.min.x && b1.min.y <= b2.max.y && b1.max.y >= b2.min.y
     }
 
     fn count_nodes_recursive(node: &QuadTreeNode<Id, Item>) -> usize {
@@ -237,7 +244,14 @@ where
                 min: center - Vec2::new(radius, radius),
                 max: center + Vec2::new(radius, radius),
             };
-            Self::query_node_recursive(tree, &query_bounds, center, radius, &mut results, &mut seen);
+            Self::query_node_recursive(
+                tree,
+                &query_bounds,
+                center,
+                radius,
+                &mut results,
+                &mut seen,
+            );
         }
         results
     }
@@ -250,7 +264,9 @@ where
         }
     }
 
-    fn name(&self) -> &'static str { "quadtree" }
+    fn name(&self) -> &'static str {
+        "quadtree"
+    }
 }
 
 #[cfg(test)]
@@ -279,20 +295,32 @@ mod tests {
         tree.insert(pt("a", 100.0, 100.0, 10.0));
         tree.insert(pt("b", 800.0, 800.0, 10.0));
 
-        assert_eq!(ids_of(&tree.query_in_range(Vec2::new(100.0, 100.0), 50.0)), vec!["a"]);
-        assert_eq!(ids_of(&tree.query_in_range(Vec2::new(800.0, 800.0), 50.0)), vec!["b"]);
+        assert_eq!(
+            ids_of(&tree.query_in_range(Vec2::new(100.0, 100.0), 50.0)),
+            vec!["a"]
+        );
+        assert_eq!(
+            ids_of(&tree.query_in_range(Vec2::new(800.0, 800.0), 50.0)),
+            vec!["b"]
+        );
     }
 
     #[test]
     fn remove_drops_entry_from_subsequent_queries() {
         let mut tree: QuadTree<String, ()> = QuadTree::new(4, 4);
-        tree.initialize(world_bounds(), vec![
-            pt("a", 100.0, 100.0, 10.0),
-            pt("b", 120.0, 110.0, 10.0),
-        ]);
-        assert_eq!(ids_of(&tree.query_in_range(Vec2::new(110.0, 105.0), 100.0)), vec!["a", "b"]);
+        tree.initialize(
+            world_bounds(),
+            vec![pt("a", 100.0, 100.0, 10.0), pt("b", 120.0, 110.0, 10.0)],
+        );
+        assert_eq!(
+            ids_of(&tree.query_in_range(Vec2::new(110.0, 105.0), 100.0)),
+            vec!["a", "b"]
+        );
         assert!(tree.remove(&"a".to_string()));
-        assert_eq!(ids_of(&tree.query_in_range(Vec2::new(110.0, 105.0), 100.0)), vec!["b"]);
+        assert_eq!(
+            ids_of(&tree.query_in_range(Vec2::new(110.0, 105.0), 100.0)),
+            vec!["b"]
+        );
         assert!(!tree.remove(&"a".to_string()));
     }
 
@@ -300,11 +328,17 @@ mod tests {
     fn update_moves_entry_in_query_results() {
         let mut tree: QuadTree<String, ()> = QuadTree::new(4, 4);
         tree.initialize(world_bounds(), vec![pt("mover", 100.0, 100.0, 5.0)]);
-        assert_eq!(ids_of(&tree.query_in_range(Vec2::new(100.0, 100.0), 20.0)), vec!["mover"]);
+        assert_eq!(
+            ids_of(&tree.query_in_range(Vec2::new(100.0, 100.0), 20.0)),
+            vec!["mover"]
+        );
 
         tree.update(pt("mover", 900.0, 900.0, 5.0));
         assert!(ids_of(&tree.query_in_range(Vec2::new(100.0, 100.0), 20.0)).is_empty());
-        assert_eq!(ids_of(&tree.query_in_range(Vec2::new(900.0, 900.0), 20.0)), vec!["mover"]);
+        assert_eq!(
+            ids_of(&tree.query_in_range(Vec2::new(900.0, 900.0), 20.0)),
+            vec!["mover"]
+        );
     }
 
     #[test]
@@ -314,8 +348,15 @@ mod tests {
 
         assert_eq!(tree.count_nodes(), 1);
 
-        for (i, (x, y)) in [(50.0, 50.0), (950.0, 50.0), (50.0, 950.0), (950.0, 950.0), (500.0, 500.0)]
-            .iter().enumerate()
+        for (i, (x, y)) in [
+            (50.0, 50.0),
+            (950.0, 50.0),
+            (50.0, 950.0),
+            (950.0, 950.0),
+            (500.0, 500.0),
+        ]
+        .iter()
+        .enumerate()
         {
             tree.insert(pt(&format!("o{}", i), *x, *y, 5.0));
         }
@@ -328,11 +369,14 @@ mod tests {
     #[test]
     fn remove_dedupes_across_overlapping_leaves() {
         let mut tree: QuadTree<String, ()> = QuadTree::new(4, 1);
-        tree.initialize(world_bounds(), vec![
-            pt("spanner", 500.0, 500.0, 200.0),
-            pt("filler1", 100.0, 100.0, 5.0),
-            pt("filler2", 900.0, 900.0, 5.0),
-        ]);
+        tree.initialize(
+            world_bounds(),
+            vec![
+                pt("spanner", 500.0, 500.0, 200.0),
+                pt("filler1", 100.0, 100.0, 5.0),
+                pt("filler2", 900.0, 900.0, 5.0),
+            ],
+        );
 
         let q = tree.query_in_range(Vec2::new(500.0, 500.0), 50.0);
         assert_eq!(ids_of(&q), vec!["spanner"]);

@@ -20,11 +20,8 @@ fn create_mqtt_client(
     client_id: String,
     sub: bool,
 ) -> Result<(Client, Connection), Error> {
-    let mut mqtt_options = MqttOptions::new(
-        client_id.as_str(),
-        server_addr,
-        server_port.parse::<u16>()?,
-    );
+    let mut mqtt_options =
+        MqttOptions::new(client_id.as_str(), server_addr, server_port.parse::<u16>()?);
     mqtt_options.set_keep_alive(Duration::from_secs(10));
     mqtt_options.set_request_channel_capacity(10000);
     mqtt_options.set_clean_session(true);

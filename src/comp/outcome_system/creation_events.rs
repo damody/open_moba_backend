@@ -1,12 +1,11 @@
-/// 創建相關事件處理
-
-use specs::{Entity, World, WorldExt, Builder};
-use vek::Vec2;
 use crate::comp::*;
 use crate::transport::OutboundMsg;
 use crossbeam_channel::Sender;
+use log::{error, info, warn};
 use serde_json::json;
-use log::{info, warn, error};
+/// 創建相關事件處理
+use specs::{Builder, Entity, World, WorldExt};
+use vek::Vec2;
 
 /// 創建事件處理器
 pub struct CreationEventHandler;
@@ -24,7 +23,11 @@ impl CreationEventHandler {
         let pos_y_f = cd.pos.y.to_f32_for_render();
         info!("創建小兵於位置: ({}, {})", pos_x_f, pos_y_f);
 
-        let display_name = cd.creep.label.clone().unwrap_or_else(|| cd.creep.name.clone());
+        let display_name = cd
+            .creep
+            .label
+            .clone()
+            .unwrap_or_else(|| cd.creep.name.clone());
         let creep_name = cd.creep.name.clone();
         let hp = cd.cdata.hp;
         let mhp = cd.cdata.mhp;
@@ -35,14 +38,18 @@ impl CreationEventHandler {
         // Creep 統一掛 ScriptUnitTag（預設全單位腳本化）
         let unit_id = format!("creep_{}", creep_name);
         // 創建小兵實體
-        let entity = world.create_entity()
+        let entity = world
+            .create_entity()
             .with(Pos(pos)) // SimVec2 直接內嵌
             .with(cd.creep)
             .with(cd.cdata)
             .with(CollisionRadius(radius))
-            .with(crate::scripting::ScriptUnitTag { unit_id: unit_id.clone() })
+            .with(crate::scripting::ScriptUnitTag {
+                unit_id: unit_id.clone(),
+            })
             .build();
-        world.write_resource::<crate::scripting::ScriptEventQueue>()
+        world
+            .write_resource::<crate::scripting::ScriptEventQueue>()
             .push(crate::scripting::ScriptEvent::Spawn { e: entity });
         let hp_f = hp.to_f32_for_render();
         let mhp_f = mhp.to_f32_for_render();
@@ -86,7 +93,8 @@ impl CreationEventHandler {
         let mut cjs = json!(td);
 
         // 創建塔實體
-        let entity = world.create_entity()
+        let entity = world
+            .create_entity()
             .with(Pos(pos))
             .with(Tower::new())
             .with(td.tpty)
@@ -102,7 +110,6 @@ impl CreationEventHandler {
         // 階段 5.2：遺留 0x02 GameEvent 製作人刪減。
         let _ = (mqtx, cjs);
 
-
         // 標記塔搜尋索引需要重新排序
         if let Some(mut searcher) = world.try_fetch_mut::<Searcher>() {
             searcher.tower.mark_dirty();
@@ -110,7 +117,7 @@ impl CreationEventHandler {
         } else {
             warn!("無法獲取 Searcher 資源，跳過索引更新");
         }
-        
+
         // 塔創建成功，無需產生額外事件
         Vec::new()
     }
@@ -131,8 +138,13 @@ impl CreationEventHandler {
         // 注意：log 使用 f32 邊界 — Fix64 沒有顯示。
         let pos_x_f = pos.x.to_f32_for_render();
         let pos_y_f = pos.y.to_f32_for_render();
-        info!("創建彈道從實體 {} 到實體 {} 於位置 ({}, {})",
-              source.id(), target.id(), pos_x_f, pos_y_f);
+        info!(
+            "創建彈道從實體 {} 到實體 {} 於位置 ({}, {})",
+            source.id(),
+            target.id(),
+            pos_x_f,
+            pos_y_f
+        );
 
         // 獲取來源和目標的位置資訊
         let (source_pos, target_pos): (SimVec2, SimVec2) = {
@@ -179,15 +191,16 @@ impl CreationEventHandler {
         };
 
         // 創建投射物實體（用於視覺效果和傷害處理）
-        let projectile_entity = world.create_entity()
+        let projectile_entity = world
+            .create_entity()
             .with(Pos(source_pos))
             .with(Projectile {
-                time_left: Fixed64::from_i32(2),     // 彈道存活時間
-                owner: source,                       // 擁有者
-                target: Some(target),                // 目標實體
-                tpos: target_pos,                    // 目標位置
-                radius: Fixed64::from_i32(5),        // 碰撞半徑
-                msd: Fixed64::from_i32(500),         // 移動速度
+                time_left: Fixed64::from_i32(2), // 彈道存活時間
+                owner: source,                   // 擁有者
+                target: Some(target),            // 目標實體
+                tpos: target_pos,                // 目標位置
+                radius: Fixed64::from_i32(5),    // 碰撞半徑
+                msd: Fixed64::from_i32(500),     // 移動速度
                 damage_phys: phys_damage,
                 damage_magi: magi_damage,
                 damage_real: real_damage,
@@ -242,7 +255,17 @@ impl CreationEventHandler {
             obj.insert("kind".into(), json!(""));
         }
         // 階段 5.2：遺留 0x02 GameEvent 製作人刪減。
-        let _ = (mqtx, projectile_data_with_dmg, source_x_f, source_y_f, target_x_f, target_y_f, flight_time_ms, predeclared_dmg, target);
+        let _ = (
+            mqtx,
+            projectile_data_with_dmg,
+            source_x_f,
+            source_y_f,
+            target_x_f,
+            target_y_f,
+            flight_time_ms,
+            predeclared_dmg,
+            target,
+        );
 
         // 彈道創建成功，無需產生額外事件
         Vec::new()
@@ -261,11 +284,15 @@ impl CreationEventHandler {
         // 注意：log 使用 f32 邊界 — Fix64 沒有顯示。
         let pos_x_f = pos.x.to_f32_for_render();
         let pos_y_f = pos.y.to_f32_for_render();
-        info!("生成單位於位置 ({}, {})，陣營: {:?}", pos_x_f, pos_y_f, faction);
+        info!(
+            "生成單位於位置 ({}, {})，陣營: {:?}",
+            pos_x_f, pos_y_f, faction
+        );
 
         let faction_clone = faction.clone(); // 克隆供後續使用
 
-        let entity_builder = world.create_entity()
+        let entity_builder = world
+            .create_entity()
             .with(Pos(pos))
             .with(unit)
             .with(faction);

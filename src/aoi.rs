@@ -84,7 +84,9 @@ impl AoiGrid {
         let (max_cx, max_cy) = Self::cell_key((center.0 + radius, center.1 + radius));
         for cx in min_cx..=max_cx {
             for cy in min_cy..=max_cy {
-                let Some(bucket) = self.cells.get(&(cx, cy)) else { continue };
+                let Some(bucket) = self.cells.get(&(cx, cy)) else {
+                    continue;
+                };
                 for e in bucket {
                     let dx = e.pos.0 - center.0;
                     let dy = e.pos.1 - center.1;
@@ -118,16 +120,16 @@ mod tests {
     use super::*;
 
     fn entry(id: u64, x: f32, y: f32) -> AoiEntry {
-        AoiEntry { entity_id: id, pos: (x, y) }
+        AoiEntry {
+            entity_id: id,
+            pos: (x, y),
+        }
     }
 
     #[test]
     fn rebuild_inserts_positions() {
         let mut g = AoiGrid::new();
-        g.rebuild([
-            entry(1, 10.0, 20.0),
-            entry(2, 300.0, 400.0),
-        ]);
+        g.rebuild([entry(1, 10.0, 20.0), entry(2, 300.0, 400.0)]);
         assert_eq!(g.lookup_pos(1), Some((10.0, 20.0)));
         assert_eq!(g.lookup_pos(2), Some((300.0, 400.0)));
         assert_eq!(g.lookup_pos(99), None);
@@ -147,10 +149,10 @@ mod tests {
     fn query_hits_entities_within_radius() {
         let mut g = AoiGrid::new();
         g.rebuild([
-            entry(1, 100.0, 100.0),   // inside radius from (120,120)
-            entry(2, 130.0, 130.0),   // inside
-            entry(3, 500.0, 500.0),   // outside
-            entry(4, 120.0, 120.0),   // at center
+            entry(1, 100.0, 100.0), // inside radius from (120,120)
+            entry(2, 130.0, 130.0), // inside
+            entry(3, 500.0, 500.0), // outside
+            entry(4, 120.0, 120.0), // at center
         ]);
         let mut hits: Vec<u64> = Vec::new();
         g.query((120.0, 120.0), 50.0, |id| hits.push(id));
@@ -183,10 +185,7 @@ mod tests {
     #[test]
     fn negative_coordinates_are_supported() {
         let mut g = AoiGrid::new();
-        g.rebuild([
-            entry(1, -300.0, -300.0),
-            entry(2, 300.0, 300.0),
-        ]);
+        g.rebuild([entry(1, -300.0, -300.0), entry(2, 300.0, 300.0)]);
         assert_eq!(g.lookup_pos(1), Some((-300.0, -300.0)));
         let mut hits: Vec<u64> = Vec::new();
         g.query((-290.0, -290.0), 100.0, |id| hits.push(id));

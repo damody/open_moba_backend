@@ -1,13 +1,15 @@
-use crossbeam_channel::{bounded, Sender, Receiver};
+use async_stream::stream;
+use crossbeam_channel::{bounded, Receiver, Sender};
 use failure::Error;
 use log::*;
 use std::thread;
-use tonic::{transport::Server, Request, Response, Status};
 use tokio::sync::broadcast;
 use tokio_stream::wrappers::BroadcastStream;
-use async_stream::stream;
+use tonic::{transport::Server, Request, Response, Status};
 
-use super::types::{InboundMsg, OutboundMsg, TransportHandle, QueryRequest, QueryResponse, ViewportMsg};
+use super::types::{
+    InboundMsg, OutboundMsg, QueryRequest, QueryResponse, TransportHandle, ViewportMsg,
+};
 
 // 包含生成的原始程式碼
 pub mod game_proto {
@@ -29,9 +31,8 @@ pub struct GameServiceImpl {
 
 #[tonic::async_trait]
 impl GameService for GameServiceImpl {
-    type SubscribeEventsStream = std::pin::Pin<
-        Box<dyn tokio_stream::Stream<Item = Result<GameEvent, Status>> + Send>,
-    >;
+    type SubscribeEventsStream =
+        std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<GameEvent, Status>> + Send>>;
 
     async fn send_command(
         &self,
@@ -42,8 +43,9 @@ impl GameService for GameServiceImpl {
         let data_json: serde_json::Value = if cmd.data_json.is_empty() {
             serde_json::Value::Null
         } else {
-            serde_json::from_slice(&cmd.data_json)
-                .map_err(|e| Status::invalid_argument(format!("Invalid JSON in data_json: {}", e)))?
+            serde_json::from_slice(&cmd.data_json).map_err(|e| {
+                Status::invalid_argument(format!("Invalid JSON in data_json: {}", e))
+            })?
         };
 
         let inbound = InboundMsg {
@@ -160,10 +162,7 @@ impl GameService for GameServiceImpl {
 ///
 /// 傳回一個“TransportHandle”，其“tx”提供出站訊息
 /// 其“rx”產生入站玩家命令。
-pub async fn start(
-    server_addr: String,
-    server_port: String,
-) -> Result<TransportHandle, Error> {
+pub async fn start(server_addr: String, server_port: String) -> Result<TransportHandle, Error> {
     let (out_tx, out_rx): (Sender<OutboundMsg>, Receiver<OutboundMsg>) = bounded(10000);
     let (in_tx, in_rx): (Sender<InboundMsg>, Receiver<InboundMsg>) = bounded(10000);
 
@@ -201,7 +200,9 @@ pub async fn start(
         other => other.to_string(),
     };
     let addr = format!("{}:{}", bind_ip, server_port);
-    let addr: std::net::SocketAddr = addr.parse().map_err(|e| failure::err_msg(format!("Invalid address '{}': {}", addr, e)))?;
+    let addr: std::net::SocketAddr = addr
+        .parse()
+        .map_err(|e| failure::err_msg(format!("Invalid address '{}': {}", addr, e)))?;
 
     info!("Starting gRPC server on {}", addr);
 

@@ -16,11 +16,11 @@ use omb_script_abi::{
 use rand::{RngCore, SeedableRng};
 use rand_pcg::Pcg64Mcg;
 use serde_json::json;
+use specs::world::Generation;
 use specs::{
     Builder, Entities, Entity, Join, LazyUpdate, Read, ReadStorage, World, WorldExt, Write,
     WriteStorage,
 };
-use specs::world::Generation;
 
 use crate::ability_runtime::{BuffStore, UnitStats};
 use crate::comp::*;
@@ -153,7 +153,9 @@ impl<'a> GameWorld for WorldAdapter<'a> {
     // - - - - - - - - 問 - - - - - - - -
 
     fn get_pos(&self, e: EntityHandle) -> ROption<Vec2> {
-        let Some(ent) = Self::handle_to_entity(e) else { return RNone };
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return RNone;
+        };
         match self.cache.pos.get(ent) {
             Some(p) => RSome(p.0),
             None => RNone,
@@ -161,7 +163,9 @@ impl<'a> GameWorld for WorldAdapter<'a> {
     }
 
     fn get_hp(&self, e: EntityHandle) -> ROption<Fixed64> {
-        let Some(ent) = Self::handle_to_entity(e) else { return RNone };
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return RNone;
+        };
         // 偏好 CProperty（TD 模式的小兵/塔使用）；回落到單位。
         if let Some(p) = self.cache.cprop.get(ent) {
             // 階段 1c.3：CProperty.hp 現在固定64（階段 1c.2）- 直接回傳。
@@ -175,7 +179,9 @@ impl<'a> GameWorld for WorldAdapter<'a> {
     }
 
     fn get_max_hp(&self, e: EntityHandle) -> ROption<Fixed64> {
-        let Some(ent) = Self::handle_to_entity(e) else { return RNone };
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return RNone;
+        };
         if let Some(p) = self.cache.cprop.get(ent) {
             // 階段 1c.3：CProperty.mhp 現在固定64（階段 1c.2）— 直接回傳。
             return RSome(p.mhp);
@@ -188,7 +194,9 @@ impl<'a> GameWorld for WorldAdapter<'a> {
     }
 
     fn is_alive(&self, e: EntityHandle) -> bool {
-        let Some(ent) = Self::handle_to_entity(e) else { return false };
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return false;
+        };
         self.cache.entities.is_alive(ent)
     }
 
@@ -212,7 +220,9 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         radius: Fixed64,
         of: EntityHandle,
     ) -> RVec<EntityHandle> {
-        let Some(of_ent) = Self::handle_to_entity(of) else { return RVec::new() };
+        let Some(of_ent) = Self::handle_to_entity(of) else {
+            return RVec::new();
+        };
         let my_team = match self.cache.faction.get(of_ent) {
             Some(f) => f.team_id,
             None => return RVec::new(),
@@ -222,7 +232,9 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         let mut out: RVec<EntityHandle> = RVec::new();
 
         for (ent, pos, fac) in (&self.cache.entities, &self.cache.pos, &self.cache.faction).join() {
-            if fac.team_id == my_team { continue; }
+            if fac.team_id == my_team {
+                continue;
+            }
             if pos.0.distance_squared(center) <= r2 {
                 out.push(Self::entity_to_handle(ent));
             }
@@ -233,18 +245,15 @@ impl<'a> GameWorld for WorldAdapter<'a> {
     // ---------------- 變異 ----------------
 
     fn set_pos(&mut self, e: EntityHandle, p: Vec2) {
-        let Some(ent) = Self::handle_to_entity(e) else { return };
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return;
+        };
         if let Some(pos) = self.cache.pos.get_mut(ent) {
             pos.0 = p;
         }
     }
 
-    fn advance_with_collision(
-        &mut self,
-        e: EntityHandle,
-        target: Vec2,
-        step: Fixed64,
-    ) -> Vec2 {
+    fn advance_with_collision(&mut self, e: EntityHandle, target: Vec2, step: Fixed64) -> Vec2 {
         let Some(ent) = Self::handle_to_entity(e) else {
             return target;
         };
@@ -280,11 +289,17 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         _kind: DamageKind,
         _source: ROption<EntityHandle>,
     ) {
-        let Some(ent) = Self::handle_to_entity(target) else { return };
+        let Some(ent) = Self::handle_to_entity(target) else {
+            return;
+        };
         // 階段 1c.3：CProperty.hp 是 Fix64 — 直接算術。
         if let Some(p) = self.cache.cprop.get_mut(ent) {
             let new_hp = p.hp - amount;
-            p.hp = if new_hp < Fixed64::ZERO { Fixed64::ZERO } else { new_hp };
+            p.hp = if new_hp < Fixed64::ZERO {
+                Fixed64::ZERO
+            } else {
+                new_hp
+            };
             return;
         }
         if let Some(u) = self.cache.unit.get_mut(ent) {
@@ -295,7 +310,9 @@ impl<'a> GameWorld for WorldAdapter<'a> {
     }
 
     fn heal(&mut self, target: EntityHandle, amount: Fixed64) {
-        let Some(ent) = Self::handle_to_entity(target) else { return };
+        let Some(ent) = Self::handle_to_entity(target) else {
+            return;
+        };
         // 階段 1c.3：CProperty.hp / mhp 現在是 Fix64 — 直接算術。
         if let Some(p) = self.cache.cprop.get_mut(ent) {
             let new_hp = p.hp + amount;
@@ -310,24 +327,36 @@ impl<'a> GameWorld for WorldAdapter<'a> {
     }
 
     fn add_buff(&mut self, target: EntityHandle, buff_id: RStr<'_>, duration: Fixed64) {
-        let Some(ent) = Self::handle_to_entity(target) else { return };
+        let Some(ent) = Self::handle_to_entity(target) else {
+            return;
+        };
         let id_owned = buff_id.as_str().to_string();
         // 階段 1c.3：BuffStore::add 現在採用 Fix64 — 直接呼叫。
-        self.cache.buffs.add(ent, &id_owned, duration, serde_json::Value::Null);
-        self.cache.events
-            .push(ScriptEvent::ModifierAdded { e: ent, modifier_id: id_owned });
+        self.cache
+            .buffs
+            .add(ent, &id_owned, duration, serde_json::Value::Null);
+        self.cache.events.push(ScriptEvent::ModifierAdded {
+            e: ent,
+            modifier_id: id_owned,
+        });
     }
 
     fn remove_buff(&mut self, target: EntityHandle, buff_id: RStr<'_>) {
-        let Some(ent) = Self::handle_to_entity(target) else { return };
+        let Some(ent) = Self::handle_to_entity(target) else {
+            return;
+        };
         let id_owned = buff_id.as_str().to_string();
         self.cache.buffs.remove(ent, &id_owned);
-        self.cache.events
-            .push(ScriptEvent::ModifierRemoved { e: ent, modifier_id: id_owned });
+        self.cache.events.push(ScriptEvent::ModifierRemoved {
+            e: ent,
+            modifier_id: id_owned,
+        });
     }
 
     fn has_buff(&self, target: EntityHandle, buff_id: RStr<'_>) -> bool {
-        let Some(ent) = Self::handle_to_entity(target) else { return false };
+        let Some(ent) = Self::handle_to_entity(target) else {
+            return false;
+        };
         self.cache.buffs.has(ent, buff_id.as_str())
     }
 
@@ -338,14 +367,18 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         duration: Fixed64,
         modifiers_json: RStr<'_>,
     ) {
-        let Some(ent) = Self::handle_to_entity(target) else { return };
+        let Some(ent) = Self::handle_to_entity(target) else {
+            return;
+        };
         let payload: serde_json::Value =
             serde_json::from_str(modifiers_json.as_str()).unwrap_or(serde_json::Value::Null);
         let id_owned = buff_id.as_str().to_string();
         // 階段 1c.3：BuffStore::add 現在採用 Fix64 — 直接呼叫。
         self.cache.buffs.add(ent, &id_owned, duration, payload);
-        self.cache.events
-            .push(ScriptEvent::ModifierAdded { e: ent, modifier_id: id_owned });
+        self.cache.events.push(ScriptEvent::ModifierAdded {
+            e: ent,
+            modifier_id: id_owned,
+        });
     }
 
     fn spawn_summoned_unit(
@@ -361,7 +394,9 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         let unit_type_str = unit_type.as_str();
 
         // 繼承 owner 的 faction（陣營 + team_id）
-        let faction = self.cache.faction
+        let faction = self
+            .cache
+            .faction
             .get(owner_ent)
             .cloned()
             .unwrap_or_else(|| Faction::new(FactionType::Player, 0));
@@ -369,7 +404,9 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         let pos_x_f = pos.x.to_f32_for_render();
         let pos_y_f = pos.y.to_f32_for_render();
         let duration_f = duration.to_f32_for_render();
-        let Some(unit) = Unit::create_summon_unit(unit_type_str, (pos_x_f, pos_y_f), faction.team_id) else {
+        let Some(unit) =
+            Unit::create_summon_unit(unit_type_str, (pos_x_f, pos_y_f), faction.team_id)
+        else {
             return EntityHandle::INVALID;
         };
 
@@ -377,7 +414,11 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         // 階段 1c.3：單位的 move_speed/attack_speed/attack_range 已經固定64
         // (Phase 1c.2). hp / max_hp 仍為 i32。
         let one_hundredth = Fixed64::from_raw(10); // 0.01 in Q22.10 (10/1024 ≈ 0.00977)
-        let attack_speed_min = if unit.attack_speed < one_hundredth { one_hundredth } else { unit.attack_speed };
+        let attack_speed_min = if unit.attack_speed < one_hundredth {
+            one_hundredth
+        } else {
+            unit.attack_speed
+        };
         let cprop = CProperty {
             hp: Fixed64::from_i32(unit.current_hp),
             mhp: Fixed64::from_i32(unit.max_hp),
@@ -396,13 +437,20 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         let summon_time = self.cache.time.0 as f32;
         let summoned = SummonedUnit::new(
             owner_ent,
-            if duration_f > 0.0 { Some(duration_f) } else { None },
+            if duration_f > 0.0 {
+                Some(duration_f)
+            } else {
+                None
+            },
             summon_time,
         );
 
         // LazyUpdate：entity id 立刻分配，components 在下次 maintain (core.rs:364) 真正附上。
         // 本 frame 後續 system 已跑完，不會看到這個半成品。
-        let e = self.cache.lazy.create_entity(&self.cache.entities)
+        let e = self
+            .cache
+            .lazy
+            .create_entity(&self.cache.entities)
             .with(Pos(pos))
             .with(Vel(omoba_sim::Vec2::ZERO))
             .with(unit.clone())
@@ -437,13 +485,10 @@ impl<'a> GameWorld for WorldAdapter<'a> {
                 let Some(target_ent) = Self::handle_to_entity(target) else {
                     return EntityHandle::INVALID;
                 };
-                let tp = self.cache.pos
-                    .get(target_ent).map(|p| p.0).unwrap_or(from);
+                let tp = self.cache.pos.get(target_ent).map(|p| p.0).unwrap_or(from);
                 (Some(target_ent), tp)
             }
-            PathSpec::Straight { end_pos } => {
-                (None, end_pos)
-            }
+            PathSpec::Straight { end_pos } => (None, end_pos),
         };
 
         // 飛行時間數學透過 f32 計算 .max(0.01) 箝位行為
@@ -456,11 +501,18 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         };
         let flight_time_s: f32 = if speed_f > 0.0 {
             (initial_dist / speed_f).max(0.01)
-        } else { 0.01 };
-        let safety: Fixed64 = Fixed64::from_raw(((flight_time_s * 3.0 + 1.5) * omoba_sim::fixed::SCALE as f32) as i64);
+        } else {
+            0.01
+        };
+        let safety: Fixed64 = Fixed64::from_raw(
+            ((flight_time_s * 3.0 + 1.5) * omoba_sim::fixed::SCALE as f32) as i64,
+        );
 
         // LazyUpdate spawn — 同 frame 後續系統已跑完，maintain 在 core.rs tick 結尾。
-        let e = self.cache.lazy.create_entity(&self.cache.entities)
+        let e = self
+            .cache
+            .lazy
+            .create_entity(&self.cache.entities)
             .with(Pos(from))
             .with(Projectile {
                 time_left: safety,
@@ -489,8 +541,8 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         // 勾選，渲染線程會產生帶有 omfx-wall-clock 的圓環
         // 生命週期。 ExplosionFxQueue 是一種無狀態資源（sim 從不
         // 讀回來），所以決定論不受影響。
-        let duration_ms = (duration.to_f32_for_render() * 1000.0)
-            .clamp(0.0, u32::MAX as f32) as u32;
+        let duration_ms =
+            (duration.to_f32_for_render() * 1000.0).clamp(0.0, u32::MAX as f32) as u32;
         let current_tick = self.cache.tick.0 as u32;
         self.cache.explosion_fx.pending.push(ExplosionFx {
             pos_x: pos.x.to_f32_for_render(),
@@ -502,41 +554,71 @@ impl<'a> GameWorld for WorldAdapter<'a> {
     }
 
     fn despawn(&mut self, e: EntityHandle) {
-        let Some(ent) = Self::handle_to_entity(e) else { return };
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return;
+        };
         // 走 Outcome::EntityRemoved 通道 — script-side 跟 omb-side 統一
         // entry。process_outcomes 跑時處理 entities().delete() +
         // 刪除了Entities隊列推送。
-        self.cache.outcomes.push(crate::comp::Outcome::EntityRemoved { entity: ent });
+        self.cache
+            .outcomes
+            .push(crate::comp::Outcome::EntityRemoved { entity: ent });
     }
 
     // ---------------- 塔 / 單位屬性 ----------------
 
     fn get_tower_range(&self, e: EntityHandle) -> Fixed64 {
-        let Some(ent) = Self::handle_to_entity(e) else { return Fixed64::ZERO };
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return Fixed64::ZERO;
+        };
         // 階段 1c.3：TAtack.range.v 為 Fix64 — 直接回傳。
-        self.cache.tattack.get(ent).map(|t| t.range.v).unwrap_or(Fixed64::ZERO)
+        self.cache
+            .tattack
+            .get(ent)
+            .map(|t| t.range.v)
+            .unwrap_or(Fixed64::ZERO)
     }
 
     fn get_tower_atk(&self, e: EntityHandle) -> Fixed64 {
-        let Some(ent) = Self::handle_to_entity(e) else { return Fixed64::ZERO };
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return Fixed64::ZERO;
+        };
         // 階段 1c.3：TAtack.atk_physical.v 是 Fix64 — 直接回傳。
-        self.cache.tattack.get(ent).map(|t| t.atk_physic.v).unwrap_or(Fixed64::ZERO)
+        self.cache
+            .tattack
+            .get(ent)
+            .map(|t| t.atk_physic.v)
+            .unwrap_or(Fixed64::ZERO)
     }
 
     fn get_asd_interval(&self, e: EntityHandle) -> Fixed64 {
-        let Some(ent) = Self::handle_to_entity(e) else { return Fixed64::ZERO };
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return Fixed64::ZERO;
+        };
         // 階段 1c.3：TAtack.asd.v 是 Fix64 — 直接回傳。
-        self.cache.tattack.get(ent).map(|t| t.asd.v).unwrap_or(Fixed64::ZERO)
+        self.cache
+            .tattack
+            .get(ent)
+            .map(|t| t.asd.v)
+            .unwrap_or(Fixed64::ZERO)
     }
 
     fn get_asd_count(&self, e: EntityHandle) -> Fixed64 {
-        let Some(ent) = Self::handle_to_entity(e) else { return Fixed64::ZERO };
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return Fixed64::ZERO;
+        };
         // 階段 1c.3：TAtack.asd_count 為 Fix64 — 直接回傳。
-        self.cache.tattack.get(ent).map(|t| t.asd_count).unwrap_or(Fixed64::ZERO)
+        self.cache
+            .tattack
+            .get(ent)
+            .map(|t| t.asd_count)
+            .unwrap_or(Fixed64::ZERO)
     }
 
     fn set_asd_count(&mut self, e: EntityHandle, v: Fixed64) {
-        let Some(ent) = Self::handle_to_entity(e) else { return };
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return;
+        };
         if let Some(t) = self.cache.tattack.get_mut(ent) {
             // 階段 1c.3：TAtack.asd_count 是固定 64 — 直接寫入。
             t.asd_count = v;
@@ -544,7 +626,9 @@ impl<'a> GameWorld for WorldAdapter<'a> {
     }
 
     fn set_tower_atk(&mut self, e: EntityHandle, v: Fixed64) {
-        let Some(ent) = Self::handle_to_entity(e) else { return };
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return;
+        };
         if let Some(t) = self.cache.tattack.get_mut(ent) {
             // 階段 1c.3：Vf32 保留 Fix64 — 直接寫入。
             t.atk_physic.bv = v;
@@ -553,7 +637,9 @@ impl<'a> GameWorld for WorldAdapter<'a> {
     }
 
     fn set_tower_range(&mut self, e: EntityHandle, v: Fixed64) {
-        let Some(ent) = Self::handle_to_entity(e) else { return };
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return;
+        };
         if let Some(t) = self.cache.tattack.get_mut(ent) {
             // 階段 1c.3：Vf32 保留 Fix64 — 直接寫入。
             t.range.bv = v;
@@ -562,7 +648,9 @@ impl<'a> GameWorld for WorldAdapter<'a> {
     }
 
     fn set_asd_interval(&mut self, e: EntityHandle, v: Fixed64) {
-        let Some(ent) = Self::handle_to_entity(e) else { return };
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return;
+        };
         if let Some(t) = self.cache.tattack.get_mut(ent) {
             // 階段 1c.3：Vf32 保留 Fix64 — 直接寫入。
             t.asd.bv = v;
@@ -571,15 +659,23 @@ impl<'a> GameWorld for WorldAdapter<'a> {
     }
 
     fn set_facing(&mut self, e: EntityHandle, angle: Angle) {
-        let Some(ent) = Self::handle_to_entity(e) else { return };
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return;
+        };
         if let Some(f) = self.cache.facing.get_mut(ent) {
             f.0 = angle;
         }
     }
 
     fn get_facing(&self, e: EntityHandle) -> Angle {
-        let Some(ent) = Self::handle_to_entity(e) else { return Angle::ZERO };
-        self.cache.facing.get(ent).map(|f| f.0).unwrap_or(Angle::ZERO)
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return Angle::ZERO;
+        };
+        self.cache
+            .facing
+            .get(ent)
+            .map(|f| f.0)
+            .unwrap_or(Angle::ZERO)
     }
 
     fn query_nearest_enemy(
@@ -588,7 +684,9 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         radius: Fixed64,
         of: EntityHandle,
     ) -> ROption<EntityHandle> {
-        let Some(of_ent) = Self::handle_to_entity(of) else { return RNone };
+        let Some(of_ent) = Self::handle_to_entity(of) else {
+            return RNone;
+        };
         let my_team = match self.cache.faction.get(of_ent) {
             Some(f) => f.team_id,
             None => return RNone,
@@ -596,8 +694,17 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         let r2 = radius * radius;
         let mut best: Option<(Entity, Fixed64)> = None;
         // 只選 creep（氣球）為目標；不要誤選隊友/其他塔
-        for (ent, pos, fac, _c) in (&self.cache.entities, &self.cache.pos, &self.cache.faction, &self.cache.creep).join() {
-            if fac.team_id == my_team { continue; }
+        for (ent, pos, fac, _c) in (
+            &self.cache.entities,
+            &self.cache.pos,
+            &self.cache.faction,
+            &self.cache.creep,
+        )
+            .join()
+        {
+            if fac.team_id == my_team {
+                continue;
+            }
             let d2 = pos.0.distance_squared(center);
             if d2 <= r2 {
                 if best.map(|(_, b)| d2 < b).unwrap_or(true) {
@@ -615,14 +722,22 @@ impl<'a> GameWorld for WorldAdapter<'a> {
 
     fn play_vfx(&mut self, id: RStr<'_>, at: Vec2) {
         // 注意：log 使用 f32 邊界 — Fix64 沒有顯示。
-        log::debug!("[scripting] play_vfx id={} at=({},{})", id.as_str(),
-            at.x.to_f32_for_render(), at.y.to_f32_for_render());
+        log::debug!(
+            "[scripting] play_vfx id={} at=({},{})",
+            id.as_str(),
+            at.x.to_f32_for_render(),
+            at.y.to_f32_for_render()
+        );
     }
 
     fn play_sfx(&mut self, id: RStr<'_>, at: Vec2) {
         // 注意：log 使用 f32 邊界 — Fix64 沒有顯示。
-        log::debug!("[scripting] play_sfx id={} at=({},{})", id.as_str(),
-            at.x.to_f32_for_render(), at.y.to_f32_for_render());
+        log::debug!(
+            "[scripting] play_sfx id={} at=({},{})",
+            id.as_str(),
+            at.x.to_f32_for_render(),
+            at.y.to_f32_for_render()
+        );
     }
 
     // ---------------- RNG ----------------
@@ -651,68 +766,109 @@ impl<'a> GameWorld for WorldAdapter<'a> {
     // ---------------- Dota 2 modifier 風格聚合 ----------------
 
     fn sum_stat(&self, e: EntityHandle, stat_key: StatKey) -> Fixed64 {
-        let Some(ent) = Self::handle_to_entity(e) else { return Fixed64::ZERO };
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return Fixed64::ZERO;
+        };
         // 階段 1c.3：BuffStore::sum_add 現在回到 Fix64 — 直接回傳。
         self.cache.buffs.sum_add(ent, stat_key)
     }
 
     fn product_stat(&self, e: EntityHandle, stat_key: StatKey) -> Fixed64 {
-        let Some(ent) = Self::handle_to_entity(e) else { return Fixed64::ONE };
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return Fixed64::ONE;
+        };
         // 階段 1c.3：BuffStore::product_mult 現在回到 Fix64 — 直接回傳。
         self.cache.buffs.product_mult(ent, stat_key)
     }
 
     fn get_final_move_speed(&self, e: EntityHandle) -> Fixed64 {
-        let Some(ent) = Self::handle_to_entity(e) else { return Fixed64::ZERO };
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return Fixed64::ZERO;
+        };
         // 階段 1c.3：CProperty.msd 是 Fix64（階段 1c.2）— 直接讀取。
-        let base = self.cache.cprop.get(ent).map(|p| p.msd).unwrap_or(Fixed64::ZERO);
+        let base = self
+            .cache
+            .cprop
+            .get(ent)
+            .map(|p| p.msd)
+            .unwrap_or(Fixed64::ZERO);
         let is_b = self.cache.is_building.get(ent).is_some();
         // 階段 1c.3：UnitStats::final_move_speed 現在回傳 Fix64 — 直接回傳。
         UnitStats::from_refs(&*self.cache.buffs, is_b).final_move_speed(base, ent)
     }
 
     fn get_final_atk(&self, e: EntityHandle) -> Fixed64 {
-        let Some(ent) = Self::handle_to_entity(e) else { return Fixed64::ZERO };
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return Fixed64::ZERO;
+        };
         // TAttack.atk_physical.v 是Fixed64（階段1c.2 — Vf32 內部保留Fixed64）。
-        let base = self.cache.tattack.get(ent).map(|t| t.atk_physic.v).unwrap_or(Fixed64::ZERO);
+        let base = self
+            .cache
+            .tattack
+            .get(ent)
+            .map(|t| t.atk_physic.v)
+            .unwrap_or(Fixed64::ZERO);
         let is_b = self.cache.is_building.get(ent).is_some();
         // 階段 1c.3：UnitStats::final_atk 現在回傳 Fix64 — 直接回傳。
         UnitStats::from_refs(&*self.cache.buffs, is_b).final_atk(base, ent)
     }
 
     fn get_tower_upgrade(&self, e: EntityHandle, path: u8) -> u8 {
-        let Some(ent) = Self::handle_to_entity(e) else { return 0 };
-        self.cache.tower.get(ent)
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return 0;
+        };
+        self.cache
+            .tower
+            .get(ent)
             .and_then(|t| t.upgrade_levels.get(path as usize))
             .copied()
             .unwrap_or(0)
     }
 
     fn has_tower_flag(&self, e: EntityHandle, flag: RStr<'_>) -> bool {
-        let Some(ent) = Self::handle_to_entity(e) else { return false };
-        self.cache.tower.get(ent)
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return false;
+        };
+        self.cache
+            .tower
+            .get(ent)
             .map(|t| t.upgrade_flags.iter().any(|f| f == flag.as_str()))
             .unwrap_or(false)
     }
 
-    fn apply_tower_permanent_buff(&mut self, e: EntityHandle, buff_id: RStr<'_>, modifiers_json: RStr<'_>) {
+    fn apply_tower_permanent_buff(
+        &mut self,
+        e: EntityHandle,
+        buff_id: RStr<'_>,
+        modifiers_json: RStr<'_>,
+    ) {
         // 注意：Fixed64::from_raw(i64::MAX) 是「永久 buff」哨兵 — 夠大，buff_tick 不會
         // 在任何合理的會話中減少到零。可以在第 2 階段中用顯式的 None/permanent 標誌替換。
         self.add_stat_buff(e, buff_id, Fixed64::from_raw(i64::MAX), modifiers_json);
     }
 
     fn get_final_attack_range(&self, e: EntityHandle) -> Fixed64 {
-        let Some(ent) = Self::handle_to_entity(e) else { return Fixed64::ZERO };
-        let base = self.cache.tattack.get(ent).map(|t| t.range.v).unwrap_or(Fixed64::ZERO);
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return Fixed64::ZERO;
+        };
+        let base = self
+            .cache
+            .tattack
+            .get(ent)
+            .map(|t| t.range.v)
+            .unwrap_or(Fixed64::ZERO);
         let is_b = self.cache.is_building.get(ent).is_some();
         // 階段 1c.3：UnitStats::final_attack_range 現在回傳 Fix64 — 直接回傳。
         UnitStats::from_refs(&*self.cache.buffs, is_b).final_attack_range(base, ent)
     }
 
     fn get_buff_remaining(&self, e: EntityHandle, buff_id: RStr<'_>) -> Fixed64 {
-        let Some(ent) = Self::handle_to_entity(e) else { return Fixed64::ZERO };
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return Fixed64::ZERO;
+        };
         // 階段 1c.3：BuffEntry.remaining 現在是 Fix64 — 直接回傳。
-        self.cache.buffs
+        self.cache
+            .buffs
             .get(ent, buff_id.as_str())
             .map(|b| b.remaining)
             .unwrap_or(Fixed64::ZERO)
@@ -721,126 +877,174 @@ impl<'a> GameWorld for WorldAdapter<'a> {
     fn current_mana(&self, e: EntityHandle) -> Fixed64 {
         // 沒有 current_mana component — 目前回 max（視為永遠滿）。
         // 如果之後加 `ManaPool` component，這裡要改成讀 current。
-        let Some(ent) = Self::handle_to_entity(e) else { return Fixed64::ZERO };
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return Fixed64::ZERO;
+        };
         // 階段 1c.3：Hero.get_max_mana 現在回傳 Fix64 — 直接回傳。
-        self.cache.hero.get(ent).map(|h| h.get_max_mana()).unwrap_or(Fixed64::ZERO)
+        self.cache
+            .hero
+            .get(ent)
+            .map(|h| h.get_max_mana())
+            .unwrap_or(Fixed64::ZERO)
     }
 
     fn spend_mana(&mut self, e: EntityHandle, amount: Fixed64, ability_id: RStr<'_>) -> bool {
-        let Some(ent) = Self::handle_to_entity(e) else { return false };
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return false;
+        };
         // 目前沒有 mana storage，永遠視為成功；push 事件讓腳本 hook。
-        self.cache.events
-            .push(ScriptEvent::SpentMana {
-                caster: ent,
-                // 階段 1c.3：ScriptEvent::SpentMana.cost 現在固定64 — 直接推播。
-                cost: amount,
-                ability_id: ability_id.as_str().to_string(),
-            });
+        self.cache.events.push(ScriptEvent::SpentMana {
+            caster: ent,
+            // 階段 1c.3：ScriptEvent::SpentMana.cost 現在固定64 — 直接推播。
+            cost: amount,
+            ability_id: ability_id.as_str().to_string(),
+        });
         true
     }
 
     fn restore_mana(&mut self, e: EntityHandle, amount: Fixed64) {
-        let Some(ent) = Self::handle_to_entity(e) else { return };
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return;
+        };
         // 階段 1c.3：ScriptEvent::ManaGained.amount 現在固定64 — 直接推送。
-        self.cache.events
+        self.cache
+            .events
             .push(ScriptEvent::ManaGained { e: ent, amount });
     }
 
     fn trigger_modifier_added(&mut self, e: EntityHandle, modifier_id: RStr<'_>) {
-        let Some(ent) = Self::handle_to_entity(e) else { return };
-        self.cache.events
-            .push(ScriptEvent::ModifierAdded {
-                e: ent,
-                modifier_id: modifier_id.as_str().to_string(),
-            });
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return;
+        };
+        self.cache.events.push(ScriptEvent::ModifierAdded {
+            e: ent,
+            modifier_id: modifier_id.as_str().to_string(),
+        });
     }
 
     fn trigger_state_changed(&mut self, e: EntityHandle, state_id: RStr<'_>, active: bool) {
-        let Some(ent) = Self::handle_to_entity(e) else { return };
-        self.cache.events
-            .push(ScriptEvent::StateChanged {
-                e: ent,
-                state_id: state_id.as_str().to_string(),
-                active,
-            });
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return;
+        };
+        self.cache.events.push(ScriptEvent::StateChanged {
+            e: ent,
+            state_id: state_id.as_str().to_string(),
+            active,
+        });
     }
 
     // ---------------- Dota 2 property 完整查詢 ----------------
 
     fn get_final_armor(&self, e: EntityHandle) -> Fixed64 {
-        let Some(ent) = Self::handle_to_entity(e) else { return Fixed64::ZERO };
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return Fixed64::ZERO;
+        };
         let is_bldg = self.cache.is_building.get(ent).is_some();
         // 階段 1c.3：CProperty.def_physical 是 Fix64（階段 1c.2）— 直接讀取。
-        let base = self.cache.cprop.get(ent).map(|c| c.def_physic).unwrap_or(Fixed64::ZERO);
+        let base = self
+            .cache
+            .cprop
+            .get(ent)
+            .map(|c| c.def_physic)
+            .unwrap_or(Fixed64::ZERO);
         // 階段 1c.3：UnitStats::final_armor 現在回傳 Fix64 — 直接回傳。
         UnitStats::from_refs(&*self.cache.buffs, is_bldg).final_armor(base, ent)
     }
 
     fn get_final_magic_resist(&self, e: EntityHandle) -> Fixed64 {
-        let Some(ent) = Self::handle_to_entity(e) else { return Fixed64::ZERO };
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return Fixed64::ZERO;
+        };
         let is_bldg = self.cache.is_building.get(ent).is_some();
         // 階段 1c.3：CProperty.def_magic 是 Fix64（階段 1c.2）— 直接讀取。
-        let base = self.cache.cprop.get(ent).map(|c| c.def_magic).unwrap_or(Fixed64::ZERO);
+        let base = self
+            .cache
+            .cprop
+            .get(ent)
+            .map(|c| c.def_magic)
+            .unwrap_or(Fixed64::ZERO);
         // 階段 1c.3：UnitStats::final_magic_resist 現在回傳 Fix64 — 直接回傳。
         UnitStats::from_refs(&*self.cache.buffs, is_bldg).final_magic_resist(base, ent)
     }
 
     fn get_evasion_chance(&self, e: EntityHandle) -> Fixed64 {
-        let Some(ent) = Self::handle_to_entity(e) else { return Fixed64::ZERO };
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return Fixed64::ZERO;
+        };
         let is_bldg = self.cache.is_building.get(ent).is_some();
         // 階段 1c.3：UnitStats::evasion_chance 現在回傳 Fix64 — 直接回傳。
         UnitStats::from_refs(&*self.cache.buffs, is_bldg).evasion_chance(ent)
     }
 
     fn get_miss_chance(&self, e: EntityHandle) -> Fixed64 {
-        let Some(ent) = Self::handle_to_entity(e) else { return Fixed64::ZERO };
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return Fixed64::ZERO;
+        };
         let is_bldg = self.cache.is_building.get(ent).is_some();
         // 階段 1c.3：UnitStats::miss_chance 現在回傳 Fix64 — 直接回傳。
         UnitStats::from_refs(&*self.cache.buffs, is_bldg).miss_chance(ent)
     }
 
     fn get_crit_chance(&self, e: EntityHandle) -> Fixed64 {
-        let Some(ent) = Self::handle_to_entity(e) else { return Fixed64::ZERO };
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return Fixed64::ZERO;
+        };
         let is_bldg = self.cache.is_building.get(ent).is_some();
         // 階段 1c.3：UnitStats::crit 現在回傳 (Fixed64, Fix64) — 直接回傳。
-        UnitStats::from_refs(&*self.cache.buffs, is_bldg).crit(ent).0
+        UnitStats::from_refs(&*self.cache.buffs, is_bldg)
+            .crit(ent)
+            .0
     }
 
     fn get_crit_multiplier(&self, e: EntityHandle) -> Fixed64 {
-        let Some(ent) = Self::handle_to_entity(e) else { return Fixed64::ONE };
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return Fixed64::ONE;
+        };
         let is_bldg = self.cache.is_building.get(ent).is_some();
         // 階段 1c.3：UnitStats::crit 現在回傳 (Fixed64, Fix64) — 直接回傳。
-        UnitStats::from_refs(&*self.cache.buffs, is_bldg).crit(ent).1
+        UnitStats::from_refs(&*self.cache.buffs, is_bldg)
+            .crit(ent)
+            .1
     }
 
     fn get_cooldown_mult(&self, e: EntityHandle) -> Fixed64 {
-        let Some(ent) = Self::handle_to_entity(e) else { return Fixed64::ONE };
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return Fixed64::ONE;
+        };
         let is_bldg = self.cache.is_building.get(ent).is_some();
         // 階段 1c.3：UnitStats::cooldown_mult 現在回傳 Fix64 — 直接回傳。
         UnitStats::from_refs(&*self.cache.buffs, is_bldg).cooldown_mult(ent)
     }
 
     fn is_building(&self, e: EntityHandle) -> bool {
-        let Some(ent) = Self::handle_to_entity(e) else { return false };
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return false;
+        };
         self.cache.is_building.get(ent).is_some()
     }
 
     fn get_max_hp_bonus(&self, e: EntityHandle) -> Fixed64 {
-        let Some(ent) = Self::handle_to_entity(e) else { return Fixed64::ZERO };
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return Fixed64::ZERO;
+        };
         let is_bldg = self.cache.is_building.get(ent).is_some();
         // 階段 1c.3：UnitStats::max_hp_bonus 現在回傳 Fix64 — 直接回傳。
         UnitStats::from_refs(&*self.cache.buffs, is_bldg).max_hp_bonus(ent)
     }
 
     fn get_hp_regen(&self, e: EntityHandle) -> Fixed64 {
-        let Some(ent) = Self::handle_to_entity(e) else { return Fixed64::ZERO };
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return Fixed64::ZERO;
+        };
         let is_bldg = self.cache.is_building.get(ent).is_some();
         // 階段 1c.3：UnitStats::hp_regen 現在回傳 Fix64 — 直接回傳。
         UnitStats::from_refs(&*self.cache.buffs, is_bldg).hp_regen(Fixed64::ZERO, ent)
     }
 
     fn get_stat_bonus(&self, e: EntityHandle, key: StatKey) -> Fixed64 {
-        let Some(ent) = Self::handle_to_entity(e) else { return Fixed64::ZERO };
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return Fixed64::ZERO;
+        };
         // 階段 1c.3：BuffStore::sum_add 現在回到 Fix64 — 直接回傳。
         self.cache.buffs.sum_add(ent, key)
     }
@@ -864,4 +1068,3 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         }
     }
 }
-

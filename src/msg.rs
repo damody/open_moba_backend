@@ -5,14 +5,13 @@ use log::*;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
+use serde_json::json;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::Hash;
 use std::io;
 use std::rc::Rc;
 use std::time::{Duration, Instant, SystemTime};
-use serde_json::json;
-
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct PlayerData {

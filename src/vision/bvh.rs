@@ -54,8 +54,10 @@ impl Aabb {
     }
 
     fn intersects(&self, other: &Aabb) -> bool {
-        self.min.x <= other.max.x && self.max.x >= other.min.x &&
-        self.min.y <= other.max.y && self.max.y >= other.min.y
+        self.min.x <= other.max.x
+            && self.max.x >= other.min.x
+            && self.min.y <= other.max.y
+            && self.max.y >= other.min.y
     }
 
     fn from_query(center: Vec2<f32>, radius: f32) -> Self {
@@ -114,7 +116,9 @@ where
             return;
         }
 
-        let entries: Vec<Entry<Id, Item>> = self.id_index.iter()
+        let entries: Vec<Entry<Id, Item>> = self
+            .id_index
+            .iter()
             .map(|(id, (item, pos, r))| Entry {
                 id: id.clone(),
                 item: item.clone(),
@@ -139,7 +143,8 @@ where
         mut entries: Vec<Entry<Id, Item>>,
         max_leaf: usize,
     ) {
-        let parent_aabb = entries.iter()
+        let parent_aabb = entries
+            .iter()
             .map(|e| Aabb::from_entry(e))
             .fold(Aabb::empty(), |acc, a| acc.union(&a));
 
@@ -160,8 +165,16 @@ where
 
         for axis in 0..2 {
             entries.sort_by(|a, b| {
-                let av = if axis == 0 { a.position.x } else { a.position.y };
-                let bv = if axis == 0 { b.position.x } else { b.position.y };
+                let av = if axis == 0 {
+                    a.position.x
+                } else {
+                    a.position.y
+                };
+                let bv = if axis == 0 {
+                    b.position.x
+                } else {
+                    b.position.y
+                };
                 av.partial_cmp(&bv).unwrap_or(std::cmp::Ordering::Equal)
             });
 
@@ -199,8 +212,16 @@ where
         }
 
         entries.sort_by(|a, b| {
-            let av = if best_axis == 0 { a.position.x } else { a.position.y };
-            let bv = if best_axis == 0 { b.position.x } else { b.position.y };
+            let av = if best_axis == 0 {
+                a.position.x
+            } else {
+                a.position.y
+            };
+            let bv = if best_axis == 0 {
+                b.position.x
+            } else {
+                b.position.y
+            };
             av.partial_cmp(&bv).unwrap_or(std::cmp::Ordering::Equal)
         });
 
@@ -238,14 +259,18 @@ where
     fn initialize(&mut self, bounds: Bounds, entries: Vec<Entry<Id, Item>>) {
         self.id_index.clear();
         for e in entries {
-            self.id_index.insert(e.id, (e.item, e.position, e.bounding_radius));
+            self.id_index
+                .insert(e.id, (e.item, e.position, e.bounding_radius));
         }
         self.bounds = Some(bounds);
         self.rebuild();
     }
 
     fn insert(&mut self, entry: Entry<Id, Item>) {
-        self.id_index.insert(entry.id, (entry.item, entry.position, entry.bounding_radius));
+        self.id_index.insert(
+            entry.id,
+            (entry.item, entry.position, entry.bounding_radius),
+        );
         self.rebuild();
     }
 
@@ -259,7 +284,10 @@ where
     }
 
     fn update(&mut self, entry: Entry<Id, Item>) {
-        self.id_index.insert(entry.id, (entry.item, entry.position, entry.bounding_radius));
+        self.id_index.insert(
+            entry.id,
+            (entry.item, entry.position, entry.bounding_radius),
+        );
         self.rebuild();
     }
 
@@ -279,7 +307,9 @@ where
             }
             if node.is_leaf() {
                 for entry in &node.entries {
-                    if seen.contains(&entry.id) { continue; }
+                    if seen.contains(&entry.id) {
+                        continue;
+                    }
                     let extended = radius + entry.bounding_radius.max(0.0);
                     if entry.position.distance(center) <= extended {
                         seen.insert(entry.id.clone());
@@ -287,8 +317,12 @@ where
                     }
                 }
             } else {
-                if node.left != NIL { stack.push(node.left); }
-                if node.right != NIL { stack.push(node.right); }
+                if node.left != NIL {
+                    stack.push(node.left);
+                }
+                if node.right != NIL {
+                    stack.push(node.right);
+                }
             }
         }
         results
@@ -298,7 +332,9 @@ where
         self.nodes.len()
     }
 
-    fn name(&self) -> &'static str { "bvh" }
+    fn name(&self) -> &'static str {
+        "bvh"
+    }
 }
 
 #[cfg(test)]
@@ -326,20 +362,32 @@ mod tests {
         t.insert(pt("a", 100.0, 100.0, 10.0));
         t.insert(pt("b", 800.0, 800.0, 10.0));
 
-        assert_eq!(ids_of(&t.query_in_range(Vec2::new(100.0, 100.0), 50.0)), vec!["a"]);
-        assert_eq!(ids_of(&t.query_in_range(Vec2::new(800.0, 800.0), 50.0)), vec!["b"]);
+        assert_eq!(
+            ids_of(&t.query_in_range(Vec2::new(100.0, 100.0), 50.0)),
+            vec!["a"]
+        );
+        assert_eq!(
+            ids_of(&t.query_in_range(Vec2::new(800.0, 800.0), 50.0)),
+            vec!["b"]
+        );
     }
 
     #[test]
     fn remove_drops_entry_from_subsequent_queries() {
         let mut t: Bvh<String, ()> = Bvh::new(2);
-        t.initialize(world_bounds(), vec![
-            pt("a", 100.0, 100.0, 10.0),
-            pt("b", 120.0, 110.0, 10.0),
-        ]);
-        assert_eq!(ids_of(&t.query_in_range(Vec2::new(110.0, 105.0), 100.0)), vec!["a", "b"]);
+        t.initialize(
+            world_bounds(),
+            vec![pt("a", 100.0, 100.0, 10.0), pt("b", 120.0, 110.0, 10.0)],
+        );
+        assert_eq!(
+            ids_of(&t.query_in_range(Vec2::new(110.0, 105.0), 100.0)),
+            vec!["a", "b"]
+        );
         assert!(t.remove(&"a".to_string()));
-        assert_eq!(ids_of(&t.query_in_range(Vec2::new(110.0, 105.0), 100.0)), vec!["b"]);
+        assert_eq!(
+            ids_of(&t.query_in_range(Vec2::new(110.0, 105.0), 100.0)),
+            vec!["b"]
+        );
         assert!(!t.remove(&"a".to_string()));
     }
 
@@ -347,11 +395,17 @@ mod tests {
     fn update_moves_entry_in_query_results() {
         let mut t: Bvh<String, ()> = Bvh::new(2);
         t.initialize(world_bounds(), vec![pt("mover", 100.0, 100.0, 5.0)]);
-        assert_eq!(ids_of(&t.query_in_range(Vec2::new(100.0, 100.0), 20.0)), vec!["mover"]);
+        assert_eq!(
+            ids_of(&t.query_in_range(Vec2::new(100.0, 100.0), 20.0)),
+            vec!["mover"]
+        );
 
         t.update(pt("mover", 900.0, 900.0, 5.0));
         assert!(ids_of(&t.query_in_range(Vec2::new(100.0, 100.0), 20.0)).is_empty());
-        assert_eq!(ids_of(&t.query_in_range(Vec2::new(900.0, 900.0), 20.0)), vec!["mover"]);
+        assert_eq!(
+            ids_of(&t.query_in_range(Vec2::new(900.0, 900.0), 20.0)),
+            vec!["mover"]
+        );
     }
 
     #[test]
@@ -374,11 +428,14 @@ mod tests {
     #[test]
     fn rebuild_after_remove_keeps_consistency() {
         let mut t: Bvh<String, ()> = Bvh::new(2);
-        t.initialize(world_bounds(), vec![
-            pt("a", 100.0, 100.0, 10.0),
-            pt("b", 500.0, 500.0, 10.0),
-            pt("c", 900.0, 900.0, 10.0),
-        ]);
+        t.initialize(
+            world_bounds(),
+            vec![
+                pt("a", 100.0, 100.0, 10.0),
+                pt("b", 500.0, 500.0, 10.0),
+                pt("c", 900.0, 900.0, 10.0),
+            ],
+        );
         assert!(t.remove(&"b".to_string()));
         t.insert(pt("d", 500.0, 500.0, 10.0));
         t.update(pt("a", 110.0, 110.0, 10.0));

@@ -52,10 +52,18 @@ pub fn blocker_circles_for_polygon(poly: &[Vec2<f32>]) -> Vec<(Vec2<f32>, f32)> 
     let (mut min_x, mut max_x) = (f32::INFINITY, f32::NEG_INFINITY);
     let (mut min_y, mut max_y) = (f32::INFINITY, f32::NEG_INFINITY);
     for p in poly {
-        if p.x < min_x { min_x = p.x; }
-        if p.x > max_x { max_x = p.x; }
-        if p.y < min_y { min_y = p.y; }
-        if p.y > max_y { max_y = p.y; }
+        if p.x < min_x {
+            min_x = p.x;
+        }
+        if p.x > max_x {
+            max_x = p.x;
+        }
+        if p.y < min_y {
+            min_y = p.y;
+        }
+        if p.y > max_y {
+            max_y = p.y;
+        }
     }
 
     let mut out: Vec<(Vec2<f32>, f32)> = Vec::new();
@@ -81,7 +89,9 @@ pub fn blocker_circles_for_polygon(poly: &[Vec2<f32>]) -> Vec<(Vec2<f32>, f32)> 
         let b = poly[(i + 1) % n];
         let edge = b - a;
         let len = edge.magnitude();
-        if len < f32::EPSILON { continue; }
+        if len < f32::EPSILON {
+            continue;
+        }
         let dir = edge / len;
         // 兩個候選法線（邊方向 rotate 90°），選能把中心推進 polygon 的那個
         let normal_a = Vec2::new(-dir.y, dir.x);
@@ -93,9 +103,13 @@ pub fn blocker_circles_for_polygon(poly: &[Vec2<f32>]) -> Vec<(Vec2<f32>, f32)> 
             let edge_pt = a + edge * t;
             let cand_a = edge_pt + normal_a * BLOCKER_SMALL_RADIUS;
             let cand_b = edge_pt + normal_b * BLOCKER_SMALL_RADIUS;
-            let center = if point_in_polygon(cand_a, poly) { cand_a }
-                         else if point_in_polygon(cand_b, poly) { cand_b }
-                         else { edge_pt };
+            let center = if point_in_polygon(cand_a, poly) {
+                cand_a
+            } else if point_in_polygon(cand_b, poly) {
+                cand_b
+            } else {
+                edge_pt
+            };
             // clamp 半徑到 center 與邊的距離，避免 corner 處外擴
             let eff_r = min_edge_dist(center, poly).min(BLOCKER_SMALL_RADIUS);
             if eff_r > 2.0 {
@@ -113,10 +127,12 @@ pub fn blocker_circles_for_polygon(poly: &[Vec2<f32>]) -> Vec<(Vec2<f32>, f32)> 
         let next = poly[(i + 1) % n];
         let pv_len = (v - prev).magnitude();
         let vn_len = (next - v).magnitude();
-        if pv_len < f32::EPSILON || vn_len < f32::EPSILON { continue; }
-        let u = (v - prev) / pv_len;           // 從 prev 指向 V
-        let w = (next - v) / vn_len;           // 從 V 指向 next
-        // 內角 θ：cos(θ) = -u·w  ⇒  sin(θ/2) = sqrt((1 + u·w)/2)
+        if pv_len < f32::EPSILON || vn_len < f32::EPSILON {
+            continue;
+        }
+        let u = (v - prev) / pv_len; // 從 prev 指向 V
+        let w = (next - v) / vn_len; // 從 V 指向 next
+                                     // 內角 θ：cos(θ) = -u·w  ⇒  sin(θ/2) = sqrt((1 + u·w)/2)
         let dot = u.x * w.x + u.y * w.y;
         let half = ((1.0 + dot) * 0.5).max(0.01); // 避免 ÷0（極銳角）
         let s = half.sqrt();
@@ -125,18 +141,26 @@ pub fn blocker_circles_for_polygon(poly: &[Vec2<f32>]) -> Vec<(Vec2<f32>, f32)> 
         let n_w = Vec2::new(-w.y, w.x);
         let bi = n_u + n_w;
         let bi_len = bi.magnitude();
-        if bi_len < f32::EPSILON { continue; } // 兩邊共線（180° 頂點）
+        if bi_len < f32::EPSILON {
+            continue;
+        } // 兩邊共線（180° 頂點）
         let bisector = bi / bi_len;
         // 先決定 bisector 正負（哪個方向是 polygon 內部）
         let test_d = (BLOCKER_SMALL_RADIUS / s).min(BLOCKER_SMALL_RADIUS * 2.5);
-        let inward = if point_in_polygon(v + bisector * test_d, poly) { bisector }
-                     else if point_in_polygon(v - bisector * test_d, poly) { -bisector }
-                     else { continue };
+        let inward = if point_in_polygon(v + bisector * test_d, poly) {
+            bisector
+        } else if point_in_polygon(v - bisector * test_d, poly) {
+            -bisector
+        } else {
+            continue;
+        };
         // 3 層：靠近頂點（~0.5×）→ 內切（1.0×）→ 略遠（1.5×）
         for factor in [0.55_f32, 1.0, 1.5] {
             let d = (BLOCKER_SMALL_RADIUS * factor / s).min(BLOCKER_SMALL_RADIUS * 3.0);
             let center = v + inward * d;
-            if !point_in_polygon(center, poly) { continue; }
+            if !point_in_polygon(center, poly) {
+                continue;
+            }
             let eff_r = min_edge_dist(center, poly).min(BLOCKER_SMALL_RADIUS);
             if eff_r > 2.0 {
                 out.push((center, eff_r));
@@ -154,7 +178,9 @@ fn min_edge_dist(p: Vec2<f32>, poly: &[Vec2<f32>]) -> f32 {
         let a = poly[i];
         let b = poly[(i + 1) % n];
         let d2 = point_segment_dist_sq(p, a, b);
-        if d2 < min_d2 { min_d2 = d2; }
+        if d2 < min_d2 {
+            min_d2 = d2;
+        }
     }
     min_d2.sqrt()
 }
@@ -184,9 +210,9 @@ mod tests {
     #[test]
     fn empty_for_degenerate() {
         assert!(blocker_circles_for_polygon(&[]).is_empty());
-        assert!(blocker_circles_for_polygon(&[
-            Vec2::new(0.0, 0.0), Vec2::new(1.0, 0.0)
-        ]).is_empty());
+        assert!(
+            blocker_circles_for_polygon(&[Vec2::new(0.0, 0.0), Vec2::new(1.0, 0.0)]).is_empty()
+        );
     }
 
     #[test]
@@ -199,7 +225,10 @@ mod tests {
                 assert!(
                     d + 0.01 >= *r,
                     "circle ({},{}) r={} extends outward; min_edge_dist={}",
-                    c.x, c.y, r, d
+                    c.x,
+                    c.y,
+                    r,
+                    d
                 );
             }
         }
@@ -210,9 +239,9 @@ mod tests {
         // 100x100 polygon（小於 BIG_RADIUS × 2）只靠小圓覆蓋內部中心
         let circles = blocker_circles_for_polygon(&square_100());
         let target = Vec2::new(50.0_f32, 50.0);
-        let covered = circles.iter().any(|(c, r)| {
-            (*c - target).magnitude_squared() < r * r
-        });
+        let covered = circles
+            .iter()
+            .any(|(c, r)| (*c - target).magnitude_squared() < r * r);
         assert!(covered, "center uncovered; {} circles", circles.len());
     }
 
@@ -220,9 +249,9 @@ mod tests {
     fn covers_edge() {
         let circles = blocker_circles_for_polygon(&square_100());
         let target = Vec2::new(0.0_f32, 50.0);
-        let covered = circles.iter().any(|(c, r)| {
-            (*c - target).magnitude_squared() <= r * r + 0.1
-        });
+        let covered = circles
+            .iter()
+            .any(|(c, r)| (*c - target).magnitude_squared() <= r * r + 0.1);
         assert!(covered, "edge point uncovered");
     }
 
@@ -230,10 +259,15 @@ mod tests {
     fn big_circles_used_for_large_poly() {
         // 300x300 polygon 應該有多個大圓填內部
         let circles = blocker_circles_for_polygon(&rect_300());
-        let big_count = circles.iter()
+        let big_count = circles
+            .iter()
             .filter(|(_, r)| (*r - BLOCKER_BIG_RADIUS).abs() < 0.01)
             .count();
-        assert!(big_count >= 4, "expected ≥4 big circles for 300x300, got {}", big_count);
+        assert!(
+            big_count >= 4,
+            "expected ≥4 big circles for 300x300, got {}",
+            big_count
+        );
     }
 
     /// 一個銳角三角形（最銳角約 30°），驗證銳角頂點仍會被 corner 圓覆蓋
@@ -248,10 +282,10 @@ mod tests {
     /// 實際 MVP_1 map 的 region_0 polygon
     fn mvp1_region0() -> Vec<Vec2<f32>> {
         vec![
-            Vec2::new(-596.0, 1264.0),  // V0
-            Vec2::new(-480.0, 832.0),   // V1
-            Vec2::new(1340.0, 1144.0),  // V2（右側）
-            Vec2::new(1084.0, 1876.0),  // V3（右側）
+            Vec2::new(-596.0, 1264.0), // V0
+            Vec2::new(-480.0, 832.0),  // V1
+            Vec2::new(1340.0, 1144.0), // V2（右側）
+            Vec2::new(1084.0, 1876.0), // V3（右側）
         ]
     }
 
@@ -264,11 +298,17 @@ mod tests {
         let mut missing: Vec<usize> = Vec::new();
         for (i, v) in poly.iter().enumerate() {
             let has_nearby = circles.iter().any(|(c, _)| (*c - *v).magnitude() < thresh);
-            if !has_nearby { missing.push(i); }
+            if !has_nearby {
+                missing.push(i);
+            }
         }
-        assert!(missing.is_empty(),
+        assert!(
+            missing.is_empty(),
             "頂點 {:?} 沒有 corner circle 在 {} 範圍內（總 circles = {}）",
-            missing, thresh, circles.len());
+            missing,
+            thresh,
+            circles.len()
+        );
     }
 
     #[test]
@@ -294,9 +334,14 @@ mod tests {
                 // 測兩個法線哪個在內部
                 let cand_a = p + normal_a * hero_r;
                 let cand_b = p + normal_b * hero_r;
-                let hero_pos = if point_in_polygon(cand_a, &poly) { cand_a }
-                               else if point_in_polygon(cand_b, &poly) { cand_b }
-                               else { t += 20.0; continue };
+                let hero_pos = if point_in_polygon(cand_a, &poly) {
+                    cand_a
+                } else if point_in_polygon(cand_b, &poly) {
+                    cand_b
+                } else {
+                    t += 20.0;
+                    continue;
+                };
                 let hit = circles.iter().any(|(c, r)| {
                     let d2 = (*c - hero_pos).magnitude_squared();
                     let touch = hero_r + r;
@@ -304,10 +349,11 @@ mod tests {
                 });
                 if !hit {
                     // 找最近的 blocker 看差多少
-                    let min_margin = circles.iter()
+                    let min_margin = circles
+                        .iter()
                         .map(|(c, r)| {
                             let d = (*c - hero_pos).magnitude();
-                            (hero_r + r) - d  // 正=重疊；負=差距
+                            (hero_r + r) - d // 正=重疊；負=差距
                         })
                         .fold(f32::NEG_INFINITY, f32::max);
                     failures.push((hero_pos, min_margin));
@@ -315,7 +361,8 @@ mod tests {
                 t += 20.0;
             }
         }
-        assert!(failures.is_empty(),
+        assert!(
+            failures.is_empty(),
             "{} 個 edge-inner probe 未被任何 blocker 擋住：{:?}",
             failures.len(),
             failures.iter().take(5).collect::<Vec<_>>()
@@ -346,18 +393,24 @@ mod tests {
             for step in 0..30 {
                 let offset = step as f32 * 5.0;
                 let hero_pos = vertex + inward * offset;
-                if !point_in_polygon(hero_pos, &poly) { continue; }
+                if !point_in_polygon(hero_pos, &poly) {
+                    continue;
+                }
                 // 距 vertex < hero_r*2 的範圍屬「英雄碰到頂點」之內，應該被擋
                 let d_vertex = (hero_pos - vertex).magnitude();
-                if d_vertex > hero_r * 2.0 { break; }
+                if d_vertex > hero_r * 2.0 {
+                    break;
+                }
                 let hit = circles.iter().any(|(c, r)| {
                     let d2 = (*c - hero_pos).magnitude_squared();
                     let touch = hero_r + r;
                     d2 < touch * touch
                 });
-                assert!(hit,
+                assert!(
+                    hit,
                     "{} 附近 hero@({:.0},{:.0}) 離頂點 {:.0} 單位 卻無 blocker 覆蓋",
-                    name, hero_pos.x, hero_pos.y, d_vertex);
+                    name, hero_pos.x, hero_pos.y, d_vertex
+                );
             }
         }
     }
@@ -385,14 +438,21 @@ mod tests {
         ];
         for hero_pos in probes_v2.iter().chain(probes_v3.iter()) {
             // 只對 polygon 內部的 probe 做驗證
-            if !point_in_polygon(*hero_pos, &mvp1_region0()) { continue; }
+            if !point_in_polygon(*hero_pos, &mvp1_region0()) {
+                continue;
+            }
             let hit = circles.iter().any(|(c, r)| {
                 let d2 = (*c - *hero_pos).magnitude_squared();
                 let touch = hero_r + r;
                 d2 < touch * touch
             });
-            assert!(hit, "hero@({},{}) 在 V2/V3 邊界內部無 blocker 覆蓋 ({} circles total)",
-                hero_pos.x, hero_pos.y, circles.len());
+            assert!(
+                hit,
+                "hero@({},{}) 在 V2/V3 邊界內部無 blocker 覆蓋 ({} circles total)",
+                hero_pos.x,
+                hero_pos.y,
+                circles.len()
+            );
         }
     }
 
@@ -416,8 +476,13 @@ mod tests {
                 let touch = hero_r + r;
                 d2 < touch * touch
             });
-            assert!(hit, "hero @({},{}) 在角落沒碰到任何 blocker (circles={})",
-                hero.x, hero.y, circles.len());
+            assert!(
+                hit,
+                "hero @({},{}) 在角落沒碰到任何 blocker (circles={})",
+                hero.x,
+                hero.y,
+                circles.len()
+            );
         }
     }
 

@@ -1,20 +1,19 @@
 /// 重構後的圓形視野系統
-/// 
+///
 /// 將原本的大型 circular_vision.rs 拆分為多個模組以提升可維護性
-
 pub use crate::comp::vision::{
-    VisionCalculator, ShadowSystem, ResultManager,
-    components::{CircularVision, VisionResult, ShadowArea, ObstacleInfo},
+    components::{CircularVision, ObstacleInfo, ShadowArea, VisionResult},
+    ResultManager, ShadowSystem, VisionCalculator,
 };
 
 // 重新導出原有的障礙物相關類型
 pub use crate::comp::circular_vision::{
-    ShadowType, ShadowGeometry, ObstacleType, ObstacleProperties,
+    ObstacleProperties, ObstacleType, ShadowGeometry, ShadowType,
 };
 
-use specs::{World, Entity, ReadStorage, WriteStorage, Join, WorldExt};
-use vek::Vec2;
 use crate::comp::Pos;
+use specs::{Entity, Join, ReadStorage, World, WorldExt, WriteStorage};
+use vek::Vec2;
 
 /// 視野系統管理器
 pub struct VisionSystemManager {
@@ -48,29 +47,30 @@ impl VisionSystemManager {
     }
 
     /// 更新所有實體的視野
-    pub fn update_all_visions(
-        &mut self,
-        world: &World,
-        current_time: f64,
-    ) -> Result<(), String> {
+    pub fn update_all_visions(&mut self, world: &World, current_time: f64) -> Result<(), String> {
         let entities = world.entities();
         let positions = world.read_storage::<Pos>();
         let mut visions = world.write_storage::<CircularVision>();
 
         for (entity, pos, vision) in (&entities, &positions, &mut visions).join() {
-            if self.result_manager.needs_vision_update(entity, current_time) || 
-               vision.needs_recalculation(current_time) {
-                
+            if self
+                .result_manager
+                .needs_vision_update(entity, current_time)
+                || vision.needs_recalculation(current_time)
+            {
                 // 注意：視覺是客戶端渲染提示（戰爭迷霧）；從權威 Pos 進行的每次報價重建可保持跨客戶端的一致性。
                 let (px, py) = pos.xy_f32();
-                let result = self.calculator.calculate_circular_vision(vek::Vec2::new(px, py), &*vision);
+                let result = self
+                    .calculator
+                    .calculate_circular_vision(vek::Vec2::new(px, py), &*vision);
                 vision.vision_result = Some(result.clone());
                 self.result_manager.update_entity_vision(entity, result);
             }
         }
 
         // 清理過期結果
-        self.result_manager.cleanup_expired_results(current_time, 5.0);
+        self.result_manager
+            .cleanup_expired_results(current_time, 5.0);
 
         Ok(())
     }
@@ -83,12 +83,17 @@ impl VisionSystemManager {
         vision: &mut CircularVision,
         current_time: f64,
     ) -> Option<VisionResult> {
-        if self.result_manager.needs_vision_update(entity, current_time) || 
-           vision.needs_recalculation(current_time) {
-            
-            let result = self.calculator.calculate_circular_vision(position, &*vision);
+        if self
+            .result_manager
+            .needs_vision_update(entity, current_time)
+            || vision.needs_recalculation(current_time)
+        {
+            let result = self
+                .calculator
+                .calculate_circular_vision(position, &*vision);
             vision.vision_result = Some(result.clone());
-            self.result_manager.update_entity_vision(entity, result.clone());
+            self.result_manager
+                .update_entity_vision(entity, result.clone());
             Some(result)
         } else {
             self.result_manager.get_entity_vision(entity).cloned()
@@ -102,25 +107,26 @@ impl VisionSystemManager {
         end: Vec2<f32>,
         obstacles: &[ObstacleInfo],
     ) -> bool {
-        self.calculator.is_line_of_sight_clear(start, end, obstacles)
+        self.calculator
+            .is_line_of_sight_clear(start, end, obstacles)
     }
 
     /// 獲取實體視野內的其他實體
-    pub fn get_entities_in_vision(
-        &self,
-        observer: Entity,
-        world: &World,
-    ) -> Vec<Entity> {
+    pub fn get_entities_in_vision(&self, observer: Entity, world: &World) -> Vec<Entity> {
         let entities = world.entities();
         let positions = world.read_storage::<Pos>();
-        
+
         // 注意：視覺是客戶端渲染提示（戰爭迷霧）；從權威 Pos 進行的每次報價重建可保持跨客戶端的一致性。
         let entity_positions: Vec<(Entity, vek::Vec2<f32>)> = (&entities, &positions)
             .join()
-            .map(|(e, pos)| { let (x, y) = pos.xy_f32(); (e, vek::Vec2::new(x, y)) })
+            .map(|(e, pos)| {
+                let (x, y) = pos.xy_f32();
+                (e, vek::Vec2::new(x, y))
+            })
             .collect();
 
-        self.result_manager.get_entities_in_vision(observer, &entity_positions)
+        self.result_manager
+            .get_entities_in_vision(observer, &entity_positions)
     }
 
     /// 初始化障礙物
@@ -129,7 +135,8 @@ impl VisionSystemManager {
         world_bounds: crate::vision::Bounds,
         obstacles: Vec<ObstacleInfo>,
     ) {
-        self.calculator.initialize_obstacles(world_bounds, obstacles);
+        self.calculator
+            .initialize_obstacles(world_bounds, obstacles);
     }
 
     /// 添加障礙物
@@ -203,12 +210,9 @@ impl VisionSystemManager {
     }
 
     /// 計算視野覆蓋率
-    pub fn calculate_vision_coverage(
-        &self,
-        entity1: Entity,
-        entity2: Entity,
-    ) -> Option<f32> {
-        self.result_manager.calculate_vision_overlap(entity1, entity2)
+    pub fn calculate_vision_coverage(&self, entity1: Entity, entity2: Entity) -> Option<f32> {
+        self.result_manager
+            .calculate_vision_overlap(entity1, entity2)
     }
 
     /// 獲取視野品質評分

@@ -17,7 +17,7 @@ use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap};
 use std::hash::Hash;
 use vek::Vec2;
-use voracious_radix_sort::{Radixable, RadixSort};
+use voracious_radix_sort::{RadixSort, Radixable};
 
 use super::spatial_index::{Bounds, Entry, SpatialIndex};
 
@@ -32,7 +32,9 @@ struct AxisRef {
 // 注意：兩個 coord 相同的 AxisRef 會被視為相等（即使 slot 不同），
 // binary_search 仍會工作但不保證找到特定 slot — 我們在 remove 時會線性掃同 coord 範圍。
 impl PartialEq for AxisRef {
-    fn eq(&self, other: &Self) -> bool { self.coord == other.coord }
+    fn eq(&self, other: &Self) -> bool {
+        self.coord == other.coord
+    }
 }
 impl PartialOrd for AxisRef {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
@@ -42,7 +44,9 @@ impl PartialOrd for AxisRef {
 impl Radixable<f32> for AxisRef {
     type Key = f32;
     #[inline]
-    fn key(&self) -> Self::Key { self.coord }
+    fn key(&self) -> Self::Key {
+        self.coord
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -102,7 +106,8 @@ where
     fn axis_insert_sorted(arr: &mut Vec<AxisRef>, item: AxisRef) {
         let pos = arr
             .binary_search_by(|probe| {
-                probe.coord
+                probe
+                    .coord
                     .partial_cmp(&item.coord)
                     .unwrap_or(Ordering::Equal)
                     .then(Ordering::Greater) // 同 coord 時插到後面，避免 instability
@@ -119,7 +124,9 @@ where
             .unwrap_or_else(|i| i);
         // 從 lower 往兩側擴張找 slot 相符的元素（同 coord 通常 1 個，極端時可能多個）
         let mut l = lower;
-        while l > 0 && arr[l - 1].coord == coord { l -= 1; }
+        while l > 0 && arr[l - 1].coord == coord {
+            l -= 1;
+        }
         while l < arr.len() && arr[l].coord == coord {
             if arr[l].slot == slot {
                 arr.remove(l);
@@ -143,7 +150,9 @@ where
 
     /// 重新計算 max_bounding_radius（O(n)）。在 remove 時若移除的是 max 才需呼叫。
     fn recompute_max_radius(&mut self) {
-        self.max_bounding_radius = self.slots.iter()
+        self.max_bounding_radius = self
+            .slots
+            .iter()
             .filter_map(|s| s.as_ref().map(|s| s.bounding_radius))
             .fold(0.0_f32, f32::max);
     }
@@ -170,8 +179,14 @@ where
         for entry in entries {
             let slot = self.slots.len() as u32;
             self.id_to_slot.insert(entry.id.clone(), slot);
-            self.xs.push(AxisRef { slot, coord: entry.position.x });
-            self.ys.push(AxisRef { slot, coord: entry.position.y });
+            self.xs.push(AxisRef {
+                slot,
+                coord: entry.position.x,
+            });
+            self.ys.push(AxisRef {
+                slot,
+                coord: entry.position.y,
+            });
             if entry.bounding_radius > self.max_bounding_radius {
                 self.max_bounding_radius = entry.bounding_radius;
             }
@@ -259,7 +274,9 @@ where
         let new_ids: HashSet<Id> = entries.iter().map(|e| e.id.clone()).collect();
 
         // Step 1: 移除舊 set 但不在新 set 的 entry（slot 釋放、不動 xs/ys，後面會整批重建）
-        let to_remove: Vec<Id> = self.id_to_slot.keys()
+        let to_remove: Vec<Id> = self
+            .id_to_slot
+            .keys()
             .filter(|id| !new_ids.contains(*id))
             .cloned()
             .collect();
@@ -314,8 +331,14 @@ where
         self.ys.reserve(self.id_to_slot.len());
         for (idx, slot_opt) in self.slots.iter().enumerate() {
             if let Some(s) = slot_opt {
-                self.xs.push(AxisRef { slot: idx as u32, coord: s.position.x });
-                self.ys.push(AxisRef { slot: idx as u32, coord: s.position.y });
+                self.xs.push(AxisRef {
+                    slot: idx as u32,
+                    coord: s.position.x,
+                });
+                self.ys.push(AxisRef {
+                    slot: idx as u32,
+                    coord: s.position.y,
+                });
             }
         }
         if self.xs.len() >= 2 {
@@ -361,7 +384,9 @@ where
         self.id_to_slot.len()
     }
 
-    fn name(&self) -> &'static str { "sap" }
+    fn name(&self) -> &'static str {
+        "sap"
+    }
 }
 
 #[cfg(test)]
@@ -389,20 +414,32 @@ mod tests {
         s.insert(pt("a", 100.0, 100.0, 10.0));
         s.insert(pt("b", 800.0, 800.0, 10.0));
 
-        assert_eq!(ids_of(&s.query_in_range(Vec2::new(100.0, 100.0), 50.0)), vec!["a"]);
-        assert_eq!(ids_of(&s.query_in_range(Vec2::new(800.0, 800.0), 50.0)), vec!["b"]);
+        assert_eq!(
+            ids_of(&s.query_in_range(Vec2::new(100.0, 100.0), 50.0)),
+            vec!["a"]
+        );
+        assert_eq!(
+            ids_of(&s.query_in_range(Vec2::new(800.0, 800.0), 50.0)),
+            vec!["b"]
+        );
     }
 
     #[test]
     fn remove_drops_entry_from_subsequent_queries() {
         let mut s: SweepAndPrune<String, ()> = SweepAndPrune::new();
-        s.initialize(world_bounds(), vec![
-            pt("a", 100.0, 100.0, 10.0),
-            pt("b", 120.0, 110.0, 10.0),
-        ]);
-        assert_eq!(ids_of(&s.query_in_range(Vec2::new(110.0, 105.0), 100.0)), vec!["a", "b"]);
+        s.initialize(
+            world_bounds(),
+            vec![pt("a", 100.0, 100.0, 10.0), pt("b", 120.0, 110.0, 10.0)],
+        );
+        assert_eq!(
+            ids_of(&s.query_in_range(Vec2::new(110.0, 105.0), 100.0)),
+            vec!["a", "b"]
+        );
         assert!(s.remove(&"a".to_string()));
-        assert_eq!(ids_of(&s.query_in_range(Vec2::new(110.0, 105.0), 100.0)), vec!["b"]);
+        assert_eq!(
+            ids_of(&s.query_in_range(Vec2::new(110.0, 105.0), 100.0)),
+            vec!["b"]
+        );
         assert!(!s.remove(&"a".to_string()));
     }
 
@@ -410,11 +447,17 @@ mod tests {
     fn update_moves_entry_in_query_results() {
         let mut s: SweepAndPrune<String, ()> = SweepAndPrune::new();
         s.initialize(world_bounds(), vec![pt("mover", 100.0, 100.0, 5.0)]);
-        assert_eq!(ids_of(&s.query_in_range(Vec2::new(100.0, 100.0), 20.0)), vec!["mover"]);
+        assert_eq!(
+            ids_of(&s.query_in_range(Vec2::new(100.0, 100.0), 20.0)),
+            vec!["mover"]
+        );
 
         s.update(pt("mover", 900.0, 900.0, 5.0));
         assert!(ids_of(&s.query_in_range(Vec2::new(100.0, 100.0), 20.0)).is_empty());
-        assert_eq!(ids_of(&s.query_in_range(Vec2::new(900.0, 900.0), 20.0)), vec!["mover"]);
+        assert_eq!(
+            ids_of(&s.query_in_range(Vec2::new(900.0, 900.0), 20.0)),
+            vec!["mover"]
+        );
     }
 
     #[test]
@@ -431,10 +474,20 @@ mod tests {
         }
 
         for w in s.xs.windows(2) {
-            assert!(w[0].coord <= w[1].coord, "xs not sorted: {} > {}", w[0].coord, w[1].coord);
+            assert!(
+                w[0].coord <= w[1].coord,
+                "xs not sorted: {} > {}",
+                w[0].coord,
+                w[1].coord
+            );
         }
         for w in s.ys.windows(2) {
-            assert!(w[0].coord <= w[1].coord, "ys not sorted: {} > {}", w[0].coord, w[1].coord);
+            assert!(
+                w[0].coord <= w[1].coord,
+                "ys not sorted: {} > {}",
+                w[0].coord,
+                w[1].coord
+            );
         }
         assert_eq!(s.xs.len(), 25);
         assert_eq!(s.ys.len(), 25);
@@ -445,10 +498,10 @@ mod tests {
     #[test]
     fn query_handles_large_bounding_radius_extension() {
         let mut s: SweepAndPrune<String, ()> = SweepAndPrune::new();
-        s.initialize(world_bounds(), vec![
-            pt("big", 500.0, 500.0, 200.0),
-            pt("far", 100.0, 100.0, 5.0),
-        ]);
+        s.initialize(
+            world_bounds(),
+            vec![pt("big", 500.0, 500.0, 200.0), pt("far", 100.0, 100.0, 5.0)],
+        );
 
         let q = s.query_in_range(Vec2::new(700.0, 500.0), 50.0);
         assert_eq!(ids_of(&q), vec!["big"]);
@@ -458,18 +511,28 @@ mod tests {
     fn voracious_sort_invariant_after_initialize() {
         // 大量 entry 用 voracious_mt_sort 排序後，xs/ys 必須完全 sorted
         let mut s: SweepAndPrune<String, ()> = SweepAndPrune::new();
-        let entries: Vec<_> = (0..500).map(|i| {
-            let x = ((i * 977 + 13) % 1000) as f32;
-            let y = ((i * 31 + 7) % 1000) as f32;
-            pt(&format!("e{}", i), x, y, 0.0)
-        }).collect();
+        let entries: Vec<_> = (0..500)
+            .map(|i| {
+                let x = ((i * 977 + 13) % 1000) as f32;
+                let y = ((i * 31 + 7) % 1000) as f32;
+                pt(&format!("e{}", i), x, y, 0.0)
+            })
+            .collect();
         s.initialize(world_bounds(), entries);
 
         for w in s.xs.windows(2) {
-            assert!(w[0].coord <= w[1].coord, "xs voracious sort failed at {}", w[0].coord);
+            assert!(
+                w[0].coord <= w[1].coord,
+                "xs voracious sort failed at {}",
+                w[0].coord
+            );
         }
         for w in s.ys.windows(2) {
-            assert!(w[0].coord <= w[1].coord, "ys voracious sort failed at {}", w[0].coord);
+            assert!(
+                w[0].coord <= w[1].coord,
+                "ys voracious sort failed at {}",
+                w[0].coord
+            );
         }
     }
 
@@ -477,34 +540,61 @@ mod tests {
     fn bulk_replace_keeps_unchanged_slots() {
         // bulk_replace 對 entity set 大致不變的情況，slot index 應該保持穩定（不會被當成新建）
         let mut s: SweepAndPrune<String, ()> = SweepAndPrune::new();
-        s.initialize(world_bounds(), vec![
-            pt("a", 100.0, 100.0, 5.0),
-            pt("b", 500.0, 500.0, 5.0),
-            pt("c", 900.0, 900.0, 5.0),
-        ]);
+        s.initialize(
+            world_bounds(),
+            vec![
+                pt("a", 100.0, 100.0, 5.0),
+                pt("b", 500.0, 500.0, 5.0),
+                pt("c", 900.0, 900.0, 5.0),
+            ],
+        );
         let slot_a_before = *s.id_to_slot.get(&"a".to_string()).unwrap();
         let slot_c_before = *s.id_to_slot.get(&"c".to_string()).unwrap();
 
         // bulk_replace：a 動了、b 不見了、c 不變、新增 d
-        s.bulk_replace(world_bounds(), vec![
-            pt("a", 200.0, 200.0, 5.0),
-            pt("c", 900.0, 900.0, 5.0),
-            pt("d", 700.0, 100.0, 5.0),
-        ]);
+        s.bulk_replace(
+            world_bounds(),
+            vec![
+                pt("a", 200.0, 200.0, 5.0),
+                pt("c", 900.0, 900.0, 5.0),
+                pt("d", 700.0, 100.0, 5.0),
+            ],
+        );
 
         // a / c 的 slot index 應該保持不變（in-place update）
-        assert_eq!(*s.id_to_slot.get(&"a".to_string()).unwrap(), slot_a_before,
-            "a's slot identity should be preserved across bulk_replace");
-        assert_eq!(*s.id_to_slot.get(&"c".to_string()).unwrap(), slot_c_before,
-            "c's slot identity should be preserved across bulk_replace");
-        assert!(!s.id_to_slot.contains_key(&"b".to_string()), "b should be removed");
-        assert!(s.id_to_slot.contains_key(&"d".to_string()), "d should be added");
+        assert_eq!(
+            *s.id_to_slot.get(&"a".to_string()).unwrap(),
+            slot_a_before,
+            "a's slot identity should be preserved across bulk_replace"
+        );
+        assert_eq!(
+            *s.id_to_slot.get(&"c".to_string()).unwrap(),
+            slot_c_before,
+            "c's slot identity should be preserved across bulk_replace"
+        );
+        assert!(
+            !s.id_to_slot.contains_key(&"b".to_string()),
+            "b should be removed"
+        );
+        assert!(
+            s.id_to_slot.contains_key(&"d".to_string()),
+            "d should be added"
+        );
 
         // query 結果正確
-        assert_eq!(ids_of(&s.query_in_range(Vec2::new(200.0, 200.0), 30.0)), vec!["a"]);
+        assert_eq!(
+            ids_of(&s.query_in_range(Vec2::new(200.0, 200.0), 30.0)),
+            vec!["a"]
+        );
         assert!(ids_of(&s.query_in_range(Vec2::new(500.0, 500.0), 30.0)).is_empty());
-        assert_eq!(ids_of(&s.query_in_range(Vec2::new(900.0, 900.0), 30.0)), vec!["c"]);
-        assert_eq!(ids_of(&s.query_in_range(Vec2::new(700.0, 100.0), 30.0)), vec!["d"]);
+        assert_eq!(
+            ids_of(&s.query_in_range(Vec2::new(900.0, 900.0), 30.0)),
+            vec!["c"]
+        );
+        assert_eq!(
+            ids_of(&s.query_in_range(Vec2::new(700.0, 100.0), 30.0)),
+            vec!["d"]
+        );
 
         // xs/ys 不變式：已排序
         for w in s.xs.windows(2) {
@@ -528,7 +618,11 @@ mod tests {
         }
         // 經過 10 次 insert+remove 後，slots Vec 不應該持續增長
         // initial 1 個 + 1 個 reuse slot（每次 insert 使用同一個 free slot）= 2 個
-        assert!(s.slots.len() <= initial_slots_len + 1,
-            "slot map grew unexpectedly: {} → {}", initial_slots_len, s.slots.len());
+        assert!(
+            s.slots.len() <= initial_slots_len + 1,
+            "slot map grew unexpectedly: {} → {}",
+            initial_slots_len,
+            s.slots.len()
+        );
     }
 }

@@ -8,12 +8,24 @@ use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::fs;
 
-fn default_spatial_index() -> String { "quadtree".to_string() }
-fn default_collision_index() -> String { "sap".to_string() }
-fn default_shg_cell_size() -> f32 { 128.0 }
-fn default_quadtree_max_depth() -> usize { 8 }
-fn default_quadtree_max_per_node() -> usize { 10 }
-fn default_bvh_max_leaf() -> usize { 4 }
+fn default_spatial_index() -> String {
+    "quadtree".to_string()
+}
+fn default_collision_index() -> String {
+    "sap".to_string()
+}
+fn default_shg_cell_size() -> f32 {
+    128.0
+}
+fn default_quadtree_max_depth() -> usize {
+    8
+}
+fn default_quadtree_max_per_node() -> usize {
+    10
+}
+fn default_bvh_max_leaf() -> usize {
+    4
+}
 
 #[allow(non_snake_case)]
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -98,13 +110,24 @@ struct Wrapper {
 fn load_wrapper() -> Wrapper {
     let raw = match fs::read_to_string("game.toml") {
         Ok(s) => s,
-        Err(_) => return Wrapper { vision: None, collision: None },
+        Err(_) => {
+            return Wrapper {
+                vision: None,
+                collision: None,
+            }
+        }
     };
     match toml::from_str::<Wrapper>(&raw) {
         Ok(w) => w,
         Err(e) => {
-            log::warn!("game.toml [vision]/[collision] parse failed: {} — using defaults", e);
-            Wrapper { vision: None, collision: None }
+            log::warn!(
+                "game.toml [vision]/[collision] parse failed: {} — using defaults",
+                e
+            );
+            Wrapper {
+                vision: None,
+                collision: None,
+            }
         }
     }
 }

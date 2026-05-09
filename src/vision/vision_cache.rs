@@ -40,7 +40,12 @@ impl CacheManager {
     }
 
     /// 緩存視野結果
-    pub fn cache_vision_result(&mut self, cache_key: String, result: VisionResult, dependencies: Vec<String>) {
+    pub fn cache_vision_result(
+        &mut self,
+        cache_key: String,
+        result: VisionResult,
+        dependencies: Vec<String>,
+    ) {
         let cache_entry = VisionCache {
             result,
             last_update: self.current_time(),
@@ -53,9 +58,8 @@ impl CacheManager {
 
     /// 使特定障礙物相關的緩存失效
     pub fn invalidate_cache_for_obstacle(&mut self, obstacle_id: &str) {
-        self.vision_cache.retain(|_, cache| {
-            !cache.dependencies.contains(&obstacle_id.to_string())
-        });
+        self.vision_cache
+            .retain(|_, cache| !cache.dependencies.contains(&obstacle_id.to_string()));
     }
 
     /// 清理所有緩存
@@ -67,11 +71,12 @@ impl CacheManager {
     fn limit_cache_size(&mut self) {
         while self.vision_cache.len() > self.max_cache_size {
             // 移除最舊的緩存項
-            let oldest_key = self.vision_cache
+            let oldest_key = self
+                .vision_cache
                 .iter()
                 .min_by(|a, b| a.1.last_update.partial_cmp(&b.1.last_update).unwrap())
                 .map(|(k, _)| k.clone());
-                
+
             if let Some(key) = oldest_key {
                 self.vision_cache.remove(&key);
             } else {

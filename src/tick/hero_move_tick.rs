@@ -1,15 +1,13 @@
-use specs::{
-    shred, Entities, Join, ParJoin, Read, SystemData, Write, WriteStorage, ReadStorage,
-};
-use specs::prelude::ParallelIterator;
 use crossbeam_channel::Sender;
-use vek::*;
-use serde_json::json;
-use omoba_sim::{Fixed64, Vec2 as SimVec2, Angle};
 use omoba_sim::trig::{angle_rotate_toward, atan2 as sim_atan2, fixed_rad_to_ticks, TAU_TICKS};
+use omoba_sim::{Angle, Fixed64, Vec2 as SimVec2};
+use serde_json::json;
+use specs::prelude::ParallelIterator;
+use specs::{shred, Entities, Join, ParJoin, Read, ReadStorage, SystemData, Write, WriteStorage};
+use vek::*;
 
-use crate::comp::*;
 use crate::comp::phys::MAX_COLLISION_RADIUS;
+use crate::comp::*;
 use crate::transport::OutboundMsg;
 use crate::util::geometry::point_in_polygon;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -60,8 +58,12 @@ pub(crate) fn hits_any(
         new_center.y.to_f32_for_render(),
     );
     for di in searcher.search_collidable(center_vek, q_r, 16) {
-        if di.e == self_entity { continue; }
-        let Some(other_r) = radii.get(di.e).map(|cr| cr.0) else { continue };
+        if di.e == self_entity {
+            continue;
+        }
+        let Some(other_r) = radii.get(di.e).map(|cr| cr.0) else {
+            continue;
+        };
         // touch = radius + other_r — 保持固定64 以便與呼叫者保持一致。
         let touch = radius + other_r;
         let touch_f = touch.to_f32_for_render();
@@ -118,10 +120,7 @@ pub(crate) fn advance_with_collision(
 }
 
 impl<'a> System<'a> for Sys {
-    type SystemData = (
-        HeroMoveRead<'a>,
-        HeroMoveWrite<'a>,
-    );
+    type SystemData = (HeroMoveRead<'a>, HeroMoveWrite<'a>);
 
     const NAME: &'static str = "hero_move";
 
@@ -203,19 +202,23 @@ impl<'a> System<'a> for Sys {
                             .get(entity)
                             .map(|t| t.0)
                             .unwrap_or(Fixed64::from_raw(1608)); // π/2 rad/s default
-                        // 透過確定性助手轉換（rad/s × s）Fixed64 → 角度刻度。
+                                                                 // 透過確定性助手轉換（rad/s × s）Fixed64 → 角度刻度。
                         let max_step_ticks = fixed_rad_to_ticks(turn_rate * dt);
                         facing.0 = angle_rotate_toward(facing.0, desired_angle, max_step_ticks);
 
                         // 面向夾角 < 30° 才能前進 — compare in Angle ticks.
-                        let diff_ticks = (desired_angle.ticks() - facing.0.ticks()).rem_euclid(TAU_TICKS);
+                        let diff_ticks =
+                            (desired_angle.ticks() - facing.0.ticks()).rem_euclid(TAU_TICKS);
                         let signed_diff_ticks = if diff_ticks > TAU_TICKS / 2 {
                             diff_ticks - TAU_TICKS
                         } else {
                             diff_ticks
                         };
                         if signed_diff_ticks.abs() < MOVE_ANGLE_THRESHOLD_TICKS {
-                            let radius = tr.radii.get(entity).map(|r| r.0)
+                            let radius = tr
+                                .radii
+                                .get(entity)
+                                .map(|r| r.0)
                                 .unwrap_or(Fixed64::from_i32(30));
                             let (new_pos, reached) = advance_with_collision(
                                 pos.0,
@@ -252,7 +255,6 @@ impl<'a> System<'a> for Sys {
                 tw.move_targets.remove(*entity);
             }
         }
-
     }
 }
 

@@ -10,7 +10,7 @@ RENDER_DELAY_MS = 100
 # (STORY = TD_STRESS) 並在結束時自動還原。
 STORY = "TD_1"
 # Game speed multiplier (debug only)。1 = real-time，2/4/8 = 快轉。
-# 每 real frame 跑 N 個 sub-tick，sim 推進 N × frame-time（每個 tick 仍是穩定 dt）。
+# 每 real frame 跑 N 個 sub-tick，sim 推進 N × 固定 120Hz tick dt。
 # Runtime: 在 omb 的 stdin 輸入 `:speed 4` 切到 4×、`:speed 1` 還原。範圍 1..=16。
 # 注意：硬體跟不上 N× 模擬負擔時會 frame drop（變成 N 倍以下的有效速度）。
 SPEED_MULT = 1
@@ -44,5 +44,4 @@ SHG_CELL_SIZE = 128.0
 QUADTREE_MAX_DEPTH = 8
 QUADTREE_MAX_PER_NODE = 10
 BVH_MAX_LEAF = 4
-
 

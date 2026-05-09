@@ -1,15 +1,15 @@
 /// 視野系統的 ECS 整合
-/// 
+///
 /// 提供視野更新系統、結果緩存、事件過濾等 ECS 相關功能
 use specs::prelude::*;
-use vek::Vec2;
 use std::collections::{HashMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
+use vek::Vec2;
 
-use crate::comp::{
-    CircularVision, Pos, Player, VisionResult,
+use crate::comp::{CircularVision, Player, Pos, VisionResult};
+use crate::vision::{
+    GridVisionOutput, ShadowCalculator, VectorVisionOutput, VisionOutputGenerator,
 };
-use crate::vision::{VisionOutputGenerator, ShadowCalculator, GridVisionOutput, VectorVisionOutput};
 
 /// 視野結果緩存資源
 #[derive(Default)]
@@ -73,16 +73,17 @@ impl VisionUpdateSystem {
     }
 
     /// 初始化障礙物
-    pub fn initialize_obstacles(&mut self, obstacles: Vec<crate::comp::circular_vision::ObstacleInfo>) {
+    pub fn initialize_obstacles(
+        &mut self,
+        obstacles: Vec<crate::comp::circular_vision::ObstacleInfo>,
+    ) {
         use crate::vision::Bounds;
-        
+
         // 假設地圖範圍 4000x4000
-        let world_bounds = Bounds::new(
-            Vec2::new(0.0, 0.0),
-            Vec2::new(4000.0, 4000.0)
-        );
-        
-        self.shadow_calculator.initialize_quadtree(world_bounds, obstacles);
+        let world_bounds = Bounds::new(Vec2::new(0.0, 0.0), Vec2::new(4000.0, 4000.0));
+
+        self.shadow_calculator
+            .initialize_quadtree(world_bounds, obstacles);
     }
 
     /// 當前時間戳
@@ -107,9 +108,11 @@ impl<'a> System<'a> for VisionUpdateSystem {
         let current_time = self.current_time();
 
         // 更新所有具有視野的實體
-        for (entity, position, vision, player_opt) in (&entities, &positions, &mut visions, (&players).maybe()).join() {
+        for (entity, position, vision, player_opt) in
+            (&entities, &positions, &mut visions, (&players).maybe()).join()
+        {
             let player_name = player_opt.map(|p| p.name.clone());
-            
+
             // 檢查是否需要更新
             let needs_update = if let Some(ref player_name) = player_name {
                 if let Some(last_update) = cache.last_update.get(player_name) {
@@ -119,8 +122,9 @@ impl<'a> System<'a> for VisionUpdateSystem {
                 }
             } else {
                 // 非玩家實體，檢查視野結果是否存在或過時
-                vision.vision_result.is_none() || 
-                (vision.vision_result.as_ref().unwrap().timestamp + self.update_interval < current_time)
+                vision.vision_result.is_none()
+                    || (vision.vision_result.as_ref().unwrap().timestamp + self.update_interval
+                        < current_time)
             };
 
             if !needs_update {
@@ -141,13 +145,19 @@ impl<'a> System<'a> for VisionUpdateSystem {
 
             // 緩存結果
             if let Some(player_name) = player_name {
-                cache.player_visions.insert(player_name.clone(), vision_result.clone());
+                cache
+                    .player_visions
+                    .insert(player_name.clone(), vision_result.clone());
                 cache.last_update.insert(player_name.clone(), current_time);
-                
+
                 // 生成輸出格式
-                let grid_output = self.output_generator.generate_grid_output(&vision_result, None);
+                let grid_output = self
+                    .output_generator
+                    .generate_grid_output(&vision_result, None);
                 let vector_output = self.output_generator.generate_vector_output(&vision_result);
-                cache.output_cache.insert(player_name, (grid_output, vector_output));
+                cache
+                    .output_cache
+                    .insert(player_name, (grid_output, vector_output));
             } else {
                 cache.entity_visions.insert(entity, vision_result);
             }
@@ -162,9 +172,10 @@ impl VisionUpdateSystem {
     /// 清理過時的緩存
     fn cleanup_expired_cache(&mut self, cache: &mut VisionResultCache, current_time: f64) {
         let expire_time = 60.0; // 60秒後過期
-        
+
         // 清理玩家視野緩存
-        let expired_players: Vec<String> = cache.last_update
+        let expired_players: Vec<String> = cache
+            .last_update
             .iter()
             .filter_map(|(player, time)| {
                 if current_time - time > expire_time {
@@ -186,8 +197,13 @@ impl VisionUpdateSystem {
     }
 
     /// 添加障礙物
-    pub fn add_obstacle(&mut self, obstacle_id: String, obstacle: crate::comp::circular_vision::ObstacleInfo) {
-        self.shadow_calculator.update_obstacle(obstacle_id, obstacle);
+    pub fn add_obstacle(
+        &mut self,
+        obstacle_id: String,
+        obstacle: crate::comp::circular_vision::ObstacleInfo,
+    ) {
+        self.shadow_calculator
+            .update_obstacle(obstacle_id, obstacle);
     }
 
     /// 移除障礙物
@@ -225,7 +241,7 @@ impl VisionEventFilter {
         cache: &VisionResultCache,
     ) -> bool {
         let cache_key = (player_name.to_string(), entity);
-        
+
         // 檢查緩存
         if let Some(&visibility) = self.visibility_cache.get(&cache_key) {
             return visibility;
@@ -254,9 +270,12 @@ impl VisionEventFilter {
         let mut j = visible_area.len() - 1;
 
         for i in 0..visible_area.len() {
-            if ((visible_area[i].y > point.y) != (visible_area[j].y > point.y)) &&
-               (point.x < (visible_area[j].x - visible_area[i].x) * (point.y - visible_area[i].y) / 
-                         (visible_area[j].y - visible_area[i].y) + visible_area[i].x) {
+            if ((visible_area[i].y > point.y) != (visible_area[j].y > point.y))
+                && (point.x
+                    < (visible_area[j].x - visible_area[i].x) * (point.y - visible_area[i].y)
+                        / (visible_area[j].y - visible_area[i].y)
+                        + visible_area[i].x)
+            {
                 inside = !inside;
             }
             j = i;
@@ -278,7 +297,8 @@ impl VisionEventFilter {
         for (entity, position) in (entities, positions).join() {
             // 注意：視覺是客戶端渲染提示（戰爭迷霧）；從權威 Pos 進行的每次報價重建可保持跨客戶端的一致性。
             let (px, py) = position.xy_f32();
-            if self.is_entity_visible_to_player(player_name, entity, vek::Vec2::new(px, py), cache) {
+            if self.is_entity_visible_to_player(player_name, entity, vek::Vec2::new(px, py), cache)
+            {
                 visible_entities.push(entity);
             }
         }
@@ -292,8 +312,8 @@ impl VisionEventFilter {
         player_name: &str,
         events: &[(Entity, T, Vec2<f32>)],
         cache: &VisionResultCache,
-    ) -> Vec<(Entity, T)> 
-    where 
+    ) -> Vec<(Entity, T)>
+    where
         T: Clone,
     {
         events
@@ -310,9 +330,8 @@ impl VisionEventFilter {
 
     /// 清理過時的可見性緩存
     pub fn cleanup_visibility_cache(&mut self, valid_entities: &HashSet<Entity>) {
-        self.visibility_cache.retain(|(_, entity), _| {
-            valid_entities.contains(entity)
-        });
+        self.visibility_cache
+            .retain(|(_, entity), _| valid_entities.contains(entity));
     }
 }
 

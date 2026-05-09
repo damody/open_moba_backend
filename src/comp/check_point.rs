@@ -12,5 +12,3 @@ pub struct CheckPoint {
 pub struct Path {
     pub check_points: Vec<CheckPoint>,
 }
-
-

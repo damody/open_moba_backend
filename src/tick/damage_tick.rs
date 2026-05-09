@@ -1,14 +1,14 @@
-use specs::{
-    shred, Entities, Join, LazyUpdate, Read, ReadExpect, ReadStorage, SystemData,
-    Write, WriteStorage, ParJoin, Entity, World,
-};
 use crate::comp::*;
-use specs::prelude::ParallelIterator;
-use std::{
-    time::{Duration, Instant},
-    collections::HashMap,
-};
 use omoba_sim::Fixed64;
+use specs::prelude::ParallelIterator;
+use specs::{
+    shred, Entities, Entity, Join, LazyUpdate, ParJoin, Read, ReadExpect, ReadStorage, SystemData,
+    World, Write, WriteStorage,
+};
+use std::{
+    collections::HashMap,
+    time::{Duration, Instant},
+};
 
 /// Damage_tick 的每實體 SimRng 操作類型。每個（實體，操作）對都得到它的
 /// 自己的確定性流－保持這些常數穩定；重新排序會
@@ -40,10 +40,7 @@ pub struct DamageWrite<'a> {
 pub struct Sys;
 
 impl<'a> System<'a> for Sys {
-    type SystemData = (
-        DamageRead<'a>,
-        DamageWrite<'a>,
-    );
+    type SystemData = (DamageRead<'a>, DamageWrite<'a>);
 
     const NAME: &'static str = "damage";
 
@@ -59,23 +56,29 @@ impl<'a> System<'a> for Sys {
 
         // 收集 Unit 屬性
         for (entity, unit, properties) in (&tr.entities, &tr.units, &tr.properties).join() {
-            unit_stats.insert(entity, (
-                unit.base_armor,
-                unit.magic_resistance,
-                Fixed64::ZERO, // TODO: 從裝備或技能獲取暴擊率
-                Fixed64::ZERO, // TODO: 從裝備或技能獲取閃避率
-            ));
+            unit_stats.insert(
+                entity,
+                (
+                    unit.base_armor,
+                    unit.magic_resistance,
+                    Fixed64::ZERO, // TODO: 從裝備或技能獲取暴擊率
+                    Fixed64::ZERO, // TODO: 從裝備或技能獲取閃避率
+                ),
+            );
         }
 
         // 收集 Hero 屬性
         for (entity, hero, properties) in (&tr.entities, &tr.heroes, &tr.properties).join() {
             let crit_chance = hero.get_crit_chance();
-            unit_stats.insert(entity, (
-                properties.def_physic,
-                Fixed64::ZERO, // 魔抗暫時使用 0
-                crit_chance,
-                Fixed64::ZERO, // 閃避率暫時使用 0
-            ));
+            unit_stats.insert(
+                entity,
+                (
+                    properties.def_physic,
+                    Fixed64::ZERO, // 魔抗暫時使用 0
+                    crit_chance,
+                    Fixed64::ZERO, // 閃避率暫時使用 0
+                ),
+            );
         }
 
         // 處理所有傷害實例
@@ -88,7 +91,9 @@ impl<'a> System<'a> for Sys {
             // 生成傷害事件而不是直接修改組件
             if !result.is_dodged && result.total_damage > Fixed64::ZERO {
                 // 階段 1c.3：Outcome::Damage.pos 現在為 omoba_sim::Vec2（階段 1c.2）。
-                let target_pos = tr.positions.get(damage_inst.target)
+                let target_pos = tr
+                    .positions
+                    .get(damage_inst.target)
                     .map(|p| p.0)
                     .unwrap_or(omoba_sim::Vec2::ZERO);
 
@@ -115,13 +120,16 @@ impl<'a> System<'a> for Sys {
             if !result.is_dodged && result.healing > Fixed64::ZERO {
                 let source_entity = damage_inst.source.source_entity;
                 // 階段 1c.3：Outcome::Heal.pos 現在為 omoba_sim::Vec2（階段 1c.2）。
-                let source_pos = tr.positions.get(source_entity)
-                    .map(|p| p.0)
-                    .unwrap_or_else(|| {
-                        tr.positions.get(damage_inst.target)
-                            .map(|p| p.0)
-                            .unwrap_or(omoba_sim::Vec2::ZERO)
-                    });
+                let source_pos =
+                    tr.positions
+                        .get(source_entity)
+                        .map(|p| p.0)
+                        .unwrap_or_else(|| {
+                            tr.positions
+                                .get(damage_inst.target)
+                                .map(|p| p.0)
+                                .unwrap_or(omoba_sim::Vec2::ZERO)
+                        });
                 outcomes.push(Outcome::Heal {
                     pos: source_pos,
                     target: source_entity,
@@ -157,12 +165,14 @@ fn calculate_damage(
     };
 
     // 獲取目標屬性
-    let (armor, magic_resist, _, dodge_chance) = unit_stats.get(&damage_inst.target)
+    let (armor, magic_resist, _, dodge_chance) = unit_stats
+        .get(&damage_inst.target)
         .copied()
         .unwrap_or((Fixed64::ZERO, Fixed64::ZERO, Fixed64::ZERO, Fixed64::ZERO));
 
     // 獲取攻擊者屬性
-    let (_, _, crit_chance, _) = unit_stats.get(&damage_inst.source.source_entity)
+    let (_, _, crit_chance, _) = unit_stats
+        .get(&damage_inst.source.source_entity)
         .copied()
         .unwrap_or((Fixed64::ZERO, Fixed64::ZERO, Fixed64::ZERO, Fixed64::ZERO));
 
@@ -222,17 +232,31 @@ fn calculate_damage(
     let pure_damage = damage_inst.damage_types.pure;
 
     // 更新實際傷害
-    result.actual_damage.physical = if physical_damage < Fixed64::ZERO { Fixed64::ZERO } else { physical_damage };
-    result.actual_damage.magical = if magical_damage < Fixed64::ZERO { Fixed64::ZERO } else { magical_damage };
-    result.actual_damage.pure = if pure_damage < Fixed64::ZERO { Fixed64::ZERO } else { pure_damage };
+    result.actual_damage.physical = if physical_damage < Fixed64::ZERO {
+        Fixed64::ZERO
+    } else {
+        physical_damage
+    };
+    result.actual_damage.magical = if magical_damage < Fixed64::ZERO {
+        Fixed64::ZERO
+    } else {
+        magical_damage
+    };
+    result.actual_damage.pure = if pure_damage < Fixed64::ZERO {
+        Fixed64::ZERO
+    } else {
+        pure_damage
+    };
     result.total_damage = result.actual_damage.total();
 
     // 計算治療（生命偷取、法術吸血）
     if damage_inst.damage_flags.lifesteal > Fixed64::ZERO {
-        result.healing = result.healing + result.actual_damage.physical * damage_inst.damage_flags.lifesteal;
+        result.healing =
+            result.healing + result.actual_damage.physical * damage_inst.damage_flags.lifesteal;
     }
     if damage_inst.damage_flags.spell_vamp > Fixed64::ZERO {
-        result.healing = result.healing + result.actual_damage.magical * damage_inst.damage_flags.spell_vamp;
+        result.healing =
+            result.healing + result.actual_damage.magical * damage_inst.damage_flags.spell_vamp;
     }
 
     result

@@ -1,29 +1,29 @@
-use omb_script_abi::buff_ids::BuffId;
-use omb_script_abi::stat_keys::StatKey;
-use specs::{
-    shred, Entities, Join, LazyUpdate, Read, ReadExpect, ReadStorage, SystemData,
-    Write, WriteStorage, ParJoin, World,
-};
-use crossbeam_channel::Sender;
 use crate::comp::*;
 use crate::transport::OutboundMsg;
+use crossbeam_channel::Sender;
+use omb_script_abi::buff_ids::BuffId;
+use omb_script_abi::stat_keys::StatKey;
+use omoba_sim::{Fixed64, Vec2 as SimVec2};
 use specs::prelude::ParallelIterator;
 use specs::Entity;
-use omoba_sim::{Fixed64, Vec2 as SimVec2};
+use specs::{
+    shred, Entities, Join, LazyUpdate, ParJoin, Read, ReadExpect, ReadStorage, SystemData, World,
+    Write, WriteStorage,
+};
 
 #[derive(SystemData)]
 pub struct ProjectileRead<'a> {
     entities: Entities<'a>,
     time: Read<'a, Time>,
     dt: Read<'a, DeltaTime>,
-    searcher : Read<'a, Searcher>,
+    searcher: Read<'a, Searcher>,
     hero_attacks: ReadStorage<'a, TAttack>,
 }
 
 #[derive(SystemData)]
 pub struct ProjectileWrite<'a> {
-    pos : WriteStorage<'a, Pos>,
-    projs : WriteStorage<'a, Projectile>,
+    pos: WriteStorage<'a, Pos>,
+    projs: WriteStorage<'a, Projectile>,
     outcomes: Write<'a, Vec<Outcome>>,
     taken_damages: Write<'a, Vec<TakenDamage>>,
     damage_instances: Write<'a, Vec<DamageInstance>>,
@@ -34,10 +34,7 @@ pub struct ProjectileWrite<'a> {
 pub struct Sys;
 
 impl<'a> System<'a> for Sys {
-    type SystemData = (
-        ProjectileRead<'a>,
-        ProjectileWrite<'a>,
-    );
+    type SystemData = (ProjectileRead<'a>, ProjectileWrite<'a>);
 
     const NAME: &'static str = "projectile";
 
@@ -53,17 +50,14 @@ impl<'a> System<'a> for Sys {
         // 透過儲存的“目標”實體。
         let target_positions: std::collections::HashMap<specs::Entity, SimVec2> = {
             use specs::Join;
-            (&tr.entities, &tw.pos).join()
+            (&tr.entities, &tw.pos)
+                .join()
                 .map(|(e, pos)| (e, pos.0))
                 .collect()
         };
 
         //log::info!("projs count {}", tw.projs.count());
-        let mut outcomes = (
-            &tr.entities,
-            &mut tw.projs,
-            &mut tw.pos,
-        )
+        let mut outcomes = (&tr.entities, &mut tw.projs, &mut tw.pos)
             .par_join()
             .filter(|(e, proj, p)| proj.time_left > Fixed64::ZERO)
             .map_init(
@@ -97,7 +91,9 @@ impl<'a> System<'a> for Sys {
                         let a: SimVec2 = pos.0;
                         let b: SimVec2 = if dist > Fixed64::ZERO {
                             a + delta.normalized() * step
-                        } else { a };
+                        } else {
+                            a
+                        };
                         // 注意：mid + half_len 僅在搜尋呼叫邊界在 f32 中計算
                         // （搜尋器在內部使用 f32 來實作 instant_distance lib 相容性；呼叫者中的最終距離檢查是固定 64）。
                         let a_xf = a.x.to_f32_for_render();
@@ -105,7 +101,8 @@ impl<'a> System<'a> for Sys {
                         let b_xf = b.x.to_f32_for_render();
                         let b_yf = b.y.to_f32_for_render();
                         let seg_mid_f = vek::Vec2::new((a_xf + b_xf) * 0.5, (a_yf + b_yf) * 0.5);
-                        let half_len_f = (vek::Vec2::new(b_xf - a_xf, b_yf - a_yf)).magnitude() * 0.5;
+                        let half_len_f =
+                            (vek::Vec2::new(b_xf - a_xf, b_yf - a_yf)).magnitude() * 0.5;
                         let needle_r_f = needle_r.to_f32_for_render();
                         let search_r = half_len_f + needle_r_f + 5.0;
                         let candidates = tr.searcher.creep.search_nn(seg_mid_f, search_r, 16);
@@ -114,12 +111,17 @@ impl<'a> System<'a> for Sys {
                         let a_vek = vek::Vec2::new(a_xf, a_yf);
                         let b_vek = vek::Vec2::new(b_xf, b_yf);
                         for ci in candidates.iter() {
-                            let cpos_sim = target_positions.get(&ci.e).copied().unwrap_or(SimVec2::ZERO);
+                            let cpos_sim = target_positions
+                                .get(&ci.e)
+                                .copied()
+                                .unwrap_or(SimVec2::ZERO);
                             let cpos_vek = vek::Vec2::new(
                                 cpos_sim.x.to_f32_for_render(),
                                 cpos_sim.y.to_f32_for_render(),
                             );
-                            if crate::util::geometry::point_segment_dist_sq(cpos_vek, a_vek, b_vek) <= needle_r2 {
+                            if crate::util::geometry::point_segment_dist_sq(cpos_vek, a_vek, b_vek)
+                                <= needle_r2
+                            {
                                 hit = Some(ci.e);
                                 break;
                             }
@@ -131,7 +133,10 @@ impl<'a> System<'a> for Sys {
                             let db = (c_sim - b).length_squared();
                             let hit_pos: SimVec2 = if da <= db { a } else { b };
                             create_projectile_damage(&proj, hit_ent, &mut outcomes, hit_pos);
-                            outcomes.push(Outcome::Death { pos: hit_pos, ent: e.clone() });
+                            outcomes.push(Outcome::Death {
+                                pos: hit_pos,
+                                ent: e.clone(),
+                            });
                             return outcomes;
                         }
                     }
@@ -157,7 +162,12 @@ impl<'a> System<'a> for Sys {
                             let radius_f = proj.radius.to_f32_for_render();
                             let targets = tr.searcher.creep.search_nn(hit_pos_vek, radius_f, 5);
                             for target_info in targets.iter() {
-                                create_projectile_damage(&proj, target_info.e, &mut outcomes, hit_pos);
+                                create_projectile_damage(
+                                    &proj,
+                                    target_info.e,
+                                    &mut outcomes,
+                                    hit_pos,
+                                );
                             }
                             // Phase 4.2: 把爆炸 VFX 走 Outcome::Explosion → ExplosionFxQueue
                             // → snapshot → omfx ring render lifecycle。原註解寫「前端
@@ -174,7 +184,10 @@ impl<'a> System<'a> for Sys {
                             create_projectile_damage(&proj, target, &mut outcomes, hit_pos);
                         }
                         // 方向性子彈：抵達 end_pos 但沒打到任何敵人 → 直接消失
-                        outcomes.push(Outcome::Death { pos: hit_pos, ent: e.clone() });
+                        outcomes.push(Outcome::Death {
+                            pos: hit_pos,
+                            ent: e.clone(),
+                        });
                     } else {
                         // 還沒抵達：往目標方向前進一個 step
                         let vel = (delta.normalized()) * step;
@@ -183,7 +196,10 @@ impl<'a> System<'a> for Sys {
                         // 安全閥：time_left 到期仍未命中（例如 target 死掉 tpos 凍結），讓 projectile 自然消失
                         proj.time_left = proj.time_left - dt;
                         if proj.time_left <= Fixed64::ZERO {
-                            outcomes.push(Outcome::Death { pos: new_pos, ent: e.clone() });
+                            outcomes.push(Outcome::Death {
+                                pos: new_pos,
+                                ent: e.clone(),
+                            });
                         }
                     }
                     outcomes
@@ -230,11 +246,13 @@ fn create_projectile_damage(
     outcomes: &mut Vec<Outcome>,
     pos: SimVec2,
 ) {
-    log::debug!("彈道命中目標 {}，物理傷害: {:.1}，魔法傷害: {:.1}，真實傷害: {:.1}",
+    log::debug!(
+        "彈道命中目標 {}，物理傷害: {:.1}，魔法傷害: {:.1}，真實傷害: {:.1}",
         target.id(),
         proj.damage_phys.to_f32_for_render(),
         proj.damage_magi.to_f32_for_render(),
-        proj.damage_real.to_f32_for_render());
+        proj.damage_real.to_f32_for_render()
+    );
 
     // P7 分層（透過設定心跳 in_flight_projectiles 重新啟用）：
     // 單一目標（半徑 < 1.0），傷害 > 0 → 預先聲明 = true。伺服器
@@ -252,7 +270,10 @@ fn create_projectile_damage(
     });
 
     // Ice 塔：附加減速 debuff 到目標
-    if proj.slow_factor > Fixed64::ZERO && proj.slow_factor < Fixed64::ONE && proj.slow_duration > Fixed64::ZERO {
+    if proj.slow_factor > Fixed64::ZERO
+        && proj.slow_factor < Fixed64::ONE
+        && proj.slow_duration > Fixed64::ZERO
+    {
         // 係數=0.5 → 獎金=-0.5 ;獎金 = -(1 - 因子) = 因子 - 1
         let bonus = proj.slow_factor - Fixed64::ONE;
         let mut payload = serde_json::Map::new();

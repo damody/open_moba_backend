@@ -1,11 +1,11 @@
 //! 使用 maud 將 Catalog 渲染為單一獨立的 HTML 字串。
 
-use crate::lib::model::{Catalog, UnitKind};
 use crate::lib::model::UnitEntry;
-use maud::{html, Markup, DOCTYPE, PreEscaped};
+use crate::lib::model::{Catalog, UnitKind};
+use maud::{html, Markup, PreEscaped, DOCTYPE};
 
 const CSS: &str = include_str!("render_style.css");
-const JS:  &str = include_str!("render_script.js");
+const JS: &str = include_str!("render_script.js");
 
 pub fn page(c: &Catalog) -> String {
     let tower_count = c.units.iter().filter(|u| u.kind == UnitKind::Tower).count();
@@ -88,9 +88,21 @@ pub fn page(c: &Catalog) -> String {
 }
 
 fn section_units(c: &Catalog) -> Markup {
-    let towers: Vec<&UnitEntry> = c.units.iter().filter(|u| u.kind == UnitKind::Tower).collect();
-    let heroes: Vec<&UnitEntry> = c.units.iter().filter(|u| u.kind == UnitKind::Hero).collect();
-    let creeps: Vec<&UnitEntry> = c.units.iter().filter(|u| u.kind == UnitKind::Creep).collect();
+    let towers: Vec<&UnitEntry> = c
+        .units
+        .iter()
+        .filter(|u| u.kind == UnitKind::Tower)
+        .collect();
+    let heroes: Vec<&UnitEntry> = c
+        .units
+        .iter()
+        .filter(|u| u.kind == UnitKind::Hero)
+        .collect();
+    let creeps: Vec<&UnitEntry> = c
+        .units
+        .iter()
+        .filter(|u| u.kind == UnitKind::Creep)
+        .collect();
     html! {
         section #towers {
             h2 { "Towers (" (towers.len()) ")" }
@@ -108,7 +120,10 @@ fn section_units(c: &Catalog) -> Markup {
 }
 
 fn tower_card(u: &UnitEntry) -> Markup {
-    let t = match u.tower.as_ref() { Some(t) => t, None => return html!{} };
+    let t = match u.tower.as_ref() {
+        Some(t) => t,
+        None => return html! {},
+    };
     let search = format!("{} {} tower", u.id, t.label);
     html! {
         div.card data-search=(search) {
@@ -129,7 +144,10 @@ fn tower_card(u: &UnitEntry) -> Markup {
 }
 
 fn hero_card(u: &UnitEntry) -> Markup {
-    let h = match &u.hero { Some(h) => h.clone(), None => return html!{} };
+    let h = match &u.hero {
+        Some(h) => h.clone(),
+        None => return html! {},
+    };
     let search = format!("{} {} hero {}", u.id, h.name, h.title);
     html! {
         div.card data-search=(search) {
@@ -159,7 +177,10 @@ fn hero_card(u: &UnitEntry) -> Markup {
 }
 
 fn creep_card(u: &UnitEntry) -> Markup {
-    let c = match &u.creep { Some(c) => c.clone(), None => return html!{} };
+    let c = match &u.creep {
+        Some(c) => c.clone(),
+        None => return html! {},
+    };
     let search = format!("{} {} creep {}", u.id, c.name, c.enemy_type);
     html! {
         div.card data-search=(search) {
@@ -183,7 +204,7 @@ fn creep_card(u: &UnitEntry) -> Markup {
 
 fn impl_block(u: &UnitEntry) -> Markup {
     if u.overrides.is_empty() && u.world_calls.is_empty() && u.source_file.is_none() {
-        return html!{};
+        return html! {};
     }
     html! {
         details.impl-block {
@@ -224,8 +245,16 @@ fn section_abilities(c: &Catalog) -> Markup {
 }
 
 fn ability_card(a: &crate::lib::model::AbilityEntry) -> Markup {
-    let name = a.def_json.get("name").and_then(|v| v.as_str()).unwrap_or(&a.id);
-    let desc = a.def_json.get("description").and_then(|v| v.as_str()).unwrap_or("");
+    let name = a
+        .def_json
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or(&a.id);
+    let desc = a
+        .def_json
+        .get("description")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     let search = format!("{} {} ability", a.id, name);
     html! {
         div.card data-search=(search) {
@@ -239,10 +268,14 @@ fn ability_card(a: &crate::lib::model::AbilityEntry) -> Markup {
 }
 fn section_api(c: &Catalog) -> Markup {
     // 計算實際使用了哪些方法（調暗未使用的方法）
-    let used: std::collections::HashSet<&str> = c.units.iter()
+    let used: std::collections::HashSet<&str> = c
+        .units
+        .iter()
         .flat_map(|u| u.world_calls.iter().map(|s| s.as_str()))
         .collect();
-    let used_hooks: std::collections::HashSet<&str> = c.units.iter()
+    let used_hooks: std::collections::HashSet<&str> = c
+        .units
+        .iter()
         .flat_map(|u| u.overrides.iter().map(|s| s.as_str()))
         .collect();
 
@@ -315,7 +348,9 @@ fn section_stat_keys(c: &Catalog) -> Markup {
 
 fn section_coverage(c: &Catalog) -> Markup {
     // 僅具有 impl 資料的單位
-    let units: Vec<&UnitEntry> = c.units.iter()
+    let units: Vec<&UnitEntry> = c
+        .units
+        .iter()
         .filter(|u| !u.overrides.is_empty() || !u.world_calls.is_empty())
         .collect();
     let hook_names: Vec<&str> = c.api.unit_hooks.iter().map(|m| m.name.as_str()).collect();

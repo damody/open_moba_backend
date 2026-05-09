@@ -94,10 +94,8 @@ impl KcpBytesCounter {
     /// 即使在呼叫“reset()”之後也可以產生快照。
     pub fn snapshot(&self) -> KcpCounterSnapshot {
         let map = self.per_event.lock();
-        let per_event: StdHashMap<(String, String), (u64, u64)> = map
-            .iter()
-            .map(|(k, v)| (k.clone(), *v))
-            .collect();
+        let per_event: StdHashMap<(String, String), (u64, u64)> =
+            map.iter().map(|(k, v)| (k.clone(), *v)).collect();
         KcpCounterSnapshot {
             total_bytes: self.total_bytes.load(Ordering::Relaxed),
             total_msgs: self.total_msgs.load(Ordering::Relaxed),
@@ -138,7 +136,8 @@ mod tests {
         msg_type: &str,
         action: &str,
     ) -> Option<&'a (u64, u64)> {
-        snap.per_event.get(&(msg_type.to_owned(), action.to_owned()))
+        snap.per_event
+            .get(&(msg_type.to_owned(), action.to_owned()))
     }
 
     #[test]

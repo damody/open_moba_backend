@@ -1,9 +1,8 @@
+use serde_json::json;
+use specs::{Entity, Join, World, WorldExt};
 /// ECS 狀態查詢模塊
 /// 提供 read-only 的 ECS World 查詢，供 MCP server 使用
-
 use std::collections::BTreeMap;
-use specs::{World, WorldExt, Join, Entity};
-use serde_json::json;
 
 use crate::ability_runtime::AbilityRegistry;
 use crate::comp::*;
@@ -27,13 +26,12 @@ pub fn query_list_players(world: &World) -> QueryResponse {
             .join()
             .find(|(_, h, _)| h.name == *name || h.id == *name)
             .or_else(|| {
-                (&entities, &heroes, &positions)
-                    .join()
-                    .find(|(ent, _, _)| {
-                        factions.get(*ent)
-                            .map(|f| f.faction_id == FactionType::Player)
-                            .unwrap_or(false)
-                    })
+                (&entities, &heroes, &positions).join().find(|(ent, _, _)| {
+                    factions
+                        .get(*ent)
+                        .map(|f| f.faction_id == FactionType::Player)
+                        .unwrap_or(false)
+                })
             })
             .map(|(ent, hero, pos)| {
                 let prop = properties.get(ent);
@@ -134,13 +132,17 @@ pub fn query_inspect_player_view(world: &World, player_name: &str) -> QueryRespo
         let prop = properties.get(ent);
         let mt = move_targets.get(ent);
 
-        let abilities_json: Vec<serde_json::Value> = hero.abilities.iter().map(|ability_id| {
-            let level = hero.ability_levels.get(ability_id).copied().unwrap_or(0);
-            json!({
-                "ability_id": ability_id,
-                "level": level,
+        let abilities_json: Vec<serde_json::Value> = hero
+            .abilities
+            .iter()
+            .map(|ability_id| {
+                let level = hero.ability_levels.get(ability_id).copied().unwrap_or(0);
+                json!({
+                    "ability_id": ability_id,
+                    "level": level,
+                })
             })
-        }).collect();
+            .collect();
 
         hero_list.push(json!({
             "entity_id": ent.id(),

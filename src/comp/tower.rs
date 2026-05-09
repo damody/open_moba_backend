@@ -1,9 +1,9 @@
-use std::collections::BTreeMap;
-use specs::storage::VecStorage;
-use specs::{Component, FlaggedStorage, NullStorage, Entity as  Entity};
-use serde::{Deserialize, Serialize};
-use vek::Vec2;
 use omoba_sim::{Fixed64, Vec2 as SimVec2};
+use serde::{Deserialize, Serialize};
+use specs::storage::VecStorage;
+use specs::{Component, Entity, FlaggedStorage, NullStorage};
+use std::collections::BTreeMap;
+use vek::Vec2;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Tower {
@@ -42,8 +42,8 @@ impl Component for Tower {
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub struct TAttack {
     pub atk_physic: Vf32, // 物攻
-    pub asd: Vf32, // 攻速/每幾秒攻擊一次
-    pub range: Vf32, // 射程
+    pub asd: Vf32,        // 攻速/每幾秒攻擊一次
+    pub range: Vf32,      // 射程
     pub asd_count: Fixed64,
     pub bullet_speed: Fixed64,
 }
@@ -64,12 +64,11 @@ impl Component for TAttack {
     type Storage = VecStorage<Self>;
 }
 
-
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub struct TProperty {
-    pub hp: Vf32,  // hp
-    pub block: i32, // 目前檔幾人
-    pub mblock: i32, // 最大檔幾人
+    pub hp: Vf32,      // hp
+    pub block: i32,    // 目前檔幾人
+    pub mblock: i32,   // 最大檔幾人
     pub size: Fixed64, // 阻檔半徑
 }
 
@@ -118,7 +117,6 @@ pub struct TModify {
     pub v: Fixed64,
 }
 
-
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub struct Vf32 {
     pub bv: Fixed64,
@@ -126,10 +124,7 @@ pub struct Vf32 {
 }
 impl Vf32 {
     pub fn new(v: Fixed64) -> Vf32 {
-        Vf32 {
-            bv: v,
-            v,
-        }
+        Vf32 { bv: v, v }
     }
     pub fn val(&mut self) -> Fixed64 {
         self.v
@@ -159,7 +154,6 @@ impl Vf32 {
         self.v = if self.v < minv { minv } else { self.v };
         self
     }
-
 }
 
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
@@ -169,16 +163,14 @@ pub struct Val<T> {
     pub v: T,
 }
 
-impl<T> Val<T> where 
-    T: Copy + Ord + std::ops::MulAssign + std::ops::AddAssign {
+impl<T> Val<T>
+where
+    T: Copy + Ord + std::ops::MulAssign + std::ops::AddAssign,
+{
     fn new(v: T) -> Val<T> {
-        Val {
-            bv: v,
-            mv: v,
-            v: v,
-        }
+        Val { bv: v, mv: v, v: v }
     }
-    
+
     //還原
     fn reset(&mut self) -> &mut Val<T> {
         self.v = self.bv;

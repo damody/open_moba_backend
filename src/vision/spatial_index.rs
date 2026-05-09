@@ -30,11 +30,21 @@ pub struct Entry<Id, Item> {
 
 impl<Id, Item> Entry<Id, Item> {
     pub fn new(id: Id, item: Item, position: Vec2<f32>, bounding_radius: f32) -> Self {
-        Self { id, item, position, bounding_radius }
+        Self {
+            id,
+            item,
+            position,
+            bounding_radius,
+        }
     }
 
     pub fn point(id: Id, item: Item, position: Vec2<f32>) -> Self {
-        Self { id, item, position, bounding_radius: 0.0 }
+        Self {
+            id,
+            item,
+            position,
+            bounding_radius: 0.0,
+        }
     }
 }
 
@@ -51,12 +61,18 @@ impl Bounds {
     }
 
     pub fn contains_point(&self, point: Vec2<f32>) -> bool {
-        point.x >= self.min.x && point.x <= self.max.x &&
-        point.y >= self.min.y && point.y <= self.max.y
+        point.x >= self.min.x
+            && point.x <= self.max.x
+            && point.y >= self.min.y
+            && point.y <= self.max.y
     }
 
-    pub fn width(&self) -> f32 { self.max.x - self.min.x }
-    pub fn height(&self) -> f32 { self.max.y - self.min.y }
+    pub fn width(&self) -> f32 {
+        self.max.x - self.min.x
+    }
+    pub fn height(&self) -> f32 {
+        self.max.y - self.min.y
+    }
 }
 
 /// 構造 spatial index 時的可選參數。各 impl 只讀自己需要的欄位。
@@ -106,12 +122,9 @@ where
 
     /// 範圍查詢 + 對中心距離 + 按距離升冪 sort。default 實作走 `query_in_range`，
     /// SAP 等可在自己掃 axis 時順便算 distance 取代之。
-    fn query_with_distance(
-        &self,
-        center: Vec2<f32>,
-        radius: f32,
-    ) -> Vec<(Entry<Id, Item>, f32)> {
-        let mut out: Vec<_> = self.query_in_range(center, radius)
+    fn query_with_distance(&self, center: Vec2<f32>, radius: f32) -> Vec<(Entry<Id, Item>, f32)> {
+        let mut out: Vec<_> = self
+            .query_in_range(center, radius)
             .into_iter()
             .map(|e| {
                 let d = e.position.distance(center);
@@ -148,20 +161,30 @@ pub fn build_spatial_index(
 ) -> Box<dyn SpatialIndex<String, ObstacleInfo>> {
     match kind {
         "quadtree" => {
-            log::info!("SpatialIndex initialized: quadtree (depth={}, per_node={})",
-                       params.quadtree_max_depth, params.quadtree_max_per_node);
+            log::info!(
+                "SpatialIndex initialized: quadtree (depth={}, per_node={})",
+                params.quadtree_max_depth,
+                params.quadtree_max_per_node
+            );
             Box::new(super::quadtree::QuadTree::new(
                 params.quadtree_max_depth,
                 params.quadtree_max_per_node,
             ))
         }
         "hash_grid" => {
-            log::info!("SpatialIndex initialized: hash_grid (cell_size={})",
-                       params.hash_grid_cell_size);
-            Box::new(super::hash_grid::SpatialHashGrid::new(params.hash_grid_cell_size))
+            log::info!(
+                "SpatialIndex initialized: hash_grid (cell_size={})",
+                params.hash_grid_cell_size
+            );
+            Box::new(super::hash_grid::SpatialHashGrid::new(
+                params.hash_grid_cell_size,
+            ))
         }
         "bvh" => {
-            log::info!("SpatialIndex initialized: bvh (max_leaf={})", params.bvh_max_leaf);
+            log::info!(
+                "SpatialIndex initialized: bvh (max_leaf={})",
+                params.bvh_max_leaf
+            );
             Box::new(super::bvh::Bvh::new(params.bvh_max_leaf))
         }
         "sap" => {
@@ -169,7 +192,10 @@ pub fn build_spatial_index(
             Box::new(super::sweep_and_prune::SweepAndPrune::new())
         }
         other => {
-            log::warn!("Unknown SPATIAL_INDEX = {:?}, falling back to quadtree", other);
+            log::warn!(
+                "Unknown SPATIAL_INDEX = {:?}, falling back to quadtree",
+                other
+            );
             Box::new(super::quadtree::QuadTree::new(
                 params.quadtree_max_depth,
                 params.quadtree_max_per_node,
@@ -188,11 +214,16 @@ pub fn build_entity_index(
             params.quadtree_max_depth,
             params.quadtree_max_per_node,
         )),
-        "hash_grid" => Box::new(super::hash_grid::SpatialHashGrid::new(params.hash_grid_cell_size)),
+        "hash_grid" => Box::new(super::hash_grid::SpatialHashGrid::new(
+            params.hash_grid_cell_size,
+        )),
         "bvh" => Box::new(super::bvh::Bvh::new(params.bvh_max_leaf)),
         "sap" => Box::new(super::sweep_and_prune::SweepAndPrune::new()),
         other => {
-            log::warn!("Unknown SPATIAL_INDEX = {:?} for entity index, falling back to sap", other);
+            log::warn!(
+                "Unknown SPATIAL_INDEX = {:?} for entity index, falling back to sap",
+                other
+            );
             Box::new(super::sweep_and_prune::SweepAndPrune::new())
         }
     }

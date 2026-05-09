@@ -8,7 +8,7 @@ use specs::Entity;
 use vek::Vec2;
 
 use crate::comp::outcome::DisIndex;
-use crate::vision::{Bounds, Entry, SpatialIndex, SpatialIndexParams, build_entity_index};
+use crate::vision::{build_entity_index, Bounds, Entry, SpatialIndex, SpatialIndexParams};
 
 /// 預設 collision world bounds：給 QuadTree/BVH 用，SAP/SHG 忽略。
 /// 寬鬆設定避免 entities 落在 bounds 之外被忽略；之後可從 toml 調整。
@@ -45,22 +45,32 @@ impl CollisionIndex {
     /// 但走 trait 的 `bulk_replace`：default 等同 initialize 全 reset；SAP override 成
     /// 「保留 slot map、diff 增減的部份、再對 xs/ys 重新排序」的 incremental 路徑。
     pub fn rebuild_from<I>(&mut self, items: I)
-    where I: IntoIterator<Item = (Entity, Vec2<f32>)>
+    where
+        I: IntoIterator<Item = (Entity, Vec2<f32>)>,
     {
-        let entries: Vec<Entry<Entity, ()>> = items.into_iter()
+        let entries: Vec<Entry<Entity, ()>> = items
+            .into_iter()
             .map(|(e, p)| Entry::point(e, (), p))
             .collect();
         self.index.bulk_replace(self.bounds.clone(), entries);
         self.dirty = false;
     }
 
-    pub fn mark_dirty(&mut self) { self.dirty = true; }
-    pub fn is_dirty(&self) -> bool { self.dirty }
+    pub fn mark_dirty(&mut self) {
+        self.dirty = true;
+    }
+    pub fn is_dirty(&self) -> bool {
+        self.dirty
+    }
 
     /// Diagnostic counter — 對 SAP/SHG/BVH 是 entry 數，對 QuadTree 是節點數
-    pub fn count(&self) -> usize { self.index.count_nodes() }
+    pub fn count(&self) -> usize {
+        self.index.count_nodes()
+    }
 
-    pub fn kind(&self) -> &'static str { self.kind }
+    pub fn kind(&self) -> &'static str {
+        self.kind
+    }
 
     /// 範圍查詢：回傳 `Vec<DisIndex { e, dis }>`，dis 為 squared distance；
     /// 按 dis 升冪 sort，取前 n 個。
@@ -70,10 +80,17 @@ impl CollisionIndex {
         for entry in self.index.query_in_range(pos, radius) {
             let d2 = entry.position.distance_squared(pos);
             if d2 < r2 {
-                out.push(DisIndex { e: entry.id, dis: d2 });
+                out.push(DisIndex {
+                    e: entry.id,
+                    dis: d2,
+                });
             }
         }
-        out.sort_by(|a, b| a.dis.partial_cmp(&b.dis).unwrap_or(std::cmp::Ordering::Equal));
+        out.sort_by(|a, b| {
+            a.dis
+                .partial_cmp(&b.dis)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         out.truncate(n);
         out
     }
@@ -94,12 +111,22 @@ impl CollisionIndex {
         for entry in self.index.query_in_range(pos, r_outer) {
             let d2 = entry.position.distance_squared(pos);
             if d2 < r2_inner {
-                inner.push(DisIndex { e: entry.id, dis: d2 });
+                inner.push(DisIndex {
+                    e: entry.id,
+                    dis: d2,
+                });
             } else if d2 < r2_outer {
-                outer.push(DisIndex { e: entry.id, dis: d2 });
+                outer.push(DisIndex {
+                    e: entry.id,
+                    dis: d2,
+                });
             }
         }
-        inner.sort_by(|a, b| a.dis.partial_cmp(&b.dis).unwrap_or(std::cmp::Ordering::Equal));
+        inner.sort_by(|a, b| {
+            a.dis
+                .partial_cmp(&b.dis)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         inner.truncate(n);
         (inner, outer)
     }

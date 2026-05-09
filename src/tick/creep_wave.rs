@@ -1,16 +1,16 @@
-use rayon::iter::IntoParallelRefIterator;
-use specs::{
-    shred, Entities, Join, LazyUpdate, Read, ReadExpect, ReadStorage, SystemData,
-    Write, WriteStorage, ParJoin, World,
-};
-use std::{thread, ops::Deref, collections::BTreeMap};
 use crate::comp::*;
-use specs::prelude::ParallelIterator;
-use vek::Vec2;
-use crossbeam_channel::{Receiver, Sender};
 use crate::transport::OutboundMsg;
-use serde_json::json;
+use crossbeam_channel::{Receiver, Sender};
 use omoba_sim::{Fixed64, Vec2 as SimVec2};
+use rayon::iter::IntoParallelRefIterator;
+use serde_json::json;
+use specs::prelude::ParallelIterator;
+use specs::{
+    shred, Entities, Join, LazyUpdate, ParJoin, Read, ReadExpect, ReadStorage, SystemData, World,
+    Write, WriteStorage,
+};
+use std::{collections::BTreeMap, ops::Deref, thread};
+use vek::Vec2;
 
 #[derive(SystemData)]
 pub struct CreepWaveRead<'a> {
@@ -19,7 +19,7 @@ pub struct CreepWaveRead<'a> {
     dt: Read<'a, DeltaTime>,
     creep_emiters: Read<'a, BTreeMap<String, CreepEmiter>>,
     paths: Read<'a, BTreeMap<String, Path>>,
-    check_points : Read<'a, BTreeMap<String, CheckPoint>>,
+    check_points: Read<'a, BTreeMap<String, CheckPoint>>,
     creeps: ReadStorage<'a, Creep>,
     game_mode: Read<'a, GameMode>,
 }
@@ -36,10 +36,7 @@ pub struct CreepWaveWrite<'a> {
 pub struct Sys;
 
 impl<'a> System<'a> for Sys {
-    type SystemData = (
-        CreepWaveRead<'a>,
-        CreepWaveWrite<'a>,
-    );
+    type SystemData = (CreepWaveRead<'a>, CreepWaveWrite<'a>);
 
     const NAME: &'static str = "creep_wave";
 
@@ -56,13 +53,19 @@ impl<'a> System<'a> for Sys {
         if cw.wave >= tw.creep_waves.len() {
             return;
         }
-        let Some(w) = tw.creep_waves.get(cw.wave) else { return };
+        let Some(w) = tw.creep_waves.get(cw.wave) else {
+            return;
+        };
 
         // TD 模式：只有按 StartRound 後 is_running=true 才出怪；
         // 波的參考開始時間改用 `cw.wave_start_time`（按下時記錄的 totaltime）。
         // 非 TD：沿用原時間觸發（`w.time` 絕對開始時間）。
         let ref_time = if is_td { cw.wave_start_time } else { w.time };
-        let can_run = if is_td { cw.is_running } else { w.time < totaltime as f32 };
+        let can_run = if is_td {
+            cw.is_running
+        } else {
+            w.time < totaltime as f32
+        };
         if !can_run {
             return;
         }
@@ -88,14 +91,22 @@ impl<'a> System<'a> for Sys {
                             // 是階段 1d)。每次生成時橋一次。
                             let cp0 = CreepData {
                                 pos: SimVec2::new(
-                                    Fixed64::from_raw((ct.pos.x * omoba_sim::fixed::SCALE as f32) as i64),
-                                    Fixed64::from_raw((ct.pos.y * omoba_sim::fixed::SCALE as f32) as i64),
+                                    Fixed64::from_raw(
+                                        (ct.pos.x * omoba_sim::fixed::SCALE as f32) as i64,
+                                    ),
+                                    Fixed64::from_raw(
+                                        (ct.pos.y * omoba_sim::fixed::SCALE as f32) as i64,
+                                    ),
                                 ),
                                 creep: cpp.clone(),
                                 cdata: cp.property.clone(),
                                 faction_name: cp.faction_name.clone(),
-                                turn_speed_deg: Fixed64::from_raw((cp.turn_speed_deg * omoba_sim::fixed::SCALE as f32) as i64),
-                                collision_radius: Fixed64::from_raw((cp.collision_radius * omoba_sim::fixed::SCALE as f32) as i64),
+                                turn_speed_deg: Fixed64::from_raw(
+                                    (cp.turn_speed_deg * omoba_sim::fixed::SCALE as f32) as i64,
+                                ),
+                                collision_radius: Fixed64::from_raw(
+                                    (cp.collision_radius * omoba_sim::fixed::SCALE as f32) as i64,
+                                ),
                             };
                             tw.outcomes.push(Outcome::Creep { cd: cp0 });
                         }
@@ -129,10 +140,16 @@ impl<'a> System<'a> for Sys {
                 #[cfg(not(any(feature = "grpc", feature = "kcp")))]
                 let round_msg = OutboundMsg::new_s("td/all/res", "game", "round", payload);
                 let _ = tx.try_send(round_msg);
-                log::info!("✅ TD 第 {} 波結束，等待 StartRound（已完成 {}/{}）", finished, finished, total);
+                log::info!(
+                    "✅ TD 第 {} 波結束，等待 StartRound（已完成 {}/{}）",
+                    finished,
+                    finished,
+                    total
+                );
                 // 所有波都打完 → 勝利
                 if finished >= total {
-                    let end_payload = json!({ "result": "victory", "reason": "all_rounds_cleared" });
+                    let end_payload =
+                        json!({ "result": "victory", "reason": "all_rounds_cleared" });
                     #[cfg(any(feature = "grpc", feature = "kcp"))]
                     let end_msg = OutboundMsg::new_s_all("td/all/res", "game", "end", end_payload);
                     #[cfg(not(any(feature = "grpc", feature = "kcp")))]

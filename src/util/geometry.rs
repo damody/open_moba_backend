@@ -139,12 +139,20 @@ mod tests {
     #[test]
     fn circle_touches_edge() {
         assert!(circle_hits_polygon(Vec2::new(-5.0, 50.0), 10.0, &square()));
-        assert!(!circle_hits_polygon(Vec2::new(-20.0, 50.0), 10.0, &square()));
+        assert!(!circle_hits_polygon(
+            Vec2::new(-20.0, 50.0),
+            10.0,
+            &square()
+        ));
     }
 
     #[test]
     fn circle_separate() {
-        assert!(!circle_hits_polygon(Vec2::new(300.0, 300.0), 10.0, &square()));
+        assert!(!circle_hits_polygon(
+            Vec2::new(300.0, 300.0),
+            10.0,
+            &square()
+        ));
     }
 
     #[test]

@@ -1,6 +1,6 @@
+use serde::{Deserialize, Serialize};
 use specs::storage::VecStorage;
 use specs::Component;
-use serde::{Deserialize, Serialize};
 
 /// 擊殺獎勵：金錢與經驗值
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]

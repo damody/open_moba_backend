@@ -1,12 +1,12 @@
+use omoba_sim::Fixed64;
+use serde::{Deserialize, Serialize};
 use specs::storage::VecStorage;
 use specs::{Component, Entity};
-use serde::{Deserialize, Serialize};
-use omoba_sim::Fixed64;
 
 /// 傷害來源信息
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct DamageSource {
-    pub source_entity: Entity,     // 傷害來源實體
+    pub source_entity: Entity, // 傷害來源實體
     pub source_type: DamageSourceType,
     pub ability_id: Option<String>, // 如果是技能造成的傷害
 }
@@ -14,11 +14,11 @@ pub struct DamageSource {
 /// 傷害來源類型
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum DamageSourceType {
-    Attack,          // 普通攻擊
-    Ability,         // 技能傷害
-    Item,            // 物品傷害
-    Environment,     // 環境傷害（毒、燃燒等）
-    Reflect,         // 反射傷害
+    Attack,      // 普通攻擊
+    Ability,     // 技能傷害
+    Item,        // 物品傷害
+    Environment, // 環境傷害（毒、燃燒等）
+    Reflect,     // 反射傷害
 }
 
 /// 傷害實例 - 包含完整的傷害信息
@@ -37,18 +37,18 @@ pub struct DamageInstance {
 pub struct DamageTypes {
     pub physical: Fixed64,
     pub magical: Fixed64,
-    pub pure: Fixed64,      // 純粹傷害，無視防禦
+    pub pure: Fixed64, // 純粹傷害，無視防禦
 }
 
 /// 傷害標記
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct DamageFlags {
-    pub can_crit: bool,         // 可以暴擊
-    pub can_dodge: bool,        // 可以閃避
-    pub ignore_armor: bool,     // 無視護甲
+    pub can_crit: bool,            // 可以暴擊
+    pub can_dodge: bool,           // 可以閃避
+    pub ignore_armor: bool,        // 無視護甲
     pub ignore_magic_resist: bool, // 無視魔抗
-    pub lifesteal: Fixed64,     // 生命偷取比例
-    pub spell_vamp: Fixed64,    // 法術吸血比例
+    pub lifesteal: Fixed64,        // 生命偷取比例
+    pub spell_vamp: Fixed64,       // 法術吸血比例
 }
 
 /// 傷害結果 - 計算後的實際傷害
@@ -56,13 +56,13 @@ pub struct DamageFlags {
 pub struct DamageResult {
     pub target: Entity,
     pub source: DamageSource,
-    pub original_damage: DamageTypes,    // 原始傷害
-    pub actual_damage: DamageTypes,      // 實際造成傷害
-    pub total_damage: Fixed64,           // 總傷害
-    pub absorbed: Fixed64,               // 被護甲/魔抗吸收的傷害
+    pub original_damage: DamageTypes, // 原始傷害
+    pub actual_damage: DamageTypes,   // 實際造成傷害
+    pub total_damage: Fixed64,        // 總傷害
+    pub absorbed: Fixed64,            // 被護甲/魔抗吸收的傷害
     pub is_critical: bool,
     pub is_dodged: bool,
-    pub healing: Fixed64,                // 生命偷取/法術吸血的治療量
+    pub healing: Fixed64, // 生命偷取/法術吸血的治療量
 }
 
 impl Component for DamageInstance {
@@ -75,19 +75,35 @@ impl Component for DamageResult {
 
 impl DamageTypes {
     pub fn new(physical: Fixed64, magical: Fixed64, pure: Fixed64) -> Self {
-        DamageTypes { physical, magical, pure }
+        DamageTypes {
+            physical,
+            magical,
+            pure,
+        }
     }
 
     pub fn physical_only(damage: Fixed64) -> Self {
-        DamageTypes { physical: damage, magical: Fixed64::ZERO, pure: Fixed64::ZERO }
+        DamageTypes {
+            physical: damage,
+            magical: Fixed64::ZERO,
+            pure: Fixed64::ZERO,
+        }
     }
 
     pub fn magical_only(damage: Fixed64) -> Self {
-        DamageTypes { physical: Fixed64::ZERO, magical: damage, pure: Fixed64::ZERO }
+        DamageTypes {
+            physical: Fixed64::ZERO,
+            magical: damage,
+            pure: Fixed64::ZERO,
+        }
     }
 
     pub fn pure_only(damage: Fixed64) -> Self {
-        DamageTypes { physical: Fixed64::ZERO, magical: Fixed64::ZERO, pure: damage }
+        DamageTypes {
+            physical: Fixed64::ZERO,
+            magical: Fixed64::ZERO,
+            pure: damage,
+        }
     }
 
     pub fn total(&self) -> Fixed64 {
@@ -95,7 +111,9 @@ impl DamageTypes {
     }
 
     pub fn is_zero(&self) -> bool {
-        self.physical <= Fixed64::ZERO && self.magical <= Fixed64::ZERO && self.pure <= Fixed64::ZERO
+        self.physical <= Fixed64::ZERO
+            && self.magical <= Fixed64::ZERO
+            && self.pure <= Fixed64::ZERO
     }
 }
 
@@ -150,9 +168,14 @@ impl DamageInstance {
             damage_flags: DamageFlags::default_attack(),
         }
     }
-    
+
     /// 創建技能傷害
-    pub fn new_ability(source: Entity, target: Entity, damage_types: DamageTypes, ability_id: String) -> Self {
+    pub fn new_ability(
+        source: Entity,
+        target: Entity,
+        damage_types: DamageTypes,
+        ability_id: String,
+    ) -> Self {
         DamageInstance {
             target,
             source: DamageSource {

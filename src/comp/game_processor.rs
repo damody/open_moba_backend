@@ -1,9 +1,12 @@
-use std::collections::BTreeMap;
-use std::time::Instant;
 use failure::Error;
 use omb_script_abi::stat_keys::StatKey;
 use serde_json::json;
-use specs::{World, WorldExt, Entity, Builder, storage::{WriteStorage, ReadStorage}};
+use specs::{
+    storage::{ReadStorage, WriteStorage},
+    Builder, Entity, World, WorldExt,
+};
+use std::collections::BTreeMap;
+use std::time::Instant;
 
 use crate::comp::*;
 use crate::transport::OutboundMsg;
@@ -30,7 +33,9 @@ fn make_game_lives(lives: i32) -> OutboundMsg {
         use crate::transport::TypedOutbound;
         // P5：全遊戲範圍的事件－觸及每位玩家。
         OutboundMsg::new_typed_all(
-            "td/all/res", "game", "lives",
+            "td/all/res",
+            "game",
+            "lives",
             TypedOutbound::GameLives(proto_build::game_lives(lives)),
             json!({ "lives": lives }),
         )
@@ -50,7 +55,9 @@ fn make_game_end(winner: &str, extra: serde_json::Value) -> OutboundMsg {
         use crate::transport::TypedOutbound;
         // P5：遊戲結束向所有玩家廣播。
         OutboundMsg::new_typed_all(
-            "td/all/res", "game", "end",
+            "td/all/res",
+            "game",
+            "end",
             TypedOutbound::GameEnd(proto_build::game_end(winner)),
             extra,
         )
@@ -86,7 +93,10 @@ fn outcome_kind(o: &Outcome) -> &'static str {
 pub struct GameProcessor;
 
 impl GameProcessor {
-    pub fn process_outcomes(ecs: &mut World, mqtx: &crossbeam_channel::Sender<OutboundMsg>) -> Result<(), Error> {
+    pub fn process_outcomes(
+        ecs: &mut World,
+        mqtx: &crossbeam_channel::Sender<OutboundMsg>,
+    ) -> Result<(), Error> {
         let mut remove_uids = vec![];
         let mut next_outcomes = vec![];
         let mut variant_timings: Vec<(&'static str, u128)> = Vec::new();
@@ -104,12 +114,21 @@ impl GameProcessor {
                 let mut aggregated: Vec<Outcome> = Vec::with_capacity(raw_outcomes.len());
                 for out in raw_outcomes {
                     if let Outcome::Damage {
-                        phys: p, magi: m, real: r, target: t, predeclared: pd, ..
+                        phys: p,
+                        magi: m,
+                        real: r,
+                        target: t,
+                        predeclared: pd,
+                        ..
                     } = &out
                     {
                         if let Some(&idx) = first_dmg_idx.get(t) {
                             if let Outcome::Damage {
-                                phys: ap, magi: am, real: ar, predeclared: apd, ..
+                                phys: ap,
+                                magi: am,
+                                real: ar,
+                                predeclared: apd,
+                                ..
                             } = &mut aggregated[idx]
                             {
                                 *ap += *p;
@@ -131,10 +150,7 @@ impl GameProcessor {
                 aggregated
             };
             if merged_damage_count > 0 {
-                variant_timings.push((
-                    "DamageMerge",
-                    damage_merge_start.elapsed().as_nanos(),
-                ));
+                variant_timings.push(("DamageMerge", damage_merge_start.elapsed().as_nanos()));
             }
 
             for out in outcomes {
@@ -145,10 +161,18 @@ impl GameProcessor {
                         remove_uids.push(e);
                         Self::handle_death(ecs, &mut next_outcomes, mqtx, e)?;
                     }
-                    Outcome::ProjectileLine2 { pos, source, target } => {
+                    Outcome::ProjectileLine2 {
+                        pos,
+                        source,
+                        target,
+                    } => {
                         Self::handle_projectile(ecs, mqtx, pos, source, target)?;
                     }
-                    Outcome::ProjectileDirectional { pos, source, end_pos } => {
+                    Outcome::ProjectileDirectional {
+                        pos,
+                        source,
+                        end_pos,
+                    } => {
                         Self::handle_projectile_directional(ecs, mqtx, pos, source, end_pos)?;
                     }
                     Outcome::Creep { cd } => {
@@ -163,13 +187,39 @@ impl GameProcessor {
                     Outcome::CreepWalk { target } => {
                         Self::handle_creep_walk(ecs, target)?;
                     }
-                    Outcome::Damage { pos, phys, magi, real, source, target, predeclared } => {
-                        Self::handle_damage(ecs, &mut next_outcomes, pos, phys, magi, real, source, target, predeclared)?;
+                    Outcome::Damage {
+                        pos,
+                        phys,
+                        magi,
+                        real,
+                        source,
+                        target,
+                        predeclared,
+                    } => {
+                        Self::handle_damage(
+                            ecs,
+                            &mut next_outcomes,
+                            pos,
+                            phys,
+                            magi,
+                            real,
+                            source,
+                            target,
+                            predeclared,
+                        )?;
                     }
-                    Outcome::Heal { pos, target, amount } => {
+                    Outcome::Heal {
+                        pos,
+                        target,
+                        amount,
+                    } => {
                         Self::handle_heal(ecs, target, amount)?;
                     }
-                    Outcome::UpdateAttack { target, asd_count, cooldown_reset } => {
+                    Outcome::UpdateAttack {
+                        target,
+                        asd_count,
+                        cooldown_reset,
+                    } => {
                         Self::handle_attack_update(ecs, target, asd_count, cooldown_reset)?;
                     }
                     Outcome::GainExperience { target, amount } => {
@@ -182,10 +232,19 @@ impl GameProcessor {
                         remove_uids.push(ent);
                         Self::handle_creep_leaked(ecs, mqtx, ent)?;
                     }
-                    Outcome::AddBuff { target, buff_id, duration, payload } => {
+                    Outcome::AddBuff {
+                        target,
+                        buff_id,
+                        duration,
+                        payload,
+                    } => {
                         Self::handle_add_buff(ecs, target, buff_id, duration, payload)?;
                     }
-                    Outcome::Explosion { pos, radius, duration } => {
+                    Outcome::Explosion {
+                        pos,
+                        radius,
+                        duration,
+                    } => {
                         // 階段 4.2：路由遺留 `make_game_explosion` mqtx
                         // 透過確定性快照管道發出。
                         // 推入 ExplosionFxQueue（非狀態資源 —
@@ -229,7 +288,8 @@ impl GameProcessor {
 
         ecs.delete_entities(&remove_uids[..]);
         ecs.write_resource::<Vec<Outcome>>().clear();
-        ecs.write_resource::<Vec<Outcome>>().append(&mut next_outcomes);
+        ecs.write_resource::<Vec<Outcome>>()
+            .append(&mut next_outcomes);
 
         {
             let mut profile = ecs.write_resource::<TickProfile>();
@@ -240,12 +300,12 @@ impl GameProcessor {
 
         Ok(())
     }
-    
+
     fn handle_death(
         ecs: &mut World,
         next_outcomes: &mut Vec<Outcome>,
         mqtx: &crossbeam_channel::Sender<OutboundMsg>,
-        entity: Entity
+        entity: Entity,
     ) -> Result<(), Error> {
         // 只有敵方基地死亡才算玩家勝（我方基地雖有 IsBase，不觸發勝負）
         let is_enemy_base = {
@@ -288,13 +348,18 @@ impl GameProcessor {
 
         if is_enemy_base {
             // 敵方基地被擊毀 → 玩家勝利
-            log::info!("🏆 敵方基地 entity {:?} destroyed — emitting game.end", entity);
-            let _ = mqtx.send(make_game_end("player",
-                json!({"winner": "player", "base_entity_id": entity.id()})));
+            log::info!(
+                "🏆 敵方基地 entity {:?} destroyed — emitting game.end",
+                entity
+            );
+            let _ = mqtx.send(make_game_end(
+                "player",
+                json!({"winner": "player", "base_entity_id": entity.id()}),
+            ));
         }
         Ok(())
     }
-    
+
     /// 將 Bounty 分配給最近的友方英雄（MVP 以玩家陣營為友方）
     fn distribute_bounty(
         ecs: &mut World,
@@ -380,7 +445,7 @@ impl GameProcessor {
         mqtx: &crossbeam_channel::Sender<OutboundMsg>,
         pos: omoba_sim::Vec2,
         source: Option<Entity>,
-        target: Option<Entity>
+        target: Option<Entity>,
     ) -> Result<(), Error> {
         use omoba_sim::{Fixed64, Vec2 as SimVec2};
         let source_entity = source.ok_or_else(|| failure::err_msg("Missing source entity"))?;
@@ -404,9 +469,15 @@ impl GameProcessor {
             let buff_store = ecs.read_resource::<crate::ability_runtime::BuffStore>();
             let is_buildings = ecs.read_storage::<IsBuilding>();
 
-            let _p1 = positions.get(source_entity).ok_or_else(|| failure::err_msg("Source position not found"))?;
-            let p2 = positions.get(target_entity).ok_or_else(|| failure::err_msg("Target position not found"))?;
-            let tp = tproperty.get(source_entity).ok_or_else(|| failure::err_msg("Source attack properties not found"))?;
+            let _p1 = positions
+                .get(source_entity)
+                .ok_or_else(|| failure::err_msg("Source position not found"))?;
+            let p2 = positions
+                .get(target_entity)
+                .ok_or_else(|| failure::err_msg("Target position not found"))?;
+            let tp = tproperty
+                .get(source_entity)
+                .ok_or_else(|| failure::err_msg("Source attack properties not found"))?;
             let is_b = is_buildings.get(source_entity).is_some();
             let stats = crate::ability_runtime::UnitStats::from_refs(&*buff_store, is_b);
             let mut final_atk: Fixed64 = stats.final_atk(tp.atk_physic.v, source_entity);
@@ -414,12 +485,18 @@ impl GameProcessor {
             // Accuracy 擲骰：base 命中率 1.0 + sum(accuracy_bonus) buffs；clamp [0,1]。
             // miss → damage=0（projectile 仍飛行，前端可由 0 傷害判定顯示 miss）。
             // 階段 1de.2：確定性每個（攻擊者、OP_PROJECTILE_ACCURACY）流。
-            let accuracy_bonus = buff_store
-                .sum_add(source_entity, omb_script_abi::stat_keys::StatKey::AccuracyBonus);
-            let accuracy: Fixed64 = (Fixed64::ONE + accuracy_bonus).clamp(Fixed64::ZERO, Fixed64::ONE);
+            let accuracy_bonus = buff_store.sum_add(
+                source_entity,
+                omb_script_abi::stat_keys::StatKey::AccuracyBonus,
+            );
+            let accuracy: Fixed64 =
+                (Fixed64::ONE + accuracy_bonus).clamp(Fixed64::ZERO, Fixed64::ONE);
             if accuracy < Fixed64::ONE {
                 let mut acc_rng = omoba_sim::SimRng::from_master_entity(
-                    master_seed, tick, attacker_id, OP_PROJECTILE_ACCURACY,
+                    master_seed,
+                    tick,
+                    attacker_id,
+                    OP_PROJECTILE_ACCURACY,
                 );
                 let roll: Fixed64 = acc_rng.gen_fixed64_unit();
                 // 原始語意：miss iff roll > 準確性。與Fixed64統一
@@ -436,8 +513,16 @@ impl GameProcessor {
             let mut stun_chance = 0.0f32;
             let mut stun_duration = 0.0f32;
             for (_, entry) in buff_store.iter_for(source_entity) {
-                let c = entry.payload.get("attack_stun_chance").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
-                let d = entry.payload.get("attack_stun_duration").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+                let c = entry
+                    .payload
+                    .get("attack_stun_chance")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0) as f32;
+                let d = entry
+                    .payload
+                    .get("attack_stun_duration")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0) as f32;
                 if c > stun_chance {
                     stun_chance = c;
                     stun_duration = d;
@@ -446,7 +531,10 @@ impl GameProcessor {
             // 階段 1de.2：確定性每個（攻擊者、OP_PROJECTILE_STUN_ROLL）流。
             let stun_roll: Fixed64 = if stun_chance > 0.0 && stun_duration > 0.0 {
                 let mut stun_rng = omoba_sim::SimRng::from_master_entity(
-                    master_seed, tick, attacker_id, OP_PROJECTILE_STUN_ROLL,
+                    master_seed,
+                    tick,
+                    attacker_id,
+                    OP_PROJECTILE_STUN_ROLL,
                 );
                 let roll = stun_rng.gen_fixed64_unit().to_f32_for_render();
                 if roll < stun_chance {
@@ -463,7 +551,11 @@ impl GameProcessor {
             let vc = buff_store
                 .sum_add(source_entity, StatKey::MultiShotVisual)
                 .to_f32_for_render();
-            let visual_count = if vc >= 2.0 { vc.round().max(1.0) as u32 } else { 1 };
+            let visual_count = if vc >= 2.0 {
+                vc.round().max(1.0) as u32
+            } else {
+                1
+            };
 
             (tp.bullet_speed, p2.0, final_atk, stun_roll, visual_count)
         };
@@ -480,7 +572,9 @@ impl GameProcessor {
         } else {
             0.01
         };
-        let safety_time_left: Fixed64 = Fixed64::from_raw(((flight_time_s * 3.0 + 3.0) * omoba_sim::fixed::SCALE as f32) as i64);
+        let safety_time_left: Fixed64 = Fixed64::from_raw(
+            ((flight_time_s * 3.0 + 3.0) * omoba_sim::fixed::SCALE as f32) as i64,
+        );
 
         // Legacy path (MOBA 英雄 / 非腳本塔)：單體傷害、無 splash、無 slow
         let splash_radius: Fixed64 = Fixed64::ZERO;
@@ -489,7 +583,7 @@ impl GameProcessor {
 
         let ntarget = target_entity.id();
         let flight_time_ms: u64 = (flight_time_s * 1000.0).max(1.0) as u64;
-        let kind_id: u16 = 0;  // UNSPECIFIED — legacy handler, no template assignment
+        let kind_id: u16 = 0; // UNSPECIFIED — legacy handler, no template assignment
 
         // 主彈 + 視覺彈（大絕變身 buff 讓 visual_count=3）：
         // i == 0 為真實子彈（damage = atk_phys、target 追蹤、吃 stun roll）
@@ -506,12 +600,16 @@ impl GameProcessor {
         for i in 0..visual_count {
             let is_real = i == 0;
             let dmg_phys_this: Fixed64 = if is_real { atk_phys } else { Fixed64::ZERO };
-            let stun_this: Fixed64 = if is_real { stun_duration_roll } else { Fixed64::ZERO };
+            let stun_this: Fixed64 = if is_real {
+                stun_duration_roll
+            } else {
+                Fixed64::ZERO
+            };
             let target_this = if is_real { target } else { None };
             // (i - 半) * 橫向步長;以Fixed64計算：一半可以是0.5
             // → 編碼為原始 512。
             let lateral: Fixed64 = if visual_count > 1 {
-                let half_raw: i64 = ((visual_count as i64 - 1) * 512) ; // (n-1)/2 * SCALE
+                let half_raw: i64 = ((visual_count as i64 - 1) * 512); // (n-1)/2 * SCALE
                 let i_scaled: i64 = i as i64 * omoba_sim::fixed::SCALE; // i * SCALE
                 let diff_raw: i64 = i_scaled - half_raw;
                 Fixed64::from_raw(diff_raw) * lateral_step
@@ -524,7 +622,8 @@ impl GameProcessor {
             let p2_x_f = p2.x.to_f32_for_render();
             let p2_y_f = p2.y.to_f32_for_render();
 
-            let e = ecs.create_entity()
+            let e = ecs
+                .create_entity()
                 .with(Pos(start_pos))
                 .with(Projectile {
                     time_left: safety_time_left,
@@ -542,13 +641,20 @@ impl GameProcessor {
                     stun_duration: stun_this,
                 })
                 .build();
-
         }
         Ok(())
     }
 
-    fn handle_creep_spawn(ecs: &mut World, mqtx: &crossbeam_channel::Sender<OutboundMsg>, cd: CreepData) -> Result<(), Error> {
-        let display_name = cd.creep.label.clone().unwrap_or_else(|| cd.creep.name.clone());
+    fn handle_creep_spawn(
+        ecs: &mut World,
+        mqtx: &crossbeam_channel::Sender<OutboundMsg>,
+        cd: CreepData,
+    ) -> Result<(), Error> {
+        let display_name = cd
+            .creep
+            .label
+            .clone()
+            .unwrap_or_else(|| cd.creep.name.clone());
         let creep_name = cd.creep.name.clone();
         let hp = cd.cdata.hp;
         let mhp = cd.cdata.mhp;
@@ -571,7 +677,8 @@ impl GameProcessor {
         let turn_speed_rad_f = cd.turn_speed_deg.to_f32_for_render().to_radians();
         // Creep 統一掛 ScriptUnitTag（預設全單位腳本化）；unit_id = "creep_{name}"
         let unit_id = format!("creep_{}", creep_name);
-        let e = ecs.create_entity()
+        let e = ecs
+            .create_entity()
             .with(Pos(pos)) // SimVec2 直接內嵌
             .with(cd.creep)
             .with(cd.cdata)
@@ -579,8 +686,12 @@ impl GameProcessor {
             .with(bounty)
             .with(Facing(omoba_sim::Angle::ZERO))
             .with(FacingBroadcast(None))
-            .with(TurnSpeed(omoba_sim::Fixed64::from_raw((turn_speed_rad_f * 1024.0) as i64)))
-            .with(crate::scripting::ScriptUnitTag { unit_id: unit_id.clone() })
+            .with(TurnSpeed(omoba_sim::Fixed64::from_raw(
+                (turn_speed_rad_f * 1024.0) as i64,
+            )))
+            .with(crate::scripting::ScriptUnitTag {
+                unit_id: unit_id.clone(),
+            })
             .build();
         ecs.write_resource::<crate::scripting::ScriptEventQueue>()
             .push(crate::scripting::ScriptEvent::Spawn { e });
@@ -590,12 +701,13 @@ impl GameProcessor {
         // 設計上也允許某些 buff 顯式拿掉這個下限（例如「凍結 1 秒」效果）。
         // 階段 1c.3：BuffStore::add 現在採用 Fix64 — 使用原始 i32::MAX 作為
         // 「永久」哨兵。注意：i32::MAX 持續時間是永久 buff 約定；可在第 2 階段以明確的 None/permanent 標誌取代。
-        ecs.write_resource::<crate::ability_runtime::BuffStore>().add(
-            e,
-            "creep_min_speed_floor",
-            omoba_sim::Fixed64::from_raw(i64::MAX),
-            serde_json::json!({ "movespeed_absolute_min": 10.0 }),
-        );
+        ecs.write_resource::<crate::ability_runtime::BuffStore>()
+            .add(
+                e,
+                "creep_min_speed_floor",
+                omoba_sim::Fixed64::from_raw(i64::MAX),
+                serde_json::json!({ "movespeed_absolute_min": 10.0 }),
+            );
         Ok(())
     }
 
@@ -637,8 +749,10 @@ impl GameProcessor {
         let _ = mqtx.try_send(make_game_lives(remaining));
 
         if remaining <= 0 {
-            let _ = mqtx.try_send(make_game_end("defeat",
-                json!({ "result": "defeat", "reason": "lives_depleted" })));
+            let _ = mqtx.try_send(make_game_end(
+                "defeat",
+                json!({ "result": "defeat", "reason": "lives_depleted" }),
+            ));
             log::warn!("☠️ TD 模式：玩家生命歸零，遊戲結束");
         }
         Ok(())
@@ -652,26 +766,36 @@ impl GameProcessor {
         source: Option<Entity>,
         end_pos: omoba_sim::Vec2,
     ) -> Result<(), Error> {
-        use specs::{Builder, WorldExt};
         use omoba_sim::Fixed64;
+        use specs::{Builder, WorldExt};
 
-        let source_entity = source.ok_or_else(|| failure::err_msg("ProjectileDirectional 缺少 source"))?;
+        let source_entity =
+            source.ok_or_else(|| failure::err_msg("ProjectileDirectional 缺少 source"))?;
 
         // 此 path 為 legacy（tower_tick 不再 push ProjectileDirectional；Tack 走腳本
         // spawn_projectile_ex）。保留 handle 作為備用；kind_id 留 0 (UNSPECIFIED)
         let (msd, atk_phys, kind_id): (Fixed64, Fixed64, u16) = {
             let tatks = ecs.read_storage::<TAttack>();
-            let tp = tatks.get(source_entity).ok_or_else(|| failure::err_msg("Source attack properties not found"))?;
+            let tp = tatks
+                .get(source_entity)
+                .ok_or_else(|| failure::err_msg("Source attack properties not found"))?;
             (tp.bullet_speed, tp.atk_physic.v, 0)
         };
 
         let initial_dist: Fixed64 = (end_pos - pos).length();
         let move_speed_f = msd.to_f32_for_render();
         let initial_dist_f = initial_dist.to_f32_for_render();
-        let flight_time_s: f32 = if move_speed_f > 0.0 { (initial_dist_f / move_speed_f).max(0.01) } else { 0.01 };
-        let safety_time_left: Fixed64 = Fixed64::from_raw(((flight_time_s * 1.5 + 0.5) * omoba_sim::fixed::SCALE as f32) as i64);
+        let flight_time_s: f32 = if move_speed_f > 0.0 {
+            (initial_dist_f / move_speed_f).max(0.01)
+        } else {
+            0.01
+        };
+        let safety_time_left: Fixed64 = Fixed64::from_raw(
+            ((flight_time_s * 1.5 + 0.5) * omoba_sim::fixed::SCALE as f32) as i64,
+        );
 
-        let e = ecs.create_entity()
+        let e = ecs
+            .create_entity()
             .with(Pos(pos))
             .with(Projectile {
                 time_left: safety_time_left,
@@ -693,8 +817,18 @@ impl GameProcessor {
         Ok(())
     }
 
-    fn handle_tower_spawn(ecs: &mut World, mqtx: &crossbeam_channel::Sender<OutboundMsg>, pos: omoba_sim::Vec2, td: TowerData) -> Result<(), Error> {
-        ecs.create_entity().with(Pos(pos)).with(Tower::new()).with(td.tpty).with(td.tatk).build();
+    fn handle_tower_spawn(
+        ecs: &mut World,
+        mqtx: &crossbeam_channel::Sender<OutboundMsg>,
+        pos: omoba_sim::Vec2,
+        td: TowerData,
+    ) -> Result<(), Error> {
+        ecs.create_entity()
+            .with(Pos(pos))
+            .with(Tower::new())
+            .with(td.tpty)
+            .with(td.tatk)
+            .build();
         ecs.get_mut::<Searcher>().unwrap().tower.mark_dirty();
         Ok(())
     }
@@ -728,12 +862,20 @@ impl GameProcessor {
         // spawn_td_tower 需要 Vec2<f32>；經由 to_f32_for_render 橋接。
         let pos_f32 = vek::Vec2::new(pos.x.to_f32_for_render(), pos.y.to_f32_for_render());
         let entity = crate::comp::tower_template::spawn_td_tower(world, pos_f32, unit_id)
-            .ok_or_else(|| failure::err_msg(format!(
-                "spawn_td_tower returned None for unit_id='{}'", unit_id
-            )))?;
+            .ok_or_else(|| {
+                failure::err_msg(format!(
+                    "spawn_td_tower returned None for unit_id='{}'",
+                    unit_id
+                ))
+            })?;
         log::info!(
             "TowerPlace ok pid={} kind_id={} unit_id='{}' pos=({:.1},{:.1}) entity={:?}",
-            owner_pid, kind_id, unit_id, pos_f32.x, pos_f32.y, entity
+            owner_pid,
+            kind_id,
+            unit_id,
+            pos_f32.x,
+            pos_f32.y,
+            entity
         );
         Ok(entity)
     }
@@ -748,10 +890,14 @@ impl GameProcessor {
             std::mem::take(&mut q.requests)
         };
         for req in drained {
-            if let Err(e) = Self::handle_tower_spawn_from_input(world, req.kind_id, req.pos, req.owner_pid) {
+            if let Err(e) =
+                Self::handle_tower_spawn_from_input(world, req.kind_id, req.pos, req.owner_pid)
+            {
                 log::warn!(
                     "TowerPlace failed pid={} kind_id={}: {}",
-                    req.owner_pid, req.kind_id, e
+                    req.owner_pid,
+                    req.kind_id,
+                    e
                 );
             }
         }
@@ -836,13 +982,16 @@ impl GameProcessor {
             let tags = world.read_storage::<crate::scripting::ScriptUnitTag>();
             let reg = world.read_resource::<crate::comp::tower_registry::TowerTemplateRegistry>();
             let towers = world.read_storage::<Tower>();
-            let ureg = world.read_resource::<crate::comp::tower_upgrade_registry::TowerUpgradeRegistry>();
+            let ureg =
+                world.read_resource::<crate::comp::tower_upgrade_registry::TowerUpgradeRegistry>();
             let base_refund = tags
                 .get(target_entity)
                 .and_then(|t| reg.get(&t.unit_id))
                 .map(|tpl| (tpl.cost as f32 * 0.85) as i32)
                 .unwrap_or(0);
-            let upgrade_refund = if let (Some(t), Some(tag)) = (towers.get(target_entity), tags.get(target_entity)) {
+            let upgrade_refund = if let (Some(t), Some(tag)) =
+                (towers.get(target_entity), tags.get(target_entity))
+            {
                 let mut total = 0i32;
                 for path in 0..3u8 {
                     for level in 1..=t.upgrade_levels[path as usize] {
@@ -891,12 +1040,17 @@ impl GameProcessor {
         // （在同一個tick中在drain_pending_*之後執行）處理
         // 實際的Entity().delete()+RemovedEntitiesQueue推送，以及
         // omfx 渲染透過 snapshot.removed_entity_ids 自動清理。
-        world.write_resource::<Vec<Outcome>>()
-            .push(Outcome::EntityRemoved { entity: target_entity });
+        world
+            .write_resource::<Vec<Outcome>>()
+            .push(Outcome::EntityRemoved {
+                entity: target_entity,
+            });
 
         log::info!(
             "TowerSell ok pid={} entity_id={} refund={}",
-            owner_pid, tower_entity_id, refund
+            owner_pid,
+            tower_entity_id,
+            refund
         );
         Ok(())
     }
@@ -911,10 +1065,14 @@ impl GameProcessor {
             std::mem::take(&mut q.requests)
         };
         for req in drained {
-            if let Err(e) = Self::handle_tower_sell_from_input(world, req.tower_entity_id, req.owner_pid) {
+            if let Err(e) =
+                Self::handle_tower_sell_from_input(world, req.tower_entity_id, req.owner_pid)
+            {
                 log::warn!(
                     "TowerSell failed pid={} entity_id={}: {}",
-                    req.owner_pid, req.tower_entity_id, e
+                    req.owner_pid,
+                    req.tower_entity_id,
+                    e
                 );
             }
         }
@@ -955,8 +1113,8 @@ impl GameProcessor {
         _level_hint: u8,
         owner_pid: u32,
     ) -> Result<(), Error> {
-        use specs::Join;
         use omoba_core::tower_meta::UpgradeEffect;
+        use specs::Join;
 
         if path >= 3 {
             return Err(failure::err_msg(format!(
@@ -1021,7 +1179,8 @@ impl GameProcessor {
         // 尋找 UpgradeDef（克隆出來以釋放對
         // 在我們借用其他資源之前先註冊資源）。
         let def = {
-            let reg = world.read_resource::<crate::comp::tower_upgrade_registry::TowerUpgradeRegistry>();
+            let reg =
+                world.read_resource::<crate::comp::tower_upgrade_registry::TowerUpgradeRegistry>();
             reg.get(&unit_id, path, next_level).cloned()
         };
         let def = match def {
@@ -1095,7 +1254,12 @@ impl GameProcessor {
             let mut store = world.write_resource::<crate::ability_runtime::BuffStore>();
             // Sentinel 透過原始 i64::MAX 實現“永久”，與傳統版本相匹配
             // Upgrade_tower 約定（BuffStore::add 採用 Fix64）。
-            store.add(target_entity, &buff_id, omoba_sim::Fixed64::from_raw(i64::MAX), payload);
+            store.add(
+                target_entity,
+                &buff_id,
+                omoba_sim::Fixed64::from_raw(i64::MAX),
+                payload,
+            );
         }
 
         // 遞增upgrade_levels[path] + 重複資料刪除upgrade_flags。
@@ -1113,7 +1277,12 @@ impl GameProcessor {
 
         log::info!(
             "TowerUpgrade ok pid={} eid={} kind={} path={} level={} cost={}",
-            owner_pid, tower_entity_id, unit_id, path, next_level, def.cost
+            owner_pid,
+            tower_entity_id,
+            unit_id,
+            path,
+            next_level,
+            def.cost
         );
         Ok(())
     }
@@ -1129,11 +1298,18 @@ impl GameProcessor {
         };
         for req in drained {
             if let Err(e) = Self::handle_tower_upgrade_from_input(
-                world, req.tower_entity_id, req.path, req.level, req.owner_pid,
+                world,
+                req.tower_entity_id,
+                req.path,
+                req.level,
+                req.owner_pid,
             ) {
                 log::warn!(
                     "TowerUpgrade failed pid={} eid={} path={}: {}",
-                    req.owner_pid, req.tower_entity_id, req.path, e
+                    req.owner_pid,
+                    req.tower_entity_id,
+                    req.path,
+                    e
                 );
             }
         }
@@ -1240,7 +1416,10 @@ impl GameProcessor {
 
         log::info!(
             "AbilityUpgrade ok pid={} slot={} ability='{}' level={}",
-            owner_pid, slot, ability_id, new_level
+            owner_pid,
+            slot,
+            ability_id,
+            new_level
         );
         Ok(())
     }
@@ -1252,14 +1431,14 @@ impl GameProcessor {
             std::mem::take(&mut q.requests)
         };
         for req in drained {
-            if let Err(e) = Self::handle_ability_upgrade_from_input(
-                world,
-                req.ability_index,
-                req.owner_pid,
-            ) {
+            if let Err(e) =
+                Self::handle_ability_upgrade_from_input(world, req.ability_index, req.owner_pid)
+            {
                 log::warn!(
                     "AbilityUpgrade failed pid={} ability_index={}: {}",
-                    req.owner_pid, req.ability_index, e
+                    req.owner_pid,
+                    req.ability_index,
+                    e
                 );
             }
         }
@@ -1370,7 +1549,9 @@ impl GameProcessor {
 
         log::info!(
             "AbilityCast ok pid={} slot={} ability='{}'",
-            owner_pid, slot, ability_id
+            owner_pid,
+            slot,
+            ability_id
         );
         Ok(())
     }
@@ -1391,7 +1572,9 @@ impl GameProcessor {
             ) {
                 log::warn!(
                     "AbilityCast failed pid={} ability_index={}: {}",
-                    req.owner_pid, req.ability_index, e
+                    req.owner_pid,
+                    req.ability_index,
+                    e
                 );
             }
         }
@@ -1425,8 +1608,8 @@ impl GameProcessor {
         _target_entity: Option<u32>,
         owner_pid: u32,
     ) -> Result<(), Error> {
-        use specs::Join;
         use crate::comp::inventory::INVENTORY_SLOTS;
+        use specs::Join;
 
         let slot_i = item_slot as usize;
         if slot_i >= INVENTORY_SLOTS {
@@ -1517,18 +1700,36 @@ impl GameProcessor {
                         log::info!("ItemUse Shield +{} HP pid={}", amount, owner_pid);
                     }
                     crate::item::ActiveEffect::RestoreMana { amount } => {
-                        log::info!("ItemUse RestoreMana +{} MP pid={} (mp not wired in MVP)", amount, owner_pid);
+                        log::info!(
+                            "ItemUse RestoreMana +{} MP pid={} (mp not wired in MVP)",
+                            amount,
+                            owner_pid
+                        );
                     }
                     crate::item::ActiveEffect::SprintBuff { ms_bonus, duration } => {
                         let bonus_fx = omoba_sim::Fixed64::from_raw((*ms_bonus * 1024.0) as i64);
                         p.msd += bonus_fx;
-                        log::info!("ItemUse SprintBuff +{} ms {}s pid={} (MVP no expiry)", ms_bonus, duration, owner_pid);
+                        log::info!(
+                            "ItemUse SprintBuff +{} ms {}s pid={} (MVP no expiry)",
+                            ms_bonus,
+                            duration,
+                            owner_pid
+                        );
                     }
                     crate::item::ActiveEffect::DamageReduce { percent, duration } => {
-                        log::info!("ItemUse DamageReduce {}% {}s pid={} (buff pipeline TBD)", percent * 100.0, duration, owner_pid);
+                        log::info!(
+                            "ItemUse DamageReduce {}% {}s pid={} (buff pipeline TBD)",
+                            percent * 100.0,
+                            duration,
+                            owner_pid
+                        );
                     }
                     crate::item::ActiveEffect::HeadshotNext { bonus_damage } => {
-                        log::info!("ItemUse HeadshotNext +{} dmg pid={} (projectile hook TBD)", bonus_damage, owner_pid);
+                        log::info!(
+                            "ItemUse HeadshotNext +{} dmg pid={} (projectile hook TBD)",
+                            bonus_damage,
+                            owner_pid
+                        );
                     }
                 }
             }
@@ -1546,7 +1747,10 @@ impl GameProcessor {
 
         log::info!(
             "ItemUse ok pid={} slot={} item={} cooldown={}s",
-            owner_pid, slot_i, cfg.id, cfg.cooldown
+            owner_pid,
+            slot_i,
+            cfg.id,
+            cfg.cooldown
         );
         Ok(())
     }
@@ -1562,11 +1766,17 @@ impl GameProcessor {
         };
         for req in drained {
             if let Err(e) = Self::handle_item_use_from_input(
-                world, req.item_slot, req.target_pos, req.target_entity, req.owner_pid,
+                world,
+                req.item_slot,
+                req.target_pos,
+                req.target_entity,
+                req.owner_pid,
             ) {
                 log::warn!(
                     "ItemUse failed pid={} slot={}: {}",
-                    req.owner_pid, req.item_slot, e
+                    req.owner_pid,
+                    req.item_slot,
+                    e
                 );
             }
         }
@@ -1598,28 +1808,42 @@ impl GameProcessor {
                 .map(|(e, _, _)| e)
         };
         let Some(hero) = hero_entity else {
-            log::warn!("MoveTo: no Player-faction hero found ({} requests dropped)", drained.len());
+            log::warn!(
+                "MoveTo: no Player-faction hero found ({} requests dropped)",
+                drained.len()
+            );
             return;
         };
         let mut move_targets = world.write_storage::<MoveTarget>();
         for req in drained {
             log::info!(
                 "MoveTo pid={} → hero={:?} pos=({:.1},{:.1})",
-                req.owner_pid, hero, req.pos.x.to_f32_for_render(), req.pos.y.to_f32_for_render(),
+                req.owner_pid,
+                hero,
+                req.pos.x.to_f32_for_render(),
+                req.pos.y.to_f32_for_render(),
             );
             let _ = move_targets.insert(hero, MoveTarget(req.pos));
         }
     }
 
-
-    fn handle_creep_stop(ecs: &mut World, mqtx: &crossbeam_channel::Sender<OutboundMsg>, source: Entity, target: Entity) -> Result<(), Error> {
+    fn handle_creep_stop(
+        ecs: &mut World,
+        mqtx: &crossbeam_channel::Sender<OutboundMsg>,
+        source: Entity,
+        target: Entity,
+    ) -> Result<(), Error> {
         let mut creeps = ecs.write_storage::<Creep>();
-        let c = creeps.get_mut(target).ok_or_else(|| failure::err_msg("Creep not found"))?;
+        let c = creeps
+            .get_mut(target)
+            .ok_or_else(|| failure::err_msg("Creep not found"))?;
         c.block_tower = Some(source);
         c.status = CreepStatus::Stop;
 
         let positions = ecs.read_storage::<Pos>();
-        let pos = positions.get(target).ok_or_else(|| failure::err_msg("Creep position not found"))?;
+        let pos = positions
+            .get(target)
+            .ok_or_else(|| failure::err_msg("Creep position not found"))?;
 
         // 階段 5.2：遺留 0x02 GameEvent 廣播剪輯。鎖步刻度批次處理
         // (0x10) 攜帶權威狀態；客戶端從 sim 渲染。
@@ -1630,11 +1854,13 @@ impl GameProcessor {
 
     fn handle_creep_walk(ecs: &mut World, target: Entity) -> Result<(), Error> {
         let mut creeps = ecs.write_storage::<Creep>();
-        let creep = creeps.get_mut(target).ok_or_else(|| failure::err_msg("Creep not found"))?;
+        let creep = creeps
+            .get_mut(target)
+            .ok_or_else(|| failure::err_msg("Creep not found"))?;
         creep.status = CreepStatus::PreWalk;
         Ok(())
     }
-    
+
     fn handle_damage(
         ecs: &mut World,
         next_outcomes: &mut Vec<Outcome>,
@@ -1661,7 +1887,11 @@ impl GameProcessor {
             bs.sum_add(target, StatKey::DamageTakenBonus)
         };
         let raw_mul = Fixed64::ONE + dmg_taken_bonus;
-        let dmg_multiplier = if raw_mul < Fixed64::ZERO { Fixed64::ZERO } else { raw_mul };
+        let dmg_multiplier = if raw_mul < Fixed64::ZERO {
+            Fixed64::ZERO
+        } else {
+            raw_mul
+        };
 
         {
             let mut properties = ecs.write_storage::<CProperty>();
@@ -1677,18 +1907,29 @@ impl GameProcessor {
                 // 注意：log 使用 f32 邊界 — Fix64 沒有顯示。
                 let damage_parts = {
                     let mut parts = Vec::new();
-                    if phys > Fixed64::ZERO { parts.push(format!("Phys {:.1}", phys.to_f32_for_render())); }
-                    if magi > Fixed64::ZERO { parts.push(format!("Magi {:.1}", magi.to_f32_for_render())); }
-                    if real > Fixed64::ZERO { parts.push(format!("Pure {:.1}", real.to_f32_for_render())); }
+                    if phys > Fixed64::ZERO {
+                        parts.push(format!("Phys {:.1}", phys.to_f32_for_render()));
+                    }
+                    if magi > Fixed64::ZERO {
+                        parts.push(format!("Magi {:.1}", magi.to_f32_for_render()));
+                    }
+                    if real > Fixed64::ZERO {
+                        parts.push(format!("Pure {:.1}", real.to_f32_for_render()));
+                    }
                     if parts.is_empty() {
                         parts.push(format!("Total {:.1}", total_damage.to_f32_for_render()));
                     }
                     parts.join(", ")
                 };
 
-                log::debug!("⚔️ {} 攻擊 {} | {} damage | HP: {:.1} → {:.1}/{:.1}",
-                    source_name, target_name, damage_parts,
-                    hp_before.to_f32_for_render(), hp_after.to_f32_for_render(), target_props.mhp.to_f32_for_render()
+                log::debug!(
+                    "⚔️ {} 攻擊 {} | {} damage | HP: {:.1} → {:.1}/{:.1}",
+                    source_name,
+                    target_name,
+                    damage_parts,
+                    hp_before.to_f32_for_render(),
+                    hp_after.to_f32_for_render(),
+                    target_props.mhp.to_f32_for_render()
                 );
 
                 if target_props.hp <= Fixed64::ZERO {
@@ -1698,13 +1939,15 @@ impl GameProcessor {
                     // [DEBUG-STRESS] 死亡關鍵診斷：印 max_hp / hp_before / total_damage / source
                     // 篩 mhp > 100 跳過 1HP 塔本身的死亡（目前只關心 creep 怎麼死）
                     if max_hp > Fixed64::from_i32(100) {
-                        log::info!("💀 {} died | max_hp={} hp_before={} dmg={:.1} (×{:.2}) source={}",
+                        log::info!(
+                            "💀 {} died | max_hp={} hp_before={} dmg={:.1} (×{:.2}) source={}",
                             target_name,
                             max_hp.to_f32_for_render(),
                             hp_before.to_f32_for_render(),
                             total_damage.to_f32_for_render(),
                             dmg_multiplier.to_f32_for_render(),
-                            source_name);
+                            source_name
+                        );
                     }
                 }
             }
@@ -1713,23 +1956,36 @@ impl GameProcessor {
         if died {
             next_outcomes.push(Outcome::Death {
                 pos: pos,
-                ent: target
+                ent: target,
             });
         }
 
         Ok(())
     }
 
-    fn handle_heal(ecs: &mut World, target: Entity, amount: omoba_sim::Fixed64) -> Result<(), Error> {
+    fn handle_heal(
+        ecs: &mut World,
+        target: Entity,
+        amount: omoba_sim::Fixed64,
+    ) -> Result<(), Error> {
         let mut properties = ecs.write_storage::<CProperty>();
         if let Some(target_props) = properties.get_mut(target) {
             let summed = target_props.hp + amount;
-            target_props.hp = if summed > target_props.mhp { target_props.mhp } else { summed };
+            target_props.hp = if summed > target_props.mhp {
+                target_props.mhp
+            } else {
+                summed
+            };
         }
         Ok(())
     }
 
-    fn handle_attack_update(ecs: &mut World, target: Entity, asd_count: Option<omoba_sim::Fixed64>, cooldown_reset: bool) -> Result<(), Error> {
+    fn handle_attack_update(
+        ecs: &mut World,
+        target: Entity,
+        asd_count: Option<omoba_sim::Fixed64>,
+        cooldown_reset: bool,
+    ) -> Result<(), Error> {
         let mut attacks = ecs.write_storage::<TAttack>();
         if let Some(attack) = attacks.get_mut(target) {
             if let Some(new_count) = asd_count {
@@ -1741,13 +1997,17 @@ impl GameProcessor {
         }
         Ok(())
     }
-    
+
     fn handle_experience_gain(ecs: &mut World, target: Entity, amount: u32) -> Result<(), Error> {
         let mut heroes = ecs.write_storage::<Hero>();
         if let Some(hero) = heroes.get_mut(target) {
             let leveled_up = hero.add_experience(amount as i32);
             if leveled_up {
-                log::info!("Hero '{}' gained {} experience and leveled up!", hero.name, amount);
+                log::info!(
+                    "Hero '{}' gained {} experience and leveled up!",
+                    hero.name,
+                    amount
+                );
             } else {
                 log::info!("Hero '{}' gained {} experience", hero.name, amount);
             }
@@ -1756,7 +2016,9 @@ impl GameProcessor {
     }
 
     fn handle_gold_gain(ecs: &mut World, target: Entity, amount: i32) -> Result<(), Error> {
-        if amount == 0 { return Ok(()); }
+        if amount == 0 {
+            return Ok(());
+        }
         let mut golds = ecs.write_storage::<Gold>();
         match golds.get_mut(target) {
             Some(g) => {
@@ -1768,7 +2030,7 @@ impl GameProcessor {
         }
         Ok(())
     }
-    
+
     fn get_entity_names(ecs: &World, source: Entity, target: Entity) -> (String, String) {
         let creeps = ecs.read_storage::<Creep>();
         let heroes = ecs.read_storage::<Hero>();
@@ -1829,7 +2091,11 @@ mod tests {
         }
     }
 
-    fn world_with_hero(skill_points: i32, ability_level: i32, max_level: u8) -> (World, Entity, String) {
+    fn world_with_hero(
+        skill_points: i32,
+        ability_level: i32,
+        max_level: u8,
+    ) -> (World, Entity, String) {
         let mut world = World::new();
         world.register::<Hero>();
         world.register::<Faction>();
@@ -1848,13 +2114,17 @@ mod tests {
             "Tester".to_string(),
         );
         hero.abilities = vec![ability_id.clone()];
-        hero.ability_levels.insert(ability_id.clone(), ability_level);
+        hero.ability_levels
+            .insert(ability_id.clone(), ability_level);
         hero.skill_points = skill_points;
 
         let entity = world
             .create_entity()
             .with(hero)
-            .with(Faction { faction_id: FactionType::Player, team_id: 1 })
+            .with(Faction {
+                faction_id: FactionType::Player,
+                team_id: 1,
+            })
             .build();
         (world, entity, ability_id)
     }
@@ -1872,10 +2142,16 @@ mod tests {
             assert_eq!(hero.ability_levels.get(&ability_id).copied(), Some(1));
         }
 
-        let events = world.write_resource::<crate::scripting::ScriptEventQueue>().drain();
+        let events = world
+            .write_resource::<crate::scripting::ScriptEventQueue>()
+            .drain();
         assert_eq!(events.len(), 1);
         match &events[0] {
-            crate::scripting::ScriptEvent::SkillLearn { caster, skill_id, new_level } => {
+            crate::scripting::ScriptEvent::SkillLearn {
+                caster,
+                skill_id,
+                new_level,
+            } => {
                 assert_eq!(*caster, hero_entity);
                 assert_eq!(skill_id, &ability_id);
                 assert_eq!(*new_level, 1);
@@ -1896,7 +2172,9 @@ mod tests {
         let hero = heroes.get(hero_entity).unwrap();
         assert_eq!(hero.skill_points, 0);
         assert_eq!(hero.ability_levels.get(&ability_id).copied(), Some(0));
-        assert!(world.read_resource::<crate::scripting::ScriptEventQueue>().is_empty());
+        assert!(world
+            .read_resource::<crate::scripting::ScriptEventQueue>()
+            .is_empty());
     }
 
     #[test]
@@ -1911,7 +2189,9 @@ mod tests {
         let hero = heroes.get(hero_entity).unwrap();
         assert_eq!(hero.skill_points, 1);
         assert_eq!(hero.ability_levels.get(&ability_id).copied(), Some(2));
-        assert!(world.read_resource::<crate::scripting::ScriptEventQueue>().is_empty());
+        assert!(world
+            .read_resource::<crate::scripting::ScriptEventQueue>()
+            .is_empty());
     }
 
     #[test]
@@ -1929,10 +2209,16 @@ mod tests {
 
         GameProcessor::drain_pending_ability_casts(&mut world);
 
-        let events = world.write_resource::<crate::scripting::ScriptEventQueue>().drain();
+        let events = world
+            .write_resource::<crate::scripting::ScriptEventQueue>()
+            .drain();
         assert_eq!(events.len(), 1);
         match &events[0] {
-            crate::scripting::ScriptEvent::SkillCast { caster, skill_id, target } => {
+            crate::scripting::ScriptEvent::SkillCast {
+                caster,
+                skill_id,
+                target,
+            } => {
                 assert_eq!(*caster, hero_entity);
                 assert_eq!(skill_id, &ability_id);
                 assert!(matches!(target, crate::scripting::event::SkillTarget::None));
@@ -1948,6 +2234,8 @@ mod tests {
         let err = GameProcessor::handle_ability_cast_from_input(&mut world, 0, None, None, 1)
             .expect_err("cast should reject unlearned ability");
         assert!(format!("{}", err).contains("not learned"));
-        assert!(world.read_resource::<crate::scripting::ScriptEventQueue>().is_empty());
+        assert!(world
+            .read_resource::<crate::scripting::ScriptEventQueue>()
+            .is_empty());
     }
 }

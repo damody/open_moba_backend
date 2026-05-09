@@ -6,9 +6,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct CampaignData {
     pub entity: EntityData,
-    pub ability: AbilityData, 
+    pub ability: AbilityData,
     pub mission: MissionData,
-    pub map: super::import_map::CreepWaveData,  // 重用地圖資料結構
+    pub map: super::import_map::CreepWaveData, // 重用地圖資料結構
 }
 
 // ===== 單位資料結構 =====
@@ -89,22 +89,22 @@ pub struct AbilityJD {
     pub id: String,
     pub name: String,
     pub description: String,
-    pub ability_type: String,  // active, passive, ultimate
-    pub key_binding: String,   // Q, W, E, R, T, etc.
-    
+    pub ability_type: String, // active, passive, ultimate
+    pub key_binding: String,  // Q, W, E, R, T, etc.
+
     // 基礎屬性
-    pub cooldown: Vec<f32>,    // 各等級冷卻時間
+    pub cooldown: Vec<f32>, // 各等級冷卻時間
     #[serde(rename = "manaCost")]
-    pub mana_cost: Vec<i32>,   // 各等級法力消耗
-    pub cast_range: Vec<f32>,  // 各等級施法距離
-    pub cast_time: f32,        // 施法時間
-    
+    pub mana_cost: Vec<i32>, // 各等級法力消耗
+    pub cast_range: Vec<f32>, // 各等級施法距離
+    pub cast_time: f32,     // 施法時間
+
     // 效果參數
     pub effects: std::collections::HashMap<String, serde_json::Value>,
-    
+
     // 技能互動
-    pub dispellable: bool,     // 是否可驅散
-    pub pierces_immunity: bool, // 是否穿透魔免
+    pub dispellable: bool,       // 是否可驅散
+    pub pierces_immunity: bool,  // 是否穿透魔免
     pub affects_buildings: bool, // 是否影響建築
 }
 
@@ -121,7 +121,7 @@ pub struct CampaignInfoJD {
     pub name: String,
     pub hero_id: String,
     pub description: String,
-    pub difficulty: String,   // tutorial, easy, normal, hard
+    pub difficulty: String, // tutorial, easy, normal, hard
     pub unlock_requirements: Vec<String>,
 }
 
@@ -129,19 +129,19 @@ pub struct CampaignInfoJD {
 pub struct StageJD {
     pub id: String,
     pub name: String,
-    pub stage_type: String,   // training, combat, puzzle, boss
+    pub stage_type: String, // training, combat, puzzle, boss
     pub time_limit: Option<f32>,
-    
+
     // 目標設定
     pub objectives: Vec<ObjectiveJD>,
     pub optional_objectives: Vec<ObjectiveJD>,
-    
+
     // 評分系統
     pub scoring: ScoringJD,
-    
+
     // 環境設定
     pub environment: EnvironmentJD,
-    
+
     // UI 設定
     pub ui_settings: UiSettingsJD,
 }
@@ -150,31 +150,31 @@ pub struct StageJD {
 pub struct ObjectiveJD {
     pub id: String,
     pub description: String,
-    pub objective_type: String,  // kill, survive, protect, reach
-    pub target: String,          // 目標對象或位置
-    pub count: Option<i32>,      // 數量要求
+    pub objective_type: String,    // kill, survive, protect, reach
+    pub target: String,            // 目標對象或位置
+    pub count: Option<i32>,        // 數量要求
     pub condition: Option<String>, // 額外條件
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct ScoringJD {
     pub max_stars: i32,
-    pub star_thresholds: Vec<i32>,  // 星級門檻分數
+    pub star_thresholds: Vec<i32>, // 星級門檻分數
     pub scoring_factors: std::collections::HashMap<String, i32>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct EnvironmentJD {
-    pub weather: Option<String>,   // sunny, rainy, foggy
-    pub time_of_day: String,       // day, night, dawn, dusk
-    pub wind: Option<WindJD>,      // 風向效果（影響投射物）
-    pub visibility: f32,           // 視野範圍倍數
+    pub weather: Option<String>, // sunny, rainy, foggy
+    pub time_of_day: String,     // day, night, dawn, dusk
+    pub wind: Option<WindJD>,    // 風向效果（影響投射物）
+    pub visibility: f32,         // 視野範圍倍數
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct WindJD {
-    pub direction: f32,  // 風向角度 (0-360)
-    pub strength: f32,   // 風力強度
+    pub direction: f32, // 風向角度 (0-360)
+    pub strength: f32,  // 風力強度
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -184,7 +184,7 @@ pub struct UiSettingsJD {
     pub show_ability_cooldowns: bool,
     pub show_damage_numbers: bool,
     pub enable_pause: bool,
-    pub camera_mode: String,  // fixed, follow, free
+    pub camera_mode: String, // fixed, follow, free
 }
 
 // ===== 載入函數 =====
@@ -222,25 +222,26 @@ impl CampaignData {
     }
 
     /// 僅用於移轉工具的舊版 JSON 載入器。運行時應使用“load_ generated”。
-    /// 
+    ///
     /// # 參數
     /// * `campaign_path` - 舊版 JSON 故事資料夾路徑
-    /// 
+    ///
     /// # 返回
     /// * `Result<CampaignData, Box<dyn std::error::Error>>` - 載入結果
     pub fn load_from_path(campaign_path: &str) -> Result<CampaignData, Box<dyn std::error::Error>> {
         use crate::json_preprocessor::JsonPreprocessor;
-        
+
         let entity_path = format!("{}/entity.json", campaign_path);
         let ability_path = format!("{}/ability.json", campaign_path);
         let mission_path = format!("{}/mission.json", campaign_path);
         let map_path = format!("{}/map.json", campaign_path);
-        
+
         let entity: EntityData = JsonPreprocessor::read_json_with_comments(&entity_path)?;
         let ability: AbilityData = JsonPreprocessor::read_json_with_comments(&ability_path)?;
         let mission: MissionData = JsonPreprocessor::read_json_with_comments(&mission_path)?;
-        let map: super::import_map::CreepWaveData = JsonPreprocessor::read_json_with_comments(&map_path)?;
-        
+        let map: super::import_map::CreepWaveData =
+            JsonPreprocessor::read_json_with_comments(&map_path)?;
+
         Ok(CampaignData {
             entity,
             ability,
@@ -248,49 +249,63 @@ impl CampaignData {
             map,
         })
     }
-    
+
     /// 獲取指定英雄的資料
     pub fn get_hero(&self, hero_id: &str) -> Option<&HeroJD> {
         self.entity.heroes.iter().find(|h| h.id == hero_id)
     }
-    
+
     /// 獲取指定技能的資料
     pub fn get_ability(&self, ability_id: &str) -> Option<&AbilityJD> {
         self.ability.abilities.get(ability_id)
     }
-    
+
     /// 獲取指定關卡的資料
     pub fn get_stage(&self, stage_id: &str) -> Option<&StageJD> {
         self.mission.stages.iter().find(|s| s.id == stage_id)
     }
-    
+
     /// 驗證戰役資料完整性
     pub fn validate(&self) -> Result<(), String> {
         // 檢查英雄技能引用
         for hero in &self.entity.heroes {
             for ability_id in &hero.abilities {
                 if !self.ability.abilities.contains_key(ability_id) {
-                    return Err(format!("Hero {} references unknown ability: {}", hero.id, ability_id));
+                    return Err(format!(
+                        "Hero {} references unknown ability: {}",
+                        hero.id, ability_id
+                    ));
                 }
             }
         }
-        
+
         // 檢查敵人技能引用
         for enemy in &self.entity.enemies {
             for ability_id in &enemy.abilities {
                 if !self.ability.abilities.contains_key(ability_id) {
-                    return Err(format!("Enemy {} references unknown ability: {}", enemy.id, ability_id));
+                    return Err(format!(
+                        "Enemy {} references unknown ability: {}",
+                        enemy.id, ability_id
+                    ));
                 }
             }
         }
-        
+
         // 檢查關卡英雄引用
-        if let Some(hero) = self.entity.heroes.iter().find(|h| h.id == self.mission.campaign.hero_id) {
+        if let Some(hero) = self
+            .entity
+            .heroes
+            .iter()
+            .find(|h| h.id == self.mission.campaign.hero_id)
+        {
             // 英雄存在，檢查通過
         } else {
-            return Err(format!("Campaign references unknown hero: {}", self.mission.campaign.hero_id));
+            return Err(format!(
+                "Campaign references unknown hero: {}",
+                self.mission.campaign.hero_id
+            ));
         }
-        
+
         Ok(())
     }
 }
@@ -300,7 +315,9 @@ fn story_value_to_json(value: omoba_template_ids::StoryValue) -> serde_json::Val
         omoba_template_ids::StoryValue::Null => serde_json::Value::Null,
         omoba_template_ids::StoryValue::Bool(value) => serde_json::Value::Bool(value),
         omoba_template_ids::StoryValue::Number(value) => json_number(value),
-        omoba_template_ids::StoryValue::String(value) => serde_json::Value::String(value.to_string()),
+        omoba_template_ids::StoryValue::String(value) => {
+            serde_json::Value::String(value.to_string())
+        }
         omoba_template_ids::StoryValue::Array(values) => {
             serde_json::Value::Array(values.iter().copied().map(story_value_to_json).collect())
         }
@@ -325,7 +342,10 @@ fn normalize_mission_value(value: &mut serde_json::Value) {
         ensure_array_field(campaign, "unlock_requirements");
     }
     ensure_array_field(value, "stages");
-    if let Some(stages) = value.get_mut("stages").and_then(serde_json::Value::as_array_mut) {
+    if let Some(stages) = value
+        .get_mut("stages")
+        .and_then(serde_json::Value::as_array_mut)
+    {
         for stage in stages {
             ensure_array_field(stage, "objectives");
             ensure_array_field(stage, "optional_objectives");
@@ -337,20 +357,37 @@ fn normalize_mission_value(value: &mut serde_json::Value) {
 }
 
 fn normalize_map_value(value: &mut serde_json::Value) {
-    for key in ["Path", "Creep", "CheckPoint", "Tower", "CreepWave", "Structures", "BlockedRegions"] {
+    for key in [
+        "Path",
+        "Creep",
+        "CheckPoint",
+        "Tower",
+        "CreepWave",
+        "Structures",
+        "BlockedRegions",
+    ] {
         ensure_array_field(value, key);
     }
-    if let Some(waves) = value.get_mut("CreepWave").and_then(serde_json::Value::as_array_mut) {
+    if let Some(waves) = value
+        .get_mut("CreepWave")
+        .and_then(serde_json::Value::as_array_mut)
+    {
         for wave in waves {
             ensure_array_field(wave, "Detail");
-            if let Some(details) = wave.get_mut("Detail").and_then(serde_json::Value::as_array_mut) {
+            if let Some(details) = wave
+                .get_mut("Detail")
+                .and_then(serde_json::Value::as_array_mut)
+            {
                 for detail in details {
                     ensure_array_field(detail, "Creeps");
                 }
             }
         }
     }
-    if let Some(regions) = value.get_mut("BlockedRegions").and_then(serde_json::Value::as_array_mut) {
+    if let Some(regions) = value
+        .get_mut("BlockedRegions")
+        .and_then(serde_json::Value::as_array_mut)
+    {
         for region in regions {
             ensure_array_field(region, "Points");
         }
@@ -358,7 +395,9 @@ fn normalize_map_value(value: &mut serde_json::Value) {
 }
 
 fn ensure_array_field(value: &mut serde_json::Value, key: &str) {
-    let Some(object) = value.as_object_mut() else { return; };
+    let Some(object) = value.as_object_mut() else {
+        return;
+    };
     match object.get_mut(key) {
         Some(field) if field.as_object().is_some_and(serde_json::Map::is_empty) => {
             *field = serde_json::Value::Array(Vec::new());

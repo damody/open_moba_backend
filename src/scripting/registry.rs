@@ -4,9 +4,7 @@
 
 use abi_stable::std_types::RBox;
 use hashbrown::HashMap;
-use omb_script_abi::{
-    ability::AbilityScript_TO, manifest::Manifest_Ref, script::UnitScript_TO,
-};
+use omb_script_abi::{ability::AbilityScript_TO, manifest::Manifest_Ref, script::UnitScript_TO};
 use omoba_core::ability_meta::AbilityDef;
 
 pub struct ScriptRegistry {
@@ -115,9 +113,9 @@ impl ScriptRegistry {
 
     /// 依 DLL `units()` 註冊順序 iterate
     pub fn iter_ordered(&self) -> impl Iterator<Item = (&str, &UnitScript_TO<'static, RBox<()>>)> {
-        self.order.iter().filter_map(|id| {
-            self.scripts.get(id).map(|s| (id.as_str(), s))
-        })
+        self.order
+            .iter()
+            .filter_map(|id| self.scripts.get(id).map(|s| (id.as_str(), s)))
     }
 }
 

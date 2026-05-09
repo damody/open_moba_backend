@@ -1,14 +1,14 @@
-use specs::{
-    shred, Entities, Join, LazyUpdate, Read, ReadExpect, ReadStorage, SystemData,
-    Write, WriteStorage, ParJoin, Entity, World,
-};
 use crate::comp::*;
-use specs::prelude::ParallelIterator;
-use std::{
-    time::{Duration, Instant},
-    collections::HashMap,
-};
 use omoba_sim::Fixed64;
+use specs::prelude::ParallelIterator;
+use specs::{
+    shred, Entities, Entity, Join, LazyUpdate, ParJoin, Read, ReadExpect, ReadStorage, SystemData,
+    World, Write, WriteStorage,
+};
+use std::{
+    collections::HashMap,
+    time::{Duration, Instant},
+};
 
 #[derive(SystemData)]
 pub struct DeathRead<'a> {
@@ -30,22 +30,21 @@ pub struct DeathWrite<'a> {
 pub struct Sys;
 
 impl<'a> System<'a> for Sys {
-    type SystemData = (
-        DeathRead<'a>,
-        DeathWrite<'a>,
-    );
+    type SystemData = (DeathRead<'a>, DeathWrite<'a>);
 
     const NAME: &'static str = "death";
 
     fn run(_job: &mut Job<Self>, (tr, mut tw): Self::SystemData) {
         let time = tr.time.0;
-        
+
         // 收集所有需要檢查死亡的實體
         let mut dead_entities = Vec::new();
         let mut death_rewards = Vec::new();
-        
+
         // 檢查所有有 Unit 組件和 CProperty 組件的實體
-        for (entity, unit, properties, pos) in (&tr.entities, &tr.units, &tr.properties, &tr.positions).join() {
+        for (entity, unit, properties, pos) in
+            (&tr.entities, &tr.units, &tr.properties, &tr.positions).join()
+        {
             if properties.hp <= Fixed64::ZERO {
                 dead_entities.push(entity);
 
@@ -60,8 +59,12 @@ impl<'a> System<'a> for Sys {
                     bounty_type: unit.bounty_type.clone(),
                 });
 
-                log::info!("Unit '{}' died at position ({:.1}, {:.1})",
-                          unit.name, px, py);
+                log::info!(
+                    "Unit '{}' died at position ({:.1}, {:.1})",
+                    unit.name,
+                    px,
+                    py
+                );
             }
         }
 
@@ -75,7 +78,7 @@ impl<'a> System<'a> for Sys {
             if let Some(pos) = tr.positions.get(dead_entity) {
                 tw.outcomes.push(Outcome::Death {
                     pos: pos.0,
-                    ent: dead_entity
+                    ent: dead_entity,
                 });
             }
         }
@@ -94,50 +97,52 @@ struct DeathReward {
 }
 
 /// 分配死亡獎勵給附近的友方英雄
-fn distribute_death_rewards(
-    reward: &DeathReward,
-    tr: &DeathRead,
-    tw: &mut DeathWrite,
-) {
+fn distribute_death_rewards(reward: &DeathReward, tr: &DeathRead, tw: &mut DeathWrite) {
     const EXPERIENCE_RANGE: f32 = 1200.0; // 經驗值獲取範圍
-    const GOLD_RANGE: f32 = 800.0;       // 金錢獲取範圍
-    
+    const GOLD_RANGE: f32 = 800.0; // 金錢獲取範圍
+
     let mut eligible_heroes = Vec::new();
-    
+
     // 找到範圍內的友方英雄
-    for (hero_entity, hero, hero_pos, hero_faction) in (&tr.entities, &tr.heroes, &tr.positions, &tr.factions).join() {
+    for (hero_entity, hero, hero_pos, hero_faction) in
+        (&tr.entities, &tr.heroes, &tr.positions, &tr.factions).join()
+    {
         let (hx, hy) = hero_pos.xy_f32();
         let dx = hx - reward.position.x;
         let dy = hy - reward.position.y;
         let distance_sq = dx * dx + dy * dy;
-        
+
         // 檢查是否在範圍內且為敵對陣營（可以獲得獎勵）
         if let Some(dead_faction) = tr.factions.get(reward.dead_entity) {
-            if hero_faction.is_hostile_to(dead_faction) && distance_sq <= EXPERIENCE_RANGE * EXPERIENCE_RANGE {
+            if hero_faction.is_hostile_to(dead_faction)
+                && distance_sq <= EXPERIENCE_RANGE * EXPERIENCE_RANGE
+            {
                 eligible_heroes.push((hero_entity, distance_sq));
             }
         } else {
             // 沒有陣營的單位默認給玩家陣營獎勵
-            if hero_faction.faction_id == FactionType::Player && distance_sq <= EXPERIENCE_RANGE * EXPERIENCE_RANGE {
+            if hero_faction.faction_id == FactionType::Player
+                && distance_sq <= EXPERIENCE_RANGE * EXPERIENCE_RANGE
+            {
                 eligible_heroes.push((hero_entity, distance_sq));
             }
         }
     }
-    
+
     if eligible_heroes.is_empty() {
         return;
     }
-    
+
     // 按距離排序，最近的獲得更多獎勵
     eligible_heroes.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-    
+
     // 計算獎勵分配
     let (primary_exp, shared_exp) = match reward.bounty_type {
         BountyType::Boss => (reward.exp_reward, reward.exp_reward / 2), // Boss 經驗分享給所有人
         BountyType::Siege => (reward.exp_reward, reward.exp_reward / 3), // 攻城單位部分分享
-        _ => (reward.exp_reward, 0), // 普通單位只給最近的英雄
+        _ => (reward.exp_reward, 0),                                    // 普通單位只給最近的英雄
     };
-    
+
     // 分配經驗值
     for (i, (hero_entity, distance_sq)) in eligible_heroes.iter().enumerate() {
         if let Some(hero) = tr.heroes.get(*hero_entity) {
@@ -150,7 +155,7 @@ fn distribute_death_rewards(
             } else {
                 0
             };
-            
+
             if exp_to_give > 0 {
                 // 生成經驗獲得事件
                 tw.outcomes.push(Outcome::GainExperience {
@@ -160,7 +165,7 @@ fn distribute_death_rewards(
             }
         }
     }
-    
+
     // 金錢獎勵只給最近的英雄（在金錢範圍內）
     if let Some((closest_hero, distance_sq)) = eligible_heroes.first() {
         if *distance_sq <= GOLD_RANGE * GOLD_RANGE && reward.gold_reward > 0 {
@@ -168,8 +173,11 @@ fn distribute_death_rewards(
                 target: *closest_hero,
                 amount: reward.gold_reward,
             });
-            log::info!("Hero received {} gold for killing '{}'",
-                      reward.gold_reward, reward.dead_unit.name);
+            log::info!(
+                "Hero received {} gold for killing '{}'",
+                reward.gold_reward,
+                reward.dead_unit.name
+            );
         }
     }
 }

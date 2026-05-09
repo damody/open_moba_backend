@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use std::collections::{BTreeSet, HashSet};
 use std::path::Path;
 use syn::visit::Visit;
-use syn::{File, Item, ImplItem, ImplItemFn};
+use syn::{File, ImplItem, ImplItemFn, Item};
 
 #[derive(Debug, Clone)]
 pub struct ImplEntry {
@@ -14,7 +14,7 @@ pub struct ImplEntry {
     pub trait_name: String,
     pub overrides: Vec<String>,
     pub world_calls: BTreeSet<String>,
-    pub id: Option<String>,          // 從 unit_id 改名：可能是 unit_id 或 ability_id
+    pub id: Option<String>, // 從 unit_id 改名：可能是 unit_id 或 ability_id
     pub source_file: String,
 }
 
@@ -23,8 +23,12 @@ pub fn scan_dir(dir: &Path, world_methods: &HashSet<String>) -> Result<Vec<ImplE
     for entry in walkdir(dir)? {
         let src = std::fs::read_to_string(&entry)
             .with_context(|| format!("reading {}", entry.display()))?;
-        let rel = entry.strip_prefix(dir).unwrap_or(&entry)
-            .display().to_string().replace('\\', "/");
+        let rel = entry
+            .strip_prefix(dir)
+            .unwrap_or(&entry)
+            .display()
+            .to_string()
+            .replace('\\', "/");
         let more = scan_source(&src, &rel, world_methods)?;
         out.extend(more);
     }
@@ -37,10 +41,15 @@ fn walkdir(dir: &Path) -> Result<Vec<std::path::PathBuf>> {
         for e in std::fs::read_dir(p)? {
             let e = e?;
             let ft = e.file_type()?;
-            if ft.is_symlink() { continue; } // 不追 symlink 避免迴圈
+            if ft.is_symlink() {
+                continue;
+            } // 不追 symlink 避免迴圈
             let path = e.path();
-            if ft.is_dir() { inner(&path, out)?; }
-            else if path.extension().and_then(|s| s.to_str()) == Some("rs") { out.push(path); }
+            if ft.is_dir() {
+                inner(&path, out)?;
+            } else if path.extension().and_then(|s| s.to_str()) == Some("rs") {
+                out.push(path);
+            }
         }
         Ok(())
     }
@@ -48,7 +57,11 @@ fn walkdir(dir: &Path) -> Result<Vec<std::path::PathBuf>> {
     Ok(out)
 }
 
-pub fn scan_source(src: &str, rel: &str, world_methods: &HashSet<String>) -> Result<Vec<ImplEntry>> {
+pub fn scan_source(
+    src: &str,
+    rel: &str,
+    world_methods: &HashSet<String>,
+) -> Result<Vec<ImplEntry>> {
     let file: File = syn::parse_str(src).context("parse source")?;
 
     // 先收集 top-level `pub const IDENT: &str = "..."` 建表，給 extract_string_return
@@ -56,7 +69,11 @@ pub fn scan_source(src: &str, rel: &str, world_methods: &HashSet<String>) -> Res
     let mut consts: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     for item in &file.items {
         if let Item::Const(c) = item {
-            if let syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(s), .. }) = &*c.expr {
+            if let syn::Expr::Lit(syn::ExprLit {
+                lit: syn::Lit::Str(s),
+                ..
+            }) = &*c.expr
+            {
                 consts.insert(c.ident.to_string(), s.value());
             }
         }
@@ -110,13 +127,18 @@ fn quote_ty(ty: &syn::Type) -> String {
     ty.to_token_stream().to_string().replace(' ', "")
 }
 
-fn extract_string_return(f: &ImplItemFn, consts: &std::collections::HashMap<String, String>) -> Option<String> {
+fn extract_string_return(
+    f: &ImplItemFn,
+    consts: &std::collections::HashMap<String, String>,
+) -> Option<String> {
     // 1. 先找 fn body 裡的 LitStr（優先）
     {
         struct FindLit(Option<String>);
         impl<'ast> Visit<'ast> for FindLit {
             fn visit_lit_str(&mut self, l: &'ast syn::LitStr) {
-                if self.0.is_none() { self.0 = Some(l.value()); }
+                if self.0.is_none() {
+                    self.0 = Some(l.value());
+                }
             }
         }
         let mut v = FindLit(None);
@@ -132,7 +154,9 @@ fn extract_string_return(f: &ImplItemFn, consts: &std::collections::HashMap<Stri
     }
     impl<'a, 'ast> Visit<'ast> for FindIdent<'a> {
         fn visit_expr_path(&mut self, p: &'ast syn::ExprPath) {
-            if self.found.is_some() { return; }
+            if self.found.is_some() {
+                return;
+            }
             if let Some(seg) = p.path.segments.last() {
                 let ident = seg.ident.to_string();
                 if let Some(v) = self.consts.get(&ident) {
@@ -141,7 +165,10 @@ fn extract_string_return(f: &ImplItemFn, consts: &std::collections::HashMap<Stri
             }
         }
     }
-    let mut v = FindIdent { consts, found: None };
+    let mut v = FindIdent {
+        consts,
+        found: None,
+    };
     v.visit_block(&f.block);
     v.found
 }
@@ -191,8 +218,11 @@ mod tests {
 
     #[test]
     fn detects_impl_and_world_calls() {
-        let world_methods: HashSet<String> = ["set_tower_atk","query_enemies_in_range","deal_damage"]
-            .iter().map(|s| s.to_string()).collect();
+        let world_methods: HashSet<String> =
+            ["set_tower_atk", "query_enemies_in_range", "deal_damage"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
         let result = scan_source(FAKE, "fake.rs", &world_methods).unwrap();
         assert_eq!(result.len(), 1);
         let e = &result[0];
@@ -211,12 +241,30 @@ mod tests {
     fn scans_real_base_content() {
         let mut world_methods = std::collections::HashSet::new();
         for m in [
-            "set_tower_atk", "get_asd_interval", "set_asd_count", "get_asd_count",
-            "query_nearest_enemy", "spawn_projectile_ex", "deal_damage", "log_info",
-            "emit_explosion", "query_enemies_in_range", "get_pos", "set_facing",
-            "add_stat_buff", "set_pos", "heal", "advance_with_collision",
-            "spawn_summoned_unit", "play_vfx", "play_sfx", "current_mana", "spend_mana",
-        ] { world_methods.insert(m.to_string()); }
+            "set_tower_atk",
+            "get_asd_interval",
+            "set_asd_count",
+            "get_asd_count",
+            "query_nearest_enemy",
+            "spawn_projectile_ex",
+            "deal_damage",
+            "log_info",
+            "emit_explosion",
+            "query_enemies_in_range",
+            "get_pos",
+            "set_facing",
+            "add_stat_buff",
+            "set_pos",
+            "heal",
+            "advance_with_collision",
+            "spawn_summoned_unit",
+            "play_vfx",
+            "play_sfx",
+            "current_mana",
+            "spend_mana",
+        ] {
+            world_methods.insert(m.to_string());
+        }
 
         // 嘗試兩個候選路徑：
         // 1) omb submodule 內：`<manifest>/scripts/base_content/src`
@@ -230,24 +278,37 @@ mod tests {
             Some(p) => p.clone(),
             None => {
                 eprintln!("base_content src missing, skipping. Tried:");
-                for c in &candidates { eprintln!("  {}", c.display()); }
+                for c in &candidates {
+                    eprintln!("  {}", c.display());
+                }
                 return;
             }
         };
         let entries = scan_dir(&dir, &world_methods).unwrap();
-        assert!(entries.len() >= 8, "expected >=8 impls, found {}: {:?}",
-                entries.len(), entries.iter().map(|e| &e.self_ty).collect::<Vec<_>>());
+        assert!(
+            entries.len() >= 8,
+            "expected >=8 impls, found {}: {:?}",
+            entries.len(),
+            entries.iter().map(|e| &e.self_ty).collect::<Vec<_>>()
+        );
 
         // 每個條目都應解析為非空 ID（C1 回歸防護）
         for e in &entries {
-            assert!(e.id.is_some(),
-                    "{} in {} has no id (C1 regression)", e.self_ty, e.source_file);
+            assert!(
+                e.id.is_some(),
+                "{} in {} has no id (C1 regression)",
+                e.self_ty,
+                e.source_file
+            );
         }
 
         // 路徑應使用正斜線（M5 回歸防護）
         for e in &entries {
-            assert!(!e.source_file.contains('\\'),
-                    "source_file {} contains backslash", e.source_file);
+            assert!(
+                !e.source_file.contains('\\'),
+                "source_file {} contains backslash",
+                e.source_file
+            );
         }
     }
 }

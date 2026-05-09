@@ -72,10 +72,7 @@ pub fn compute_state_hash(world: &World) -> u64 {
                 .get(e)
                 .map(|v| (v.0.x.raw(), v.0.y.raw()))
                 .unwrap_or((0, 0));
-            let facing_ticks = facing_storage
-                .get(e)
-                .map(|f| f.0.ticks())
-                .unwrap_or(0);
+            let facing_ticks = facing_storage.get(e).map(|f| f.0.ticks()).unwrap_or(0);
             HashItem {
                 id: e.id(),
                 pos_x_raw: pos.0.x.raw(),
@@ -146,11 +143,17 @@ mod tests {
     #[test]
     fn hp_change_changes_hash() {
         let mut w1 = make_world();
-        w1.create_entity().with(pos_xy(0, 0)).with(cprop(100, 100)).build();
+        w1.create_entity()
+            .with(pos_xy(0, 0))
+            .with(cprop(100, 100))
+            .build();
         let h1 = compute_state_hash(&w1);
 
         let mut w2 = make_world();
-        w2.create_entity().with(pos_xy(0, 0)).with(cprop(99, 100)).build();
+        w2.create_entity()
+            .with(pos_xy(0, 0))
+            .with(cprop(99, 100))
+            .build();
         let h2 = compute_state_hash(&w2);
 
         assert_ne!(h1, h2, "HP change must affect hash");
@@ -161,14 +164,20 @@ mod tests {
         let mut w1 = make_world();
         w1.create_entity()
             .with(pos_xy(0, 0))
-            .with(Vel(SimVec2 { x: Fixed64::from_i32(1), y: Fixed64::ZERO }))
+            .with(Vel(SimVec2 {
+                x: Fixed64::from_i32(1),
+                y: Fixed64::ZERO,
+            }))
             .build();
         let h1 = compute_state_hash(&w1);
 
         let mut w2 = make_world();
         w2.create_entity()
             .with(pos_xy(0, 0))
-            .with(Vel(SimVec2 { x: Fixed64::from_i32(2), y: Fixed64::ZERO }))
+            .with(Vel(SimVec2 {
+                x: Fixed64::from_i32(2),
+                y: Fixed64::ZERO,
+            }))
             .build();
         let h2 = compute_state_hash(&w2);
 
@@ -204,7 +213,10 @@ mod tests {
         let h1 = compute_state_hash(&w1);
 
         let mut w2 = make_world();
-        w2.create_entity().with(pos_xy(5, 5)).with(cprop(0, 0)).build();
+        w2.create_entity()
+            .with(pos_xy(5, 5))
+            .with(cprop(0, 0))
+            .build();
         let h2 = compute_state_hash(&w2);
 
         assert_eq!(h1, h2, "no-CProperty must hash same as hp=0");

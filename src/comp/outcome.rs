@@ -1,18 +1,18 @@
 // 引入必要的模組和套件
-use crate::{comp, Creep, CProperty, TProperty};
 use super::Projectile;
-use hashbrown::HashSet;
-use serde::{Deserialize, Serialize};
-use vek::*;  // 向量數學庫
-use specs::Entity;  // ECS 實體系統
-use std::collections::VecDeque;
-use std::sync::Mutex;
-use std::ops::DerefMut;
-use std::cmp::Ordering;
-use voracious_radix_sort::{Radixable, RadixSort};  // 基數排序演算法
-use crate::Tower;
 use crate::TAttack;
+use crate::Tower;
+use crate::{comp, CProperty, Creep, TProperty};
+use hashbrown::HashSet;
 use omoba_sim::{Fixed64, Vec2 as SimVec2};
+use serde::{Deserialize, Serialize};
+use specs::Entity; // ECS 實體系統
+use std::cmp::Ordering;
+use std::collections::VecDeque;
+use std::ops::DerefMut;
+use std::sync::Mutex;
+use vek::*; // 向量數學庫
+use voracious_radix_sort::{RadixSort, Radixable}; // 基數排序演算法
 
 /// 遊戲結果事件枚舉
 /// 用於處理遊戲中各種事件的結果，例如傷害、死亡、治療等
@@ -20,12 +20,12 @@ use omoba_sim::{Fixed64, Vec2 as SimVec2};
 pub enum Outcome {
     /// 傷害事件
     Damage {
-        pos: SimVec2,        // 傷害發生位置
-        phys: Fixed64,       // 物理傷害數值
-        magi: Fixed64,       // 魔法傷害數值
-        real: Fixed64,       // 真實傷害數值（無視防禦）
-        source: Entity,      // 傷害來源實體
-        target: Entity,      // 傷害目標實體
+        pos: SimVec2,   // 傷害發生位置
+        phys: Fixed64,  // 物理傷害數值
+        magi: Fixed64,  // 魔法傷害數值
+        real: Fixed64,  // 真實傷害數值（無視防禦）
+        source: Entity, // 傷害來源實體
+        target: Entity, // 傷害目標實體
         /// P7: true 表示此 damage 由非 AOE projectile 命中產生，且彈丸在
         /// 發射時已將最終 damage 透過 ProjectileCreate.damage 傳給 client，
         /// client 已排程於 impact 時刻 local 扣血。server 在 `handle_damage`
@@ -37,67 +37,65 @@ pub enum Outcome {
     },
     /// 投射物軌跡事件
     ProjectileLine2 {
-        pos: SimVec2,                  // 投射物位置
-        source: Option<Entity>,        // 投射物來源實體（可選）
-        target: Option<Entity>,        // 投射物目標實體（可選）
+        pos: SimVec2,           // 投射物位置
+        source: Option<Entity>, // 投射物來源實體（可選）
+        target: Option<Entity>, // 投射物目標實體（可選）
     },
     /// 死亡事件
     Death {
-        pos: SimVec2,        // 死亡位置
-        ent: Entity,         // 死亡的實體
+        pos: SimVec2, // 死亡位置
+        ent: Entity,  // 死亡的實體
     },
     /// 小兵生成事件
     Creep {
-        cd: CreepData,       // 小兵資料
+        cd: CreepData, // 小兵資料
     },
     /// 小兵停止移動事件
     CreepStop {
-        source: Entity,      // 發起停止的實體
-        target: Entity,      // 目標實體
+        source: Entity, // 發起停止的實體
+        target: Entity, // 目標實體
     },
     /// 小兵移動事件
     CreepWalk {
-        target: Entity,      // 移動的目標實體
+        target: Entity, // 移動的目標實體
     },
     /// 塔防建築事件
     Tower {
-        pos: SimVec2,        // 塔的位置
-        td: TowerData,       // 塔的資料
+        pos: SimVec2,  // 塔的位置
+        td: TowerData, // 塔的資料
     },
     /// 治療事件
     Heal {
-        pos: SimVec2,        // 治療發生位置
-        target: Entity,      // 治療目標實體
-        amount: Fixed64,     // 治療量
+        pos: SimVec2,    // 治療發生位置
+        target: Entity,  // 治療目標實體
+        amount: Fixed64, // 治療量
     },
     /// 更新攻擊狀態事件
     UpdateAttack {
-        target: Entity,                  // 目標實體
-        asd_count: Option<Fixed64>,      // 攻擊速度計數器（可選）
-        cooldown_reset: bool,            // 是否重置冷卻時間
+        target: Entity,             // 目標實體
+        asd_count: Option<Fixed64>, // 攻擊速度計數器（可選）
+        cooldown_reset: bool,       // 是否重置冷卻時間
     },
     /// 獲得經驗值事件
     GainExperience {
-        target: Entity,      // 獲得經驗的實體
-        amount: i32,         // 經驗值數量
+        target: Entity, // 獲得經驗的實體
+        amount: i32,    // 經驗值數量
     },
     /// 獲得金錢事件（擊殺獎勵、任務獎勵等）
     GainGold {
-        target: Entity,      // 獲得金錢的實體（通常為 hero）
-        amount: i32,         // 金錢數量
+        target: Entity, // 獲得金錢的實體（通常為 hero）
+        amount: i32,    // 金錢數量
     },
     /// 生成單位事件
     SpawnUnit {
-        pos: SimVec2,                          // 生成位置
-        unit: crate::comp::Unit,               // 單位類型
-        faction: crate::comp::Faction,         // 陣營
-        duration: Option<Fixed64>,             // 持續時間（可選，用於臨時單位）
+        pos: SimVec2,                  // 生成位置
+        unit: crate::comp::Unit,       // 單位類型
+        faction: crate::comp::Faction, // 陣營
+        duration: Option<Fixed64>,     // 持續時間（可選，用於臨時單位）
     },
     /// TD 模式：小兵走到 path 終點（未被擊殺）。
     /// GameProcessor 會扣 PlayerLives 1、delete entity、並廣播 hero.stats（lives 更新）。
-    CreepLeaked {
-        ent: Entity,
-    },
+    CreepLeaked { ent: Entity },
     /// 通用 buff 施加 outcome：GameProcessor 收到後寫入 `BuffStore`。
     /// 例：attack_stun_chance 命中擲骰成功 → AddBuff{"stun", ...}。
     AddBuff {
@@ -132,18 +130,16 @@ pub enum Outcome {
     /// pattern；(2) script boundary（abi_stable）沒 `&mut World`，
     /// 只能 push outcome；(3) RemovedEntitiesQueue 的 push 跟 delete
     /// 自然在 process_outcomes 同一 fn body 內配對，不會漏。
-    EntityRemoved {
-        entity: Entity,
-    },
+    EntityRemoved { entity: Entity },
 }
 
 /// 小兵資料結構
 /// 儲存小兵的相關資訊
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CreepData {
-    pub pos: SimVec2,         // 小兵位置
-    pub creep: Creep,         // 小兵基本資料
-    pub cdata: CProperty,     // 小兵屬性資料
+    pub pos: SimVec2,     // 小兵位置
+    pub creep: Creep,     // 小兵基本資料
+    pub cdata: CProperty, // 小兵屬性資料
     #[serde(default)]
     pub faction_name: String, // "Player" 或 "Enemy"；空視為 "Enemy"
     /// 轉速（度/秒）；預設 90
@@ -154,16 +150,20 @@ pub struct CreepData {
     pub collision_radius: Fixed64,
 }
 
-fn default_creep_cr() -> Fixed64 { Fixed64::from_i32(20) }
+fn default_creep_cr() -> Fixed64 {
+    Fixed64::from_i32(20)
+}
 
-fn default_creep_turn_speed_deg() -> Fixed64 { Fixed64::from_i32(90) }
+fn default_creep_turn_speed_deg() -> Fixed64 {
+    Fixed64::from_i32(90)
+}
 
 /// 塔防建築資料結構
 /// 儲存塔的相關資訊
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TowerData {
-    pub tpty: TProperty,      // 塔的屬性資料
-    pub tatk: TAttack,        // 塔的攻擊資料
+    pub tpty: TProperty, // 塔的屬性資料
+    pub tatk: TAttack,   // 塔的攻擊資料
 }
 
 /// 階段 4.2：僅渲染爆炸 FX 條目。
@@ -204,8 +204,8 @@ pub struct RemovedEntitiesQueue {
 /// 用於根據距離進行排序，主要用於尋找最近的實體
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub struct DisIndex {
-    pub e: Entity,           // 實體參考
-    pub dis: f32,            // 距離值（通常是平方距離以避免開根號運算）
+    pub e: Entity, // 實體參考
+    pub dis: f32,  // 距離值（通常是平方距離以避免開根號運算）
 }
 
 // 實作 Eq trait，允許完全相等比較
@@ -214,7 +214,7 @@ impl Eq for DisIndex {}
 // 實作完整排序功能
 // 根據距離進行排序
 impl Ord for DisIndex {
-    fn cmp(&self, other: &Self) -> Ordering{
+    fn cmp(&self, other: &Self) -> Ordering {
         self.dis.partial_cmp(&other.dis).unwrap()
     }
 }
@@ -274,7 +274,10 @@ impl Searcher {
         };
         log::info!(
             "Searcher initialized: tower={}, creep={}, hero={}, region={}",
-            s.tower.kind(), s.creep.kind(), s.hero.kind(), s.region.kind()
+            s.tower.kind(),
+            s.creep.kind(),
+            s.hero.kind(),
+            s.region.kind()
         );
         s
     }
@@ -296,4 +299,3 @@ impl Default for Searcher {
         Self::from_config()
     }
 }
-

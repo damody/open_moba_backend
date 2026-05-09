@@ -1,51 +1,48 @@
 #![allow(warnings)]
 #![allow(unused)]
 
-use log::{info, warn, error, trace, debug};
 use crate::state::State;
-use std::fs::File;
-use std::io::{Write, BufReader, BufRead};
+use chrono::{Local, NaiveDateTime};
 use failure::{err_msg, Error};
-use chrono::{NaiveDateTime, Local};
+use log::{debug, error, info, trace, warn};
+use std::fs::File;
+use std::io::{BufRead, BufReader, Write};
 mod ability_runtime;
 mod aoi;
 mod comp;
-mod scripting;
-mod tick;
-mod ue4;
-mod msg;
-mod json_preprocessor;
+pub mod config;
 mod item;
-mod util;
-#[cfg(feature = "mqtt")]
-mod mqtt;
-mod vision;
-mod state;
-mod transport;
+mod json_preprocessor;
 #[cfg(feature = "kcp")]
 mod lockstep;
-pub mod config;
+#[cfg(feature = "mqtt")]
+mod mqtt;
+mod msg;
+mod scripting;
+mod state;
+mod tick;
+mod transport;
+mod ue4;
+mod util;
+mod vision;
 use crate::config::server_config::CONFIG;
 use crate::json_preprocessor::JsonPreprocessor;
 use uuid::Uuid;
 
+use crate::ue4::import_campaign::CampaignData;
+use crate::ue4::import_map::CreepWaveData;
 use comp::*;
+use omoba_core::lockstep_timing::{LOCKSTEP_DT_F64, LOCKSTEP_TPS_U64};
+use serde_json::{self, json};
+use specs::{prelude::Resource, Component, DispatcherBuilder, Entity, WorldExt};
+use std::time::SystemTime;
 use std::{
-    i32,fs,
+    fs, i32, io,
     ops::{Deref, DerefMut},
     sync::{mpsc, Arc},
-    time::{Instant, Duration},
-    io,thread,
+    thread,
+    time::{Duration, Instant},
 };
-use std::time::SystemTime;
-use specs::{
-    prelude::Resource,
-    Component, DispatcherBuilder, Entity, WorldExt,
-};
-use serde_json::{self, json};
-use crate::ue4::import_map::CreepWaveData;
-use crate::ue4::import_campaign::CampaignData;
-use omoba_core::lockstep_timing::LOCKSTEP_TPS_U64;
 
 const TPS: u64 = LOCKSTEP_TPS_U64;
 
@@ -53,7 +50,7 @@ fn read_input() -> Option<String> {
     let mut buffer = String::new();
 
     match io::stdin().read_line(&mut buffer) {
-        Ok(0) => None,  // EOF
+        Ok(0) => None, // EOF
         Ok(_) => Some(buffer.trim().to_string()),
         Err(_) => None,
     }
@@ -64,8 +61,12 @@ async fn main() -> std::result::Result<(), Error> {
     log4rs::init_file("log4rs.yml", Default::default()).unwrap();
 
     // 載入戰役資料（由 game.toml 的 STORY 欄位決定 generated story id）。
-    let campaign_data = CampaignData::load_generated(&CONFIG.STORY)
-        .unwrap_or_else(|e| panic!("Failed to load generated campaign '{}': {}", CONFIG.STORY, e));
+    let campaign_data = CampaignData::load_generated(&CONFIG.STORY).unwrap_or_else(|e| {
+        panic!(
+            "Failed to load generated campaign '{}': {}",
+            CONFIG.STORY, e
+        )
+    });
 
     // 驗證戰役資料完整性
     if let Err(err) = campaign_data.validate() {
@@ -73,7 +74,10 @@ async fn main() -> std::result::Result<(), Error> {
         return Err(err_msg(err));
     }
 
-    log::info!("Campaign '{}' loaded successfully", campaign_data.mission.campaign.name);
+    log::info!(
+        "Campaign '{}' loaded successfully",
+        campaign_data.mission.campaign.name
+    );
     {
         let hid_str = &campaign_data.entity.heroes[0].id;
         let hid = omoba_template_ids::hero_by_name(hid_str).unwrap_or_default();
@@ -99,10 +103,7 @@ async fn main() -> std::result::Result<(), Error> {
     )?;
 
     #[cfg(feature = "grpc")]
-    let handle = transport::grpc_transport::start(
-        server_addr.clone(),
-        server_port.clone(),
-    ).await?;
+    let handle = transport::grpc_transport::start(server_addr.clone(), server_port.clone()).await?;
 
     // 步驟 2 鎖定步驟：預先建立共用狀態，以便我們可以將其傳遞給
     // kcp 傳輸（任務 2.3 — 處理 0x10/0x13/0x15）和
@@ -115,8 +116,8 @@ async fn main() -> std::result::Result<(), Error> {
     // 0x16 SnapshotResp 處理程序。
     #[cfg(feature = "kcp")]
     let (lockstep_state_handle, input_buffer_handle, snapshot_store_handle) = {
-        use std::sync::{Arc, Mutex as StdMutex};
         use crate::lockstep::{InputBuffer, LockstepState};
+        use std::sync::{Arc, Mutex as StdMutex};
         let master_seed = crate::comp::MasterSeed::default().0;
         let lockstep_state = Arc::new(StdMutex::new(LockstepState::new(master_seed)));
         let input_buffer = Arc::new(StdMutex::new(InputBuffer::new()));
@@ -131,7 +132,8 @@ async fn main() -> std::result::Result<(), Error> {
         input_buffer_handle.clone(),
         lockstep_state_handle.clone(),
         snapshot_store_handle.clone(),
-    ).await?;
+    )
+    .await?;
 
     // === TEMP：P7 檢查點轉儲器 — 測量後恢復 ===
     // 顯示 per-window delta（不是累積！）— 修正前一版誤導。
@@ -152,7 +154,11 @@ async fn main() -> std::result::Result<(), Error> {
                 last_total_msgs = snap.total_msgs;
                 log::info!(
                     "[kcp-p7 Δ5s] bytes={} ({}B/s)  msgs={} ({}m/s)  cum_total={}B",
-                    dbytes, dbytes / 5, dmsgs, dmsgs / 5, snap.total_bytes
+                    dbytes,
+                    dbytes / 5,
+                    dmsgs,
+                    dmsgs / 5,
+                    snap.total_bytes
                 );
                 // 每個事件的增量
                 let mut deltas: Vec<((String, String), (u64, u64))> = Vec::new();
@@ -169,7 +175,10 @@ async fn main() -> std::result::Result<(), Error> {
                 for ((t, a), (db, dm)) in deltas.into_iter().take(12) {
                     log::info!(
                         "[kcp-p7 Δ5s]   {:>14}.{:<10}  +bytes={:>8}  +msgs={:>6}",
-                        t, a, db, dm
+                        t,
+                        a,
+                        db,
+                        dm
                     );
                 }
             }
@@ -254,14 +263,22 @@ async fn main() -> std::result::Result<(), Error> {
     }
     // 保持句柄處於活動狀態，這樣共享狀態就不會被丟棄。
     #[cfg(feature = "kcp")]
-    let _lockstep_handles = (lockstep_state_handle, input_buffer_handle, snapshot_store_handle);
+    let _lockstep_handles = (
+        lockstep_state_handle,
+        input_buffer_handle,
+        snapshot_store_handle,
+    );
 
-    let mut clock = Clock::new(Duration::from_secs_f64(1.0 / TPS as f64));
+    let fixed_dt = Duration::from_secs_f64(LOCKSTEP_DT_F64);
+    let mut clock = Clock::new(fixed_dt);
 
     // Game speed multiplier (debug)。每 real frame 跑 N 個 sub-tick，sim 推進 N×dt。
     // 從 game.toml 讀 default，stdin 指令 `:speed N` 可 runtime 切換。clamp 1..=16。
     let mut speed_mult: u32 = CONFIG.SPEED_MULT.clamp(1, 16);
-    log::info!("⏩ Game speed: {}× (use ':speed N' on stdin to change, range 1..=16)", speed_mult);
+    log::info!(
+        "⏩ Game speed: {}× (use ':speed N' on stdin to change, range 1..=16)",
+        speed_mult
+    );
 
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || {
@@ -296,8 +313,8 @@ async fn main() -> std::result::Result<(), Error> {
             }
             state.send_chat(msg)
         }
-        // 跑 N 個 sub-tick；speed=1 時等同舊行為（單 tick 用 clock.dt()）
-        let dt = clock.dt();
+        // 跑 N 個 sub-tick；speed=1 時每迴圈推進一個固定 120Hz sim tick。
+        let dt = fixed_dt;
         for _ in 0..speed_mult {
             if let Err(e) = state.tick(dt) {
                 log::error!("Tick error: {:?}", e);

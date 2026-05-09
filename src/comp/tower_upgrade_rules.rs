@@ -43,38 +43,57 @@ pub fn validate_upgrade(levels: [u8; 3], path: u8) -> Result<(), UpgradeRejectio
 mod tests {
     use super::*;
 
-    #[test] fn empty_any_ok() {
-        assert!(validate_upgrade([0,0,0], 0).is_ok());
-        assert!(validate_upgrade([0,0,0], 1).is_ok());
-        assert!(validate_upgrade([0,0,0], 2).is_ok());
+    #[test]
+    fn empty_any_ok() {
+        assert!(validate_upgrade([0, 0, 0], 0).is_ok());
+        assert!(validate_upgrade([0, 0, 0], 1).is_ok());
+        assert!(validate_upgrade([0, 0, 0], 2).is_ok());
     }
 
-    #[test] fn max_rejected() {
-        assert_eq!(validate_upgrade([4,0,0], 0), Err(UpgradeRejection::AlreadyMaxed));
+    #[test]
+    fn max_rejected() {
+        assert_eq!(
+            validate_upgrade([4, 0, 0], 0),
+            Err(UpgradeRejection::AlreadyMaxed)
+        );
     }
 
-    #[test] fn two_primary_rejected() {
+    #[test]
+    fn two_primary_rejected() {
         // Path 0 L3 primary，升 Path 1 到 L3 會違反
-        assert_eq!(validate_upgrade([3,2,0], 1), Err(UpgradeRejection::TwoPrimaryPaths));
+        assert_eq!(
+            validate_upgrade([3, 2, 0], 1),
+            Err(UpgradeRejection::TwoPrimaryPaths)
+        );
     }
 
-    #[test] fn two_secondary_when_primary() {
+    #[test]
+    fn two_secondary_when_primary() {
         // Path 0 L3 primary，Path 1 L1 secondary，要把 Path 2 升 → 會變 2 個 secondary
-        assert_eq!(validate_upgrade([3,1,0], 2), Err(UpgradeRejection::TwoSecondaryPaths));
+        assert_eq!(
+            validate_upgrade([3, 1, 0], 2),
+            Err(UpgradeRejection::TwoSecondaryPaths)
+        );
     }
 
-    #[test] fn three_secondary_no_primary() {
+    #[test]
+    fn three_secondary_no_primary() {
         // 無主路線時不能三條都升
-        assert_eq!(validate_upgrade([2,1,0], 2), Err(UpgradeRejection::TwoSecondaryPaths));
+        assert_eq!(
+            validate_upgrade([2, 1, 0], 2),
+            Err(UpgradeRejection::TwoSecondaryPaths)
+        );
     }
 
-    #[test] fn path_upgrade_to_primary_ok() {
+    #[test]
+    fn path_upgrade_to_primary_ok() {
         // Path 0 L2 → L3（升主），Path 1 L2 副 — 合法
-        assert!(validate_upgrade([2,2,0], 0).is_ok());
+        assert!(validate_upgrade([2, 2, 0], 0).is_ok());
     }
 
-    #[test] fn full_build_ok() {
+    #[test]
+    fn full_build_ok() {
         // 主 L4 + 副 L2 能達成
-        assert!(validate_upgrade([3,2,0], 0).is_ok());  // 升主 L4
+        assert!(validate_upgrade([3, 2, 0], 0).is_ok()); // 升主 L4
     }
 }

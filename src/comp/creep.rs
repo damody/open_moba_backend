@@ -1,8 +1,8 @@
-use specs::storage::VecStorage;
-use specs::{Component, FlaggedStorage, NullStorage, saveload};
-use specs::Entity;
-use serde::{Deserialize, Serialize};
 use omoba_sim::Fixed64;
+use serde::{Deserialize, Serialize};
+use specs::storage::VecStorage;
+use specs::Entity;
+use specs::{saveload, Component, FlaggedStorage, NullStorage};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum CreepStatus {
@@ -33,11 +33,11 @@ impl Component for Creep {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CProperty {
-    pub hp: Fixed64,  // 目前血量
-    pub mhp: Fixed64,  // 最大血量
-    pub msd: Fixed64, // 移動速度
+    pub hp: Fixed64,         // 目前血量
+    pub mhp: Fixed64,        // 最大血量
+    pub msd: Fixed64,        // 移動速度
     pub def_physic: Fixed64, // 物理防禦
-    pub def_magic: Fixed64, // 魔法防禦
+    pub def_magic: Fixed64,  // 魔法防禦
 }
 
 impl Component for CProperty {
@@ -58,8 +58,12 @@ pub struct CreepEmiter {
     pub collision_radius: f32,
 }
 
-fn default_turn_speed_deg() -> f32 { 90.0 }
-fn default_creep_collision_radius() -> f32 { 20.0 }
+fn default_turn_speed_deg() -> f32 {
+    90.0
+}
+fn default_creep_collision_radius() -> f32 {
+    20.0
+}
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct CurrentCreepWave {
     pub wave: usize,
@@ -95,5 +99,5 @@ pub struct TakenDamage {
     pub magi: Fixed64,
     pub real: Fixed64,
     pub ent: Entity,
-    pub source: Entity,  // 攻擊者
+    pub source: Entity, // 攻擊者
 }

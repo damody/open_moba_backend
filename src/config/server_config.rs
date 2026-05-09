@@ -9,7 +9,9 @@ fn default_story() -> String {
     "MVP_1".to_string()
 }
 
-fn default_speed_mult() -> u32 { 1 }
+fn default_speed_mult() -> u32 {
+    1
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ServerSetting {
@@ -25,7 +27,7 @@ pub struct ServerSetting {
     #[serde(default = "default_story")]
     pub STORY: String,
     /// Game speed multiplier (debug only)。1 = real-time，2/4/8 = 快轉。
-    /// 每個 real frame 跑 N 個 sub-tick，sim 推進 N × frame-time。
+    /// 每個 real frame 跑 N 個 sub-tick，sim 推進 N × 固定 lockstep tick dt。
     /// Runtime 可由 stdin 指令 `:speed N` 動態切換（範圍 1..=16）。
     #[serde(default = "default_speed_mult")]
     pub SPEED_MULT: u32,
@@ -42,8 +44,7 @@ impl Default for ServerSetting {
         // omfx sim_runner 運行在 omfx 進程 cwd 中，其中相對路徑
         // 錯過； OMB_GAME_TOML 環境變數讓呼叫者指向右側
         // 絕對路徑（omfx 將其設為 D:/omoba/omb/game.toml）。
-        let file_path = std::env::var("OMB_GAME_TOML")
-            .unwrap_or_else(|_| "game.toml".to_string());
+        let file_path = std::env::var("OMB_GAME_TOML").unwrap_or_else(|_| "game.toml".to_string());
         let mut file = match File::open(&file_path) {
             Ok(f) => f,
             Err(e) => panic!("no such file {} exception:{}", file_path, e),

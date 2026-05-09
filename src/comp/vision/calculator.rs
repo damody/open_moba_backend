@@ -1,10 +1,9 @@
-/// 視野計算核心
-
-use vek::Vec2;
 use std::time::{SystemTime, UNIX_EPOCH};
+/// 視野計算核心
+use vek::Vec2;
 
 use super::components::*;
-use crate::vision::{ShadowCalculator, Bounds};
+use crate::vision::{Bounds, ShadowCalculator};
 
 /// 視野計算器
 pub struct VisionCalculator {
@@ -52,7 +51,8 @@ impl VisionCalculator {
             .map(|obs| self.convert_obstacle_info(obs))
             .collect();
 
-        self.shadow_calculator.initialize_quadtree(world_bounds, shadow_obstacles);
+        self.shadow_calculator
+            .initialize_quadtree(world_bounds, shadow_obstacles);
     }
 
     /// 計算圓形視野
@@ -73,7 +73,9 @@ impl VisionCalculator {
             observer_pos,
             range: vision.range,
             visible_area: shadow_result.visible_area,
-            shadows: shadow_result.shadows.into_iter()
+            shadows: shadow_result
+                .shadows
+                .into_iter()
                 .map(|s| self.convert_shadow_area(s))
                 .collect(),
             timestamp: self.current_time(),
@@ -136,13 +138,27 @@ impl VisionCalculator {
         obstacle: &ObstacleInfo,
     ) -> bool {
         match &obstacle.obstacle_type {
-            ObstacleType::Circular { radius } => {
-                self.line_intersects_circle(start, direction, max_distance, obstacle.position, *radius)
-            }
-            ObstacleType::Rectangle { width, height, rotation: _ } => {
+            ObstacleType::Circular { radius } => self.line_intersects_circle(
+                start,
+                direction,
+                max_distance,
+                obstacle.position,
+                *radius,
+            ),
+            ObstacleType::Rectangle {
+                width,
+                height,
+                rotation: _,
+            } => {
                 // 簡化為圓形檢測
                 let effective_radius = (width * width + height * height).sqrt() * 0.5;
-                self.line_intersects_circle(start, direction, max_distance, obstacle.position, effective_radius)
+                self.line_intersects_circle(
+                    start,
+                    direction,
+                    max_distance,
+                    obstacle.position,
+                    effective_radius,
+                )
             }
             ObstacleType::Terrain { .. } => {
                 // 地形通常不會完全遮擋視線
@@ -175,14 +191,23 @@ impl VisionCalculator {
     }
 
     /// 轉換障礙物信息格式
-    fn convert_obstacle_info(&self, obs: ObstacleInfo) -> crate::comp::circular_vision::ObstacleInfo {
+    fn convert_obstacle_info(
+        &self,
+        obs: ObstacleInfo,
+    ) -> crate::comp::circular_vision::ObstacleInfo {
         let obstacle_type = match obs.obstacle_type {
             ObstacleType::Circular { radius } => {
                 crate::comp::circular_vision::ObstacleType::Circular { radius }
             }
-            ObstacleType::Rectangle { width, height, rotation } => {
-                crate::comp::circular_vision::ObstacleType::Rectangle { width, height, rotation }
-            }
+            ObstacleType::Rectangle {
+                width,
+                height,
+                rotation,
+            } => crate::comp::circular_vision::ObstacleType::Rectangle {
+                width,
+                height,
+                rotation,
+            },
             ObstacleType::Terrain { elevation } => {
                 crate::comp::circular_vision::ObstacleType::Terrain { elevation }
             }
@@ -212,9 +237,17 @@ impl VisionCalculator {
         };
 
         let geometry = match shadow.geometry {
-            crate::comp::circular_vision::ShadowGeometry::Sector { center, start_angle, end_angle, radius } => {
-                ShadowGeometry::Sector { center, start_angle, end_angle, radius }
-            }
+            crate::comp::circular_vision::ShadowGeometry::Sector {
+                center,
+                start_angle,
+                end_angle,
+                radius,
+            } => ShadowGeometry::Sector {
+                center,
+                start_angle,
+                end_angle,
+                radius,
+            },
             crate::comp::circular_vision::ShadowGeometry::Polygon { vertices } => {
                 ShadowGeometry::Polygon { vertices }
             }
@@ -242,7 +275,8 @@ impl VisionCalculator {
     /// 更新障礙物
     pub fn update_obstacle(&mut self, obstacle_id: String, obstacle: ObstacleInfo) {
         let converted = self.convert_obstacle_info(obstacle);
-        self.shadow_calculator.update_obstacle(obstacle_id, converted);
+        self.shadow_calculator
+            .update_obstacle(obstacle_id, converted);
     }
 
     /// 移除障礙物
@@ -253,7 +287,7 @@ impl VisionCalculator {
     /// 獲取性能統計
     pub fn get_performance_stats(&self) -> VisionPerformanceStats {
         let shadow_stats = self.shadow_calculator.get_performance_stats();
-        
+
         VisionPerformanceStats {
             cache_size: shadow_stats.cache_size,
             obstacle_count: shadow_stats.obstacle_count,

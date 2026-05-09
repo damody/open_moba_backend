@@ -15,10 +15,10 @@
 //! 邏輯 — 在第 1.4 階段中，handle_damage 刪除的部分可能已經損壞。
 
 use crossbeam_channel::unbounded;
+use omoba_sim::Fixed64;
 use omobab::comp::{CProperty, GameProcessor, Pos};
 use omobab::transport::OutboundMsg;
 use omobab::Outcome;
-use omoba_sim::Fixed64;
 use rayon::ThreadPoolBuilder;
 use specs::{Builder, World, WorldExt};
 use std::sync::Arc;
@@ -75,7 +75,10 @@ fn damage_outcome_decrements_hp() {
     let source = spawn_source(&mut world);
     let target = spawn_target(&mut world, 500.0);
 
-    assert!((read_hp(&world, target) - 500.0).abs() < 0.5, "HP should start at 500");
+    assert!(
+        (read_hp(&world, target) - 500.0).abs() < 0.5,
+        "HP should start at 500"
+    );
 
     let phys = Fixed64::from_raw((30.0 * 1024.0) as i64);
     {

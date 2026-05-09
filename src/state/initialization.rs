@@ -1,13 +1,12 @@
-/// 狀態初始化器 - 負責設置 ECS 世界和遊戲場景
-
-use std::sync::Arc;
 use rayon::{ThreadPool, ThreadPoolBuilder};
-use specs::{World, WorldExt, Builder};
+use specs::{Builder, World, WorldExt};
+/// 狀態初始化器 - 負責設置 ECS 世界和遊戲場景
+use std::sync::Arc;
 use vek::Vec2;
 
 use crate::comp::*;
-use crate::ue4::import_map::CreepWaveData;
 use crate::ue4::import_campaign::CampaignData;
+use crate::ue4::import_map::CreepWaveData;
 
 /// 狀態初始化器
 pub struct StateInitializer;
@@ -20,7 +19,7 @@ impl StateInitializer {
                 .num_threads(num_cpus::get())
                 .thread_name(move |i| format!("rayon-{}", i))
                 .build()
-                .expect("Failed to create thread pool")
+                .expect("Failed to create thread pool"),
         )
     }
 
@@ -63,18 +62,20 @@ impl StateInitializer {
         {
             let mut cps = ecs.get_mut::<BTreeMap<String, CheckPoint>>().unwrap();
             for p in cw.CheckPoint.iter() {
-                cps.insert(p.Name.clone(), 
+                cps.insert(
+                    p.Name.clone(),
                     CheckPoint {
-                        name: p.Name.clone(), 
-                        class: p.Class.clone(), 
-                        pos: Vec2::new(p.X, p.Y)
-                    });
+                        name: p.Name.clone(),
+                        class: p.Class.clone(),
+                        pos: Vec2::new(p.X, p.Y),
+                    },
+                );
             }
         }
 
         // 設置路徑 - 完全分離的作用域
         Self::setup_paths(ecs, cw);
-        
+
         // 設置小兵發射器
         Self::setup_creep_emiters(ecs, cw);
 
@@ -87,7 +88,9 @@ impl StateInitializer {
 
     /// 把 generated map data 的 BlockedRegions 載入成 ECS resource 供移動 tick 查詢。
     fn setup_blocked_regions(ecs: &mut World, cw: &CreepWaveData) {
-        let regions: Vec<BlockedRegion> = cw.BlockedRegions.iter()
+        let regions: Vec<BlockedRegion> = cw
+            .BlockedRegions
+            .iter()
             .filter(|r| r.Points.len() >= 3)
             .map(|r| BlockedRegion {
                 name: r.Name.clone(),
@@ -110,7 +113,10 @@ impl StateInitializer {
         log::warn!("▶▶ populate_region_blockers START");
         let polys: Vec<Vec<Vec2<f32>>> = {
             let regions = ecs.read_resource::<BlockedRegions>();
-            log::warn!("▶▶ BlockedRegions resource 有 {} 個 polygons", regions.0.len());
+            log::warn!(
+                "▶▶ BlockedRegions resource 有 {} 個 polygons",
+                regions.0.len()
+            );
             for (i, r) in regions.0.iter().enumerate() {
                 log::warn!("▶▶   poly[{}] '{}' 頂點數={}", i, r.name, r.points.len());
             }
@@ -121,9 +127,12 @@ impl StateInitializer {
             let circles = blocker_circles_for_polygon(poly);
             log::warn!("▶▶ poly 產生 {} 個 blocker circles", circles.len());
             for (p, r) in circles {
-                let e = ecs.create_entity()
+                let e = ecs
+                    .create_entity()
                     .with(Pos::from_xy_f32(p.x, p.y))
-                    .with(CollisionRadius(omoba_sim::Fixed64::from_raw((r * 1024.0) as i64)))
+                    .with(CollisionRadius(omoba_sim::Fixed64::from_raw(
+                        (r * 1024.0) as i64,
+                    )))
                     .with(RegionBlocker)
                     .build();
                 created.push((e, p));
@@ -132,29 +141,48 @@ impl StateInitializer {
         let n = created.len();
         {
             let mut searcher = ecs.write_resource::<Searcher>();
-            searcher.region.rebuild_from(created.iter().map(|(e, p)| (*e, *p)));
-            log::warn!("▶▶ searcher.region 寫入 count={} (kind={})",
-                searcher.region.count(), searcher.region.kind());
+            searcher
+                .region
+                .rebuild_from(created.iter().map(|(e, p)| (*e, *p)));
+            log::warn!(
+                "▶▶ searcher.region 寫入 count={} (kind={})",
+                searcher.region.count(),
+                searcher.region.kind()
+            );
         }
-        log::warn!("▶▶ populate_region_blockers DONE: {} blockers created (polygons={})", n, polys.len());
+        log::warn!(
+            "▶▶ populate_region_blockers DONE: {} blockers created (polygons={})",
+            n,
+            polys.len()
+        );
         for (idx, (e, p)) in created.iter().take(3).enumerate() {
             // 注意：log 使用 f32 邊界 — Fix64 沒有顯示。
-            let r = ecs.read_storage::<CollisionRadius>().get(*e).map(|c| c.0.to_f32_for_render()).unwrap_or(0.0);
-            log::warn!("▶▶   blocker[{}] entity={:?} pos=({:.1},{:.1}) r={:.1}",
-                idx, e, p.x, p.y, r);
+            let r = ecs
+                .read_storage::<CollisionRadius>()
+                .get(*e)
+                .map(|c| c.0.to_f32_for_render())
+                .unwrap_or(0.0);
+            log::warn!(
+                "▶▶   blocker[{}] entity={:?} pos=({:.1},{:.1}) r={:.1}",
+                idx,
+                e,
+                p.x,
+                p.y,
+                r
+            );
         }
     }
 
     /// 設置路徑資料
     fn setup_paths(ecs: &mut World, cw: &CreepWaveData) {
         use std::collections::BTreeMap;
-        
+
         // 讀取檢查點資料並立即釋放
         let cps_clone = {
             let resource = ecs.read_resource::<BTreeMap<String, CheckPoint>>();
             resource.clone()
         };
-        
+
         // 現在可以安全地獲取可變引用
         let mut paths = ecs.write_resource::<BTreeMap<String, Path>>();
         for p in cw.Path.iter() {
@@ -164,20 +192,25 @@ impl StateInitializer {
                     cp_in_path.push(v.clone());
                 }
             }
-            paths.insert(p.Name.clone(), 
-                Path { check_points: cp_in_path });
+            paths.insert(
+                p.Name.clone(),
+                Path {
+                    check_points: cp_in_path,
+                },
+            );
         }
     }
 
     /// 設置小兵發射器
     fn setup_creep_emiters(ecs: &mut World, cw: &CreepWaveData) {
         use std::collections::BTreeMap;
-        
+
         let mut ces = ecs.get_mut::<BTreeMap<String, CreepEmiter>>().unwrap();
         log::info!("載入 {} 個小兵類型", cw.Creep.len());
         for cp in cw.Creep.iter() {
-            let creep_id = omoba_template_ids::creep_by_name(&cp.Name)
-                .unwrap_or_else(|| panic!("map creep '{}' missing generated creep template", cp.Name));
+            let creep_id = omoba_template_ids::creep_by_name(&cp.Name).unwrap_or_else(|| {
+                panic!("map creep '{}' missing generated creep template", cp.Name)
+            });
             let stats = omoba_template_ids::creep_stats(creep_id)
                 .unwrap_or_else(|| panic!("map creep '{}' has no generated creep stats", cp.Name));
             let display_name = omoba_template_ids::creep_display(creep_id);
@@ -199,26 +232,29 @@ impl StateInitializer {
                 stats.hp.to_f32_for_render(),
                 stats.move_speed.to_f32_for_render()
             );
-            ces.insert(cp.Name.clone(), CreepEmiter {
-                root: Creep {
-                    name: cp.Name.clone(),
-                    label,
-                    path: "".to_owned(),
-                    pidx: 0,
-                    block_tower: None,
-                    status: CreepStatus::Walk
+            ces.insert(
+                cp.Name.clone(),
+                CreepEmiter {
+                    root: Creep {
+                        name: cp.Name.clone(),
+                        label,
+                        path: "".to_owned(),
+                        pidx: 0,
+                        block_tower: None,
+                        status: CreepStatus::Walk,
+                    },
+                    property: CProperty {
+                        hp: stats.hp,
+                        mhp: stats.hp,
+                        msd: stats.move_speed,
+                        def_physic: stats.armor,
+                        def_magic: stats.magic_resistance,
+                    },
+                    faction_name,
+                    turn_speed_deg: cp.TurnSpeed.unwrap_or(90.0),
+                    collision_radius: cp.CollisionRadius.unwrap_or(20.0),
                 },
-                property: CProperty {
-                    hp: stats.hp,
-                    mhp: stats.hp,
-                    msd: stats.move_speed,
-                    def_physic: stats.armor,
-                    def_magic: stats.magic_resistance,
-                },
-                faction_name,
-                turn_speed_deg: cp.TurnSpeed.unwrap_or(90.0),
-                collision_radius: cp.CollisionRadius.unwrap_or(20.0),
-            });
+            );
         }
     }
 
@@ -226,24 +262,40 @@ impl StateInitializer {
     fn setup_creep_waves(ecs: &mut World, cw: &CreepWaveData) {
         // Debug 開關：設 OMB_NO_CREEPS=1 完全跳過小兵波載入（碰撞除錯用）
         if std::env::var("OMB_NO_CREEPS").ok().as_deref() == Some("1") {
-            log::warn!("⚠ OMB_NO_CREEPS=1：跳過 {} 個小兵波載入", cw.CreepWave.len());
+            log::warn!(
+                "⚠ OMB_NO_CREEPS=1：跳過 {} 個小兵波載入",
+                cw.CreepWave.len()
+            );
             return;
         }
         let mut cws = ecs.get_mut::<Vec<CreepWave>>().unwrap();
         log::info!("載入 {} 個小兵波", cw.CreepWave.len());
         for cw_data in cw.CreepWave.iter() {
-            let mut tcw = CreepWave { time: cw_data.StartTime, path_creeps: vec![] };
+            let mut tcw = CreepWave {
+                time: cw_data.StartTime,
+                path_creeps: vec![],
+            };
             let mut total_creeps = 0;
             for d in cw_data.Detail.iter() {
                 let mut es = vec![];
                 for cjd in d.Creeps.iter() {
-                    es.push(CreepEmit { time: cjd.Time, name: cjd.Creep.clone() });
+                    es.push(CreepEmit {
+                        time: cjd.Time,
+                        name: cjd.Creep.clone(),
+                    });
                     total_creeps += 1;
                 }
-                tcw.path_creeps.push(PathCreeps { creeps: es, path_name: d.Path.clone() });
+                tcw.path_creeps.push(PathCreeps {
+                    creeps: es,
+                    path_name: d.Path.clone(),
+                });
             }
-            log::info!("小兵波 '{}' 已載入，開始時間: {}秒，共 {} 個小兵", 
-                cw_data.Name, cw_data.StartTime, total_creeps);
+            log::info!(
+                "小兵波 '{}' 已載入，開始時間: {}秒，共 {} 個小兵",
+                cw_data.Name,
+                cw_data.StartTime,
+                total_creeps
+            );
             cws.push(tcw);
         }
     }
@@ -377,7 +429,7 @@ impl StateInitializer {
         ecs.insert(crate::comp::PendingMoveQueue::default());
 
         // 階段 5.3：觀察者重新加入的最新序列化世界快照。
-        // 每 SNAPSHOT_INTERVAL_TICKS (= 30 s @ 30 Hz) 刷新一次
+        // 每 SNAPSHOT_INTERVAL_TICKS (= 30 s @ 120 Hz) 刷新一次
         // 調度程序滴答循環；由 KCP 傳輸的 0x16 消耗
         // 透過共享「Arc<Mutex<SnapshotStore>>」的 SnapshotResp 處理程序。
         // 為空（`tick=0`、`bytes=[]`），直到第一次儲存觸發。
@@ -389,9 +441,17 @@ impl StateInitializer {
         ecs.insert(BTreeMap::<String, CreepEmiter>::new());
         let mut player_map = BTreeMap::<String, Player>::new();
         let player_name = crate::config::server_config::CONFIG.PLAYER_NAME.clone();
-        let mut p = Player { name: player_name.clone(), cost: 100., towers: vec![] };
+        let mut p = Player {
+            name: player_name.clone(),
+            cost: 100.,
+            towers: vec![],
+        };
         p.towers.push(TowerData {
-            tpty: TProperty::new(omoba_sim::Fixed64::from_i32(10), 1, omoba_sim::Fixed64::from_i32(100)),
+            tpty: TProperty::new(
+                omoba_sim::Fixed64::from_i32(10),
+                1,
+                omoba_sim::Fixed64::from_i32(100),
+            ),
             tatk: TAttack::new(
                 omoba_sim::Fixed64::from_i32(3),
                 omoba_sim::Fixed64::from_raw(307), // ≈ 0.3
@@ -405,15 +465,22 @@ impl StateInitializer {
         ecs.insert(Vec::<CreepWave>::new());
         // 非 TD 模式預設 is_running=true，沿用時間觸發；TD 模式在 init_creep_wave
         // 讀到 GameMode::TowerDefense 時改為 false，等待 StartRound 指令。
-        ecs.insert(CurrentCreepWave { wave: 0, path: vec![], is_running: true, wave_start_time: 0.0 });
+        ecs.insert(CurrentCreepWave {
+            wave: 0,
+            path: vec![],
+            is_running: true,
+            wave_start_time: 0.0,
+        });
         ecs.insert(Vec::<crate::Outcome>::new());
         ecs.insert(Vec::<TakenDamage>::new());
         ecs.insert(SysMetrics::default());
         ecs.insert(crate::comp::TickProfile::default());
-        
+
         // 初始化 MQTT 通道資源
-        ecs.insert(Vec::<crossbeam_channel::Sender<crate::transport::OutboundMsg>>::new());
-        
+        ecs.insert(Vec::<
+            crossbeam_channel::Sender<crate::transport::OutboundMsg>,
+        >::new());
+
         // 初始化 Searcher 資源
         ecs.insert(crate::comp::outcome::Searcher::default());
 
@@ -454,22 +521,22 @@ impl StateInitializer {
     fn load_terrain_heightmaps(ecs: &mut World) {
         // 載入地形高度圖
         log::info!("載入地形高度圖...");
-        
+
         // 暫時使用預設地形設置
         // 實際實現時應從檔案載入高度圖資料
-        
+
         log::info!("地形高度圖載入完成");
     }
 
     fn setup_campaign_specific_resources(ecs: &mut World) {
         use std::collections::BTreeMap;
-        
+
         // 設置戰役特有的資源（舊 Ability BTreeMap / AbilityEffect / SkillInput
         // 已隨 skill_system 移除；技能 metadata 由 AbilityRegistry resource 承載）
         ecs.insert(BTreeMap::<String, Hero>::new());
         ecs.insert(BTreeMap::<String, Enemy>::new());
         ecs.insert(Vec::<DamageInstance>::new());
-        
+
         log::info!("設置戰役特有資源");
     }
 
@@ -483,8 +550,10 @@ impl StateInitializer {
 
             // 創建英雄的戰鬥屬性 (基於英雄等級和屬性計算)
             use omoba_sim::Fixed64;
-            let base_hp = Fixed64::from_i32(500) + Fixed64::from_i32(hero.level) * hero.level_growth.hp_per_level;
-            let base_damage = Fixed64::from_i32(50) + Fixed64::from_i32(hero.level) * hero.level_growth.damage_per_level;
+            let base_hp = Fixed64::from_i32(500)
+                + Fixed64::from_i32(hero.level) * hero.level_growth.hp_per_level;
+            let base_damage = Fixed64::from_i32(50)
+                + Fixed64::from_i32(hero.level) * hero.level_growth.damage_per_level;
 
             let hero_properties = CProperty {
                 hp: base_hp,
@@ -511,18 +580,21 @@ impl StateInitializer {
             // 創建英雄圓形視野組件
             let hero_vision = CircularVision::new(
                 1200.0, // 英雄視野範圍
-                180.0   // 英雄高度
-            ).with_precision(720); // 高精度視野
+                180.0,  // 英雄高度
+            )
+            .with_precision(720); // 高精度視野
 
             // Hero_template_stats.turn_speed 為固定 64 度；轉換為 omb 內部弧度 (f32)。
-            let hero_turn_rad = hero_template_stats.turn_speed.to_f32_for_render() * std::f32::consts::PI / 180.0;
+            let hero_turn_rad =
+                hero_template_stats.turn_speed.to_f32_for_render() * std::f32::consts::PI / 180.0;
             // Hero collision_radius 暫定 30（之前由 story source optional override，
             // 簡化後固定）。
             let hero_radius = 30.0_f32;
             // Hero 統一掛 ScriptUnitTag（預設全單位腳本化）；unit_id = "hero_{HeroJD.id}"
             // 若 registry 無對應腳本，dispatch 會 silent skip，host hero_tick 仍跑預設 auto-attack
             let unit_id = format!("hero_{}", hero_data.id);
-            let hero_entity = ecs.create_entity()
+            let hero_entity = ecs
+                .create_entity()
                 .with(hero_pos)
                 .with(hero_vel)
                 .with(hero)
@@ -535,9 +607,15 @@ impl StateInitializer {
                 .with(ItemEffects::default())
                 .with(Facing(omoba_sim::Angle::ZERO))
                 .with(FacingBroadcast(None))
-                .with(TurnSpeed(omoba_sim::Fixed64::from_raw((hero_turn_rad * 1024.0) as i64)))
-                .with(CollisionRadius(omoba_sim::Fixed64::from_raw((hero_radius * 1024.0) as i64)))
-                .with(crate::scripting::ScriptUnitTag { unit_id: unit_id.clone() })
+                .with(TurnSpeed(omoba_sim::Fixed64::from_raw(
+                    (hero_turn_rad * 1024.0) as i64,
+                )))
+                .with(CollisionRadius(omoba_sim::Fixed64::from_raw(
+                    (hero_radius * 1024.0) as i64,
+                )))
+                .with(crate::scripting::ScriptUnitTag {
+                    unit_id: unit_id.clone(),
+                })
                 .build();
 
             // 排 on_spawn 事件，讓可能存在的 hero unit script 初始化
@@ -607,9 +685,7 @@ impl StateInitializer {
                 1.0
             };
             let turn_deg = tpl.TurnSpeed.unwrap_or(45.0);
-            let radius = s.CollisionRadius
-                .or(tpl.CollisionRadius)
-                .unwrap_or(50.0);
+            let radius = s.CollisionRadius.or(tpl.CollisionRadius).unwrap_or(50.0);
             Self::spawn_tower(
                 ecs,
                 pos,
@@ -624,8 +700,12 @@ impl StateInitializer {
             );
             dumb_count += 1;
         }
-        log::info!("已依 generated map data 放置 {} 個 Structure (script-driven={}, dumb={})",
-            total, script_count, dumb_count);
+        log::info!(
+            "已依 generated map data 放置 {} 個 Structure (script-driven={}, dumb={})",
+            total,
+            script_count,
+            dumb_count
+        );
     }
 
     fn spawn_tower(
@@ -648,7 +728,11 @@ impl StateInitializer {
         let prop = TProperty::new(hp_fx, 0, Fixed64::from_i32(120));
         let atk_c = TAttack::new(atk_fx, asd_fx, range_fx, Fixed64::from_i32(1200));
         // 隊伍 ID 0 代表玩家，1 代表敵人（符合 create_campaign_heroes 約定）
-        let team_id = if faction_type == FactionType::Player { 0 } else { 1 };
+        let team_id = if faction_type == FactionType::Player {
+            0
+        } else {
+            1
+        };
         let faction = Faction::new(faction_type.clone(), team_id);
         let vision = CircularVision::new(range + 200.0, 40.0).with_precision(180);
         // 傷害處理讀 CProperty.hp，所以塔也要有 CProperty
@@ -664,9 +748,15 @@ impl StateInitializer {
         let bounty = if faction_type == FactionType::Player {
             Bounty { gold: 0, exp: 0 }
         } else if is_base {
-            Bounty { gold: 300, exp: 500 }
+            Bounty {
+                gold: 300,
+                exp: 500,
+            }
         } else {
-            Bounty { gold: 150, exp: 200 }
+            Bounty {
+                gold: 150,
+                exp: 200,
+            }
         };
 
         let mut builder = ecs
@@ -681,8 +771,12 @@ impl StateInitializer {
             .with(bounty)
             .with(Facing(omoba_sim::Angle::ZERO))
             .with(FacingBroadcast(None))
-            .with(TurnSpeed(omoba_sim::Fixed64::from_raw((turn_speed_deg.to_radians() * 1024.0) as i64)))
-            .with(CollisionRadius(omoba_sim::Fixed64::from_raw((collision_radius * 1024.0) as i64)));
+            .with(TurnSpeed(omoba_sim::Fixed64::from_raw(
+                (turn_speed_deg.to_radians() * 1024.0) as i64,
+            )))
+            .with(CollisionRadius(omoba_sim::Fixed64::from_raw(
+                (collision_radius * 1024.0) as i64,
+            )));
 
         // 雙方基地都標記 IsBase（前端依此顯示「基地」名稱）；
         // 勝負判定在 handle_death 裡還要檢查 faction，只有敵方基地死亡才觸發玩家勝
@@ -690,21 +784,31 @@ impl StateInitializer {
             builder = builder.with(IsBase);
         }
         let e = builder.build();
-        let side = if faction_type == FactionType::Player { "我方" } else { "敵方" };
-        log::info!("{}{}已生成於 ({:.0}, {:.0}) entity={:?}",
-            side, if is_base { "基地" } else { "塔" }, pos.x, pos.y, e);
+        let side = if faction_type == FactionType::Player {
+            "我方"
+        } else {
+            "敵方"
+        };
+        log::info!(
+            "{}{}已生成於 ({:.0}, {:.0}) entity={:?}",
+            side,
+            if is_base { "基地" } else { "塔" },
+            pos.x,
+            pos.y,
+            e
+        );
     }
 
     fn create_training_enemies(ecs: &mut World, campaign_data: &CampaignData) {
         // 創建訓練用敵人單位
-        let enemy_positions = [
-            (800.0, 0.0),
-            (1000.0, 100.0),
-            (1200.0, -50.0),
-        ];
+        let enemy_positions = [(800.0, 0.0), (1000.0, 100.0), (1200.0, -50.0)];
 
         for (i, (x, y)) in enemy_positions.iter().enumerate() {
-            if let Some(enemy_data) = campaign_data.entity.enemies.get(i % campaign_data.entity.enemies.len()) {
+            if let Some(enemy_data) = campaign_data
+                .entity
+                .enemies
+                .get(i % campaign_data.entity.enemies.len())
+            {
                 let unit = Unit::from_enemy_data(enemy_data);
                 let enemy_faction = Faction::new(FactionType::Enemy, 1);
                 let unit_pos = Pos::from_xy_f32(*x, *y);
@@ -731,12 +835,14 @@ impl StateInitializer {
                 let enemy_vision = CircularVision::new(
                     // 注意：CircularVision 是客戶端渲染提示（戰爭迷霧）；從權威 Pos 進行的每次報價重建可保持跨客戶端的一致性。
                     unit.attack_range.to_f32_for_render() + 150.0,
-                    20.0
-                ).with_precision(360);
+                    20.0,
+                )
+                .with_precision(360);
 
                 // MOBA 訓練敵人也一併掛 ScriptUnitTag（統一規則）
                 let unit_uid = format!("unit_{}", enemy_data.id);
-                let _unit_entity = ecs.create_entity()
+                let _unit_entity = ecs
+                    .create_entity()
                     .with(unit_pos)
                     .with(unit_vel)
                     .with(unit)
@@ -745,7 +851,9 @@ impl StateInitializer {
                     .with(unit_attack)
                     .with(enemy_vision)
                     .with(CollisionRadius(omoba_sim::Fixed64::from_i32(20)))
-                    .with(crate::scripting::ScriptUnitTag { unit_id: unit_uid.clone() })
+                    .with(crate::scripting::ScriptUnitTag {
+                        unit_id: unit_uid.clone(),
+                    })
                     .build();
                 ecs.write_resource::<crate::scripting::ScriptEventQueue>()
                     .push(crate::scripting::ScriptEvent::Spawn { e: _unit_entity });
@@ -798,9 +906,17 @@ pub fn create_world_for_scene(scene_path: &std::path::Path) -> Result<World, fai
         .to_str()
         .ok_or_else(|| err_msg("scene_path is not valid UTF-8"))?;
 
-    log::info!("[create_world_for_scene] loading generated campaign {} from {}", story_id, scene_str);
-    let campaign_data = CampaignData::load_generated(story_id)
-        .map_err(|e| err_msg(format!("CampaignData::load_generated({}) failed: {}", story_id, e)))?;
+    log::info!(
+        "[create_world_for_scene] loading generated campaign {} from {}",
+        story_id,
+        scene_str
+    );
+    let campaign_data = CampaignData::load_generated(story_id).map_err(|e| {
+        err_msg(format!(
+            "CampaignData::load_generated({}) failed: {}",
+            story_id, e
+        ))
+    })?;
     if let Err(err) = campaign_data.validate() {
         return Err(err_msg(format!("Campaign data validation failed: {}", err)));
     }
@@ -834,8 +950,8 @@ pub fn populate_tower_template_registry(
     ecs: &mut World,
     registry: &crate::scripting::ScriptRegistry,
 ) {
-    use abi_stable::std_types::RSome;
     use crate::comp::tower_registry::{TowerTemplate as RuntimeTpl, TowerTemplateRegistry};
+    use abi_stable::std_types::RSome;
     let mut reg = TowerTemplateRegistry::default();
     for (uid, script) in registry.iter_ordered() {
         let meta = match script.tower_metadata() {
@@ -871,10 +987,7 @@ pub fn populate_tower_upgrade_registry(ecs: &mut World) {
 
 /// 第 3 階段 omfx 端幫助程式：從腳本登錄複製能力元數據
 /// 進入 ECS 端“AbilityRegistry”資源。
-pub fn populate_ability_registry(
-    ecs: &mut World,
-    registry: &crate::scripting::ScriptRegistry,
-) {
+pub fn populate_ability_registry(ecs: &mut World, registry: &crate::scripting::ScriptRegistry) {
     use crate::ability_runtime::AbilityRegistry;
     let mut reg = AbilityRegistry::new();
     for (_id, def, _script) in registry.iter_abilities() {

@@ -192,7 +192,7 @@ pub struct PendingMoveTo {
 
 /// 階段 5.3：觀察者重新加入的最新序列化世界快照。
 ///
-/// 更新每個“SNAPSHOT_INTERVAL_TICKS”調度程序刻度（= 30 s @ 30 Hz）。
+/// 更新每個“SNAPSHOT_INTERVAL_TICKS”調度程序刻度（= 30 s @ 120 Hz）。
 /// 由 KCP 傳輸的 0x16 SnapshotResp 處理程序用於引導
 /// 觀察者客戶端在遊戲中期連接；觀察者將位元組應用到
 /// 然後它的 sim_runner 透過後續的 TickBatches 向前播放。

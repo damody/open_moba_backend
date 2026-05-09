@@ -37,30 +37,43 @@ pub fn load(dll_path: &Path) -> Result<DllData> {
         // gen_docs_lib::model::TowerStats 是一個報告結構（f32 用於 HTML
         // 展示）;在此邊界處從 ABI Fix64 轉換。
         // 注意：僅渲染 HTML 報告結構； gen-docs 接收器有意設定 f32 邊界。
-        let tower = def.script.tower_metadata().into_option().map(|tm| TowerStats {
-            atk: tm.atk.to_f32_for_render(),
-            asd_interval: tm.asd_interval.to_f32_for_render(),
-            range: tm.range.to_f32_for_render(),
-            bullet_speed: tm.bullet_speed.to_f32_for_render(),
-            splash_radius: tm.splash_radius.to_f32_for_render(),
-            hit_radius: tm.hit_radius.to_f32_for_render(),
-            slow_factor: tm.slow_factor.to_f32_for_render(),
-            slow_duration: tm.slow_duration.to_f32_for_render(),
-            cost: tm.cost,
-            footprint: tm.footprint.to_f32_for_render(),
-            hp: tm.hp.to_f32_for_render(),
-            turn_speed_deg: tm.turn_speed_deg.to_f32_for_render(),
-            label: tm.label.to_string(),
-        });
-        let kind = if tower.is_some() { UnitKind::Tower } else { UnitKind::Unknown };
+        let tower = def
+            .script
+            .tower_metadata()
+            .into_option()
+            .map(|tm| TowerStats {
+                atk: tm.atk.to_f32_for_render(),
+                asd_interval: tm.asd_interval.to_f32_for_render(),
+                range: tm.range.to_f32_for_render(),
+                bullet_speed: tm.bullet_speed.to_f32_for_render(),
+                splash_radius: tm.splash_radius.to_f32_for_render(),
+                hit_radius: tm.hit_radius.to_f32_for_render(),
+                slow_factor: tm.slow_factor.to_f32_for_render(),
+                slow_duration: tm.slow_duration.to_f32_for_render(),
+                cost: tm.cost,
+                footprint: tm.footprint.to_f32_for_render(),
+                hp: tm.hp.to_f32_for_render(),
+                turn_speed_deg: tm.turn_speed_deg.to_f32_for_render(),
+                label: tm.label.to_string(),
+            });
+        let kind = if tower.is_some() {
+            UnitKind::Tower
+        } else {
+            UnitKind::Unknown
+        };
         units.push(DllUnit { id, kind, tower });
     }
 
     let mut abilities = Vec::new();
     for a in abilities_fn() {
         let json_str = a.def_json.to_string();
-        let v: serde_json::Value = serde_json::from_str(&json_str).unwrap_or(serde_json::Value::Null);
-        let id = v.get("id").and_then(|x| x.as_str()).unwrap_or("").to_string();
+        let v: serde_json::Value =
+            serde_json::from_str(&json_str).unwrap_or(serde_json::Value::Null);
+        let id = v
+            .get("id")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string();
         abilities.push(AbilityEntry { id, def_json: v });
     }
 

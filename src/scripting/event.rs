@@ -11,8 +11,8 @@
 //! * **技能 / 命令**：SkillCast / Order
 
 use omb_script_abi::types::DamageKind;
-use specs::Entity;
 use omoba_sim::Fixed64;
+use specs::Entity;
 
 #[derive(Clone, Debug)]
 pub enum ScriptEvent {

@@ -21,7 +21,12 @@ pub fn scan(abi_src_dir: &Path) -> Result<ApiSpec> {
     let world_methods = scan_world(&world_src)?;
     let stat_keys = scan_stat_keys(&stat_src)?;
 
-    Ok(ApiSpec { unit_hooks, ability_hooks, world_methods, stat_keys })
+    Ok(ApiSpec {
+        unit_hooks,
+        ability_hooks,
+        world_methods,
+        stat_keys,
+    })
 }
 
 pub fn scan_trait(src: &str, trait_name: &str, group: ApiGroup) -> Result<Vec<ApiMethod>> {
@@ -76,7 +81,11 @@ fn extract_doc(attrs: &[syn::Attribute]) -> String {
     for a in attrs {
         if a.path().is_ident("doc") {
             if let syn::Meta::NameValue(nv) = &a.meta {
-                if let syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(s), .. }) = &nv.value {
+                if let syn::Expr::Lit(syn::ExprLit {
+                    lit: syn::Lit::Str(s),
+                    ..
+                }) = &nv.value
+                {
                     let v = s.value();
                     lines.push(v.trim_start().to_string());
                 }
@@ -109,7 +118,7 @@ pub fn scan_world(src: &str) -> Result<Vec<ApiMethod>> {
                             let title = t[1].trim().to_string();
                             // 排除 title 行本身是 `====...`
                             if !title.chars().all(|c| c == '=' || c.is_whitespace()) {
-                                out.push((i + 3, title));  // header 結束於第 3 行
+                                out.push((i + 3, title)); // header 結束於第 3 行
                                 i += 2;
                             }
                         }
@@ -121,17 +130,29 @@ pub fn scan_world(src: &str) -> Result<Vec<ApiMethod>> {
         out
     };
     let pick_header = |line: usize| -> Option<String> {
-        headers.iter().rev().find(|(h, _)| *h <= line).map(|(_, n)| n.clone())
+        headers
+            .iter()
+            .rev()
+            .find(|(h, _)| *h <= line)
+            .map(|(_, n)| n.clone())
     };
     let group_of = |hdr: &str| -> ApiGroup {
         let l = hdr.to_ascii_lowercase();
-        if l.contains("query") || hdr.contains("查詢") { ApiGroup::WorldQuery }
-        else if l.contains("mutate") { ApiGroup::WorldMutate }
-        else if l.contains("tower") || hdr.contains("單位屬性") { ApiGroup::WorldTower }
-        else if l.contains("rng") || l.contains("deterministic") { ApiGroup::WorldRng }
-        else if l.contains("log") { ApiGroup::WorldLog }
-        else if l.contains("vfx") || l.contains("side effect") { ApiGroup::WorldVfx }
-        else { ApiGroup::WorldStats }
+        if l.contains("query") || hdr.contains("查詢") {
+            ApiGroup::WorldQuery
+        } else if l.contains("mutate") {
+            ApiGroup::WorldMutate
+        } else if l.contains("tower") || hdr.contains("單位屬性") {
+            ApiGroup::WorldTower
+        } else if l.contains("rng") || l.contains("deterministic") {
+            ApiGroup::WorldRng
+        } else if l.contains("log") {
+            ApiGroup::WorldLog
+        } else if l.contains("vfx") || l.contains("side effect") {
+            ApiGroup::WorldVfx
+        } else {
+            ApiGroup::WorldStats
+        }
     };
 
     let mut out = Vec::new();
@@ -212,27 +233,45 @@ mod tests {
 
     #[test]
     fn scans_real_script_abi() {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../scripts/script-abi/src");
+        let dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../scripts/script-abi/src");
         let spec = scan(&dir).unwrap();
-        assert!(spec.unit_hooks.len() >= 15, "got only {} unit hooks", spec.unit_hooks.len());
+        assert!(
+            spec.unit_hooks.len() >= 15,
+            "got only {} unit hooks",
+            spec.unit_hooks.len()
+        );
         assert!(spec.ability_hooks.iter().any(|m| m.name == "execute"));
-        assert!(spec.world_methods.iter().any(|m| m.name == "get_final_armor"));
-        assert!(spec.stat_keys.iter().any(|k| k.const_name == "PreattackBonusDamage"));
+        assert!(spec
+            .world_methods
+            .iter()
+            .any(|m| m.name == "get_final_armor"));
+        assert!(spec
+            .stat_keys
+            .iter()
+            .any(|k| k.const_name == "PreattackBonusDamage"));
 
         // I1 的回歸保護：un-`----` 部分不得以 WorldLog 結尾
-        let armor = spec.world_methods.iter().find(|m| m.name == "get_final_armor")
+        let armor = spec
+            .world_methods
+            .iter()
+            .find(|m| m.name == "get_final_armor")
             .expect("get_final_armor should be present");
         assert!(
             !matches!(armor.group, crate::lib::model::ApiGroup::WorldLog),
-            "get_final_armor got grouped as WorldLog (I1 regression); actual: {:?}", armor.group
+            "get_final_armor got grouped as WorldLog (I1 regression); actual: {:?}",
+            armor.group
         );
 
-        let sum_stat = spec.world_methods.iter().find(|m| m.name == "sum_stat")
+        let sum_stat = spec
+            .world_methods
+            .iter()
+            .find(|m| m.name == "sum_stat")
             .expect("sum_stat should be present");
         assert!(
             !matches!(sum_stat.group, crate::lib::model::ApiGroup::WorldLog),
-            "sum_stat got grouped as WorldLog (I1 regression); actual: {:?}", sum_stat.group
+            "sum_stat got grouped as WorldLog (I1 regression); actual: {:?}",
+            sum_stat.group
         );
     }
 }

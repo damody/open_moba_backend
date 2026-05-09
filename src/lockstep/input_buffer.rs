@@ -9,9 +9,9 @@
 //! 玩家的客戶錯過了截止日期，將會看到該操作失敗。
 //! 第 3+ 階段可能會新增「軟延遲擴展」政策。
 
+use crate::lockstep::PlayerInput;
 use std::collections::BTreeMap;
 use std::time::Instant;
-use crate::lockstep::PlayerInput;
 
 #[derive(Clone, Debug)]
 pub struct BufferedPlayerInput {
@@ -57,12 +57,15 @@ impl InputBuffer {
         self.by_tick
             .entry(target_tick)
             .or_insert_with(BTreeMap::new)
-            .insert(player_id, BufferedPlayerInput {
-                input,
-                input_id,
-                server_receive_tick: current_tick,
-                server_receive_instant: Instant::now(),
-            });
+            .insert(
+                player_id,
+                BufferedPlayerInput {
+                    input,
+                    input_id,
+                    server_receive_tick: current_tick,
+                    server_receive_instant: Instant::now(),
+                },
+            );
         true
     }
 

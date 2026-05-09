@@ -15,7 +15,10 @@ use specs::{Read, Write};
 use crate::comp::ecs::{Job, System};
 use crate::comp::{CurrentCreepWave, PendingPlayerInputs, Time};
 #[cfg(feature = "kcp")]
-use crate::comp::{PendingAbilityCastQueue, PendingAbilityUpgradeQueue, PendingItemUseQueue, PendingMoveQueue, PendingTowerSellQueue, PendingTowerSpawnQueue, PendingTowerUpgradeQueue};
+use crate::comp::{
+    PendingAbilityCastQueue, PendingAbilityUpgradeQueue, PendingItemUseQueue, PendingMoveQueue,
+    PendingTowerSellQueue, PendingTowerSpawnQueue, PendingTowerUpgradeQueue,
+};
 
 #[derive(Default)]
 pub struct Sys;
@@ -39,7 +42,18 @@ impl<'a> System<'a> for Sys {
 
     fn run(
         _job: &mut Job<Self>,
-        (mut pending, mut cw, time, mut tower_q, mut sell_q, mut upgrade_q, mut ability_q, mut cast_q, mut item_q, mut move_q): Self::SystemData,
+        (
+            mut pending,
+            mut cw,
+            time,
+            mut tower_q,
+            mut sell_q,
+            mut upgrade_q,
+            mut ability_q,
+            mut cast_q,
+            mut item_q,
+            mut move_q,
+        ): Self::SystemData,
     ) {
         if pending.by_player.is_empty() {
             return;
@@ -108,12 +122,16 @@ fn route_input(
                 cw.wave_start_time = totaltime;
                 log::info!(
                     "player_input_tick: pid={} tick={} StartRound → wave={} start_time={:.2}",
-                    player_id, tick, cw.wave, totaltime,
+                    player_id,
+                    tick,
+                    cw.wave,
+                    totaltime,
                 );
             } else {
                 log::warn!(
                     "player_input_tick: pid={} tick={} StartRound ignored (round already running)",
-                    player_id, tick,
+                    player_id,
+                    tick,
                 );
             }
         }
@@ -124,7 +142,10 @@ fn route_input(
             let (x, y) = m.target.map(|v| (v.x, v.y)).unwrap_or((0, 0));
             log::info!(
                 "player_input_tick: pid={} tick={} MoveTo target_raw=({}, {})",
-                player_id, tick, x, y,
+                player_id,
+                tick,
+                x,
+                y,
             );
             // 遵循 PendingMoveQueue：將 MoveTarget 寫入玩家的佇列中
             // 英雄需要加入系統儲存的（英雄、派系）
@@ -173,7 +194,9 @@ fn route_input(
         Some(PlayerInputEnum::UpgradeAbility(u)) => {
             log::info!(
                 "player_input_tick: pid={} tick={} UpgradeAbility ability_index={}",
-                player_id, tick, u.ability_index,
+                player_id,
+                tick,
+                u.ability_index,
             );
             ability_q.requests.push(crate::comp::PendingAbilityUpgrade {
                 ability_index: u.ability_index,
@@ -185,7 +208,11 @@ fn route_input(
             let (px, py) = pos_raw.map(|v| (v.x, v.y)).unwrap_or((0, 0));
             log::info!(
                 "player_input_tick: pid={} tick={} TowerPlace kind_id={} pos_raw=({}, {})",
-                player_id, tick, t.tower_kind_id, px, py,
+                player_id,
+                tick,
+                t.tower_kind_id,
+                px,
+                py,
             );
             // 遵循 PendingTowerSpawnQueue：spawn_td_tower 需要 &mut World
             // （TowerTemplateRegistry 尋找 + 實體建立 + ScriptEvent::
@@ -205,7 +232,11 @@ fn route_input(
         Some(PlayerInputEnum::TowerUpgrade(u)) => {
             log::info!(
                 "player_input_tick: pid={} tick={} TowerUpgrade eid={} path={} level={}",
-                player_id, tick, u.tower_entity_id, u.path, u.level,
+                player_id,
+                tick,
+                u.tower_entity_id,
+                u.path,
+                u.level,
             );
             // 遵循 PendingTowerUpgradeQueue：規則驗證 + Gold
             // 扣除 + Tower.upgrade_levels 寫入 + BuffStore 添加
@@ -228,7 +259,9 @@ fn route_input(
         Some(PlayerInputEnum::TowerSell(s)) => {
             log::info!(
                 "player_input_tick: pid={} tick={} TowerSell tower_entity_id={}",
-                player_id, tick, s.tower_entity_id,
+                player_id,
+                tick,
+                s.tower_entity_id,
             );
             // 遵循 PendingTowerSellQueue：退款 + 實體刪除 + buff
             // 清理所有需要 `&mut World` （閱讀 TowerTemplateRegistry +
@@ -244,7 +277,10 @@ fn route_input(
         Some(PlayerInputEnum::ItemUse(i)) => {
             log::info!(
                 "player_input_tick: pid={} tick={} ItemUse slot={} target_entity={:?}",
-                player_id, tick, i.item_slot, i.target_entity,
+                player_id,
+                tick,
+                i.item_slot,
+                i.target_entity,
             );
             // 遵循 PendingItemUseQueue：ItemRegistry 讀取 + Inventory
             // write + CProperty (HP / msd) 寫入所有需要的`&mut World`。

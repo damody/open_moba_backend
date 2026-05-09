@@ -1,11 +1,11 @@
-/// 視野輸出系統
-/// 
-/// 提供點陣（Grid）和向量（Vector）兩種輸出格式
-use vek::Vec2;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+/// 視野輸出系統
+///
+/// 提供點陣（Grid）和向量（Vector）兩種輸出格式
+use vek::Vec2;
 
-use crate::comp::circular_vision::{VisionResult, ShadowArea, ShadowType, ShadowGeometry};
+use crate::comp::circular_vision::{ShadowArea, ShadowGeometry, ShadowType, VisionResult};
 
 /// 視野輸出格式類型
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -122,14 +122,13 @@ impl VisionOutputGenerator {
         grid_size: Option<f32>,
     ) -> GridVisionOutput {
         let grid_size = grid_size.unwrap_or(self.default_grid_size);
-        
+
         // 創建緩存鍵
-        let cache_key = format!("{:.1}_{:.1}_{}", 
-            vision_result.observer_pos.x, 
-            vision_result.observer_pos.y, 
-            vision_result.timestamp
+        let cache_key = format!(
+            "{:.1}_{:.1}_{}",
+            vision_result.observer_pos.x, vision_result.observer_pos.y, vision_result.timestamp
         );
-        
+
         // 檢查緩存
         if let Some(cached) = self.grid_cache.get(&cache_key) {
             return cached.clone();
@@ -149,15 +148,10 @@ impl VisionOutputGenerator {
             for x in 0..width {
                 let grid_x = x as i32 - grid_half_size as i32;
                 let grid_y = y as i32 - grid_half_size as i32;
-                let world_pos = vision_result.observer_pos + Vec2::new(
-                    grid_x as f32 * grid_size,
-                    grid_y as f32 * grid_size
-                );
+                let world_pos = vision_result.observer_pos
+                    + Vec2::new(grid_x as f32 * grid_size, grid_y as f32 * grid_size);
 
-                visibility_grid[y][x] = self.calculate_grid_visibility(
-                    world_pos, 
-                    vision_result
-                );
+                visibility_grid[y][x] = self.calculate_grid_visibility(world_pos, vision_result);
             }
         }
 
@@ -180,19 +174,20 @@ impl VisionOutputGenerator {
     /// 生成向量格式輸出
     pub fn generate_vector_output(&mut self, vision_result: &VisionResult) -> VectorVisionOutput {
         // 創建緩存鍵
-        let cache_key = format!("{:.1}_{:.1}_{}", 
-            vision_result.observer_pos.x, 
-            vision_result.observer_pos.y, 
-            vision_result.timestamp
+        let cache_key = format!(
+            "{:.1}_{:.1}_{}",
+            vision_result.observer_pos.x, vision_result.observer_pos.y, vision_result.timestamp
         );
-        
+
         // 檢查緩存
         if let Some(cached) = self.vector_cache.get(&cache_key) {
             return cached.clone();
         }
 
         // 轉換陰影為多邊形
-        let shadow_polygons = vision_result.shadows.iter()
+        let shadow_polygons = vision_result
+            .shadows
+            .iter()
             .map(|shadow| self.convert_shadow_to_polygon(shadow))
             .collect();
 
@@ -217,7 +212,7 @@ impl VisionOutputGenerator {
         vision_result: &VisionResult,
     ) -> VisibilityLevel {
         let distance = vision_result.observer_pos.distance(point);
-        
+
         // 超出視野範圍
         if distance > vision_result.range {
             return VisibilityLevel::Invisible;
@@ -228,12 +223,9 @@ impl VisionOutputGenerator {
         let direction = (point - vision_result.observer_pos).normalized();
 
         for shadow in &vision_result.shadows {
-            if let Some(shadow_factor) = self.calculate_shadow_factor(
-                point, 
-                direction, 
-                distance, 
-                shadow
-            ) {
+            if let Some(shadow_factor) =
+                self.calculate_shadow_factor(point, direction, distance, shadow)
+            {
                 visibility *= (1.0 - shadow_factor).max(0.0);
             }
         }
@@ -255,14 +247,23 @@ impl VisionOutputGenerator {
         shadow: &ShadowArea,
     ) -> Option<f32> {
         match &shadow.geometry {
-            ShadowGeometry::Sector { center, start_angle, end_angle, radius } => {
+            ShadowGeometry::Sector {
+                center,
+                start_angle,
+                end_angle,
+                radius,
+            } => {
                 let point_angle = (point - center).y.atan2((point - center).x);
                 let point_distance = center.distance(point);
 
                 // 正規化角度
                 let normalize = |mut angle: f32| {
-                    while angle < 0.0 { angle += 2.0 * std::f32::consts::PI; }
-                    while angle >= 2.0 * std::f32::consts::PI { angle -= 2.0 * std::f32::consts::PI; }
+                    while angle < 0.0 {
+                        angle += 2.0 * std::f32::consts::PI;
+                    }
+                    while angle >= 2.0 * std::f32::consts::PI {
+                        angle -= 2.0 * std::f32::consts::PI;
+                    }
                     angle
                 };
 
@@ -282,7 +283,7 @@ impl VisionOutputGenerator {
                 } else {
                     None
                 }
-            },
+            }
             ShadowGeometry::Polygon { vertices } => {
                 // 使用射線投射法檢查點是否在多邊形內
                 if self.point_in_polygon(point, vertices) {
@@ -290,7 +291,7 @@ impl VisionOutputGenerator {
                 } else {
                     None
                 }
-            },
+            }
             _ => None,
         }
     }
@@ -301,9 +302,12 @@ impl VisionOutputGenerator {
         let mut j = vertices.len() - 1;
 
         for i in 0..vertices.len() {
-            if ((vertices[i].y > point.y) != (vertices[j].y > point.y)) &&
-               (point.x < (vertices[j].x - vertices[i].x) * (point.y - vertices[i].y) / 
-                         (vertices[j].y - vertices[i].y) + vertices[i].x) {
+            if ((vertices[i].y > point.y) != (vertices[j].y > point.y))
+                && (point.x
+                    < (vertices[j].x - vertices[i].x) * (point.y - vertices[i].y)
+                        / (vertices[j].y - vertices[i].y)
+                        + vertices[i].x)
+            {
                 inside = !inside;
             }
             j = i;
@@ -315,7 +319,12 @@ impl VisionOutputGenerator {
     /// 將陰影轉換為多邊形
     fn convert_shadow_to_polygon(&self, shadow: &ShadowArea) -> ShadowPolygon {
         match &shadow.geometry {
-            ShadowGeometry::Sector { center, start_angle, end_angle, radius } => {
+            ShadowGeometry::Sector {
+                center,
+                start_angle,
+                end_angle,
+                radius,
+            } => {
                 // 將扇形轉換為多邊形頂點
                 let mut vertices = vec![*center];
                 let steps = 16; // 扇形細分數
@@ -338,15 +347,13 @@ impl VisionOutputGenerator {
                         radius: *radius,
                     }),
                 }
-            },
-            ShadowGeometry::Polygon { vertices } => {
-                ShadowPolygon {
-                    shadow_type: shadow.shadow_type.clone(),
-                    vertices: vertices.clone(),
-                    opacity: 1.0,
-                    center: None,
-                    sector_params: None,
-                }
+            }
+            ShadowGeometry::Polygon { vertices } => ShadowPolygon {
+                shadow_type: shadow.shadow_type.clone(),
+                vertices: vertices.clone(),
+                opacity: 1.0,
+                center: None,
+                sector_params: None,
             },
             _ => {
                 // 默認空多邊形

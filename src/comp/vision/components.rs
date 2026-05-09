@@ -1,9 +1,8 @@
+use serde::{Deserialize, Serialize};
 /// 視野系統組件定義
-
 use specs::prelude::*;
 use specs::Component;
 use vek::Vec2;
-use serde::{Deserialize, Serialize};
 
 /// 圓形視野組件
 #[derive(Component, Debug, Clone)]
@@ -96,13 +95,13 @@ impl VisionResult {
 
         let mut area = 0.0;
         let n = self.visible_area.len();
-        
+
         for i in 0..n {
             let j = (i + 1) % n;
             area += self.visible_area[i].x * self.visible_area[j].y;
             area -= self.visible_area[j].x * self.visible_area[i].y;
         }
-        
+
         area.abs() / 2.0
     }
 }
@@ -124,18 +123,21 @@ impl ShadowArea {
     /// 檢查點是否在陰影內
     pub fn contains_point(&self, point: Vec2<f32>) -> bool {
         match &self.geometry {
-            ShadowGeometry::Sector { center, start_angle, end_angle, radius } => {
+            ShadowGeometry::Sector {
+                center,
+                start_angle,
+                end_angle,
+                radius,
+            } => {
                 let distance = (*center - point).magnitude();
                 if distance > *radius {
                     return false;
                 }
-                
+
                 let angle = (point - *center).y.atan2((point - *center).x);
                 self.angle_in_range(angle, *start_angle, *end_angle)
             }
-            ShadowGeometry::Polygon { vertices } => {
-                self.point_in_polygon(point, vertices)
-            }
+            ShadowGeometry::Polygon { vertices } => self.point_in_polygon(point, vertices),
             ShadowGeometry::Trapezoid { vertices } => {
                 self.point_in_polygon(point, &vertices.to_vec())
             }
@@ -144,8 +146,12 @@ impl ShadowArea {
 
     fn angle_in_range(&self, angle: f32, start: f32, end: f32) -> bool {
         let normalize = |mut a: f32| {
-            while a < 0.0 { a += 2.0 * std::f32::consts::PI; }
-            while a >= 2.0 * std::f32::consts::PI { a -= 2.0 * std::f32::consts::PI; }
+            while a < 0.0 {
+                a += 2.0 * std::f32::consts::PI;
+            }
+            while a >= 2.0 * std::f32::consts::PI {
+                a -= 2.0 * std::f32::consts::PI;
+            }
             a
         };
 
@@ -167,16 +173,20 @@ impl ShadowArea {
 
         let mut inside = false;
         let n = vertices.len();
-        
+
         for i in 0..n {
             let j = (i + 1) % n;
-            
-            if ((vertices[i].y > point.y) != (vertices[j].y > point.y)) &&
-               (point.x < (vertices[j].x - vertices[i].x) * (point.y - vertices[i].y) / (vertices[j].y - vertices[i].y) + vertices[i].x) {
+
+            if ((vertices[i].y > point.y) != (vertices[j].y > point.y))
+                && (point.x
+                    < (vertices[j].x - vertices[i].x) * (point.y - vertices[i].y)
+                        / (vertices[j].y - vertices[i].y)
+                        + vertices[i].x)
+            {
                 inside = !inside;
             }
         }
-        
+
         inside
     }
 }
@@ -207,13 +217,9 @@ pub enum ShadowGeometry {
         radius: f32,
     },
     /// 多邊形陰影
-    Polygon {
-        vertices: Vec<Vec2<f32>>,
-    },
+    Polygon { vertices: Vec<Vec2<f32>> },
     /// 梯形陰影
-    Trapezoid {
-        vertices: [Vec2<f32>; 4],
-    },
+    Trapezoid { vertices: [Vec2<f32>; 4] },
 }
 
 /// 障礙物信息
@@ -235,7 +241,11 @@ pub enum ObstacleType {
     /// 圓形障礙物
     Circular { radius: f32 },
     /// 矩形障礙物
-    Rectangle { width: f32, height: f32, rotation: f32 },
+    Rectangle {
+        width: f32,
+        height: f32,
+        rotation: f32,
+    },
     /// 地形障礙物
     Terrain { elevation: f32 },
 }

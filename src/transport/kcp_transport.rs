@@ -1,4 +1,4 @@
-use crossbeam_channel::{bounded, Sender, Receiver};
+use crossbeam_channel::{bounded, Receiver, Sender};
 use failure::Error;
 use log::*;
 use std::collections::HashMap;
@@ -9,10 +9,13 @@ use tokio::sync::Mutex;
 
 use tokio_kcp::{KcpConfig, KcpListener, KcpNoDelayConfig, KcpStream};
 
-use super::types::{BroadcastPolicy, InboundMsg, OutboundMsg, TransportHandle, QueryRequest, QueryResponse, TypedOutbound, Viewport, ViewportMsg, Urgency, urgency};
-use std::sync::atomic::{AtomicU64, Ordering};
 use super::metrics::KcpBytesCounter;
+use super::types::{
+    urgency, BroadcastPolicy, InboundMsg, OutboundMsg, QueryRequest, QueryResponse,
+    TransportHandle, TypedOutbound, Urgency, Viewport, ViewportMsg,
+};
 use crate::aoi::AoiGrid;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 // 包含生成的原始程式碼
 pub mod game_proto {
@@ -59,7 +62,11 @@ async fn write_framed<W: AsyncWriteExt + Unpin>(
     tag: u8,
     payload: &[u8],
 ) -> std::io::Result<()> {
-    debug_assert!(tag & COMPRESSION_FLAG == 0, "base tag must not use high bit; got 0x{:02x}", tag);
+    debug_assert!(
+        tag & COMPRESSION_FLAG == 0,
+        "base tag must not use high bit; got 0x{:02x}",
+        tag
+    );
     let (out_tag, out_payload): (u8, &[u8]);
     let compressed_holder;
     if payload.len() >= LZ4_THRESHOLD {
@@ -117,8 +124,13 @@ async fn read_framed<R: AsyncReadExt + Unpin>(
 /// 廣播線程組裝鎖步幀一次並弧共享它們
 /// 跨所有收件者會話。
 fn build_framed_bytes(tag: u8, payload: &[u8]) -> Vec<u8> {
-    debug_assert!(tag & COMPRESSION_FLAG == 0, "base tag must not use high bit; got 0x{:02x}", tag);
-    let (out_tag, out_payload): (u8, std::borrow::Cow<'_, [u8]>) = if payload.len() >= LZ4_THRESHOLD {
+    debug_assert!(
+        tag & COMPRESSION_FLAG == 0,
+        "base tag must not use high bit; got 0x{:02x}",
+        tag
+    );
+    let (out_tag, out_payload): (u8, std::borrow::Cow<'_, [u8]>) = if payload.len() >= LZ4_THRESHOLD
+    {
         let c = lz4_flex::block::compress_prepend_size(payload);
         if c.len() < payload.len() {
             (tag | COMPRESSION_FLAG, std::borrow::Cow::Owned(c))
@@ -176,11 +188,13 @@ fn select_targets_for_policy(
 ) -> Vec<String> {
     match policy {
         Some(BroadcastPolicy::All) => sessions.keys().cloned().collect(),
-        Some(BroadcastPolicy::PlayerOnly(name)) => sessions.iter()
+        Some(BroadcastPolicy::PlayerOnly(name)) => sessions
+            .iter()
             .filter(|(_, (player_name, _))| player_name == name)
             .map(|(id, _)| id.clone())
             .collect(),
-        Some(BroadcastPolicy::AoiPoint(x, y)) => sessions.iter()
+        Some(BroadcastPolicy::AoiPoint(x, y)) => sessions
+            .iter()
             .filter(|(_, (_, vp))| match vp {
                 Some(v) => v.contains(*x, *y),
                 None => true,
@@ -188,7 +202,8 @@ fn select_targets_for_policy(
             .map(|(id, _)| id.clone())
             .collect(),
         Some(BroadcastPolicy::AoiEntity(eid)) => match aoi_lookup(*eid) {
-            Some((x, y)) => sessions.iter()
+            Some((x, y)) => sessions
+                .iter()
                 .filter(|(_, (_, vp))| match vp {
                     Some(v) => v.contains(x, y),
                     None => true,
@@ -199,12 +214,15 @@ fn select_targets_for_policy(
         },
         None => {
             let is_broadcast = topic.contains("/all/");
-            sessions.iter()
+            sessions
+                .iter()
                 .filter(|(_, (player_name, vp))| {
                     let topic_ok = is_broadcast
                         || topic.contains(&format!("/{}/", player_name))
                         || player_name.is_empty();
-                    if !topic_ok { return false; }
+                    if !topic_ok {
+                        return false;
+                    }
                     match (entity_pos, vp) {
                         (Some((x, y)), Some(v)) => v.contains(x, y),
                         _ => true,
@@ -270,7 +288,11 @@ fn dedupe_batch(batch: Vec<OutboundMsg>) -> Vec<OutboundMsg> {
         let (t, a, id) = peek_kind_and_id(&msg.msg);
         match (id, is_dedupable(&t, &a)) {
             (Some(entity_id), true) => {
-                let key = DedupeKey { msg_type: t, action: a, entity_id };
+                let key = DedupeKey {
+                    msg_type: t,
+                    action: a,
+                    entity_id,
+                };
                 match dedupe_idx.get(&key) {
                     Some(&idx) => {
                         // 就地替換，以便保留重複資料刪除後的順序
@@ -309,9 +331,20 @@ fn peek_kind_and_id(payload: &str) -> (String, String, Option<u64>) {
     let Ok(parsed) = serde_json::from_str::<serde_json::Value>(payload) else {
         return (String::new(), String::new(), None);
     };
-    let t = parsed.get("t").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let a = parsed.get("a").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let id = parsed.get("d").and_then(|d| d.get("id")).and_then(|v| v.as_u64());
+    let t = parsed
+        .get("t")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let a = parsed
+        .get("a")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let id = parsed
+        .get("d")
+        .and_then(|d| d.get("id"))
+        .and_then(|v| v.as_u64());
     (t, a, id)
 }
 
@@ -325,7 +358,7 @@ fn peek_kind_and_id(payload: &str) -> (String, String, Option<u64>) {
 ///
 /// 階段 5.3 新增了「lockstep_snapshot_store」：調度程式滴答循環
 /// `state::core::tick()` 每隔一段時間就會將一個新的 `WorldSnapshot` 映像檔到這個 Arc 中
-/// `SNAPSHOT_INTERVAL_TICKS`（= 30 秒 @ 30 Hz）。 0x15 SnapshotReq 處理程序
+/// `SNAPSHOT_INTERVAL_TICKS`（= 30 秒 @ 120 Hz）。 0x15 SnapshotReq 處理程序
 /// 克隆出最新的位元組並將它們作為 0x16 SnapshotResp 返回到
 /// 請求觀察者客戶端。空字節 (`tick=0`) 是有效的 —
 /// 觀察者在沒有引導程式的情況下從目前的tick開始播放。
@@ -340,7 +373,7 @@ pub async fn start(
     // 發出遺留的每個實體事件（creep.M / Creep.H /Entity.F / Projectile.C
     // — 第 5 階段設計希望副本用戶端在本地計算這些數據，但
     // 生產商尚未全部被削減）。與 TickBroadcaster 結合
-    // 60Hz 鎖步幀，峰值速率約 1000 條訊息/秒。舊的“有界（10000）”
+    // 120Hz 鎖步幀，峰值速率約 1000+ 條訊息/秒。舊的“有界（10000）”
     // 在大約 10 秒內飽和，「out_tx.send」（阻塞）使廣播公司陷入僵局
     // 任務 - 然後客戶端看到零個 TickBatches 和 sim_runner 被阻止
     // 輸入接收100k 緩衝區~100s 的淨空。真正的解決方法是放棄
@@ -351,8 +384,7 @@ pub async fn start(
     let (query_tx, query_rx): (Sender<QueryRequest>, Receiver<QueryRequest>) = bounded(100);
     let (viewport_tx, viewport_rx): (Sender<ViewportMsg>, Receiver<ViewportMsg>) = bounded(1024);
 
-    let sessions: Arc<Mutex<HashMap<String, ClientSession>>> =
-        Arc::new(Mutex::new(HashMap::new()));
+    let sessions: Arc<Mutex<HashMap<String, ClientSession>>> = Arc::new(Mutex::new(HashMap::new()));
 
     // 每個事件位元組/訊息計數器。與廣播線程共享以便測試
     // 遊戲循環可以快照/重置觀察到的線量。
@@ -362,8 +394,7 @@ pub async fn start(
     // 執行緒讀取 `BroadcastPolicy::AoiEntity` 查找。 `std::sync::互斥體`
     // （不是`tokio::sync::Mutex`）因為兩個接觸點都是同步的
     // 代碼保持鎖定微秒——鎖定時沒有“.await”。
-    let aoi: Arc<std::sync::Mutex<AoiGrid>> =
-        Arc::new(std::sync::Mutex::new(AoiGrid::new()));
+    let aoi: Arc<std::sync::Mutex<AoiGrid>> = Arc::new(std::sync::Mutex::new(AoiGrid::new()));
 
     // 後台執行緒：從out_rx讀取並廣播到所有會話
     let sessions_broadcast = sessions.clone();
@@ -779,9 +810,19 @@ pub async fn start(
 
             tokio::spawn(async move {
                 if let Err(e) = handle_client(
-                    stream, session_id, sessions, in_tx, query_tx, viewport_tx,
-                    out_tx, lockstep_input_buffer, lockstep_state, lockstep_snapshot_store,
-                ).await {
+                    stream,
+                    session_id,
+                    sessions,
+                    in_tx,
+                    query_tx,
+                    viewport_tx,
+                    out_tx,
+                    lockstep_input_buffer,
+                    lockstep_state,
+                    lockstep_snapshot_store,
+                )
+                .await
+                {
                     warn!("KCP client handler error: {}", e);
                 }
             });
@@ -1179,9 +1220,21 @@ mod tests {
         // 實體 42 的 3 個 Creep.H 更新應在一個視窗中到達
         // 折疊為攜帶最新 hp 值的單一訊息。
         let batch = vec![
-            make("creep", "H", json!({ "id": 42, "hp": 100.0, "max_hp": 200.0 })),
-            make("creep", "H", json!({ "id": 42, "hp": 80.0, "max_hp": 200.0 })),
-            make("creep", "H", json!({ "id": 42, "hp": 50.0, "max_hp": 200.0 })),
+            make(
+                "creep",
+                "H",
+                json!({ "id": 42, "hp": 100.0, "max_hp": 200.0 }),
+            ),
+            make(
+                "creep",
+                "H",
+                json!({ "id": 42, "hp": 80.0, "max_hp": 200.0 }),
+            ),
+            make(
+                "creep",
+                "H",
+                json!({ "id": 42, "hp": 50.0, "max_hp": 200.0 }),
+            ),
         ];
         let out = dedupe_batch(batch);
         assert_eq!(out.len(), 1);
@@ -1192,8 +1245,16 @@ mod tests {
     #[test]
     fn dedupe_preserves_different_entities() {
         let batch = vec![
-            make("creep", "H", json!({ "id": 42, "hp": 100.0, "max_hp": 200.0 })),
-            make("creep", "H", json!({ "id": 43, "hp":  90.0, "max_hp": 200.0 })),
+            make(
+                "creep",
+                "H",
+                json!({ "id": 42, "hp": 100.0, "max_hp": 200.0 }),
+            ),
+            make(
+                "creep",
+                "H",
+                json!({ "id": 43, "hp":  90.0, "max_hp": 200.0 }),
+            ),
         ];
         let out = dedupe_batch(batch);
         assert_eq!(out.len(), 2);
@@ -1203,7 +1264,11 @@ mod tests {
     fn dedupe_preserves_different_actions() {
         // Creep.H 和 Creep.M 共用實體，但操作不同 → 都保留。
         let batch = vec![
-            make("creep", "H", json!({ "id": 42, "hp": 100.0, "max_hp": 200.0 })),
+            make(
+                "creep",
+                "H",
+                json!({ "id": 42, "hp": 100.0, "max_hp": 200.0 }),
+            ),
             make("creep", "M", json!({ "id": 42, "x": 1.0, "y": 2.0 })),
         ];
         let out = dedupe_batch(batch);
@@ -1243,10 +1308,11 @@ mod tests {
 
     use std::collections::BTreeMap;
 
-    fn mk_sessions(entries: &[(&str, &str, Option<Viewport>)])
-        -> BTreeMap<String, (String, Option<Viewport>)>
-    {
-        entries.iter()
+    fn mk_sessions(
+        entries: &[(&str, &str, Option<Viewport>)],
+    ) -> BTreeMap<String, (String, Option<Viewport>)> {
+        entries
+            .iter()
             .map(|(id, name, vp)| (id.to_string(), (name.to_string(), *vp)))
             .collect()
     }
@@ -1255,25 +1321,32 @@ mod tests {
     fn policy_all_reaches_every_session() {
         let sessions = mk_sessions(&[
             ("s1", "alice", Some(Viewport::new(0.0, 0.0, 100.0, 100.0))),
-            ("s2", "bob",   Some(Viewport::new(1000.0, 1000.0, 100.0, 100.0))),
+            (
+                "s2",
+                "bob",
+                Some(Viewport::new(1000.0, 1000.0, 100.0, 100.0)),
+            ),
             ("s3", "carol", None),
         ]);
         let targets = select_targets_for_policy(
             Some(&BroadcastPolicy::All),
-            "td/all/res", None, &sessions, &|_| None,
+            "td/all/res",
+            None,
+            &sessions,
+            &|_| None,
         );
         assert_eq!(targets.len(), 3);
     }
 
     #[test]
     fn policy_player_only_hits_one_session() {
-        let sessions = mk_sessions(&[
-            ("s1", "alice", None),
-            ("s2", "bob",   None),
-        ]);
+        let sessions = mk_sessions(&[("s1", "alice", None), ("s2", "bob", None)]);
         let targets = select_targets_for_policy(
             Some(&BroadcastPolicy::PlayerOnly("bob".into())),
-            "td/bob/res", None, &sessions, &|_| None,
+            "td/bob/res",
+            None,
+            &sessions,
+            &|_| None,
         );
         assert_eq!(targets, vec!["s2".to_string()]);
     }
@@ -1282,7 +1355,11 @@ mod tests {
     fn policy_aoi_point_filters_by_viewport() {
         let sessions = mk_sessions(&[
             ("s1", "alice", Some(Viewport::new(0.0, 0.0, 100.0, 100.0))),
-            ("s2", "bob",   Some(Viewport::new(1000.0, 1000.0, 100.0, 100.0))),
+            (
+                "s2",
+                "bob",
+                Some(Viewport::new(1000.0, 1000.0, 100.0, 100.0)),
+            ),
             ("s3", "no_vp", None),
         ]);
         // (10, 10) 處的事件 — alice 看到了，bob 沒看到，no_vp 透過
@@ -1290,7 +1367,10 @@ mod tests {
         // /初始狀態仍然達到他們）。
         let targets = select_targets_for_policy(
             Some(&BroadcastPolicy::AoiPoint(10.0, 10.0)),
-            "td/all/res", None, &sessions, &|_| None,
+            "td/all/res",
+            None,
+            &sessions,
+            &|_| None,
         );
         let mut sorted = targets.clone();
         sorted.sort();
@@ -1300,14 +1380,27 @@ mod tests {
     #[test]
     fn policy_aoi_entity_uses_grid_lookup() {
         let sessions = mk_sessions(&[
-            ("s1", "alice", Some(Viewport::new(500.0, 500.0, 100.0, 100.0))),
-            ("s2", "bob",   Some(Viewport::new(0.0, 0.0, 100.0, 100.0))),
+            (
+                "s1",
+                "alice",
+                Some(Viewport::new(500.0, 500.0, 100.0, 100.0)),
+            ),
+            ("s2", "bob", Some(Viewport::new(0.0, 0.0, 100.0, 100.0))),
         ]);
         // 實體 42 位於 (500, 500) — 只有 Alice 的視口包含它。
-        let lookup = |eid: u64| if eid == 42 { Some((500.0, 500.0)) } else { None };
+        let lookup = |eid: u64| {
+            if eid == 42 {
+                Some((500.0, 500.0))
+            } else {
+                None
+            }
+        };
         let targets = select_targets_for_policy(
             Some(&BroadcastPolicy::AoiEntity(42)),
-            "td/all/res", None, &sessions, &lookup,
+            "td/all/res",
+            None,
+            &sessions,
+            &lookup,
         );
         assert_eq!(targets, vec!["s1".to_string()]);
     }
@@ -1315,13 +1408,20 @@ mod tests {
     #[test]
     fn policy_aoi_entity_unknown_falls_back_to_broadcast() {
         let sessions = mk_sessions(&[
-            ("s1", "alice", Some(Viewport::new(500.0, 500.0, 100.0, 100.0))),
-            ("s2", "bob",   Some(Viewport::new(0.0, 0.0, 100.0, 100.0))),
+            (
+                "s1",
+                "alice",
+                Some(Viewport::new(500.0, 500.0, 100.0, 100.0)),
+            ),
+            ("s2", "bob", Some(Viewport::new(0.0, 0.0, 100.0, 100.0))),
         ]);
         // 實體 999 未知 → 廣播到每個會話（安全後備）。
         let targets = select_targets_for_policy(
             Some(&BroadcastPolicy::AoiEntity(999)),
-            "td/all/res", None, &sessions, &|_| None,
+            "td/all/res",
+            None,
+            &sessions,
+            &|_| None,
         );
         assert_eq!(targets.len(), 2);
     }
@@ -1330,19 +1430,20 @@ mod tests {
     fn policy_none_preserves_legacy_topic_routing() {
         let sessions = mk_sessions(&[
             ("s1", "alice", Some(Viewport::new(0.0, 0.0, 100.0, 100.0))),
-            ("s2", "bob",   Some(Viewport::new(1000.0, 1000.0, 100.0, 100.0))),
+            (
+                "s2",
+                "bob",
+                Some(Viewport::new(1000.0, 1000.0, 100.0, 100.0)),
+            ),
         ]);
         // 舊版 /all/ topic +entity_pos → 應用視窗過濾器。
         // (0, 0) 處的事件 — alice 包含，bob 不包含。
-        let targets = select_targets_for_policy(
-            None, "td/all/res", Some((0.0, 0.0)), &sessions, &|_| None,
-        );
+        let targets =
+            select_targets_for_policy(None, "td/all/res", Some((0.0, 0.0)), &sessions, &|_| None);
         assert_eq!(targets, vec!["s1".to_string()]);
 
         // 每個玩家的主題「td/bob/res」 → 僅 bob 的會話。
-        let targets = select_targets_for_policy(
-            None, "td/bob/res", None, &sessions, &|_| None,
-        );
+        let targets = select_targets_for_policy(None, "td/bob/res", None, &sessions, &|_| None);
         assert_eq!(targets, vec!["s2".to_string()]);
     }
 
@@ -1350,12 +1451,14 @@ mod tests {
     fn policy_none_no_pos_reaches_all_matching_topic() {
         let sessions = mk_sessions(&[
             ("s1", "alice", Some(Viewport::new(0.0, 0.0, 100.0, 100.0))),
-            ("s2", "bob",   Some(Viewport::new(1000.0, 1000.0, 100.0, 100.0))),
+            (
+                "s2",
+                "bob",
+                Some(Viewport::new(1000.0, 1000.0, 100.0, 100.0)),
+            ),
         ]);
         // /all/ topic + 無entity_pos → 每個會話都通過。
-        let targets = select_targets_for_policy(
-            None, "td/all/res", None, &sessions, &|_| None,
-        );
+        let targets = select_targets_for_policy(None, "td/all/res", None, &sessions, &|_| None);
         assert_eq!(targets.len(), 2);
     }
 
@@ -1412,11 +1515,17 @@ mod tests {
         // 即使 MIN_BATCH 為 10 毫秒，也必須在 MIN_BATCH 下順利完成。
         let (tx, rx) = bounded::<OutboundMsg>(32);
         tx.send(make("creep", "D", json!({ "id": 42 }))).unwrap();
-        tx.send(make("creep", "H", json!({ "id": 42, "hp": 10.0 }))).unwrap();
+        tx.send(make("creep", "H", json!({ "id": 42, "hp": 10.0 })))
+            .unwrap();
         let t0 = Instant::now();
-        let batch = collect_batch(&rx, Duration::from_millis(10), Duration::from_millis(33)).unwrap();
+        let batch =
+            collect_batch(&rx, Duration::from_millis(10), Duration::from_millis(33)).unwrap();
         let elapsed = t0.elapsed();
-        assert!(elapsed < Duration::from_millis(5), "urgent flush took {:?}", elapsed);
+        assert!(
+            elapsed < Duration::from_millis(5),
+            "urgent flush took {:?}",
+            elapsed
+        );
         // 兩則訊息均已傳入（普通訊息透過 try_recv 進行捎帶）。
         assert_eq!(batch.len(), 2);
     }
@@ -1426,15 +1535,23 @@ mod tests {
         use crate::lockstep::{LockstepFrame, TickBatch};
 
         let (tx, rx) = bounded::<OutboundMsg>(32);
-        tx.send(OutboundMsg::lockstep_frame(LockstepFrame::TickBatch(TickBatch {
-            tick: 1,
-            inputs: Vec::new(),
-            server_events: Vec::new(),
-        }))).unwrap();
+        tx.send(OutboundMsg::lockstep_frame(LockstepFrame::TickBatch(
+            TickBatch {
+                tick: 1,
+                inputs: Vec::new(),
+                server_events: Vec::new(),
+            },
+        )))
+        .unwrap();
         let t0 = Instant::now();
-        let batch = collect_batch(&rx, Duration::from_millis(10), Duration::from_millis(33)).unwrap();
+        let batch =
+            collect_batch(&rx, Duration::from_millis(10), Duration::from_millis(33)).unwrap();
         let elapsed = t0.elapsed();
-        assert!(elapsed < Duration::from_millis(5), "lockstep flush took {:?}", elapsed);
+        assert!(
+            elapsed < Duration::from_millis(5),
+            "lockstep flush took {:?}",
+            elapsed
+        );
         assert_eq!(batch.len(), 1);
     }
 
@@ -1443,16 +1560,25 @@ mod tests {
         use crate::lockstep::{LockstepFrame, TickBatch};
 
         let (tx, rx) = bounded::<OutboundMsg>(32);
-        tx.send(make("creep", "H", json!({ "id": 42, "hp": 10.0 }))).unwrap();
-        tx.send(OutboundMsg::lockstep_frame(LockstepFrame::TickBatch(TickBatch {
-            tick: 1,
-            inputs: Vec::new(),
-            server_events: Vec::new(),
-        }))).unwrap();
+        tx.send(make("creep", "H", json!({ "id": 42, "hp": 10.0 })))
+            .unwrap();
+        tx.send(OutboundMsg::lockstep_frame(LockstepFrame::TickBatch(
+            TickBatch {
+                tick: 1,
+                inputs: Vec::new(),
+                server_events: Vec::new(),
+            },
+        )))
+        .unwrap();
         let t0 = Instant::now();
-        let batch = collect_batch(&rx, Duration::from_millis(10), Duration::from_millis(33)).unwrap();
+        let batch =
+            collect_batch(&rx, Duration::from_millis(10), Duration::from_millis(33)).unwrap();
         let elapsed = t0.elapsed();
-        assert!(elapsed < Duration::from_millis(5), "lockstep did not short-circuit: {:?}", elapsed);
+        assert!(
+            elapsed < Duration::from_millis(5),
+            "lockstep did not short-circuit: {:?}",
+            elapsed
+        );
         assert_eq!(batch.len(), 2);
     }
 
@@ -1462,13 +1588,19 @@ mod tests {
         // 最大批。在第一個訊息之後，我們點擊了一個空通道
         // 恰好在 MAX_BATCH 處超時（模 OS 調度程式 slop）。
         let (tx, rx) = bounded::<OutboundMsg>(32);
-        tx.send(make("creep", "H", json!({ "id": 42, "hp": 10.0 }))).unwrap();
+        tx.send(make("creep", "H", json!({ "id": 42, "hp": 10.0 })))
+            .unwrap();
         let t0 = Instant::now();
-        let batch = collect_batch(&rx, Duration::from_millis(10), Duration::from_millis(33)).unwrap();
+        let batch =
+            collect_batch(&rx, Duration::from_millis(10), Duration::from_millis(33)).unwrap();
         let elapsed = t0.elapsed();
         // 預期 ≥ MAX_BATCH（在寬鬆的容差範圍內 - Windows 調度程序
         // 量子約為 15ms，因此下限是我們真正關心的）。
-        assert!(elapsed >= Duration::from_millis(25), "normal flush fired too early: {:?}", elapsed);
+        assert!(
+            elapsed >= Duration::from_millis(25),
+            "normal flush fired too early: {:?}",
+            elapsed
+        );
         assert_eq!(batch.len(), 1);
     }
 
@@ -1478,18 +1610,28 @@ mod tests {
         // 在 MAX_BATCH 之前。驅動一個單獨的線程來傳遞緊急的
         // 訊息約 15 毫秒。
         let (tx, rx) = bounded::<OutboundMsg>(32);
-        tx.send(make("creep", "H", json!({ "id": 42, "hp": 10.0 }))).unwrap();
+        tx.send(make("creep", "H", json!({ "id": 42, "hp": 10.0 })))
+            .unwrap();
         let tx2 = tx.clone();
         std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(15));
             tx2.send(make("creep", "D", json!({ "id": 42 }))).unwrap();
         });
         let t0 = Instant::now();
-        let batch = collect_batch(&rx, Duration::from_millis(10), Duration::from_millis(33)).unwrap();
+        let batch =
+            collect_batch(&rx, Duration::from_millis(10), Duration::from_millis(33)).unwrap();
         let elapsed = t0.elapsed();
         // 必須在 Urgent 到達之後（~15ms）但在 MAX_BATCH（33ms）之前刷新。
-        assert!(elapsed < Duration::from_millis(30), "didn't short-circuit on Urgent: {:?}", elapsed);
-        assert!(elapsed >= Duration::from_millis(14), "flushed before MIN_BATCH: {:?}", elapsed);
+        assert!(
+            elapsed < Duration::from_millis(30),
+            "didn't short-circuit on Urgent: {:?}",
+            elapsed
+        );
+        assert!(
+            elapsed >= Duration::from_millis(14),
+            "flushed before MIN_BATCH: {:?}",
+            elapsed
+        );
         assert_eq!(batch.len(), 2);
     }
 
@@ -1499,7 +1641,8 @@ mod tests {
         // 最少 MIN_BATCH — 緊急情況僅為一次短路訊號
         // 我們已經攤銷了批次成本。
         let (tx, rx) = bounded::<OutboundMsg>(32);
-        tx.send(make("creep", "H", json!({ "id": 42, "hp": 10.0 }))).unwrap();
+        tx.send(make("creep", "H", json!({ "id": 42, "hp": 10.0 })))
+            .unwrap();
         let tx2 = tx.clone();
         std::thread::spawn(move || {
             // 緊急抵達時間約 3 毫秒 — 完全在 MIN_BATCH 之內。
@@ -1507,11 +1650,16 @@ mod tests {
             tx2.send(make("creep", "D", json!({ "id": 42 }))).unwrap();
         });
         let t0 = Instant::now();
-        let batch = collect_batch(&rx, Duration::from_millis(10), Duration::from_millis(33)).unwrap();
+        let batch =
+            collect_batch(&rx, Duration::from_millis(10), Duration::from_millis(33)).unwrap();
         let elapsed = t0.elapsed();
         // 即使看到“緊急”，也應保持批次超過 MIN_BATCH
         // （然後點擊 MAX_BATCH，因為沒有其他東西到達）。
-        assert!(elapsed >= Duration::from_millis(25), "flushed on early Urgent: {:?}", elapsed);
+        assert!(
+            elapsed >= Duration::from_millis(25),
+            "flushed on early Urgent: {:?}",
+            elapsed
+        );
         assert_eq!(batch.len(), 2);
     }
 
@@ -1601,6 +1749,10 @@ mod tests {
         let frame = build_framed_bytes(TAG_TICK_BATCH, &payload);
         assert_eq!(frame[0] & COMPRESSION_FLAG, COMPRESSION_FLAG);
         assert_eq!(frame[0] & 0x7F, TAG_TICK_BATCH);
-        assert!(frame.len() < 500, "expected compressed frame < 500B, got {}", frame.len());
+        assert!(
+            frame.len() < 500,
+            "expected compressed frame < 500B, got {}",
+            frame.len()
+        );
     }
 }

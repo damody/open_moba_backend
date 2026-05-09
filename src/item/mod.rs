@@ -6,12 +6,18 @@ use crate::json_preprocessor::JsonPreprocessor;
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct ItemBonus {
-    #[serde(default)] pub atk: f32,
-    #[serde(default)] pub hp: f32,
-    #[serde(default)] pub mp: f32,
-    #[serde(default)] pub ms: f32,
-    #[serde(default)] pub armor: f32,
-    #[serde(default)] pub mp_regen: f32,
+    #[serde(default)]
+    pub atk: f32,
+    #[serde(default)]
+    pub hp: f32,
+    #[serde(default)]
+    pub mp: f32,
+    #[serde(default)]
+    pub ms: f32,
+    #[serde(default)]
+    pub armor: f32,
+    #[serde(default)]
+    pub mp_regen: f32,
 }
 
 /// 主動效果類型（MVP 簡化版）
@@ -35,11 +41,15 @@ pub struct ItemConfig {
     pub id: String,
     pub name: String,
     pub cost: i32,
-    #[serde(default)] pub bonus: ItemBonus,
-    #[serde(default)] pub active: Option<ActiveEffect>,
-    #[serde(default)] pub cooldown: f32,
+    #[serde(default)]
+    pub bonus: ItemBonus,
+    #[serde(default)]
+    pub active: Option<ActiveEffect>,
+    #[serde(default)]
+    pub cooldown: f32,
     /// 升級所需組件 item_id（可為空）。購買時會從背包消耗這些組件
-    #[serde(default)] pub recipe: Vec<String>,
+    #[serde(default)]
+    pub recipe: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default)]

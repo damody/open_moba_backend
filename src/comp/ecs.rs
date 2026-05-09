@@ -1,7 +1,7 @@
-use specs::{ReadExpect, RunNow};
-use std::{collections::HashMap, time::Instant};
-use std::sync::Mutex;
 use crate::comp::base::span;
+use specs::{ReadExpect, RunNow};
+use std::sync::Mutex;
+use std::{collections::HashMap, time::Instant};
 
 #[derive(Default)]
 pub struct SysMetrics {
@@ -61,7 +61,9 @@ impl CpuTimeline {
 
     /// 開始新的測量。 par will be covering the parallelisation AFTER
     /// 這條語句，直到系統的下一個/結束。
-    pub fn measure(&mut self, par: ParMode) { self.measures.push((Instant::now(), par)); }
+    pub fn measure(&mut self, par: ParMode) {
+        self.measures.push((Instant::now(), par));
+    }
 
     fn end(&mut self) -> std::time::Duration {
         let end = Instant::now();
@@ -84,7 +86,9 @@ impl CpuTimeline {
 }
 
 impl CpuTimeStats {
-    pub fn length_ns(&self) -> u64 { self.end_ns() - self.start_ns() }
+    pub fn length_ns(&self) -> u64 {
+        self.end_ns() - self.start_ns()
+    }
 
     pub fn start_ns(&self) -> u64 {
         self.measures
@@ -94,7 +98,9 @@ impl CpuTimeStats {
             .0
     }
 
-    pub fn end_ns(&self) -> u64 { self.measures.last().unwrap_or(&(0, 0.0)).0 }
+    pub fn end_ns(&self) -> u64 {
+        self.measures.last().unwrap_or(&(0, 0.0)).0
+    }
 
     pub fn avg_threads(&self) -> f32 {
         let mut sum = 0.0;
@@ -217,7 +223,9 @@ pub trait System<'a> {
 
     type SystemData: specs::SystemData<'a>;
     fn run(job: &mut Job<Self>, data: Self::SystemData);
-    fn sys_name() -> String { format!("{}_sys", Self::NAME) }
+    fn sys_name() -> String {
+        format!("{}_sys", Self::NAME)
+    }
 }
 
 pub fn dispatch<'a, 'b, T>(builder: &mut specs::DispatcherBuilder<'a, 'b>, dep: &[&str])

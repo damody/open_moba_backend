@@ -1,6 +1,6 @@
+use serde::{Deserialize, Serialize};
 use specs::storage::VecStorage;
 use specs::Component;
-use serde::{Deserialize, Serialize};
 
 pub const INVENTORY_SLOTS: usize = 6;
 

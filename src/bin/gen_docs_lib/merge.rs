@@ -3,9 +3,7 @@
 use crate::lib::coverage::ImplEntry;
 use crate::lib::dll::DllData;
 use crate::lib::entity::EntityData;
-use crate::lib::model::{
-    ApiSpec, BuildMeta, Catalog, UnitEntry, UnitKind, Warning,
-};
+use crate::lib::model::{ApiSpec, BuildMeta, Catalog, UnitEntry, UnitKind, Warning};
 use std::collections::HashMap;
 
 pub fn merge(
@@ -143,7 +141,9 @@ fn snake(s: &str) -> String {
     let mut out = String::new();
     for (i, c) in s.chars().enumerate() {
         if c.is_uppercase() {
-            if i > 0 { out.push('_'); }
+            if i > 0 {
+                out.push('_');
+            }
             out.push(c.to_ascii_lowercase());
         } else {
             out.push(c);

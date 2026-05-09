@@ -1,22 +1,31 @@
-use std::collections::BTreeMap;
-use std::time::SystemTime;
 use crossbeam_channel::{Receiver, Sender};
+use failure::Error;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use failure::Error;
 use specs::{World, WorldExt};
+use std::collections::BTreeMap;
+use std::time::SystemTime;
 
 use crate::comp::*;
-use crate::transport::{OutboundMsg, InboundMsg};
-use omoba_template_ids::{HERO_SAIKA_MAGOICHI, hero_abilities};
+use crate::transport::{InboundMsg, OutboundMsg};
 use omoba_sim::{Fixed64, Vec2 as SimVec2};
+use omoba_template_ids::{hero_abilities, HERO_SAIKA_MAGOICHI};
 
 pub struct MqttHandler;
 
 impl MqttHandler {
-    pub fn handle_screen_request(ecs: &mut World, mqtx: &Sender<OutboundMsg>, pd: InboundMsg) -> Result<(), Error> {
-        log::info!("🔍 [DEBUG] 開始處理畫面狀態請求 - 玩家: {}, 動作: {}, 完整數據: {:?}", pd.name, pd.a, pd.d);
-        
+    pub fn handle_screen_request(
+        ecs: &mut World,
+        mqtx: &Sender<OutboundMsg>,
+        pd: InboundMsg,
+    ) -> Result<(), Error> {
+        log::info!(
+            "🔍 [DEBUG] 開始處理畫面狀態請求 - 玩家: {}, 動作: {}, 完整數據: {:?}",
+            pd.name,
+            pd.a,
+            pd.d
+        );
+
         #[derive(Deserialize)]
         struct ScreenRequestData {
             player_name: String,
@@ -26,15 +35,19 @@ impl MqttHandler {
             width: f32,
             height: f32,
         }
-        
+
         if let Ok(request_data) = serde_json::from_value::<ScreenRequestData>(pd.d.clone()) {
-            log::info!("🔍 [DEBUG] 成功解析請求數據 - 玩家: {}, 請求類型: {}", request_data.player_name, request_data.request_type);
+            log::info!(
+                "🔍 [DEBUG] 成功解析請求數據 - 玩家: {}, 請求類型: {}",
+                request_data.player_name,
+                request_data.request_type
+            );
             match pd.a.as_str() {
                 "get_screen_area" => {
                     log::info!("🔍 [DEBUG] 開始處理 get_screen_area 請求");
                     let game_data = Self::get_screen_area_data(&pd.d)?;
                     let response_topic = format!("td/{}/screen_response", request_data.player_name);
-                    
+
                     let mqtt_msg = OutboundMsg {
                         topic: response_topic.clone(),
                         msg: game_data.to_string(),
@@ -43,20 +56,29 @@ impl MqttHandler {
                         #[cfg(feature = "kcp")]
                         typed: None,
                         #[cfg(any(feature = "grpc", feature = "kcp"))]
-                        policy: Some(crate::transport::BroadcastPolicy::PlayerOnly(request_data.player_name.clone())),
+                        policy: Some(crate::transport::BroadcastPolicy::PlayerOnly(
+                            request_data.player_name.clone(),
+                        )),
                         #[cfg(feature = "kcp")]
                         lockstep_frame: None,
                     };
-                    
+
                     log::info!("📤 [DEBUG] 準備發送畫面資料到主題: {} - 消息內容長度: {} - 發送隊列容量: {}", response_topic, mqtt_msg.msg.len(), mqtx.len());
-                    
+
                     match mqtx.try_send(mqtt_msg) {
                         Ok(_) => {
                             log::info!("✅ 成功將消息加入發送隊列 - 主題: {}", response_topic);
                         }
                         Err(e) => {
-                            log::error!("❌ 發送消息到隊列失敗 - 主題: {}, 錯誤: {:?}", response_topic, e);
-                            return Err(failure::err_msg(format!("Failed to send MQTT message: {:?}", e)));
+                            log::error!(
+                                "❌ 發送消息到隊列失敗 - 主題: {}, 錯誤: {:?}",
+                                response_topic,
+                                e
+                            );
+                            return Err(failure::err_msg(format!(
+                                "Failed to send MQTT message: {:?}",
+                                e
+                            )));
                         }
                     }
                 }
@@ -67,10 +89,10 @@ impl MqttHandler {
         } else {
             log::error!("無法解析畫面請求資料: {:?}", pd.d);
         }
-        
+
         Ok(())
     }
-    
+
     fn get_screen_area_data(_request_data: &serde_json::Value) -> Result<serde_json::Value, Error> {
         let response_data = json!({
             "t": "screen_response",
@@ -127,14 +149,23 @@ impl MqttHandler {
                     .as_millis()
             }
         });
-        
+
         Ok(response_data)
     }
-    
-    pub fn handle_tower(ecs: &mut World, mqtx: &Sender<OutboundMsg>, pd: InboundMsg) -> Result<(), Error> {
+
+    pub fn handle_tower(
+        ecs: &mut World,
+        mqtx: &Sender<OutboundMsg>,
+        pd: InboundMsg,
+    ) -> Result<(), Error> {
         match pd.a.as_str() {
             "R" => {
-                mqtx.try_send(OutboundMsg::new_s("td/all/res", "tower", "R", json!({"msg":"ok"})))?;
+                mqtx.try_send(OutboundMsg::new_s(
+                    "td/all/res",
+                    "tower",
+                    "R",
+                    json!({"msg":"ok"}),
+                ))?;
             }
             "C" => {
                 #[derive(Serialize, Deserialize)]
@@ -162,22 +193,46 @@ impl MqttHandler {
                         Fixed64::from_raw((v.x * 1024.0) as i64),
                         Fixed64::from_raw((v.y * 1024.0) as i64),
                     );
-                    ocs.push(Outcome::Tower { pos, td: TowerData { tpty: t.tpty, tatk: t.tatk } });
-                    mqtx.try_send(OutboundMsg::new_s("td/all/res", "tower", "C", json!({"msg":"ok"})))?;
+                    ocs.push(Outcome::Tower {
+                        pos,
+                        td: TowerData {
+                            tpty: t.tpty,
+                            tatk: t.tatk,
+                        },
+                    });
+                    mqtx.try_send(OutboundMsg::new_s(
+                        "td/all/res",
+                        "tower",
+                        "C",
+                        json!({"msg":"ok"}),
+                    ))?;
                 } else {
-                    mqtx.try_send(OutboundMsg::new_s("td/all/res", "tower", "C", json!({"msg":"fail"})))?;
+                    mqtx.try_send(OutboundMsg::new_s(
+                        "td/all/res",
+                        "tower",
+                        "C",
+                        json!({"msg":"fail"}),
+                    ))?;
                 }
             }
             _ => {}
         }
         Ok(())
     }
-    
-    pub fn handle_player(ecs: &mut World, mqtx: &Sender<OutboundMsg>, pd: InboundMsg) -> Result<(), Error> {
+
+    pub fn handle_player(
+        ecs: &mut World,
+        mqtx: &Sender<OutboundMsg>,
+        pd: InboundMsg,
+    ) -> Result<(), Error> {
         let mut pmap = ecs.get_mut::<BTreeMap<String, Player>>().unwrap();
         match pd.a.as_str() {
             "C" => {
-                let mut p = Player { name: pd.name.clone(), cost: 100., towers: vec![] };
+                let mut p = Player {
+                    name: pd.name.clone(),
+                    cost: 100.,
+                    towers: vec![],
+                };
                 p.towers.push(TowerData {
                     tpty: TProperty::new(Fixed64::from_i32(10), 1, Fixed64::from_i32(100)),
                     tatk: TAttack::new(
@@ -188,19 +243,33 @@ impl MqttHandler {
                     ),
                 });
                 pmap.insert(pd.name.clone(), p);
-                mqtx.try_send(OutboundMsg::new_s("td/all/res", "player", "C", json!({"msg":"ok"})))?;
+                mqtx.try_send(OutboundMsg::new_s(
+                    "td/all/res",
+                    "player",
+                    "C",
+                    json!({"msg":"ok"}),
+                ))?;
             }
             _ => {}
         }
         Ok(())
     }
-    
-    pub fn process_playerdatas(ecs: &mut World, mqtx: &Sender<OutboundMsg>, mqrx: &Receiver<InboundMsg>) -> Result<(), Error> {
+
+    pub fn process_playerdatas(
+        ecs: &mut World,
+        mqtx: &Sender<OutboundMsg>,
+        mqrx: &Receiver<InboundMsg>,
+    ) -> Result<(), Error> {
         let n = mqrx.len();
         for _i in 0..n {
             let data = mqrx.try_recv();
             if let Ok(d) = data {
-                log::info!("收到 PlayerData: t='{}', a='{}', name='{}'", d.t, d.a, d.name);
+                log::info!(
+                    "收到 PlayerData: t='{}', a='{}', name='{}'",
+                    d.t,
+                    d.a,
+                    d.name
+                );
                 log::debug!("完整 PlayerData: {:?}", d);
                 match d.t.as_str() {
                     "tower" => {
@@ -234,7 +303,11 @@ impl MqttHandler {
     ///          "target_entity": 42,          // 可選
     ///          "target_position": [x, y] } } // 可選
     /// ```
-    pub fn handle_skill(ecs: &mut World, _mqtx: &Sender<OutboundMsg>, pd: InboundMsg) -> Result<(), Error> {
+    pub fn handle_skill(
+        ecs: &mut World,
+        _mqtx: &Sender<OutboundMsg>,
+        pd: InboundMsg,
+    ) -> Result<(), Error> {
         use crate::scripting::event::{ScriptEvent, ScriptEventQueue, SkillTarget};
         use specs::Join;
 
@@ -242,22 +315,20 @@ impl MqttHandler {
             return Ok(());
         }
 
-        let ability_id = pd
-            .d
-            .get("ability_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
+        let ability_id =
+            pd.d.get("ability_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
         if ability_id.is_empty() {
             log::warn!("[skill/cast] missing ability_id for player '{}'", pd.name);
             return Ok(());
         }
 
-        let target_entity_id = pd
-            .d
-            .get("target_entity")
-            .and_then(|v| v.as_u64())
-            .map(|v| v as u32);
+        let target_entity_id =
+            pd.d.get("target_entity")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as u32);
         let target_pos = pd.d.get("target_position").and_then(|v| {
             let arr = v.as_array()?;
             if arr.len() != 2 {

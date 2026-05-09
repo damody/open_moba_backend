@@ -1,6 +1,8 @@
-use specs::{shred, Entities, Join, Read, ReadExpect, ReadStorage, SystemData, Write, WriteStorage};
 use crate::comp::*;
 use omoba_sim::Fixed64;
+use specs::{
+    shred, Entities, Join, Read, ReadExpect, ReadStorage, SystemData, Write, WriteStorage,
+};
 
 #[inline]
 fn f32_to_fx(v: f32) -> Fixed64 {
@@ -77,7 +79,12 @@ impl<'a> System<'a> for Sys {
 
             let (applied_atk, applied_hp, applied_ms, applied_armor) = {
                 if let Some(eff) = tw.effects.get(e) {
-                    (eff.applied_atk, eff.applied_hp, eff.applied_ms, eff.applied_armor)
+                    (
+                        eff.applied_atk,
+                        eff.applied_hp,
+                        eff.applied_ms,
+                        eff.applied_armor,
+                    )
                 } else {
                     (0.0, 0.0, 0.0, 0.0)
                 }
@@ -97,8 +104,16 @@ impl<'a> System<'a> for Sys {
             if let Some(prop) = tw.properties.get_mut(e) {
                 prop.mhp = prop.mhp - applied_hp_fx + sum_hp_fx;
                 let one = Fixed64::ONE;
-                let hp_clamped_max = if prop.hp < prop.mhp { prop.hp } else { prop.mhp };
-                prop.hp = if hp_clamped_max < one { one } else { hp_clamped_max };
+                let hp_clamped_max = if prop.hp < prop.mhp {
+                    prop.hp
+                } else {
+                    prop.mhp
+                };
+                prop.hp = if hp_clamped_max < one {
+                    one
+                } else {
+                    hp_clamped_max
+                };
                 prop.msd = prop.msd - applied_ms_fx + sum_ms_fx;
                 prop.def_physic = prop.def_physic - applied_armor_fx + sum_armor_fx;
             }
@@ -123,7 +138,12 @@ impl<'a> System<'a> for Sys {
 
             log::info!(
                 "ItemEffects 重算 entity={:?}: atk+{} hp+{} ms+{} armor+{} mp+{}",
-                e, sum_atk, sum_hp, sum_ms, sum_armor, sum_mp
+                e,
+                sum_atk,
+                sum_hp,
+                sum_ms,
+                sum_armor,
+                sum_mp
             );
         }
     }

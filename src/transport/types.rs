@@ -1,11 +1,11 @@
-use crossbeam_channel::{Sender, Receiver};
-use serde::{Deserialize, Serialize};
-use serde_json::json;
-use std::time::SystemTime;
-#[cfg(feature = "kcp")]
-use std::sync::Arc;
 #[cfg(feature = "kcp")]
 use super::metrics::KcpBytesCounter;
+use crossbeam_channel::{Receiver, Sender};
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+#[cfg(feature = "kcp")]
+use std::sync::Arc;
+use std::time::SystemTime;
 
 /// P2 二進位協定遷移：類型化的 prost 有效負載與
 /// 舊版 JSON `msg` 字串。當「OutboundMsg.typed」為「Some(_)」時，KCP
@@ -143,7 +143,14 @@ impl OutboundMsg {
     }
 
     /// 建立一個具有實體位置的 OutboundMsg 以進行視口過濾。
-    pub fn new_s_at(topic: &str, t: &str, a: &str, v: serde_json::Value, x: f32, y: f32) -> OutboundMsg {
+    pub fn new_s_at(
+        topic: &str,
+        t: &str,
+        a: &str,
+        v: serde_json::Value,
+        x: f32,
+        y: f32,
+    ) -> OutboundMsg {
         #[derive(Serialize, Deserialize)]
         struct ResData {
             t: String,
@@ -403,7 +410,12 @@ pub struct Viewport {
 #[cfg(any(feature = "grpc", feature = "kcp"))]
 impl Viewport {
     pub fn new(cx: f32, cy: f32, hw: f32, hh: f32) -> Self {
-        Self { cx, cy, padded_hw: hw * 1.3, padded_hh: hh * 1.3 }
+        Self {
+            cx,
+            cy,
+            padded_hw: hw * 1.3,
+            padded_hh: hh * 1.3,
+        }
     }
 
     pub fn contains(&self, x: f32, y: f32) -> bool {
@@ -415,8 +427,13 @@ impl Viewport {
 #[cfg(any(feature = "grpc", feature = "kcp"))]
 #[derive(Debug, Clone)]
 pub enum ViewportMsg {
-    Set { player_name: String, viewport: Viewport },
-    Remove { player_name: String },
+    Set {
+        player_name: String,
+        viewport: Viewport,
+    },
+    Remove {
+        player_name: String,
+    },
 }
 
 /// 傳輸層初始化傳回的句柄。

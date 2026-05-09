@@ -1,31 +1,28 @@
-/// 遊戲狀態核心結構
-
-use std::sync::Arc;
-use rayon::ThreadPool;
-use specs::{World, WorldExt};
+use core::time::Duration;
 use crossbeam_channel::{Receiver, Sender};
 use failure::Error;
-use core::time::Duration;
-use std::time::Instant;
 use omoba_core::lockstep_timing::{
-    LOCKSTEP_TEN_SECONDS_TICKS_U64, LOCKSTEP_THIRTY_SECONDS_TICKS_U64,
-    LOCKSTEP_TPS_U64,
+    lockstep_dt_fixed_raw_for_tick, LOCKSTEP_TEN_SECONDS_TICKS_U64,
+    LOCKSTEP_THIRTY_SECONDS_TICKS_U64, LOCKSTEP_TPS_U64,
 };
+use rayon::ThreadPool;
+use specs::{World, WorldExt};
+/// 遊戲狀態核心結構
+use std::sync::Arc;
+use std::time::Instant;
 
-use crate::{comp::*, CreepWave};
-use crate::ue4::import_map::CreepWaveData;
-use crate::ue4::import_campaign::CampaignData;
 use crate::scripting::{self, ScriptRegistry};
-use crate::transport::{OutboundMsg, InboundMsg};
+use crate::transport::{InboundMsg, OutboundMsg};
 #[cfg(any(feature = "grpc", feature = "kcp"))]
 use crate::transport::{QueryRequest, Viewport, ViewportMsg};
+use crate::ue4::import_campaign::CampaignData;
+use crate::ue4::import_map::CreepWaveData;
+use crate::{comp::*, CreepWave};
+use std::collections::BTreeMap;
 #[cfg(any(feature = "grpc", feature = "kcp"))]
 use std::collections::{HashMap, HashSet};
-use std::collections::BTreeMap;
 
-use super::{
-    StateInitializer, TimeManager, ResourceManager, SystemDispatcher
-};
+use super::{ResourceManager, StateInitializer, SystemDispatcher, TimeManager};
 
 /// 遊戲核心狀態
 pub struct State {
@@ -98,7 +95,8 @@ pub struct State {
     /// 狀態哈希間隔。在未啟用鎖定步驟的情況下運作時為“無”
     /// （mqtt/grpc 構建，或 kcp 構建，其中 main.rs 尚未連接它）。
     #[cfg(feature = "kcp")]
-    state_hash_tx: Option<crossbeam_channel::Sender<crate::lockstep::tick_broadcaster::StateHashSample>>,
+    state_hash_tx:
+        Option<crossbeam_channel::Sender<crate::lockstep::tick_broadcaster::StateHashSample>>,
     /// 階段 5.3：用於觀察者重新加入的共享快照儲存。調度員寫道
     /// 每個“SNAPSHOT_INTERVAL_TICKS”滴答聲； KCP 傳輸的 0x16 SnapshotResp
     /// 處理程序讀取。當 main.rs 未連接 Arc 時為「無」（舊版/
@@ -227,7 +225,10 @@ impl State {
         let dir_str = std::env::var("OMB_SCRIPTS_DIR").unwrap_or_else(|_| "./scripts".to_string());
         let dir = std::path::Path::new(&dir_str);
         self.script_registry = crate::scripting::loader::load_scripts_dir(dir);
-        super::initialization::populate_tower_template_registry(&mut self.ecs, &self.script_registry);
+        super::initialization::populate_tower_template_registry(
+            &mut self.ecs,
+            &self.script_registry,
+        );
         super::initialization::populate_tower_upgrade_registry(&mut self.ecs);
         super::initialization::populate_ability_registry(&mut self.ecs, &self.script_registry);
     }
@@ -300,9 +301,11 @@ impl State {
     /// 遊戲主循環 tick
     pub fn tick(&mut self, dt: Duration) -> Result<(), Error> {
         self.local_tick = self.local_tick.wrapping_add(1);
+        let dt_fixed_raw = lockstep_dt_fixed_raw_for_tick(self.local_tick);
 
         // 更新時間管理
-        self.time_manager.update(&mut self.ecs, dt)?;
+        self.time_manager
+            .update(&mut self.ecs, dt, Some(dt_fixed_raw))?;
 
         // 吸收 transport 傳進來的 viewport 更新
         #[cfg(any(feature = "grpc", feature = "kcp"))]
@@ -376,7 +379,7 @@ impl State {
         // 放在並行系統之後、其他序列處理之前，確保腳本能看到本 tick 的
         // 完整戰鬥結果，也能修改狀態讓下游處理看見。
         let t_dispatch = Instant::now();
-        let dt_fx = omoba_template_ids::Fixed64::from_raw((dt.as_secs_f32() * 1024.0) as i64);
+        let dt_fx = omoba_template_ids::Fixed64::from_raw(dt_fixed_raw);
         scripting::run_script_dispatch(
             &mut self.ecs,
             &self.script_registry,
@@ -404,7 +407,8 @@ impl State {
         }
 
         // 處理玩家資料
-        self.resource_manager.process_player_data(&mut self.ecs, &self.mqrx)?;
+        self.resource_manager
+            .process_player_data(&mut self.ecs, &self.mqrx)?;
 
         // 處理 MCP 查詢請求
         #[cfg(any(feature = "grpc", feature = "kcp"))]
@@ -473,9 +477,16 @@ impl State {
     fn drain_viewport_updates(&mut self) {
         while let Ok(msg) = self.viewport_rx.try_recv() {
             match msg {
-                ViewportMsg::Set { player_name, viewport } => {
-                    log::info!("📥 [State] ViewportMsg::Set player='{}' padded=({}, {})",
-                        player_name, viewport.padded_hw, viewport.padded_hh);
+                ViewportMsg::Set {
+                    player_name,
+                    viewport,
+                } => {
+                    log::info!(
+                        "📥 [State] ViewportMsg::Set player='{}' padded=({}, {})",
+                        player_name,
+                        viewport.padded_hw,
+                        viewport.padded_hh
+                    );
                     self.client_viewports.insert(player_name, viewport);
                 }
                 ViewportMsg::Remove { player_name } => {
@@ -500,9 +511,13 @@ impl State {
         while let Ok(req) = self.query_rx.try_recv() {
             let response = match req.query_type.as_str() {
                 "list_players" => query::query_list_players(&self.ecs),
-                "inspect_player_view" => query::query_inspect_player_view(&self.ecs, &req.player_name),
+                "inspect_player_view" => {
+                    query::query_inspect_player_view(&self.ecs, &req.player_name)
+                }
                 "list_abilities" => query::query_list_abilities(&self.ecs),
-                "get_ability_detail" => query::query_get_ability_detail(&self.ecs, &req.player_name),
+                "get_ability_detail" => {
+                    query::query_get_ability_detail(&self.ecs, &req.player_name)
+                }
                 other => crate::transport::QueryResponse {
                     success: false,
                     error: format!("Unknown query_type: {}", other),
@@ -611,17 +626,20 @@ impl State {
 
     /// 處理塔相關請求
     pub fn handle_tower(&mut self, pd: InboundMsg) -> Result<(), Error> {
-        self.resource_manager.handle_tower_request(&mut self.ecs, pd)
+        self.resource_manager
+            .handle_tower_request(&mut self.ecs, pd)
     }
 
     /// 處理玩家相關請求
     pub fn handle_player(&mut self, pd: InboundMsg) -> Result<(), Error> {
-        self.resource_manager.handle_player_request(&mut self.ecs, pd)
+        self.resource_manager
+            .handle_player_request(&mut self.ecs, pd)
     }
 
     /// 處理畫面請求
     pub fn handle_screen_request(&mut self, pd: InboundMsg) -> Result<(), Error> {
-        self.resource_manager.handle_screen_request(&mut self.ecs, pd)
+        self.resource_manager
+            .handle_screen_request(&mut self.ecs, pd)
     }
 
     // 私有初始化方法
@@ -644,13 +662,14 @@ impl State {
         // Phase 5.2: legacy 0x02 GameEvent broadcast cut. tower_templates 保留。
         self.send_tower_templates();
     }
-    
 
     /// 收集 script registry 內每支塔腳本的 tower_metadata，合併 host TowerTemplate
     /// 的 cost/footprint/label，廣播 `game/tower_templates` 給前端。
     fn send_tower_templates(&self) {
         use serde_json::json;
-        let reg = self.ecs.read_resource::<crate::comp::tower_registry::TowerTemplateRegistry>();
+        let reg = self
+            .ecs
+            .read_resource::<crate::comp::tower_registry::TowerTemplateRegistry>();
         let mut templates: Vec<serde_json::Value> = Vec::new();
         // 依 DLL units() 註冊順序 broadcast（Q2 作者意圖優先）
         for tpl in reg.iter_ordered() {
@@ -672,12 +691,14 @@ impl State {
         let n = templates.len();
         let payload = json!({ "templates": templates });
         let _ = self.mqtx.send(OutboundMsg::new_s(
-            "td/all/res", "game", "tower_templates", payload,
+            "td/all/res",
+            "game",
+            "tower_templates",
+            payload,
         ));
         log::info!("已發送 {} 個 tower template 給前端", n);
     }
 }
-
 
 /// 遊戲狀態配置
 #[derive(Debug, Clone)]

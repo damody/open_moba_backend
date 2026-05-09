@@ -1,6 +1,6 @@
+use serde::{Deserialize, Serialize};
 use specs::storage::VecStorage;
 use specs::{Component, Entity};
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// 戰役組件 - 管理戰役狀態和進度
@@ -11,18 +11,18 @@ pub struct Campaign {
     pub hero_id: String,
     pub description: String,
     pub difficulty: CampaignDifficulty,
-    
+
     // 進度狀態
     pub current_stage: String,
     pub completed_stages: Vec<String>,
     pub stage_scores: HashMap<String, StageScore>,
     pub total_score: i32,
     pub total_stars: i32,
-    
+
     // 解鎖條件
     pub unlock_requirements: Vec<String>,
     pub is_unlocked: bool,
-    
+
     // 統計資料
     pub play_time: f32,
     pub deaths: i32,
@@ -33,18 +33,18 @@ pub struct Campaign {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum CampaignDifficulty {
-    Tutorial,  // 教學
-    Easy,      // 簡單
-    Normal,    // 普通
-    Hard,      // 困難
-    Expert,    // 專家
+    Tutorial, // 教學
+    Easy,     // 簡單
+    Normal,   // 普通
+    Hard,     // 困難
+    Expert,   // 專家
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct StageScore {
-    pub stars: i32,        // 星級評分 (0-3)
-    pub score: i32,        // 具體分數
-    pub best_time: f32,    // 最佳完成時間
+    pub stars: i32,            // 星級評分 (0-3)
+    pub score: i32,            // 具體分數
+    pub best_time: f32,        // 最佳完成時間
     pub completion_count: i32, // 完成次數
 }
 
@@ -59,29 +59,29 @@ pub struct Stage {
     pub name: String,
     pub stage_type: StageType,
     pub campaign_id: String,
-    
+
     // 狀態管理
     pub is_active: bool,
     pub is_completed: bool,
     pub start_time: f32,
     pub elapsed_time: f32,
     pub time_limit: Option<f32>,
-    
+
     // 目標系統
     pub objectives: Vec<Objective>,
     pub optional_objectives: Vec<Objective>,
     pub completed_objectives: Vec<String>,
-    
+
     // 評分系統
     pub scoring: StageScoring,
     pub current_score: i32,
-    
+
     // 環境設定
     pub environment: StageEnvironment,
-    
+
     // UI 設定
     pub ui_settings: StageUiSettings,
-    
+
     // 動態狀態
     pub paused: bool,
     pub can_pause: bool,
@@ -89,12 +89,12 @@ pub struct Stage {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum StageType {
-    Training,  // 訓練關卡
-    Combat,    // 戰鬥關卡  
-    Puzzle,    // 解謎關卡
-    Boss,      // Boss戰關卡
-    Survival,  // 生存關卡
-    Escort,    // 護送關卡
+    Training, // 訓練關卡
+    Combat,   // 戰鬥關卡
+    Puzzle,   // 解謎關卡
+    Boss,     // Boss戰關卡
+    Survival, // 生存關卡
+    Escort,   // 護送關卡
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -112,13 +112,13 @@ pub struct Objective {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum ObjectiveType {
-    Kill,      // 擊殺目標
-    Survive,   // 生存時間
-    Protect,   // 保護目標
-    Reach,     // 到達位置
-    Collect,   // 收集物品
-    Score,     // 達到分數
-    Time,      // 時間限制
+    Kill,    // 擊殺目標
+    Survive, // 生存時間
+    Protect, // 保護目標
+    Reach,   // 到達位置
+    Collect, // 收集物品
+    Score,   // 達到分數
+    Time,    // 時間限制
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -138,8 +138,8 @@ pub struct StageEnvironment {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct WindEffect {
-    pub direction: f32,  // 風向角度 (0-360)
-    pub strength: f32,   // 風力強度
+    pub direction: f32, // 風向角度 (0-360)
+    pub strength: f32,  // 風力強度
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -179,7 +179,7 @@ impl Campaign {
             damage_taken: 0,
         }
     }
-    
+
     /// 從戰役資料創建戰役
     pub fn from_campaign_data(campaign_data: &crate::ue4::import_campaign::CampaignInfoJD) -> Self {
         let difficulty = match campaign_data.difficulty.as_str() {
@@ -190,7 +190,7 @@ impl Campaign {
             "expert" => CampaignDifficulty::Expert,
             _ => CampaignDifficulty::Normal,
         };
-        
+
         Campaign {
             id: campaign_data.id.clone(),
             name: campaign_data.name.clone(),
@@ -211,54 +211,54 @@ impl Campaign {
             damage_taken: 0,
         }
     }
-    
+
     /// 開始關卡
     pub fn start_stage(&mut self, stage_id: String) {
         self.current_stage = stage_id;
     }
-    
+
     /// 完成關卡
     pub fn complete_stage(&mut self, stage_id: String, score: StageScore) {
         if !self.completed_stages.contains(&stage_id) {
             self.completed_stages.push(stage_id.clone());
         }
-        
+
         self.stage_scores.insert(stage_id, score.clone());
         self.total_score += score.score;
         self.total_stars += score.stars;
     }
-    
+
     /// 檢查關卡是否已完成
     pub fn is_stage_completed(&self, stage_id: &str) -> bool {
         self.completed_stages.contains(&stage_id.to_string())
     }
-    
+
     /// 獲取關卡分數
     pub fn get_stage_score(&self, stage_id: &str) -> Option<&StageScore> {
         self.stage_scores.get(stage_id)
     }
-    
+
     /// 更新統計資料
     pub fn add_kill(&mut self) {
         self.kills += 1;
     }
-    
+
     pub fn add_death(&mut self) {
         self.deaths += 1;
     }
-    
+
     pub fn add_damage_dealt(&mut self, damage: i32) {
         self.damage_dealt += damage;
     }
-    
+
     pub fn add_damage_taken(&mut self, damage: i32) {
         self.damage_taken += damage;
     }
-    
+
     pub fn add_play_time(&mut self, time: f32) {
         self.play_time += time;
     }
-    
+
     /// 獲取完成進度百分比
     pub fn get_completion_percentage(&self, total_stages: i32) -> f32 {
         if total_stages > 0 {
@@ -309,9 +309,12 @@ impl Stage {
             can_pause: true,
         }
     }
-    
+
     /// 從戰役資料創建關卡
-    pub fn from_campaign_data(stage_data: &crate::ue4::import_campaign::StageJD, campaign_id: String) -> Self {
+    pub fn from_campaign_data(
+        stage_data: &crate::ue4::import_campaign::StageJD,
+        campaign_id: String,
+    ) -> Self {
         let stage_type = match stage_data.stage_type.as_str() {
             "training" => StageType::Training,
             "combat" => StageType::Combat,
@@ -321,17 +324,17 @@ impl Stage {
             "escort" => StageType::Escort,
             _ => StageType::Training,
         };
-        
+
         let mut objectives = Vec::new();
         for obj_data in &stage_data.objectives {
             objectives.push(Objective::from_campaign_data(obj_data, false));
         }
-        
+
         let mut optional_objectives = Vec::new();
         for obj_data in &stage_data.optional_objectives {
             optional_objectives.push(Objective::from_campaign_data(obj_data, true));
         }
-        
+
         Stage {
             id: stage_data.id.clone(),
             name: stage_data.name.clone(),
@@ -372,7 +375,7 @@ impl Stage {
             can_pause: stage_data.ui_settings.enable_pause,
         }
     }
-    
+
     /// 開始關卡
     pub fn start(&mut self, current_time: f32) {
         self.is_active = true;
@@ -380,21 +383,21 @@ impl Stage {
         self.elapsed_time = 0.0;
         self.paused = false;
     }
-    
+
     /// 更新關卡時間
     pub fn update(&mut self, current_time: f32, delta_time: f32) {
         if self.is_active && !self.paused {
             self.elapsed_time = current_time - self.start_time;
         }
     }
-    
+
     /// 暫停/恢復關卡
     pub fn toggle_pause(&mut self) {
         if self.can_pause {
             self.paused = !self.paused;
         }
     }
-    
+
     /// 完成目標
     pub fn complete_objective(&mut self, objective_id: &str) -> bool {
         // 檢查主要目標
@@ -405,7 +408,7 @@ impl Stage {
                 return true;
             }
         }
-        
+
         // 檢查可選目標
         for obj in &mut self.optional_objectives {
             if obj.id == objective_id && !obj.is_completed {
@@ -414,15 +417,15 @@ impl Stage {
                 return true;
             }
         }
-        
+
         false
     }
-    
+
     /// 檢查是否所有主要目標都已完成
     pub fn all_objectives_completed(&self) -> bool {
         self.objectives.iter().all(|obj| obj.is_completed)
     }
-    
+
     /// 檢查是否超時
     pub fn is_overtime(&self) -> bool {
         if let Some(limit) = self.time_limit {
@@ -431,7 +434,7 @@ impl Stage {
             false
         }
     }
-    
+
     /// 計算當前星級
     pub fn calculate_stars(&self) -> i32 {
         for (i, &threshold) in self.scoring.star_thresholds.iter().enumerate().rev() {
@@ -441,7 +444,7 @@ impl Stage {
         }
         0
     }
-    
+
     /// 添加分數
     pub fn add_score(&mut self, points: i32) {
         self.current_score += points;
@@ -449,7 +452,10 @@ impl Stage {
 }
 
 impl Objective {
-    pub fn from_campaign_data(obj_data: &crate::ue4::import_campaign::ObjectiveJD, is_optional: bool) -> Self {
+    pub fn from_campaign_data(
+        obj_data: &crate::ue4::import_campaign::ObjectiveJD,
+        is_optional: bool,
+    ) -> Self {
         let objective_type = match obj_data.objective_type.as_str() {
             "kill" => ObjectiveType::Kill,
             "survive" => ObjectiveType::Survive,
@@ -460,7 +466,7 @@ impl Objective {
             "time" => ObjectiveType::Time,
             _ => ObjectiveType::Kill,
         };
-        
+
         Objective {
             id: obj_data.id.clone(),
             description: obj_data.description.clone(),
@@ -473,7 +479,7 @@ impl Objective {
             condition: obj_data.condition.clone(),
         }
     }
-    
+
     /// 更新目標進度
     pub fn update_progress(&mut self, count: i32) -> bool {
         self.current_count = count;
@@ -481,25 +487,38 @@ impl Objective {
         self.is_completed = self.current_count >= self.target_count;
         !was_completed && self.is_completed // 剛完成時返回true
     }
-    
+
     /// 獲取完成百分比
     pub fn get_progress_percentage(&self) -> f32 {
         if self.target_count > 0 {
             (self.current_count as f32 / self.target_count as f32).min(1.0)
         } else {
-            if self.is_completed { 1.0 } else { 0.0 }
+            if self.is_completed {
+                1.0
+            } else {
+                0.0
+            }
         }
     }
 }
 
 impl Default for Campaign {
     fn default() -> Self {
-        Campaign::new("unknown".to_string(), "Unknown Campaign".to_string(), "unknown_hero".to_string())
+        Campaign::new(
+            "unknown".to_string(),
+            "Unknown Campaign".to_string(),
+            "unknown_hero".to_string(),
+        )
     }
 }
 
 impl Default for Stage {
     fn default() -> Self {
-        Stage::new("unknown".to_string(), "Unknown Stage".to_string(), StageType::Training, "unknown_campaign".to_string())
+        Stage::new(
+            "unknown".to_string(),
+            "Unknown Stage".to_string(),
+            StageType::Training,
+            "unknown_campaign".to_string(),
+        )
     }
 }

@@ -1,7 +1,12 @@
 use std::collections::BTreeSet;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum UnitKind { Tower, Hero, Creep, Unknown }
+pub enum UnitKind {
+    Tower,
+    Hero,
+    Creep,
+    Unknown,
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct TowerStats {

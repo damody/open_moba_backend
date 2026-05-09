@@ -1,12 +1,10 @@
-use super::{
-    attack::*,
-};
-use serde::{Deserialize, Serialize};
-use specs::{Component, VecStorage};
-use specs::DenseVecStorage;
-use std::time::Duration;
-use specs::Entity;
+use super::attack::*;
 use omoba_sim::{Fixed64, Vec2 as SimVec2};
+use serde::{Deserialize, Serialize};
+use specs::DenseVecStorage;
+use specs::Entity;
+use specs::{Component, VecStorage};
+use std::time::Duration;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Projectile {
@@ -18,9 +16,9 @@ pub struct Projectile {
     pub radius: Fixed64,
     pub msd: Fixed64,
     // 傷害值資訊
-    pub damage_phys: Fixed64,  // 物理傷害
-    pub damage_magi: Fixed64,  // 魔法傷害
-    pub damage_real: Fixed64,  // 真實傷害
+    pub damage_phys: Fixed64, // 物理傷害
+    pub damage_magi: Fixed64, // 魔法傷害
+    pub damage_real: Fixed64, // 真實傷害
     /// 命中後套用的減速乘數（0.0 表不減速，0.5 表減速到 50%）
     #[serde(default)]
     pub slow_factor: Fixed64,

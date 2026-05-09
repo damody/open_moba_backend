@@ -5,9 +5,9 @@
 //! 包裹在 `catch_unwind` 中（P1 — 恐慌 → 日誌 + 跳過）。
 
 use abi_stable::{
-    RMut,
     sabi_trait::prelude::TD_Opaque,
     std_types::{RNone, RSome},
+    RMut,
 };
 use crossbeam_channel::Sender;
 use omb_script_abi::{
@@ -19,11 +19,11 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use std::time::Instant;
 
-use crate::transport::OutboundMsg;
 use super::event::{ScriptEvent, ScriptEventQueue, SkillTarget};
 use super::registry::ScriptRegistry;
 use super::tag::ScriptUnitTag;
 use super::world_adapter::{AdapterCache, WorldAdapter};
+use crate::transport::OutboundMsg;
 
 /// 主入口點 - 在所有平行報價系統之後，每個報價調用一次
 /// 已經完成並且在 `world.maintain()` 之前。
@@ -41,7 +41,10 @@ pub fn run_script_dispatch(
     let tagged: Vec<(Entity, String)> = {
         let entities = world.entities();
         let tags = world.read_storage::<ScriptUnitTag>();
-        (&entities, &tags).join().map(|(e, t)| (e, t.unit_id.clone())).collect()
+        (&entities, &tags)
+            .join()
+            .map(|(e, t)| (e, t.unit_id.clone()))
+            .collect()
     };
 
     let events = {
@@ -73,7 +76,9 @@ pub fn run_script_dispatch(
     // 之後 drop(adapter) 再一次性 push 到 TickProfile。
     let mut on_tick_timings: Vec<(String, u128)> = Vec::with_capacity(tagged.len());
     for (ent, uid) in &tagged {
-        let Some(script) = registry.get(uid) else { continue };
+        let Some(script) = registry.get(uid) else {
+            continue;
+        };
         let handle = WorldAdapter::entity_to_handle(*ent);
         let t = Instant::now();
         let mut world_dyn = world_dyn_of(&mut adapter);
@@ -124,7 +129,12 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
             });
         }
 
-        ScriptEvent::Damage { attacker, victim, amount, kind } => {
+        ScriptEvent::Damage {
+            attacker,
+            victim,
+            amount,
+            kind,
+        } => {
             let victim_handle = WorldAdapter::entity_to_handle(victim);
             let attacker_handle_opt = attacker.map(WorldAdapter::entity_to_handle);
 
@@ -157,7 +167,12 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
                     if let Some(script) = registry.get(&uid) {
                         let mut world_dyn = world_dyn_of(adapter);
                         let r = catch_unwind(AssertUnwindSafe(|| {
-                            script.on_damage_dealt(att_h, victim_handle, info.amount, &mut world_dyn)
+                            script.on_damage_dealt(
+                                att_h,
+                                victim_handle,
+                                info.amount,
+                                &mut world_dyn,
+                            )
                         }));
                         if let Err(_) = r {
                             log::error!("[scripting] panic in on_damage_dealt of {}", uid);
@@ -171,7 +186,11 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
             apply_damage(adapter, victim, info.amount.to_f32_for_render(), info.kind);
         }
 
-        ScriptEvent::SkillCast { caster, skill_id, target } => {
+        ScriptEvent::SkillCast {
+            caster,
+            skill_id,
+            target,
+        } => {
             // Silence 檢查：施法者若有 silence/stun buff，跳過整個 cast
             if adapter.cache.buffs.is_silenced(caster) {
                 log::info!(
@@ -215,7 +234,9 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
             };
 
             // 取 caster 英雄身上該技能的等級（未習得則預設 1 讓腳本至少 fire）
-            let level: u8 = adapter.cache.hero
+            let level: u8 = adapter
+                .cache
+                .hero
                 .get(caster)
                 .and_then(|h| h.ability_levels.get(&skill_id).copied())
                 .map(|lv| lv.max(1) as u8)
@@ -225,14 +246,19 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
             {
                 let skill_id_for_unit = skill_id.clone();
                 let target_for_unit = target_abi.clone();
-                with_script(adapter, registry, caster, move |script, handle, world_dyn| {
-                    script.on_skill_cast(
-                        handle,
-                        (&*skill_id_for_unit).into(),
-                        target_for_unit,
-                        world_dyn,
-                    );
-                });
+                with_script(
+                    adapter,
+                    registry,
+                    caster,
+                    move |script, handle, world_dyn| {
+                        script.on_skill_cast(
+                            handle,
+                            (&*skill_id_for_unit).into(),
+                            target_for_unit,
+                            world_dyn,
+                        );
+                    },
+                );
             }
 
             // 2) 呼叫 ability 本身的 execute（DLL handler 實際執行效果）
@@ -257,10 +283,7 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
                     }));
                     match r {
                         Ok(res) if res.is_err() => {
-                            log::warn!(
-                                "[scripting] ability '{}' execute returned error",
-                                skill_id
-                            );
+                            log::warn!("[scripting] ability '{}' execute returned error", skill_id);
                             false
                         }
                         Ok(_) => true,
@@ -279,7 +302,10 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
                 if exec_ok && cd_seconds > 0.0 {
                     if let Some(hero) = adapter.cache.hero.get_mut(caster) {
                         // 階段 2 KCP 標籤重新設計中的能力元資料重新設計。
-                        hero.start_cooldown(&skill_id, Fixed64::from_raw((cd_seconds * 1024.0) as i64));
+                        hero.start_cooldown(
+                            &skill_id,
+                            Fixed64::from_raw((cd_seconds * 1024.0) as i64),
+                        );
                     }
                 }
             } else {
@@ -290,7 +316,11 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
             }
         }
 
-        ScriptEvent::SkillLearn { caster, skill_id, new_level } => {
+        ScriptEvent::SkillLearn {
+            caster,
+            skill_id,
+            new_level,
+        } => {
             // 派發 on_learn；Passive 技在此套永久 buff
             if let Some((_def, ability_script)) = registry.get_ability(&skill_id) {
                 let caster_handle = WorldAdapter::entity_to_handle(caster);
@@ -299,7 +329,10 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
                     ability_script.on_learn(caster_handle, new_level, &mut world_dyn);
                 }));
                 if r.is_err() {
-                    log::error!("[scripting] panic in AbilityScript::on_learn of {}", skill_id);
+                    log::error!(
+                        "[scripting] panic in AbilityScript::on_learn of {}",
+                        skill_id
+                    );
                 }
             }
         }
@@ -367,12 +400,21 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
                 Some(h) => RSome(h),
                 None => RNone,
             };
-            with_script(adapter, registry, attacker, move |script, handle, world_dyn| {
-                script.on_attack_start(handle, t_opt, world_dyn);
-            });
+            with_script(
+                adapter,
+                registry,
+                attacker,
+                move |script, handle, world_dyn| {
+                    script.on_attack_start(handle, t_opt, world_dyn);
+                },
+            );
         }
 
-        ScriptEvent::AttackLanded { attacker, victim, damage } => {
+        ScriptEvent::AttackLanded {
+            attacker,
+            victim,
+            damage,
+        } => {
             let victim_handle = WorldAdapter::entity_to_handle(victim);
             // 階段 1c.3：損壞已修復 64（ScriptEvent 遷移到 1c.2）。
             with_script(adapter, registry, attacker, |script, handle, world_dyn| {
@@ -408,26 +450,48 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
             });
         }
 
-        ScriptEvent::SpentMana { caster, cost, ability_id } => {
+        ScriptEvent::SpentMana {
+            caster,
+            cost,
+            ability_id,
+        } => {
             let id_clone = ability_id.clone();
             // 階段 1c.3：成本已固定64。
-            with_script(adapter, registry, caster, move |script, handle, world_dyn| {
-                script.on_spent_mana(handle, cost, (&*id_clone).into(), world_dyn);
-            });
+            with_script(
+                adapter,
+                registry,
+                caster,
+                move |script, handle, world_dyn| {
+                    script.on_spent_mana(handle, cost, (&*id_clone).into(), world_dyn);
+                },
+            );
         }
 
-        ScriptEvent::HealReceived { target, amount, source } => {
+        ScriptEvent::HealReceived {
+            target,
+            amount,
+            source,
+        } => {
             let source_opt = match source.map(WorldAdapter::entity_to_handle) {
                 Some(h) => RSome(h),
                 None => RNone,
             };
             // 階段 1c.3：金額已固定64。
-            with_script(adapter, registry, target, move |script, handle, world_dyn| {
-                script.on_heal_received(handle, amount, source_opt, world_dyn);
-            });
+            with_script(
+                adapter,
+                registry,
+                target,
+                move |script, handle, world_dyn| {
+                    script.on_heal_received(handle, amount, source_opt, world_dyn);
+                },
+            );
         }
 
-        ScriptEvent::StateChanged { e, state_id, active } => {
+        ScriptEvent::StateChanged {
+            e,
+            state_id,
+            active,
+        } => {
             let id_clone = state_id.clone();
             with_script(adapter, registry, e, move |script, handle, world_dyn| {
                 script.on_state_changed(handle, (&*id_clone).into(), active, world_dyn);
@@ -448,7 +512,11 @@ fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: S
             });
         }
 
-        ScriptEvent::Order { e, order_kind, target } => {
+        ScriptEvent::Order {
+            e,
+            order_kind,
+            target,
+        } => {
             let kind_clone = order_kind.clone();
             let target_abi = match target {
                 SkillTarget::Entity(t) => Target::Entity(WorldAdapter::entity_to_handle(t)),
@@ -469,18 +537,20 @@ fn script_id_of(cache: &AdapterCache, e: Entity) -> Option<String> {
 }
 
 /// Helper：取得實體的腳本並使用（腳本、句柄、世界）呼叫「f」。
-fn with_script<F>(
-    adapter: &mut WorldAdapter<'_>,
-    registry: &ScriptRegistry,
-    entity: Entity,
-    f: F,
-) where
-    F: FnOnce(&omb_script_abi::script::UnitScript_TO<'static, abi_stable::std_types::RBox<()>>,
-              EntityHandle,
-              &mut GameWorldDyn<'_>),
+fn with_script<F>(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, entity: Entity, f: F)
+where
+    F: FnOnce(
+        &omb_script_abi::script::UnitScript_TO<'static, abi_stable::std_types::RBox<()>>,
+        EntityHandle,
+        &mut GameWorldDyn<'_>,
+    ),
 {
-    let Some(uid) = script_id_of(&adapter.cache, entity) else { return };
-    let Some(script) = registry.get(&uid) else { return };
+    let Some(uid) = script_id_of(&adapter.cache, entity) else {
+        return;
+    };
+    let Some(script) = registry.get(&uid) else {
+        return;
+    };
 
     let handle = WorldAdapter::entity_to_handle(entity);
     let mut world_dyn = world_dyn_of(adapter);
@@ -510,7 +580,11 @@ fn apply_damage(adapter: &mut WorldAdapter<'_>, victim: Entity, amount: f32, _ki
     let amount_fx = Fixed64::from_raw((amount * 1024.0) as i64);
     if let Some(p) = adapter.cache.cprop.get_mut(victim) {
         let new_hp = p.hp - amount_fx;
-        p.hp = if new_hp < Fixed64::ZERO { Fixed64::ZERO } else { new_hp };
+        p.hp = if new_hp < Fixed64::ZERO {
+            Fixed64::ZERO
+        } else {
+            new_hp
+        };
         return;
     }
     if let Some(u) = adapter.cache.unit.get_mut(victim) {

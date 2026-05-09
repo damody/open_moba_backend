@@ -12,7 +12,7 @@
 use crossbeam_channel::Sender;
 use omb_script_abi::stat_keys::StatKey;
 use serde_json::json;
-use specs::{shred, Read, ReadStorage, SystemData, Write, World};
+use specs::{shred, Read, ReadStorage, SystemData, World, Write};
 
 use crate::ability_runtime::{BuffStore, UnitStats};
 use crate::comp::*;
@@ -68,13 +68,21 @@ impl<'a> System<'a> for Sys {
             .entities_with_key(StatKey::DotDamage.as_str())
             .filter_map(|e| {
                 let d = data.buffs.sum_add(e, StatKey::DotDamage);
-                if d > omoba_sim::Fixed64::ZERO { Some((e, d)) } else { None }
+                if d > omoba_sim::Fixed64::ZERO {
+                    Some((e, d))
+                } else {
+                    None
+                }
             })
             .collect();
         for (entity, dot) in dot_targets {
             if let Some(cp) = data.cpropertys.get_mut(entity) {
                 let new_hp = cp.hp - dot * dt;
-                cp.hp = if new_hp < omoba_sim::Fixed64::ZERO { omoba_sim::Fixed64::ZERO } else { new_hp };
+                cp.hp = if new_hp < omoba_sim::Fixed64::ZERO {
+                    omoba_sim::Fixed64::ZERO
+                } else {
+                    new_hp
+                };
             }
         }
 
@@ -106,4 +114,3 @@ impl<'a> System<'a> for Sys {
         }
     }
 }
-

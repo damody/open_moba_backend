@@ -108,7 +108,8 @@ impl BuffStore {
                 // should_replace == false: duration 已 refresh, payload 不動, 索引不動
             }
             None => {
-                let new_keys: Vec<String> = Self::payload_keys(&payload).map(String::from).collect();
+                let new_keys: Vec<String> =
+                    Self::payload_keys(&payload).map(String::from).collect();
                 self.buffs.insert(
                     key,
                     BuffEntry {
@@ -125,7 +126,9 @@ impl BuffStore {
 
     pub fn remove(&mut self, entity: Entity, buff_id: &str) {
         if let Some(entry) = self.buffs.remove(&(entity, buff_id.to_string())) {
-            let keys: Vec<String> = Self::payload_keys(&entry.payload).map(String::from).collect();
+            let keys: Vec<String> = Self::payload_keys(&entry.payload)
+                .map(String::from)
+                .collect();
             for k in &keys {
                 self.index_dec(entity, k);
             }
@@ -151,8 +154,9 @@ impl BuffStore {
             .collect();
         for (e, id) in drained {
             if let Some(entry) = self.buffs.remove(&(e, id.clone())) {
-                let keys: Vec<String> =
-                    Self::payload_keys(&entry.payload).map(String::from).collect();
+                let keys: Vec<String> = Self::payload_keys(&entry.payload)
+                    .map(String::from)
+                    .collect();
                 for k in &keys {
                     self.index_dec(e, k);
                 }
@@ -264,7 +268,9 @@ impl BuffStore {
         }
         for (e, id) in to_drop {
             if let Some(entry) = self.buffs.remove(&(e, id.clone())) {
-                let keys: Vec<String> = Self::payload_keys(&entry.payload).map(String::from).collect();
+                let keys: Vec<String> = Self::payload_keys(&entry.payload)
+                    .map(String::from)
+                    .collect();
                 for k in &keys {
                     self.index_dec(e, k);
                 }
@@ -324,7 +330,11 @@ mod tests {
         let expired = s.tick(fx(2.0)); // duration < dt → expire
         assert_eq!(expired.len(), 1);
         let found: Vec<Entity> = s.entities_with_key("x").collect();
-        assert!(found.is_empty(), "expected empty after expire, got {:?}", found);
+        assert!(
+            found.is_empty(),
+            "expected empty after expire, got {:?}",
+            found
+        );
     }
 
     #[test]
@@ -353,7 +363,11 @@ mod tests {
         s.remove(e, "buff1");
         // 還剩下一個 → 仍然被索引
         let found: Vec<Entity> = s.entities_with_key("k").collect();
-        assert_eq!(found, vec![e], "after removing 1 of 2, entity should still be indexed");
+        assert_eq!(
+            found,
+            vec![e],
+            "after removing 1 of 2, entity should still be indexed"
+        );
 
         s.remove(e, "buff2");
         // 都消失了 → 未編入索引
@@ -365,13 +379,31 @@ mod tests {
         let mut s = BuffStore::new();
         let e = ent(1, 1);
         // 先加弱 slow（factor 越小越強，0.5 比 0.3 弱）
-        s.add(e, "slow", fx(5.0), json!({ "move_speed_bonus": -0.5, "slow_factor": 0.5 }));
+        s.add(
+            e,
+            "slow",
+            fx(5.0),
+            json!({ "move_speed_bonus": -0.5, "slow_factor": 0.5 }),
+        );
         // 加強 slow
-        s.add(e, "slow", fx(5.0), json!({ "move_speed_bonus": -0.7, "slow_factor": 0.3 }));
+        s.add(
+            e,
+            "slow",
+            fx(5.0),
+            json!({ "move_speed_bonus": -0.7, "slow_factor": 0.3 }),
+        );
         // 應該保留強 slow（factor=0.3）
         let entry = s.get(e, "slow").expect("slow buff missing");
-        let factor = entry.payload.get("slow_factor").and_then(|v| v.as_f64()).unwrap();
-        assert!((factor - 0.3).abs() < 1e-6, "expected 0.3 (stronger), got {}", factor);
+        let factor = entry
+            .payload
+            .get("slow_factor")
+            .and_then(|v| v.as_f64())
+            .unwrap();
+        assert!(
+            (factor - 0.3).abs() < 1e-6,
+            "expected 0.3 (stronger), got {}",
+            factor
+        );
     }
 
     #[test]
@@ -414,12 +446,34 @@ mod tests {
     fn slow_dedup_weaker_does_not_replace_stronger() {
         let mut s = BuffStore::new();
         let e = ent(1, 1);
-        s.add(e, "slow", fx(3.0), json!({ "move_speed_bonus": -0.7, "slow_factor": 0.3 }));
-        s.add(e, "slow", fx(10.0), json!({ "move_speed_bonus": -0.5, "slow_factor": 0.5 }));
+        s.add(
+            e,
+            "slow",
+            fx(3.0),
+            json!({ "move_speed_bonus": -0.7, "slow_factor": 0.3 }),
+        );
+        s.add(
+            e,
+            "slow",
+            fx(10.0),
+            json!({ "move_speed_bonus": -0.5, "slow_factor": 0.5 }),
+        );
         let entry = s.get(e, "slow").expect("slow buff missing");
-        let factor = entry.payload.get("slow_factor").and_then(|v| v.as_f64()).unwrap();
-        assert!((factor - 0.3).abs() < 1e-6, "expected 0.3 to be preserved, got {}", factor);
+        let factor = entry
+            .payload
+            .get("slow_factor")
+            .and_then(|v| v.as_f64())
+            .unwrap();
+        assert!(
+            (factor - 0.3).abs() < 1e-6,
+            "expected 0.3 to be preserved, got {}",
+            factor
+        );
         // duration 應取 max（既有行為）
-        assert!(entry.remaining >= fx(9.99), "expected duration ≥ 10, got {:?}", entry.remaining);
+        assert!(
+            entry.remaining >= fx(9.99),
+            "expected duration ≥ 10, got {:?}",
+            entry.remaining
+        );
     }
 }

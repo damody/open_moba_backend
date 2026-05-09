@@ -1,7 +1,7 @@
+use omoba_sim::{Angle, Fixed64};
+use serde::{Deserialize, Serialize};
 use specs::storage::VecStorage;
 use specs::Component;
-use serde::{Deserialize, Serialize};
-use omoba_sim::{Fixed64, Angle};
 
 /// 當前面向角度（4096-tick `Angle`，0 = +X 方向，CCW 為正）
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
@@ -12,8 +12,8 @@ impl Facing {
     /// 注意：傳統的 f32 弧度幫助程式保留為線格式/配置讀取邊界的轉換實用程式。
     #[inline]
     pub fn from_rad_f32(rad: f32) -> Self {
-        let ticks = (rad / (2.0 * std::f32::consts::PI)
-            * omoba_sim::trig::TAU_TICKS as f32).round() as i32;
+        let ticks =
+            (rad / (2.0 * std::f32::consts::PI) * omoba_sim::trig::TAU_TICKS as f32).round() as i32;
         Facing(Angle::from_ticks(ticks))
     }
 
@@ -21,13 +21,14 @@ impl Facing {
     /// 注意：傳統的 f32 弧度投影保留用於線格式/對數邊界； sim-side 原生使用 Angle。
     #[inline]
     pub fn rad_f32(&self) -> f32 {
-        (self.0.ticks() as f32 / omoba_sim::trig::TAU_TICKS as f32)
-            * 2.0 * std::f32::consts::PI
+        (self.0.ticks() as f32 / omoba_sim::trig::TAU_TICKS as f32) * 2.0 * std::f32::consts::PI
     }
 }
 
 impl Default for Facing {
-    fn default() -> Self { Facing(Angle::ZERO) }
+    fn default() -> Self {
+        Facing(Angle::ZERO)
+    }
 }
 
 impl Component for Facing {

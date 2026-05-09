@@ -14,7 +14,7 @@
 //! 比較狀態作為規範「Component」存在於此處；每個creep_tick
 //! 迭代讀取最後廣播的快照並決定是否發出。
 
-use specs::{Component, storage::VecStorage};
+use specs::{storage::VecStorage, Component};
 
 /// 最近包含在「creep.M」廣播中的欄位的快照
 /// 對於這個實體。將每個刻度與目前目標/速度進行比較
@@ -49,8 +49,12 @@ impl CreepMoveBroadcast {
     /// 緩慢施冰（例如 200 → 140 = 30%）並緩慢過期快速恢復。
     pub fn should_emit(&self, target: vek::Vec2<f32>, velocity: f32) -> bool {
         // 首次發出：無先前狀態。
-        let Some(prev_target) = self.last_target else { return true };
-        let Some(prev_vel) = self.last_velocity else { return true };
+        let Some(prev_target) = self.last_target else {
+            return true;
+        };
+        let Some(prev_vel) = self.last_velocity else {
+            return true;
+        };
 
         // 目標已更改：比較平方距離以跳過 sqrt。
         let dx = target.x - prev_target.x;

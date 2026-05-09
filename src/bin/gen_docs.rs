@@ -12,7 +12,10 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 #[derive(Parser, Debug)]
-#[command(name = "gen-docs", about = "Generate omoba unit & script API catalog HTML")]
+#[command(
+    name = "gen-docs",
+    about = "Generate omoba unit & script API catalog HTML"
+)]
 struct Args {
     /// 輸出 HTML 路徑（相對於 cwd）
     #[arg(long, default_value = "target/docs/index.html")]
@@ -48,16 +51,15 @@ fn main() -> Result<()> {
     let mut warnings: Vec<lib::model::Warning> = Vec::new();
 
     // 1.DLL（致命）
-    let dll = lib::dll::load(&dll_path)
-        .with_context(|| format!("loading DLL {}", dll_path.display()))?;
+    let dll =
+        lib::dll::load(&dll_path).with_context(|| format!("loading DLL {}", dll_path.display()))?;
 
     // 2. API掃描（致命）
     let api = lib::api_scan::scan(&args.abi_src)
         .with_context(|| format!("scanning script-abi at {}", args.abi_src.display()))?;
 
     // 3. 覆蓋範圍（軟）
-    let world_names: HashSet<String> =
-        api.world_methods.iter().map(|m| m.name.clone()).collect();
+    let world_names: HashSet<String> = api.world_methods.iter().map(|m| m.name.clone()).collect();
     let impls = match lib::coverage::scan_dir(&args.content_src, &world_names) {
         Ok(v) => v,
         Err(e) => {
@@ -104,8 +106,7 @@ fn main() -> Result<()> {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("creating dir {}", parent.display()))?;
     }
-    std::fs::write(&args.out, &html)
-        .with_context(|| format!("writing {}", args.out.display()))?;
+    std::fs::write(&args.out, &html).with_context(|| format!("writing {}", args.out.display()))?;
 
     println!(
         "gen-docs: {} units, {} abilities, {} warnings -> {}",

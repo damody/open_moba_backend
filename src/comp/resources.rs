@@ -1,12 +1,12 @@
+use omoba_sim::Fixed64;
+use serde::{Deserialize, Serialize};
+use specs::Entity;
 use std::{
     i32,
     ops::{Deref, DerefMut},
     sync::Arc,
     time::{Duration, Instant},
 };
-use serde::{Deserialize, Serialize};
-use specs::Entity;
-use omoba_sim::Fixed64;
 
 /// 儲存滴答（即：物理）時間的資源。
 #[derive(Copy, Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -30,7 +30,9 @@ pub struct Tick(pub u64);
 pub struct MasterSeed(pub u64);
 
 impl Default for MasterSeed {
-    fn default() -> Self { Self(0xDEAD_BEEF_CAFE_BABE) }
+    fn default() -> Self {
+        Self(0xDEAD_BEEF_CAFE_BABE)
+    }
 }
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize, Default)]
@@ -62,7 +64,11 @@ impl From<f64> for DayPeriod {
 }
 
 impl DayPeriod {
-    pub fn is_dark(&self) -> bool { *self == DayPeriod::Night }
+    pub fn is_dark(&self) -> bool {
+        *self == DayPeriod::Night
+    }
 
-    pub fn is_light(&self) -> bool { !self.is_dark() }
+    pub fn is_light(&self) -> bool {
+        !self.is_dark()
+    }
 }

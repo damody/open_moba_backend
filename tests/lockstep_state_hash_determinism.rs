@@ -94,8 +94,12 @@ fn two_worlds_same_seed_same_hashes() -> TestResult {
     // 預設值（0xDEAD_BEEF_CAFE_BABE），但我們希望它是明確的，因此
     // 未來的預設更改不會默默地削弱測試。
     use specs::WorldExt;
-    world_a.write_resource::<omobab::comp::resources::MasterSeed>().0 = master_seed;
-    world_b.write_resource::<omobab::comp::resources::MasterSeed>().0 = master_seed;
+    world_a
+        .write_resource::<omobab::comp::resources::MasterSeed>()
+        .0 = master_seed;
+    world_b
+        .write_resource::<omobab::comp::resources::MasterSeed>()
+        .0 = master_seed;
 
     // 每個世界都有自己的 ScriptRegistry （load_scripts_dir 是非純的
     // — 將 DLL 開啟到 abi_stable 句柄中 — 但載入的 Manifest_Refs

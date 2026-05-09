@@ -1,9 +1,8 @@
-/// 系統相關事件處理
-
-use specs::{World};
 use crate::comp::*;
 use crate::transport::OutboundMsg;
 use crossbeam_channel::Sender;
+/// 系統相關事件處理
+use specs::World;
 
 /// 系統事件處理器
 pub struct SystemEventHandler;

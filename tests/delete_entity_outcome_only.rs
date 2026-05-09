@@ -16,10 +16,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const FORBIDDEN_PATTERNS: &[&str] = &[
-    "entities().delete(",
-    ".delete_entity(",
-];
+const FORBIDDEN_PATTERNS: &[&str] = &["entities().delete(", ".delete_entity("];
 
 /// 直接呼叫 `entities().delete()` 的檔案路徑是規範的
 /// 接收器（process_outcomes'Outcome::EntityRemoved 手臂）。列入許可名單的人
@@ -61,7 +58,12 @@ fn no_raw_entity_delete_outside_outcome_sink() {
             }
             for pat in FORBIDDEN_PATTERNS {
                 if line.contains(pat) {
-                    violations.push(format!("{}:{} — `{}` (use Outcome::EntityRemoved instead)", rel, lineno_zero + 1, pat));
+                    violations.push(format!(
+                        "{}:{} — `{}` (use Outcome::EntityRemoved instead)",
+                        rel,
+                        lineno_zero + 1,
+                        pat
+                    ));
                 }
             }
         }

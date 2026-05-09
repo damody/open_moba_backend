@@ -37,11 +37,11 @@
 //! 故意恐慌提醒貢獻者使用手動安全帶。
 
 pub const BASELINE_BPS_STEADY: u64 = 206_000; // P0 measured
-pub const P1_BUDGET_BPS: u64 = 85_000;        // Projected P1 full
-pub const P2_BUDGET_BPS: u64 = 62_000;        // Projected P2
-pub const P3_BUDGET_BPS: u64 = 48_000;        // Projected P3
-pub const P4_BUDGET_BPS: u64 = 31_000;        // Projected P4
-pub const P5_BUDGET_BPS: u64 = 25_000;        // Projected P5
+pub const P1_BUDGET_BPS: u64 = 85_000; // Projected P1 full
+pub const P2_BUDGET_BPS: u64 = 62_000; // Projected P2
+pub const P3_BUDGET_BPS: u64 = 48_000; // Projected P3
+pub const P4_BUDGET_BPS: u64 = 31_000; // Projected P4
+pub const P5_BUDGET_BPS: u64 = 25_000; // Projected P5
 
 #[test]
 #[ignore]

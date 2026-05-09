@@ -1,9 +1,8 @@
-/// 移動相關事件處理
-
-use specs::{Entity, World};
 use crate::comp::*;
 use crate::transport::OutboundMsg;
 use crossbeam_channel::Sender;
+/// 移動相關事件處理
+use specs::{Entity, World};
 
 /// 移動事件處理器
 pub struct MovementEventHandler;

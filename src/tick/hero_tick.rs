@@ -1,16 +1,14 @@
-use instant_distance::Point;
-use specs::{
-    shred, Entities, Join, LazyUpdate, Read, ReadExpect, ReadStorage, SystemData,
-    Write, WriteStorage, ParJoin, World,
-};
 use crate::comp::*;
-use specs::prelude::ParallelIterator;
-use vek::*;
-use std::{
-    time::{Duration, Instant},
-};
-use specs::Entity;
+use instant_distance::Point;
 use omoba_sim::{Fixed64, Vec2 as SimVec2};
+use specs::prelude::ParallelIterator;
+use specs::Entity;
+use specs::{
+    shred, Entities, Join, LazyUpdate, ParJoin, Read, ReadExpect, ReadStorage, SystemData, World,
+    Write, WriteStorage,
+};
+use std::time::{Duration, Instant};
+use vek::*;
 
 /// MOBA 鏡頭下肉眼無感的 facing 變化量（~15°）。舊值 0.05 (~3°) 造成過多 F event。
 const FACING_BROADCAST_THRESHOLD_RAD: f32 = 0.26;
@@ -27,11 +25,11 @@ pub struct HeroRead<'a> {
     dt: Read<'a, DeltaTime>,
     master_seed: Read<'a, MasterSeed>,
     tick: Read<'a, Tick>,
-    pos : ReadStorage<'a, Pos>,
-    searcher : Read<'a, Searcher>,
+    pos: ReadStorage<'a, Pos>,
+    searcher: Read<'a, Searcher>,
     factions: ReadStorage<'a, Faction>,
-    propertys : ReadStorage<'a, CProperty>,
-    units : ReadStorage<'a, Unit>,
+    propertys: ReadStorage<'a, CProperty>,
+    units: ReadStorage<'a, Unit>,
     turn_speeds: ReadStorage<'a, TurnSpeed>,
     move_targets: ReadStorage<'a, MoveTarget>,
     buff_store: Read<'a, crate::ability_runtime::BuffStore>,
@@ -41,8 +39,8 @@ pub struct HeroRead<'a> {
 #[derive(SystemData)]
 pub struct HeroWrite<'a> {
     outcomes: Write<'a, Vec<Outcome>>,
-    heroes : WriteStorage<'a, Hero>,
-    tatks : WriteStorage<'a, TAttack>,
+    heroes: WriteStorage<'a, Hero>,
+    tatks: WriteStorage<'a, TAttack>,
     facings: WriteStorage<'a, Facing>,
     facing_bcs: WriteStorage<'a, FacingBroadcast>,
     mqtx: Write<'a, Vec<crossbeam_channel::Sender<crate::transport::OutboundMsg>>>,
@@ -52,10 +50,7 @@ pub struct HeroWrite<'a> {
 pub struct Sys;
 
 impl<'a> System<'a> for Sys {
-    type SystemData = (
-        HeroRead<'a>,
-        HeroWrite<'a>,
-    );
+    type SystemData = (HeroRead<'a>, HeroWrite<'a>);
 
     const NAME: &'static str = "hero";
 
@@ -71,26 +66,27 @@ impl<'a> System<'a> for Sys {
         let master_seed: u64 = tr.master_seed.0;
         let tick: u32 = tr.tick.0 as u32;
         let time1 = Instant::now();
-        
+
         // 獲取英雄的陣營信息和名稱用於敵友判斷和日誌記錄
-        let hero_faction_map: std::collections::HashMap<specs::Entity, Faction> = (
-            &tr.entities,
-            &tr.factions,
-            &tw.heroes,
-        ).join().map(|(e, f, _)| (e, f.clone())).collect();
-        
+        let hero_faction_map: std::collections::HashMap<specs::Entity, Faction> =
+            (&tr.entities, &tr.factions, &tw.heroes)
+                .join()
+                .map(|(e, f, _)| (e, f.clone()))
+                .collect();
+
         // 獲取英雄名稱映射表
-        let hero_name_map: std::collections::HashMap<specs::Entity, String> = (
-            &tr.entities,
-            &tw.heroes,
-        ).join().map(|(e, hero)| (e, hero.name.clone())).collect();
+        let hero_name_map: std::collections::HashMap<specs::Entity, String> =
+            (&tr.entities, &tw.heroes)
+                .join()
+                .map(|(e, hero)| (e, hero.name.clone()))
+                .collect();
 
         // 技能冷卻倒數 — sequential 迴圈一次刷所有 hero 的 ability_cooldowns，
         // 在 par_join 攻擊迭代之前處理，避免 borrow 衝突。
         for (_, hero) in (&tr.entities, &mut tw.heroes).join() {
             hero.tick_cooldowns(dt);
         }
-        
+
         let tx = tw.mqtx.get(0).cloned();
         let mut outcomes = (
             &tr.entities,
@@ -279,7 +275,7 @@ impl<'a> System<'a> for Sys {
                     outcomes_a
                 },
             );
-            
+
         tw.outcomes.append(&mut outcomes);
     }
 }

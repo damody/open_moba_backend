@@ -1,19 +1,16 @@
-
-use instant_distance::Point;
-use specs::{
-    shred, Entities, Join, LazyUpdate, Read, ReadExpect, ReadStorage,
-    Write, WriteStorage, ParJoin, SystemData, World,
-};
 use crate::comp::*;
 use crate::transport::OutboundMsg;
 use crossbeam_channel::Sender;
-use specs::prelude::ParallelIterator;
-use vek::*;
-use std::{
-    time::{Duration, Instant},
-};
-use specs::Entity;
+use instant_distance::Point;
 use omoba_sim::{Fixed64, Vec2 as SimVec2};
+use specs::prelude::ParallelIterator;
+use specs::Entity;
+use specs::{
+    shred, Entities, Join, LazyUpdate, ParJoin, Read, ReadExpect, ReadStorage, SystemData, World,
+    Write, WriteStorage,
+};
+use std::time::{Duration, Instant};
+use vek::*;
 
 /// MOBA 鏡頭下肉眼無感的 facing 變化量（~15°）。舊值 0.05 (~3°) 造成過多 F event。
 const FACING_BROADCAST_THRESHOLD_RAD: f32 = 0.26;
@@ -30,8 +27,8 @@ pub struct TowerRead<'a> {
     dt: Read<'a, DeltaTime>,
     master_seed: Read<'a, MasterSeed>,
     tick: Read<'a, Tick>,
-    pos : ReadStorage<'a, Pos>,
-    searcher : Read<'a, Searcher>,
+    pos: ReadStorage<'a, Pos>,
+    searcher: Read<'a, Searcher>,
     factions: ReadStorage<'a, Faction>,
     turn_speeds: ReadStorage<'a, TurnSpeed>,
     // 有 ScriptUnitTag 的塔由腳本 on_tick 自主決策；tower_tick 只幫忙轉向
@@ -41,9 +38,9 @@ pub struct TowerRead<'a> {
 #[derive(SystemData)]
 pub struct TowerWrite<'a> {
     outcomes: Write<'a, Vec<Outcome>>,
-    towers : WriteStorage<'a, Tower>,
-    propertys : WriteStorage<'a, TProperty>,
-    tatks : WriteStorage<'a, TAttack>,
+    towers: WriteStorage<'a, Tower>,
+    propertys: WriteStorage<'a, TProperty>,
+    tatks: WriteStorage<'a, TAttack>,
     facings: WriteStorage<'a, Facing>,
     facing_bcs: WriteStorage<'a, FacingBroadcast>,
     mqtx: Write<'a, Vec<Sender<OutboundMsg>>>,
@@ -53,10 +50,7 @@ pub struct TowerWrite<'a> {
 pub struct Sys;
 
 impl<'a> System<'a> for Sys {
-    type SystemData = (
-        TowerRead<'a>,
-        TowerWrite<'a>,
-    );
+    type SystemData = (TowerRead<'a>, TowerWrite<'a>);
 
     const NAME: &'static str = "tower";
 
@@ -88,7 +82,7 @@ impl<'a> System<'a> for Sys {
                     guard
                 },
                 |_guard, (e, tower, pty, atk, pos, facing, facing_bc)| {
-                    let mut outcomes:Vec<Outcome> = Vec::new();
+                    let mut outcomes: Vec<Outcome> = Vec::new();
                     // 注意：搜尋器內部使用 f32 來實作 instant_distance lib 相容性；呼叫者的最終距離檢查是固定64。
                     let (pos_x_f, pos_y_f) = pos.xy_f32();
                     let pos_vek = vek::Vec2::new(pos_x_f, pos_y_f);
@@ -108,7 +102,12 @@ impl<'a> System<'a> for Sys {
                                 rm_ids.push(bc);
                             }
                         }
-                        let bc: Vec<Entity> = tower.block_creeps.iter().filter(|e| rm_ids.contains(&e)).map(|e| *e).collect();
+                        let bc: Vec<Entity> = tower
+                            .block_creeps
+                            .iter()
+                            .filter(|e| rm_ids.contains(&e))
+                            .map(|e| *e)
+                            .collect();
                         tower.block_creeps = bc;
                         pty.block = tower.block_creeps.len() as i32;
                     }
@@ -124,7 +123,10 @@ impl<'a> System<'a> for Sys {
                                     let diff = p.0 - pos.0;
                                     if diff.length_squared() < size_sq {
                                         tower.block_creeps.push(nc.ent);
-                                        outcomes.push(Outcome::CreepStop { source: e, target: nc.ent });
+                                        outcomes.push(Outcome::CreepStop {
+                                            source: e,
+                                            target: nc.ent,
+                                        });
                                     }
                                 }
                             }
@@ -141,8 +143,12 @@ impl<'a> System<'a> for Sys {
                             let search_n = 1.max(pty.mblock).max(6) as usize;
                             // 注意：搜尋器內部使用 f32 來實作 instant_distance lib 相容性；呼叫者的最終距離檢查是固定64。
                             let range_f = atk.range.val().to_f32_for_render();
-                            let (creeps, near_creeps) =
-                                tr.searcher.creep.search_nn_two_radii(pos_vek, range_f, range_f + 30., search_n);
+                            let (creeps, near_creeps) = tr.searcher.creep.search_nn_two_radii(
+                                pos_vek,
+                                range_f,
+                                range_f + 30.,
+                                search_n,
+                            );
 
                             // faction filter：若本塔有 Faction，則只攻擊敵對 creep
                             let my_faction = tr.factions.get(e);
@@ -163,18 +169,29 @@ impl<'a> System<'a> for Sys {
                                     for c in hostile_creeps.iter() {
                                         // 注意：DisIndex.dis 是 f32 平方距離（搜尋器邊界）；轉換為 Fix64 以進行 sim 算術。
                                         let dis_fx = Fixed64::from_raw((c.dis * 1024.0) as i64);
-                                        tower.nearby_creeps.push(NearbyEnt { ent: c.e, dis: dis_fx });
+                                        tower.nearby_creeps.push(NearbyEnt {
+                                            ent: c.e,
+                                            dis: dis_fx,
+                                        });
                                     }
                                 }
                                 // 轉向目標：算出 desired angle，旋轉 facing
                                 let target_entity = hostile_creeps[0].e;
-                                let target_pos = tr.pos.get(target_entity)
-                                    .map(|p| { let (x, y) = p.xy_f32(); vek::Vec2::new(x, y) })
+                                let target_pos = tr
+                                    .pos
+                                    .get(target_entity)
+                                    .map(|p| {
+                                        let (x, y) = p.xy_f32();
+                                        vek::Vec2::new(x, y)
+                                    })
                                     .unwrap_or(pos_vek);
                                 let diff = target_pos - pos_vek;
                                 if diff.magnitude_squared() > 0.01 {
                                     let desired = diff.y.atan2(diff.x);
-                                    let turn = tr.turn_speeds.get(e).map(|t| t.0.to_f32_for_render())
+                                    let turn = tr
+                                        .turn_speeds
+                                        .get(e)
+                                        .map(|t| t.0.to_f32_for_render())
                                         .unwrap_or(std::f32::consts::FRAC_PI_2);
                                     let cur_rad = facing.rad_f32();
                                     let new_rad = rotate_toward(cur_rad, desired, turn * dt_f);
@@ -184,8 +201,10 @@ impl<'a> System<'a> for Sys {
                                     // 必須比較 last_broadcast 而不是 per-tick old_facing —
                                     // 否則每 tick 旋轉量 (~3°) 永遠 < 15° 永遠不發。
                                     let needs_emit = match facing_bc.0 {
-                                        None => true,  // 第一次必發（client 原預設 0 → 校正）
-                                        Some(last) => (new_rad - last).abs() > FACING_BROADCAST_THRESHOLD_RAD,
+                                        None => true, // 第一次必發（client 原預設 0 → 校正）
+                                        Some(last) => {
+                                            (new_rad - last).abs() > FACING_BROADCAST_THRESHOLD_RAD
+                                        }
                                     };
                                     if needs_emit {
                                         facing_bc.0 = Some(new_rad);
@@ -197,7 +216,9 @@ impl<'a> System<'a> for Sys {
                                     }
 
                                     // MOBA 塔：角度對齊就發單體 homing 彈
-                                    if normalize_angle(desired - new_rad).abs() < MOVE_ANGLE_THRESHOLD {
+                                    if normalize_angle(desired - new_rad).abs()
+                                        < MOVE_ANGLE_THRESHOLD
+                                    {
                                         atk.asd_count -= atk.asd.val();
                                         outcomes.push(Outcome::ProjectileLine2 {
                                             pos: pos.0,
@@ -212,7 +233,10 @@ impl<'a> System<'a> for Sys {
                                     // 0.3 ≈ 307/1024 原始；原始抖動 ε [0, 256) ≈ 0..0.25。
                                     // 階段 1de.2：透過 SimRng 確定的每（塔、滴答）抖動。
                                     let mut rng = omoba_sim::SimRng::from_master_entity(
-                                        master_seed, tick, e.id(), OP_TOWER_NO_TARGET_JITTER,
+                                        master_seed,
+                                        tick,
+                                        e.id(),
+                                        OP_TOWER_NO_TARGET_JITTER,
                                     );
                                     let jitter = Fixed64::from_raw((rng.next_u32() % 256) as i64);
                                     atk.asd_count = atk.asd.val() - Fixed64::from_raw(307) - jitter;
@@ -232,8 +256,7 @@ impl<'a> System<'a> for Sys {
             )
             .reduce(
                 || Vec::new(),
-                |( mut outcomes_a),
-                 ( mut outcomes_b)| {
+                |(mut outcomes_a), (mut outcomes_b)| {
                     outcomes_a.append(&mut outcomes_b);
                     outcomes_a
                 },
@@ -244,5 +267,3 @@ impl<'a> System<'a> for Sys {
         tw.outcomes.append(&mut outcomes);
     }
 }
-
-

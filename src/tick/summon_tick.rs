@@ -6,7 +6,7 @@
 
 use crossbeam_channel::Sender;
 use serde_json::json;
-use specs::{shred, Entities, Join, Read, SystemData, World, Write, WriteStorage, ReadStorage};
+use specs::{shred, Entities, Join, Read, ReadStorage, SystemData, World, Write, WriteStorage};
 
 use crate::comp::*;
 use crate::transport::OutboundMsg;

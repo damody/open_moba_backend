@@ -6,12 +6,12 @@
 //! `tower_upgrades(id)` lookup。本檔案只負責把 const POD 轉成 runtime
 //! `TowerUpgradeDef`（含 String / Vec）並塞入 HashMap 供查詢。
 
-use std::collections::HashMap;
-use omoba_core::tower_meta::{TowerUpgradeDef, UpgradeEffect, StatOp};
+use omoba_core::tower_meta::{StatOp, TowerUpgradeDef, UpgradeEffect};
 use omoba_template_ids::{
-    tower_upgrades, StatOpC, UpgradeDefConst, UpgradeEffectConst, UpgradeEffectKindC,
-    TOWER_BOMB, TOWER_DART, TOWER_ICE, TOWER_TACK,
+    tower_upgrades, StatOpC, UpgradeDefConst, UpgradeEffectConst, UpgradeEffectKindC, TOWER_BOMB,
+    TOWER_DART, TOWER_ICE, TOWER_TACK,
 };
+use std::collections::HashMap;
 
 pub struct TowerUpgradeRegistry {
     /// key = (塔類型、路徑、等級)
@@ -23,7 +23,9 @@ impl TowerUpgradeRegistry {
         let mut defs = HashMap::new();
         for &tid in &[TOWER_DART, TOWER_TACK, TOWER_BOMB, TOWER_ICE] {
             let kind = tid.as_str();
-            let Some(paths) = tower_upgrades(tid) else { continue };
+            let Some(paths) = tower_upgrades(tid) else {
+                continue;
+            };
             for (path_idx, path) in paths.iter().enumerate() {
                 for (lvl_idx, c) in path.iter().enumerate() {
                     let lvl = (lvl_idx + 1) as u8;
@@ -40,7 +42,9 @@ impl TowerUpgradeRegistry {
                     debug_assert!(
                         prev.is_none(),
                         "duplicate upgrade def for {} path {} level {}",
-                        kind, path_idx, lvl
+                        kind,
+                        path_idx,
+                        lvl
                     );
                 }
             }
@@ -67,9 +71,7 @@ fn upgrade_effect_from_const(c: &UpgradeEffectConst) -> UpgradeEffect {
                 StatOpC::Mul => StatOp::Mul,
             },
         },
-        UpgradeEffectKindC::BehaviorFlag => UpgradeEffect::BehaviorFlag {
-            flag: c.key.into(),
-        },
+        UpgradeEffectKindC::BehaviorFlag => UpgradeEffect::BehaviorFlag { flag: c.key.into() },
     }
 }
 

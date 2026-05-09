@@ -23,8 +23,8 @@
 //! 消費者目前僅記錄（反序列化 + 應用是階段 5+
 //! 一旦實際執行觀察者模式，就進行後續操作）。
 
-use specs::{Join, World, WorldExt};
 use serde::{Deserialize, Serialize};
+use specs::{Join, World, WorldExt};
 
 use crate::comp::creep::CProperty;
 use crate::comp::facing::Facing;
@@ -115,10 +115,7 @@ pub fn serialize_snapshot(world: &World) -> Vec<u8> {
                 .get(e)
                 .map(|v| (v.0.x.raw(), v.0.y.raw()))
                 .unwrap_or((0, 0));
-            let facing_ticks = facing_storage
-                .get(e)
-                .map(|f| f.0.ticks())
-                .unwrap_or(0);
+            let facing_ticks = facing_storage.get(e).map(|f| f.0.ticks()).unwrap_or(0);
             let (hp_raw, mhp_raw) = cprop_storage
                 .get(e)
                 .map(|c| (c.hp.raw(), c.mhp.raw()))
@@ -189,7 +186,10 @@ mod tests {
     fn empty_world_round_trips() {
         let w = make_world();
         let bytes = serialize_snapshot(&w);
-        assert!(!bytes.is_empty(), "even an empty world should serialize the WorldSnapshot envelope");
+        assert!(
+            !bytes.is_empty(),
+            "even an empty world should serialize the WorldSnapshot envelope"
+        );
         let snap: WorldSnapshot = omoba_sim::snapshot::deserialize(&bytes)
             .expect("empty world snapshot must deserialize");
         assert_eq!(snap.schema_version, SCHEMA_VERSION);
@@ -215,7 +215,10 @@ mod tests {
         // 類似蠕變（存在 C 屬性，無英雄/塔樓/彈）
         w.create_entity()
             .with(pos_xy(2, 2))
-            .with(Vel(SimVec2 { x: Fixed64::from_i32(1), y: Fixed64::ZERO }))
+            .with(Vel(SimVec2 {
+                x: Fixed64::from_i32(1),
+                y: Fixed64::ZERO,
+            }))
             .with(Facing(Angle::from_ticks(1024)))
             .with(cprop(50, 100))
             .build();
@@ -229,7 +232,11 @@ mod tests {
         assert_eq!(snap.schema_version, SCHEMA_VERSION);
         assert_eq!(snap.tick, 123);
         assert_eq!(snap.master_seed, 0x1234_5678_9ABC_DEF0);
-        assert_eq!(snap.entities.len(), 3, "three Pos-bearing entities must survive round-trip");
+        assert_eq!(
+            snap.entities.len(),
+            3,
+            "three Pos-bearing entities must survive round-trip"
+        );
 
         // 確認至少一個蠕變分類實體具有匹配
         // 馬力/速度/面值（依種類找出）。

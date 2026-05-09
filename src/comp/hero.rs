@@ -1,8 +1,8 @@
+use omoba_sim::Fixed64;
+use serde::{Deserialize, Serialize};
 use specs::storage::VecStorage;
 use specs::{Component, Entity};
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use omoba_sim::Fixed64;
 
 /// 英雄組件 - 包含英雄的基礎屬性和成長數據
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -11,27 +11,27 @@ pub struct Hero {
     pub name: String,
     pub title: String,
     pub background: String,
-    
+
     // 基礎屬性
     pub strength: i32,
     pub agility: i32,
     pub intelligence: i32,
     pub primary_attribute: AttributeType,
-    
+
     // 當前等級和經驗
     pub level: i32,
     pub experience: i32,
     pub experience_to_next: i32,
-    
+
     // 技能相關
-    pub abilities: Vec<String>,  // ability IDs
-    pub ability_levels: HashMap<String, i32>,  // 技能等級
-    pub skill_points: i32,       // 可用技能點
+    pub abilities: Vec<String>,               // ability IDs
+    pub ability_levels: HashMap<String, i32>, // 技能等級
+    pub skill_points: i32,                    // 可用技能點
     /// 技能剩餘冷卻秒數；key = ability_id。>0 表示仍在 CD 中，host 會拒絕 SkillCast。
     /// 不寫進 serde 預設值時自動補空 map，相容舊 savegame。
     #[serde(default)]
     pub ability_cooldowns: HashMap<String, Fixed64>,
-    
+
     // 升級數據
     pub level_growth: LevelGrowth,
 }
@@ -79,7 +79,7 @@ impl Hero {
             level_growth: LevelGrowth::default(),
         }
     }
-    
+
     /// 從戰役資料創建英雄。
     ///
     /// **單一來源**：所有 intrinsic stats（strength/agility/base_hp/level_growth/...）
@@ -91,8 +91,12 @@ impl Hero {
         };
         let id = hero_by_name(&hero_data.id)
             .unwrap_or_else(|| panic!("hero id '{}' not in generated templates", hero_data.id));
-        let s = hero_stats(id)
-            .unwrap_or_else(|| panic!("hero '{}' has no stats in generated templates", hero_data.id));
+        let s = hero_stats(id).unwrap_or_else(|| {
+            panic!(
+                "hero '{}' has no stats in generated templates",
+                hero_data.id
+            )
+        });
         let primary_attribute = match s.primary_attribute {
             0 => AttributeType::Strength,
             1 => AttributeType::Agility,
@@ -134,7 +138,7 @@ impl Hero {
             },
         }
     }
-    
+
     /// 獲取當前總屬性值（基礎 + 等級成長）
     pub fn get_total_strength(&self) -> Fixed64 {
         Fixed64::from_i32(self.strength) + self.level_growth.strength_per_level * (self.level - 1)
@@ -145,7 +149,8 @@ impl Hero {
     }
 
     pub fn get_total_intelligence(&self) -> Fixed64 {
-        Fixed64::from_i32(self.intelligence) + self.level_growth.intelligence_per_level * (self.level - 1)
+        Fixed64::from_i32(self.intelligence)
+            + self.level_growth.intelligence_per_level * (self.level - 1)
     }
 
     /// 獲取主屬性值
@@ -201,7 +206,11 @@ impl Hero {
         let base_crit = Fixed64::from_raw(51); // ≈ 0.05 (5%)
         let cap = Fixed64::from_raw(768); // 0.75
         let total = base_crit + agi_crit;
-        if total > cap { cap } else { total }
+        if total > cap {
+            cap
+        } else {
+            total
+        }
     }
 
     /// 計算閃避率
@@ -209,16 +218,24 @@ impl Hero {
         // 高敏捷英雄有少量閃避率：超過20敏捷後每點 +0.05% 閃避
         let agi = self.get_total_agility();
         let threshold = Fixed64::from_i32(20);
-        let excess = if agi > threshold { agi - threshold } else { Fixed64::ZERO };
+        let excess = if agi > threshold {
+            agi - threshold
+        } else {
+            Fixed64::ZERO
+        };
         let agi_dodge = excess * Fixed64::from_raw(1); // ≈ 0.001 (about 0.0005 raw=1; using raw=1 ≈ 0.000976)
         let cap = Fixed64::from_raw(256); // 0.25 (25%)
-        if agi_dodge > cap { cap } else { agi_dodge }
+        if agi_dodge > cap {
+            cap
+        } else {
+            agi_dodge
+        }
     }
-    
+
     /// 增加經驗值
     pub fn add_experience(&mut self, exp: i32) -> bool {
         self.experience += exp;
-        
+
         if self.experience >= self.experience_to_next {
             self.level_up();
             true
@@ -226,50 +243,53 @@ impl Hero {
             false
         }
     }
-    
+
     /// 升級處理
     pub fn level_up(&mut self) {
-        if self.level < 25 { // 最大等級限制
+        if self.level < 25 {
+            // 最大等級限制
             self.level += 1;
             self.skill_points += 1;
             self.experience -= self.experience_to_next;
-            
+
             // 計算下一級所需經驗 (指數增長)
             self.experience_to_next = (100.0 * (1.2_f32.powi(self.level - 1))) as i32;
         }
     }
-    
+
     /// 學習技能
     pub fn learn_ability(&mut self, ability_id: &str) -> Result<(), String> {
         if self.skill_points <= 0 {
             return Err("No skill points available".to_string());
         }
-        
+
         if !self.abilities.contains(&ability_id.to_string()) {
             return Err("Hero doesn't have this ability".to_string());
         }
-        
+
         let current_level = *self.ability_levels.get(ability_id).unwrap_or(&0);
-        if current_level >= 4 { // 最大技能等級
+        if current_level >= 4 {
+            // 最大技能等級
             return Err("Ability is already at maximum level".to_string());
         }
-        
+
         // 終極技能等級限制
         if ability_id.starts_with("R") && current_level >= (self.level / 6).max(1) {
             return Err("Hero level too low for ultimate upgrade".to_string());
         }
-        
-        self.ability_levels.insert(ability_id.to_string(), current_level + 1);
+
+        self.ability_levels
+            .insert(ability_id.to_string(), current_level + 1);
         self.skill_points -= 1;
-        
+
         Ok(())
     }
-    
+
     /// 獲取技能等級
     pub fn get_ability_level(&self, ability_id: &str) -> i32 {
         *self.ability_levels.get(ability_id).unwrap_or(&0)
     }
-    
+
     /// 檢查是否可以使用技能
     pub fn can_use_ability(&self, ability_id: &str) -> bool {
         self.get_ability_level(ability_id) > 0
@@ -286,11 +306,16 @@ impl Hero {
 
     /// 取該技能剩餘冷卻秒；0 代表可施放。
     pub fn get_cooldown(&self, ability_id: &str) -> Fixed64 {
-        let v = self.ability_cooldowns
+        let v = self
+            .ability_cooldowns
             .get(ability_id)
             .copied()
             .unwrap_or(Fixed64::ZERO);
-        if v < Fixed64::ZERO { Fixed64::ZERO } else { v }
+        if v < Fixed64::ZERO {
+            Fixed64::ZERO
+        } else {
+            v
+        }
     }
 
     /// 啟動技能冷卻。duration <= 0 視為無 CD（直接清除）。
@@ -315,10 +340,10 @@ impl Hero {
 impl Default for LevelGrowth {
     fn default() -> Self {
         LevelGrowth {
-            strength_per_level: Fixed64::from_raw(2867),  // 2.8  (2.8 * 1024 ≈ 2867)
-            agility_per_level: Fixed64::from_raw(2458),   // 2.4
+            strength_per_level: Fixed64::from_raw(2867), // 2.8  (2.8 * 1024 ≈ 2867)
+            agility_per_level: Fixed64::from_raw(2458),  // 2.4
             intelligence_per_level: Fixed64::from_i32(2), // 2.0
-            damage_per_level: Fixed64::from_raw(2560),    // 2.5
+            damage_per_level: Fixed64::from_raw(2560),   // 2.5
             hp_per_level: Fixed64::from_i32(60),
             mana_per_level: Fixed64::from_i32(26),
         }
@@ -327,6 +352,10 @@ impl Default for LevelGrowth {
 
 impl Default for Hero {
     fn default() -> Self {
-        Hero::new("unknown".to_string(), "Unknown Hero".to_string(), "The Nameless".to_string())
+        Hero::new(
+            "unknown".to_string(),
+            "Unknown Hero".to_string(),
+            "The Nameless".to_string(),
+        )
     }
 }

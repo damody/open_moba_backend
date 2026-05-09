@@ -34,12 +34,17 @@ where
     fn entry_aabb(entry: &Entry<Id, Item>) -> (Vec2<f32>, Vec2<f32>) {
         let pos = entry.position;
         let r = entry.bounding_radius.max(0.0);
-        (Vec2::new(pos.x - r, pos.y - r), Vec2::new(pos.x + r, pos.y + r))
+        (
+            Vec2::new(pos.x - r, pos.y - r),
+            Vec2::new(pos.x + r, pos.y + r),
+        )
     }
 
     fn world_to_cell(&self, p: Vec2<f32>) -> Cell {
-        ((p.x / self.cell_size).floor() as i32,
-         (p.y / self.cell_size).floor() as i32)
+        (
+            (p.x / self.cell_size).floor() as i32,
+            (p.y / self.cell_size).floor() as i32,
+        )
     }
 
     fn cells_for_aabb(&self, min: Vec2<f32>, max: Vec2<f32>) -> Vec<Cell> {
@@ -58,7 +63,10 @@ where
         let (min, max) = Self::entry_aabb(&entry);
         let cells = self.cells_for_aabb(min, max);
         for c in &cells {
-            self.cells.entry(*c).or_insert_with(Vec::new).push(entry.clone());
+            self.cells
+                .entry(*c)
+                .or_insert_with(Vec::new)
+                .push(entry.clone());
         }
         self.id_cells.insert(entry.id.clone(), cells);
     }
@@ -138,7 +146,9 @@ where
         self.cells.len()
     }
 
-    fn name(&self) -> &'static str { "hash_grid" }
+    fn name(&self) -> &'static str {
+        "hash_grid"
+    }
 }
 
 #[cfg(test)]
@@ -166,20 +176,32 @@ mod tests {
         g.insert(pt("a", 100.0, 100.0, 10.0));
         g.insert(pt("b", 800.0, 800.0, 10.0));
 
-        assert_eq!(ids_of(&g.query_in_range(Vec2::new(100.0, 100.0), 50.0)), vec!["a"]);
-        assert_eq!(ids_of(&g.query_in_range(Vec2::new(800.0, 800.0), 50.0)), vec!["b"]);
+        assert_eq!(
+            ids_of(&g.query_in_range(Vec2::new(100.0, 100.0), 50.0)),
+            vec!["a"]
+        );
+        assert_eq!(
+            ids_of(&g.query_in_range(Vec2::new(800.0, 800.0), 50.0)),
+            vec!["b"]
+        );
     }
 
     #[test]
     fn remove_drops_entry_from_subsequent_queries() {
         let mut g: SpatialHashGrid<String, ()> = SpatialHashGrid::new(128.0);
-        g.initialize(world_bounds(), vec![
-            pt("a", 100.0, 100.0, 10.0),
-            pt("b", 120.0, 110.0, 10.0),
-        ]);
-        assert_eq!(ids_of(&g.query_in_range(Vec2::new(110.0, 105.0), 100.0)), vec!["a", "b"]);
+        g.initialize(
+            world_bounds(),
+            vec![pt("a", 100.0, 100.0, 10.0), pt("b", 120.0, 110.0, 10.0)],
+        );
+        assert_eq!(
+            ids_of(&g.query_in_range(Vec2::new(110.0, 105.0), 100.0)),
+            vec!["a", "b"]
+        );
         assert!(g.remove(&"a".to_string()));
-        assert_eq!(ids_of(&g.query_in_range(Vec2::new(110.0, 105.0), 100.0)), vec!["b"]);
+        assert_eq!(
+            ids_of(&g.query_in_range(Vec2::new(110.0, 105.0), 100.0)),
+            vec!["b"]
+        );
         assert!(!g.remove(&"a".to_string()));
     }
 
@@ -187,11 +209,17 @@ mod tests {
     fn update_moves_entry_in_query_results() {
         let mut g: SpatialHashGrid<String, ()> = SpatialHashGrid::new(128.0);
         g.initialize(world_bounds(), vec![pt("mover", 100.0, 100.0, 5.0)]);
-        assert_eq!(ids_of(&g.query_in_range(Vec2::new(100.0, 100.0), 20.0)), vec!["mover"]);
+        assert_eq!(
+            ids_of(&g.query_in_range(Vec2::new(100.0, 100.0), 20.0)),
+            vec!["mover"]
+        );
 
         g.update(pt("mover", 900.0, 900.0, 5.0));
         assert!(ids_of(&g.query_in_range(Vec2::new(100.0, 100.0), 20.0)).is_empty());
-        assert_eq!(ids_of(&g.query_in_range(Vec2::new(900.0, 900.0), 20.0)), vec!["mover"]);
+        assert_eq!(
+            ids_of(&g.query_in_range(Vec2::new(900.0, 900.0), 20.0)),
+            vec!["mover"]
+        );
     }
 
     #[test]
@@ -199,8 +227,14 @@ mod tests {
         let mut g: SpatialHashGrid<String, ()> = SpatialHashGrid::new(64.0);
         g.initialize(world_bounds(), vec![]);
         g.insert(pt("big", 200.0, 200.0, 100.0));
-        assert!(g.id_cells.get(&"big".to_string()).map(|v| v.len()).unwrap_or(0) >= 4,
-                "large entry should occupy multiple cells");
+        assert!(
+            g.id_cells
+                .get(&"big".to_string())
+                .map(|v| v.len())
+                .unwrap_or(0)
+                >= 4,
+            "large entry should occupy multiple cells"
+        );
 
         let q = g.query_in_range(Vec2::new(200.0, 200.0), 50.0);
         assert_eq!(ids_of(&q), vec!["big"]);
@@ -209,11 +243,14 @@ mod tests {
     #[test]
     fn remove_dedupes_across_overlapping_cells() {
         let mut g: SpatialHashGrid<String, ()> = SpatialHashGrid::new(64.0);
-        g.initialize(world_bounds(), vec![
-            pt("spanner", 500.0, 500.0, 200.0),
-            pt("filler1", 100.0, 100.0, 5.0),
-            pt("filler2", 900.0, 900.0, 5.0),
-        ]);
+        g.initialize(
+            world_bounds(),
+            vec![
+                pt("spanner", 500.0, 500.0, 200.0),
+                pt("filler1", 100.0, 100.0, 5.0),
+                pt("filler2", 900.0, 900.0, 5.0),
+            ],
+        );
 
         let q = g.query_in_range(Vec2::new(500.0, 500.0), 50.0);
         assert_eq!(ids_of(&q), vec!["spanner"]);

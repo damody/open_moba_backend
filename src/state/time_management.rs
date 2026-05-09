@@ -1,10 +1,9 @@
-/// 時間管理器 - 負責遊戲時間循環和日夜週期
-
-use std::time::Duration;
-use specs::{World, WorldExt};
 use failure::Error;
+use specs::{World, WorldExt};
+/// 時間管理器 - 負責遊戲時間循環和日夜週期
+use std::time::Duration;
 
-use crate::comp::{TimeOfDay, Time, DeltaTime, DayPeriod};
+use crate::comp::{DayPeriod, DeltaTime, Time, TimeOfDay};
 
 /// 時間管理器
 pub struct TimeManager {
@@ -44,7 +43,12 @@ impl TimeManager {
     }
 
     /// 更新時間系統
-    pub fn update(&mut self, world: &mut World, dt: Duration) -> Result<(), Error> {
+    pub fn update(
+        &mut self,
+        world: &mut World,
+        dt: Duration,
+        fixed_dt_raw: Option<i64>,
+    ) -> Result<(), Error> {
         // 更新基本時間
         {
             let mut time_of_day = world.write_resource::<TimeOfDay>();
@@ -60,9 +64,11 @@ impl TimeManager {
 
         {
             let dt_val = dt.as_secs_f32().min(self.max_delta_time);
+            let raw =
+                fixed_dt_raw.unwrap_or_else(|| (dt_val * omoba_sim::fixed::SCALE as f32) as i64);
             let mut delta_time = world.write_resource::<DeltaTime>();
-            delta_time.0 = omoba_sim::Fixed64::from_raw((dt_val * 1024.0) as i64);
-            self.cached_delta_time = dt_val;
+            delta_time.0 = omoba_sim::Fixed64::from_raw(raw);
+            self.cached_delta_time = raw as f32 / omoba_sim::fixed::SCALE as f32;
         }
 
         Ok(())
@@ -155,26 +161,26 @@ impl TimeManager {
     pub fn get_light_intensity(world: &World) -> f32 {
         let time_of_day = world.read_resource::<TimeOfDay>().0;
         let day_period: DayPeriod = time_of_day.into();
-        
+
         match day_period {
-            DayPeriod::Night => 0.2,        // 夜晚低光照
-            DayPeriod::Morning => 0.6,      // 早晨中等光照
-            DayPeriod::Noon => 1.0,         // 中午全光照
-            DayPeriod::Evening => 0.7,      // 働晚中高光照
+            DayPeriod::Night => 0.2,   // 夜晚低光照
+            DayPeriod::Morning => 0.6, // 早晨中等光照
+            DayPeriod::Noon => 1.0,    // 中午全光照
+            DayPeriod::Evening => 0.7, // 働晚中高光照
         }
     }
 
     /// 計算光照對視野的影響
     pub fn get_vision_modifier(world: &World) -> f32 {
         let light_intensity = Self::get_light_intensity(world);
-        
+
         // 光照越低，視野範圍越小
         if light_intensity >= 0.8 {
-            1.0         // 白天全視野
+            1.0 // 白天全視野
         } else if light_intensity >= 0.5 {
-            0.85        // 黃昏/黎明減少 15%
+            0.85 // 黃昏/黎明減少 15%
         } else {
-            0.6         // 夜晚減少 40%
+            0.6 // 夜晚減少 40%
         }
     }
 

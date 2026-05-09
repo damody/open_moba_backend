@@ -1,6 +1,3 @@
-/// 戰鬥相關事件處理
-
-use specs::{Entity, World, WriteStorage, ReadStorage, WorldExt};
 use crate::ability_runtime::UnitStats;
 use crate::comp::*;
 use crate::transport::OutboundMsg;
@@ -8,6 +5,8 @@ use crossbeam_channel::Sender;
 use omb_script_abi::stat_keys::StatKey;
 use omb_script_abi::types::DamageKind;
 use serde_json::json;
+/// 戰鬥相關事件處理
+use specs::{Entity, ReadStorage, World, WorldExt, WriteStorage};
 
 /// Battle_events 的每實體 SimRng op_kind。階段 1de.2：取代 fastrand
 /// 用於未擊中/迴避檢定。跨系統重新排序或重複使用此常數
@@ -42,7 +41,8 @@ impl CombatEventHandler {
         let mut next_outcomes = Vec::new();
 
         // ---- 先發 Attacked 給 victim 側（命中與否都發）----
-        world.write_resource::<crate::scripting::ScriptEventQueue>()
+        world
+            .write_resource::<crate::scripting::ScriptEventQueue>()
             .push(crate::scripting::ScriptEvent::Attacked {
                 attacker: source,
                 victim: target,
@@ -68,7 +68,10 @@ impl CombatEventHandler {
             let master_seed: u64 = world.read_resource::<MasterSeed>().0;
             let tick: u32 = world.read_resource::<Tick>().0 as u32;
             let mut rng = omoba_sim::SimRng::from_master_entity(
-                master_seed, tick, target.id(), OP_COMBAT_MISS_ROLL,
+                master_seed,
+                tick,
+                target.id(),
+                OP_COMBAT_MISS_ROLL,
             );
             let roll = rng.gen_fixed64_unit().to_f32_for_render();
             roll < miss_roll
@@ -76,13 +79,19 @@ impl CombatEventHandler {
             false
         };
         if miss_triggered {
-            world.write_resource::<crate::scripting::ScriptEventQueue>()
+            world
+                .write_resource::<crate::scripting::ScriptEventQueue>()
                 .push(crate::scripting::ScriptEvent::AttackFail {
                     attacker: source,
                     victim: target,
                 });
             let target_name = Self::get_entity_name(world, target);
-            log::info!("🌀 {} 閃避攻擊（miss={:.2}, evasion={:.2}）", target_name, miss_chance, evasion);
+            log::info!(
+                "🌀 {} 閃避攻擊（miss={:.2}, evasion={:.2}）",
+                target_name,
+                miss_chance,
+                evasion
+            );
             return next_outcomes;
         }
 
@@ -93,13 +102,37 @@ impl CombatEventHandler {
             let is_bldgs = world.read_storage::<IsBuilding>();
             let cps = world.read_storage::<CProperty>();
             let tgt_stats = UnitStats::from_refs(&*buffs, is_bldgs.get(target).is_some());
-            let (base_armor, base_resist) = cps.get(target)
-                .map(|cp| (cp.def_physic.to_f32_for_render(), cp.def_magic.to_f32_for_render()))
+            let (base_armor, base_resist) = cps
+                .get(target)
+                .map(|cp| {
+                    (
+                        cp.def_physic.to_f32_for_render(),
+                        cp.def_magic.to_f32_for_render(),
+                    )
+                })
                 .unwrap_or((0.0, 0.0));
             (
-                tgt_stats.apply_incoming_damage(phys_f, DamageKind::Physical, target, base_armor, base_resist),
-                tgt_stats.apply_incoming_damage(magi_f, DamageKind::Magical, target, base_armor, base_resist),
-                tgt_stats.apply_incoming_damage(real_f, DamageKind::Pure, target, base_armor, base_resist),
+                tgt_stats.apply_incoming_damage(
+                    phys_f,
+                    DamageKind::Physical,
+                    target,
+                    base_armor,
+                    base_resist,
+                ),
+                tgt_stats.apply_incoming_damage(
+                    magi_f,
+                    DamageKind::Magical,
+                    target,
+                    base_armor,
+                    base_resist,
+                ),
+                tgt_stats.apply_incoming_damage(
+                    real_f,
+                    DamageKind::Pure,
+                    target,
+                    base_armor,
+                    base_resist,
+                ),
             )
         };
         let final_total = final_phys + final_magi + final_real;
@@ -123,7 +156,9 @@ impl CombatEventHandler {
         // ---- 扣 HP，套 MIN_HEALTH 下限 ----
         let min_health: f32 = {
             let buffs = world.read_resource::<crate::ability_runtime::BuffStore>();
-            buffs.sum_add(target, StatKey::MinHealth).to_f32_for_render()
+            buffs
+                .sum_add(target, StatKey::MinHealth)
+                .to_f32_for_render()
         };
         let has_reincarnation = {
             let buffs = world.read_resource::<crate::ability_runtime::BuffStore>();
@@ -149,9 +184,15 @@ impl CombatEventHandler {
                 target_props.hp = omoba_sim::Fixed64::from_raw((hp_after_f * 1024.0) as i64);
 
                 let (source_name, target_name) = Self::get_entity_names(world, source, target);
-                let damage_info = Self::format_damage_info(final_phys, final_magi, final_real, final_total);
-                log::info!("⚔️ {} 攻擊 {} | {} | HP: {:.1} → {:.1}/{:.1}",
-                    source_name, target_name, damage_info, hp_before_f, hp_after_f,
+                let damage_info =
+                    Self::format_damage_info(final_phys, final_magi, final_real, final_total);
+                log::info!(
+                    "⚔️ {} 攻擊 {} | {} | HP: {:.1} → {:.1}/{:.1}",
+                    source_name,
+                    target_name,
+                    damage_info,
+                    hp_before_f,
+                    hp_after_f,
                     target_props.mhp.to_f32_for_render()
                 );
             }
@@ -174,13 +215,15 @@ impl CombatEventHandler {
                 }
                 let target_name = Self::get_entity_name(world, target);
                 log::info!("✨ {} 重生！", target_name);
-                world.write_resource::<crate::scripting::ScriptEventQueue>()
+                world
+                    .write_resource::<crate::scripting::ScriptEventQueue>()
                     .push(crate::scripting::ScriptEvent::Respawn { e: target });
             } else {
                 let target_name = Self::get_entity_name(world, target);
                 log::info!("💀 {} 死亡！", target_name);
-                next_outcomes.push(Outcome::Death { pos, ent: target });  // pos is SimVec2 (post Phase 1c.2)
-                world.write_resource::<crate::scripting::ScriptEventQueue>()
+                next_outcomes.push(Outcome::Death { pos, ent: target }); // pos is SimVec2 (post Phase 1c.2)
+                world
+                    .write_resource::<crate::scripting::ScriptEventQueue>()
                     .push(crate::scripting::ScriptEvent::Death {
                         victim: target,
                         killer: Some(source),
@@ -216,7 +259,10 @@ impl CombatEventHandler {
 
         if effective_amount <= Fixed64::ZERO {
             let target_name = Self::get_entity_name(world, target);
-            log::info!("🚫 {} 治療被阻擋（disable_healing 或倍率歸零）", target_name);
+            log::info!(
+                "🚫 {} 治療被阻擋（disable_healing 或倍率歸零）",
+                target_name
+            );
             return Vec::new();
         }
 
@@ -226,13 +272,18 @@ impl CombatEventHandler {
             if let Some(target_props) = properties.get_mut(target) {
                 let hp_before = target_props.hp;
                 let summed = target_props.hp + effective_amount;
-                target_props.hp = if summed > target_props.mhp { target_props.mhp } else { summed };
+                target_props.hp = if summed > target_props.mhp {
+                    target_props.mhp
+                } else {
+                    summed
+                };
                 let hp_after = target_props.hp;
                 actual_heal = hp_after - hp_before;
 
                 let target_name = Self::get_entity_name(world, target);
                 // 注意：log 使用 f32 邊界 — Fix64 沒有顯示。
-                log::info!("💚 {} 回復 {:.1} HP（原 {:.1} × 倍率）| HP: {:.1} → {:.1}/{:.1}",
+                log::info!(
+                    "💚 {} 回復 {:.1} HP（原 {:.1} × 倍率）| HP: {:.1} → {:.1}/{:.1}",
                     target_name,
                     actual_heal.to_f32_for_render(),
                     amount.to_f32_for_render(),
@@ -270,11 +321,11 @@ impl CombatEventHandler {
         let mut creeps = world.write_storage::<Creep>();
         let mut towers = world.write_storage::<Tower>();
         let mut projs = world.write_storage::<Projectile>();
-        
+
         let entity_type = if let Some(c) = creeps.get_mut(entity) {
             // 處理小兵死亡
             if let Some(bt) = c.block_tower {
-                if let Some(t) = towers.get_mut(bt) { 
+                if let Some(t) = towers.get_mut(bt) {
                     t.block_creeps.retain(|&x| x != entity);
                 }
             }
@@ -282,7 +333,7 @@ impl CombatEventHandler {
         } else if let Some(t) = towers.get_mut(entity) {
             // 處理塔死亡
             for ce in t.block_creeps.iter() {
-                if let Some(c) = creeps.get_mut(*ce) { 
+                if let Some(c) = creeps.get_mut(*ce) {
                     c.block_tower = None;
                     next_outcomes.push(Outcome::CreepWalk { target: ce.clone() });
                 }
@@ -290,10 +341,10 @@ impl CombatEventHandler {
             "tower"
         } else if let Some(_p) = projs.get_mut(entity) {
             "projectile"
-        } else { 
+        } else {
             "unknown"
         };
-        
+
         // EntityDeath broadcast 已砍 — render-side scene node cleanup
         // 由 SimWorldSnapshot.removed_entity_ids 自動處理（1.6 重構為
         // Outcome::EntityRemoved 通道）；entity_type 變數保留是因為
@@ -311,7 +362,7 @@ impl CombatEventHandler {
         amount: u32,
     ) -> Vec<Outcome> {
         let mut heroes = world.write_storage::<Hero>();
-        
+
         if let Some(hero) = heroes.get_mut(target) {
             let leveled_up = hero.add_experience(amount as i32);
             if leveled_up {
@@ -320,7 +371,7 @@ impl CombatEventHandler {
                 log::info!("✨ 英雄 '{}' 獲得 {} 經驗", hero.name, amount);
             }
         }
-        
+
         Vec::new()
     }
 
@@ -357,7 +408,7 @@ impl CombatEventHandler {
         let creeps = world.read_storage::<Creep>();
         let heroes = world.read_storage::<Hero>();
         let units = world.read_storage::<Unit>();
-        
+
         if let Some(creep) = creeps.get(entity) {
             creep.name.clone()
         } else if let Some(hero) = heroes.get(entity) {
@@ -371,11 +422,17 @@ impl CombatEventHandler {
 
     fn format_damage_info(phys: f32, magi: f32, real: f32, total: f32) -> String {
         let mut parts = Vec::new();
-        if phys > 0.0 { parts.push(format!("物理 {:.1}", phys)); }
-        if magi > 0.0 { parts.push(format!("魔法 {:.1}", magi)); }
-        if real > 0.0 { parts.push(format!("真實 {:.1}", real)); }
-        if parts.is_empty() { 
-            parts.push(format!("總共 {:.1}", total)); 
+        if phys > 0.0 {
+            parts.push(format!("物理 {:.1}", phys));
+        }
+        if magi > 0.0 {
+            parts.push(format!("魔法 {:.1}", magi));
+        }
+        if real > 0.0 {
+            parts.push(format!("真實 {:.1}", real));
+        }
+        if parts.is_empty() {
+            parts.push(format!("總共 {:.1}", total));
         }
         parts.join(", ")
     }

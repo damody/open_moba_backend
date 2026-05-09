@@ -17,7 +17,9 @@ fn dll_present() -> bool {
         "../scripts/target/release/base_content.dll",
         "../scripts/target/debug/base_content.dll",
     ] {
-        if PathBuf::from(c).exists() { return true; }
+        if PathBuf::from(c).exists() {
+            return true;
+        }
     }
     false
 }
@@ -33,18 +35,28 @@ fn produces_html_with_known_content() {
     let out = PathBuf::from("target/docs/smoke.html");
     let status = Command::new(env!("CARGO"))
         .args([
-            "run", "--release",
-            "-p", "omobab", "--bin", "gen-docs",
-            "--features", "gen-docs", "--",
-            "--out", out.to_str().unwrap(),
+            "run",
+            "--release",
+            "-p",
+            "omobab",
+            "--bin",
+            "gen-docs",
+            "--features",
+            "gen-docs",
+            "--",
+            "--out",
+            out.to_str().unwrap(),
         ])
         .status()
         .expect("spawn gen-docs");
     assert!(status.success(), "gen-docs exited non-zero");
 
     let html = std::fs::read_to_string(&out).expect("read output");
-    assert!(html.len() > 50_000,
-        "HTML too small ({}B); render regression?", html.len());
+    assert!(
+        html.len() > 50_000,
+        "HTML too small ({}B); render regression?",
+        html.len()
+    );
     assert!(html.contains("omoba catalog"), "missing title");
     assert!(html.contains("UnitScript Hooks"), "missing API section");
     assert!(html.contains("Coverage Matrix"), "missing coverage section");

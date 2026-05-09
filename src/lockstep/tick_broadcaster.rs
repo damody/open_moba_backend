@@ -28,17 +28,16 @@
 //! - 當「state_hash_rx」為「None」（遺留/測試設定）時，廣播者
 //! 回退到“placeholder_state_hash”，以便現有測試繼續通過。
 
+use crossbeam_channel::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use tokio::time::{interval, Duration};
-use crossbeam_channel::{Receiver, Sender};
 
 use crate::lockstep::{
     InputBuffer, InputForPlayer, LockstepFrame, LockstepState, StateHash, TickBatch,
 };
 use crate::transport::OutboundMsg;
 use omoba_core::lockstep_timing::{
-    LOCKSTEP_ONE_SECOND_TICKS_U32, LOCKSTEP_TEN_SECONDS_TICKS_U32,
-    LOCKSTEP_TICK_PERIOD_US,
+    LOCKSTEP_ONE_SECOND_TICKS_U32, LOCKSTEP_TEN_SECONDS_TICKS_U32, LOCKSTEP_TICK_PERIOD_US,
 };
 
 /// 階段3.4：調度程序tick循環計算後發布的有效負載
@@ -184,7 +183,11 @@ impl TickBroadcaster {
                 input_id: buffered.input_id,
                 server_receive_tick: buffered.server_receive_tick,
                 server_drain_tick: tick,
-                server_queue_us: buffered.server_receive_instant.elapsed().as_micros().min(u64::MAX as u128) as u64,
+                server_queue_us: buffered
+                    .server_receive_instant
+                    .elapsed()
+                    .as_micros()
+                    .min(u64::MAX as u128) as u64,
             })
             .collect();
 
@@ -206,7 +209,10 @@ impl TickBroadcaster {
         // 到“placeholder_state_hash”。
         if tick % self.config.state_hash_interval == 0 {
             let (hash_tick, hash) = self.latest_state_hash(tick);
-            let sh = StateHash { tick: hash_tick, hash };
+            let sh = StateHash {
+                tick: hash_tick,
+                hash,
+            };
             let msg = OutboundMsg::lockstep_frame(LockstepFrame::StateHash(sh));
             if let Err(e) = self.out_tx.send(msg) {
                 log::warn!("TickBroadcaster failed to send StateHash: {e}");
@@ -259,7 +265,10 @@ impl TickBroadcaster {
                     }
                 }
             }
-            None => (broadcaster_tick, self.placeholder_state_hash(broadcaster_tick)),
+            None => (
+                broadcaster_tick,
+                self.placeholder_state_hash(broadcaster_tick),
+            ),
         }
     }
 }
@@ -328,11 +337,19 @@ mod tests {
 
         // 發射 5 個刻度。勾選 1..=4 應為空 TickBatch，勾選 5 有 2 個輸入。
         for _ in 0..5 {
-            assert!(bc.fire_one_tick(), "fire_one_tick returned false (channel closed?)");
+            assert!(
+                bc.fire_one_tick(),
+                "fire_one_tick returned false (channel closed?)"
+            );
         }
 
         let frames = drain_frames(&rx);
-        assert_eq!(frames.len(), 5, "expected 5 TickBatch frames, got {}", frames.len());
+        assert_eq!(
+            frames.len(),
+            5,
+            "expected 5 TickBatch frames, got {}",
+            frames.len()
+        );
 
         for (i, frame) in frames.iter().enumerate() {
             let expect_tick = (i + 1) as u32;
@@ -414,7 +431,7 @@ mod tests {
         let cfg = TickBroadcasterConfig::default();
         let (bc, _buf, _state, rx) = make_broadcaster(cfg);
         drop(rx); // close the channel
-        // 第一次傳送失敗 → fire_one_tick 回傳 false。
+                  // 第一次傳送失敗 → fire_one_tick 回傳 false。
         assert!(!bc.fire_one_tick());
     }
 
@@ -443,7 +460,11 @@ mod tests {
         for _ in 0..LOCKSTEP_ONE_SECOND_TICKS_U32 {
             assert!(bc.fire_one_tick());
         }
-        assert_eq!(buf.lock().unwrap().pending_count(), 1, "tick=200 input should survive");
+        assert_eq!(
+            buf.lock().unwrap().pending_count(),
+            1,
+            "tick=200 input should survive"
+        );
 
         // 觸發到 tick=180，仍然未達 tick=200 條目。
         for _ in LOCKSTEP_ONE_SECOND_TICKS_U32..180 {
@@ -482,7 +503,9 @@ mod tests {
         // 傳送已知的調度程式樣本：tick=42，hash=0xCAFE_FOOD_DEAD_FEED。
         let known_hash: u64 = 0xCAFE_F00D_DEAD_FEED;
         let dispatcher_tick: u32 = 42;
-        hash_tx.send((dispatcher_tick, known_hash)).expect("send hash sample");
+        hash_tx
+            .send((dispatcher_tick, known_hash))
+            .expect("send hash sample");
 
         // 觸發 3 個刻度 → 在刻度 = 3 時，廣播公司觸發其狀態雜湊
         // 間隔並排空通道。
@@ -513,6 +536,10 @@ mod tests {
                 found_state_hash = true;
             }
         }
-        assert!(found_state_hash, "expected a StateHash frame in {:?}", frames);
+        assert!(
+            found_state_hash,
+            "expected a StateHash frame in {:?}",
+            frames
+        );
     }
 }

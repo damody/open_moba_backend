@@ -51,13 +51,21 @@ impl<'a> UnitStats<'a> {
             abs
         } else {
             let override_base = self.buffs.sum_add(e, StatKey::MoveSpeedBaseOverride);
-            let base_eff = if override_base > Fixed64::ZERO { override_base } else { base };
+            let base_eff = if override_base > Fixed64::ZERO {
+                override_base
+            } else {
+                base
+            };
             // Equipment flat（boots、靴類道具）：跟 base 一起被 percentage 縮放
             let bonus_c = self.buffs.sum_add(e, StatKey::MoveSpeedBonusEquipment);
             // Percentage（含 ice tower 用的 MoveSpeedBonus，當 -50% 寫進去）
             let pct = self.buffs.sum_add(e, StatKey::MoveSpeedBonusPercentage)
-                + self.buffs.sum_add(e, StatKey::MoveSpeedBonusPercentageUnique)
-                + self.buffs.sum_add(e, StatKey::MoveSpeedBonusPercentageUnique2)
+                + self
+                    .buffs
+                    .sum_add(e, StatKey::MoveSpeedBonusPercentageUnique)
+                + self
+                    .buffs
+                    .sum_add(e, StatKey::MoveSpeedBonusPercentageUnique2)
                 + self.buffs.sum_add(e, StatKey::MoveSpeedBonus);
             // Buff flat post-percentage：不被 slow 削弱、不疊到 base/equipment 上
             let buff_bonus = self.buffs.sum_add(e, StatKey::MoveSpeedBonusBuff);
@@ -80,7 +88,11 @@ impl<'a> UnitStats<'a> {
         if limit > Fixed64::ZERO && r > limit {
             r = limit;
         }
-        if r < Fixed64::ZERO { Fixed64::ZERO } else { r }
+        if r < Fixed64::ZERO {
+            Fixed64::ZERO
+        } else {
+            r
+        }
     }
 
     pub fn turn_rate_mult(&self, e: Entity) -> Fixed64 {
@@ -95,12 +107,20 @@ impl<'a> UnitStats<'a> {
     pub fn final_atk(&self, base: Fixed64, e: Entity) -> Fixed64 {
         let bonus = self.buffs.sum_add(e, StatKey::PreattackBonusDamage)
             + self.buffs.sum_add(e, StatKey::BaseAttackBonusDamage);
-        let pct_total = self.buffs.sum_add(e, StatKey::TotalDamageOutgoingPercentage);
+        let pct_total = self
+            .buffs
+            .sum_add(e, StatKey::TotalDamageOutgoingPercentage);
         let pct_base = self.buffs.sum_add(e, StatKey::BaseDamageOutgoingPercentage)
-            + self.buffs.sum_add(e, StatKey::BaseDamageOutgoingPercentageUnique);
+            + self
+                .buffs
+                .sum_add(e, StatKey::BaseDamageOutgoingPercentageUnique);
         let mult = Fixed64::ONE + pct_total + pct_base;
         let v = (base + bonus) * mult;
-        if v < Fixed64::ZERO { Fixed64::ZERO } else { v }
+        if v < Fixed64::ZERO {
+            Fixed64::ZERO
+        } else {
+            v
+        }
     }
 
     /// 攻速倍數（乘到 base attack interval 上）。
@@ -116,10 +136,18 @@ impl<'a> UnitStats<'a> {
         let hundred = Fixed64::from_i32(100);
         let one_tenth = Fixed64::from_raw(102); // 0.1 in Q22.10 (102/1024 ≈ 0.0996)
         let constant_mult_raw = Fixed64::ONE + as_bonus / hundred;
-        let constant_mult = if constant_mult_raw < one_tenth { one_tenth } else { constant_mult_raw };
+        let constant_mult = if constant_mult_raw < one_tenth {
+            one_tenth
+        } else {
+            constant_mult_raw
+        };
         let extra_mult = self.buffs.product_mult(e, StatKey::AttackSpeedMultiplier);
         let v = constant_mult * extra_mult;
-        if v < one_tenth { one_tenth } else { v }
+        if v < one_tenth {
+            one_tenth
+        } else {
+            v
+        }
     }
 
     /// 射程 = base + ATTACK_RANGE_BONUS + ATTACK_RANGE_BONUS_UNIQUE，
@@ -128,7 +156,11 @@ impl<'a> UnitStats<'a> {
         let bonus = self.buffs.sum_add(e, StatKey::AttackRangeBonus)
             + self.buffs.sum_add(e, StatKey::AttackRangeBonusUnique);
         let raw = base + bonus;
-        let r = if raw < Fixed64::ZERO { Fixed64::ZERO } else { raw };
+        let r = if raw < Fixed64::ZERO {
+            Fixed64::ZERO
+        } else {
+            raw
+        };
         let max = self.buffs.sum_add(e, StatKey::MaxAttackRange);
         if max > Fixed64::ZERO && r > max {
             max
@@ -141,7 +173,11 @@ impl<'a> UnitStats<'a> {
         let v = base
             + self.buffs.sum_add(e, StatKey::CastRangeBonus)
             + self.buffs.sum_add(e, StatKey::CastRangeBonusStacking);
-        if v < Fixed64::ZERO { Fixed64::ZERO } else { v }
+        if v < Fixed64::ZERO {
+            Fixed64::ZERO
+        } else {
+            v
+        }
     }
 
     // ================= 防禦 =================
@@ -149,17 +185,23 @@ impl<'a> UnitStats<'a> {
     pub fn final_armor(&self, base: Fixed64, e: Entity) -> Fixed64 {
         base + self.buffs.sum_add(e, StatKey::PhysicalArmorBonus)
             + self.buffs.sum_add(e, StatKey::PhysicalArmorBonusUnique)
-            + self.buffs.sum_add(e, StatKey::PhysicalArmorBonusUniqueActive)
+            + self
+                .buffs
+                .sum_add(e, StatKey::PhysicalArmorBonusUniqueActive)
     }
 
     /// 魔抗：0..1 = 百分比。direct_modification 若存在 → 覆蓋 base + bonus。
     pub fn final_magic_resist(&self, base: Fixed64, e: Entity) -> Fixed64 {
-        let direct = self.buffs.sum_add(e, StatKey::MagicalResistanceDirectModification);
+        let direct = self
+            .buffs
+            .sum_add(e, StatKey::MagicalResistanceDirectModification);
         if direct > Fixed64::ZERO {
             return clamp_fx(direct, Fixed64::ZERO, Fixed64::ONE);
         }
         let bonus = self.buffs.sum_add(e, StatKey::MagicalResistanceBonus);
-        let decrepify = self.buffs.sum_add(e, StatKey::MagicalResistanceDecrepifyUnique);
+        let decrepify = self
+            .buffs
+            .sum_add(e, StatKey::MagicalResistanceDecrepifyUnique);
         let hundred = Fixed64::from_i32(100);
         // Dota 疊加公式：1 - (1-r1)(1-r2)...
         let combined = Fixed64::ONE
@@ -193,7 +235,11 @@ impl<'a> UnitStats<'a> {
             Fixed64::ONE,
         );
         let mult_raw = self.buffs.sum_add(e, StatKey::CritMultiplier);
-        let mult = if mult_raw > Fixed64::ZERO { mult_raw } else { Fixed64::ONE };
+        let mult = if mult_raw > Fixed64::ZERO {
+            mult_raw
+        } else {
+            Fixed64::ONE
+        };
         (chance, mult)
     }
 
@@ -205,18 +251,30 @@ impl<'a> UnitStats<'a> {
         let stacking = self.buffs.sum_add(e, StatKey::CooldownPercentageStacking);
         let one_tenth = Fixed64::from_raw(102);
         let v = Fixed64::ONE + pct + stacking;
-        if v < one_tenth { one_tenth } else { v }
+        if v < one_tenth {
+            one_tenth
+        } else {
+            v
+        }
     }
 
     pub fn cast_time_mult(&self, e: Entity) -> Fixed64 {
         let one_tenth = Fixed64::from_raw(102);
         let v = Fixed64::ONE + self.buffs.sum_add(e, StatKey::CastTimePercentage);
-        if v < one_tenth { one_tenth } else { v }
+        if v < one_tenth {
+            one_tenth
+        } else {
+            v
+        }
     }
 
     pub fn mana_cost_mult(&self, e: Entity) -> Fixed64 {
         let v = Fixed64::ONE + self.buffs.sum_add(e, StatKey::ManaCostPercentage);
-        if v < Fixed64::ZERO { Fixed64::ZERO } else { v }
+        if v < Fixed64::ZERO {
+            Fixed64::ZERO
+        } else {
+            v
+        }
     }
 
     // ================= 回復 =================
@@ -232,18 +290,30 @@ impl<'a> UnitStats<'a> {
         let pct = self.buffs.sum_add(e, StatKey::HealthRegenPercentage);
         let amp = Fixed64::ONE + self.buffs.sum_add(e, StatKey::HpRegenAmplifyPercentage);
         let v = (base + bonus) * (Fixed64::ONE + pct) * amp;
-        if v < Fixed64::ZERO { Fixed64::ZERO } else { v }
+        if v < Fixed64::ZERO {
+            Fixed64::ZERO
+        } else {
+            v
+        }
     }
 
     pub fn mana_regen(&self, base: Fixed64, e: Entity) -> Fixed64 {
         let base_override = self.buffs.sum_add(e, StatKey::BaseManaRegen);
-        let base_eff = if base_override > Fixed64::ZERO { base_override } else { base };
+        let base_eff = if base_override > Fixed64::ZERO {
+            base_override
+        } else {
+            base
+        };
         let bonus = self.buffs.sum_add(e, StatKey::ManaRegenConstant)
             + self.buffs.sum_add(e, StatKey::ManaRegenConstantUnique);
         let pct = self.buffs.sum_add(e, StatKey::ManaRegenPercentage);
         let total_pct = self.buffs.sum_add(e, StatKey::ManaRegenTotalPercentage);
         let v = (((base_eff + bonus) * (Fixed64::ONE + pct)) * (Fixed64::ONE + total_pct));
-        if v < Fixed64::ZERO { Fixed64::ZERO } else { v }
+        if v < Fixed64::ZERO {
+            Fixed64::ZERO
+        } else {
+            v
+        }
     }
 
     // ================= HP / Mana 上限 =================
@@ -254,8 +324,7 @@ impl<'a> UnitStats<'a> {
     }
 
     pub fn max_mp_bonus(&self, e: Entity) -> Fixed64 {
-        self.buffs.sum_add(e, StatKey::ManaBonus)
-            + self.buffs.sum_add(e, StatKey::ExtraManaBonus)
+        self.buffs.sum_add(e, StatKey::ManaBonus) + self.buffs.sum_add(e, StatKey::ExtraManaBonus)
     }
 
     // ================= Damage pipeline 入口 =================
@@ -273,7 +342,7 @@ impl<'a> UnitStats<'a> {
         base_resist: f32,
     ) -> f32 {
         let half_fx = Fixed64::from_raw(512); // 0.5 in Q22.10
-        // 1. 絕對免疫
+                                              // 1. 絕對免疫
         match kind {
             DamageKind::Physical
                 if self.buffs.sum_add(e, StatKey::AbsoluteNoDamagePhysical) > half_fx =>
@@ -285,29 +354,30 @@ impl<'a> UnitStats<'a> {
             {
                 return 0.0
             }
-            DamageKind::Pure
-                if self.buffs.sum_add(e, StatKey::AbsoluteNoDamagePure) > half_fx =>
-            {
+            DamageKind::Pure if self.buffs.sum_add(e, StatKey::AbsoluteNoDamagePure) > half_fx => {
                 return 0.0
             }
             _ => {}
         }
 
         // 2. Block（無法避免、先套）
-        let unavoid_block = self.buffs.sum_add(e, StatKey::TotalConstantBlockUnavoidablePreArmor)
+        let unavoid_block = self
+            .buffs
+            .sum_add(e, StatKey::TotalConstantBlockUnavoidablePreArmor)
             .to_f32_for_render();
         let after_unavoid = (raw - unavoid_block).max(0.0);
 
         // 3. 護甲/抵抗
         let after_defense = match kind {
             DamageKind::Physical => {
-                let armor = self.final_armor(Fixed64::from_raw((base_armor * 1024.0) as i64), e)
+                let armor = self
+                    .final_armor(Fixed64::from_raw((base_armor * 1024.0) as i64), e)
                     .to_f32_for_render();
                 after_unavoid * armor_to_mult(armor)
             }
             DamageKind::Magical => {
-                let resist = self.final_magic_resist(
-                    Fixed64::from_raw((base_resist * 1024.0) as i64), e)
+                let resist = self
+                    .final_magic_resist(Fixed64::from_raw((base_resist * 1024.0) as i64), e)
                     .to_f32_for_render();
                 after_unavoid * (1.0 - resist)
             }
@@ -316,22 +386,30 @@ impl<'a> UnitStats<'a> {
         };
 
         // 4. 類型 block（post-armor）
-        let kind_block = self.buffs.sum_add(
-            e,
-            match kind {
-                DamageKind::Physical => StatKey::PhysicalConstantBlock,
-                DamageKind::Magical => StatKey::MagicalConstantBlock,
-                _ => StatKey::TotalConstantBlock,
-            },
-        ).to_f32_for_render();
+        let kind_block = self
+            .buffs
+            .sum_add(
+                e,
+                match kind {
+                    DamageKind::Physical => StatKey::PhysicalConstantBlock,
+                    DamageKind::Magical => StatKey::MagicalConstantBlock,
+                    _ => StatKey::TotalConstantBlock,
+                },
+            )
+            .to_f32_for_render();
         let after_kind_block = (after_defense - kind_block).max(0.0);
 
         // 5. 收入百分比
-        let pct_all = 1.0 + self.buffs.sum_add(e, StatKey::IncomingDamagePercentage)
-            .to_f32_for_render();
+        let pct_all = 1.0
+            + self
+                .buffs
+                .sum_add(e, StatKey::IncomingDamagePercentage)
+                .to_f32_for_render();
         let pct_kind = 1.0
             + match kind {
-                DamageKind::Physical => self.buffs.sum_add(e, StatKey::IncomingPhysicalDamagePercentage)
+                DamageKind::Physical => self
+                    .buffs
+                    .sum_add(e, StatKey::IncomingPhysicalDamagePercentage)
                     .to_f32_for_render(),
                 _ => 0.0,
             };
@@ -339,9 +417,13 @@ impl<'a> UnitStats<'a> {
 
         // 6.傳入常數
         let k_const = match kind {
-            DamageKind::Physical => self.buffs.sum_add(e, StatKey::IncomingPhysicalDamageConstant)
+            DamageKind::Physical => self
+                .buffs
+                .sum_add(e, StatKey::IncomingPhysicalDamageConstant)
                 .to_f32_for_render(),
-            DamageKind::Magical => self.buffs.sum_add(e, StatKey::IncomingSpellDamageConstant)
+            DamageKind::Magical => self
+                .buffs
+                .sum_add(e, StatKey::IncomingSpellDamageConstant)
                 .to_f32_for_render(),
             _ => 0.0,
         };
@@ -352,7 +434,13 @@ impl<'a> UnitStats<'a> {
 /// Helper：將固定 64 固定到 [min, max]（無 f32 繞行）。
 #[inline]
 fn clamp_fx(v: Fixed64, lo: Fixed64, hi: Fixed64) -> Fixed64 {
-    if v < lo { lo } else if v > hi { hi } else { v }
+    if v < lo {
+        lo
+    } else if v > hi {
+        hi
+    } else {
+        v
+    }
 }
 
 /// Dota護甲→傷害倍增。
@@ -398,7 +486,9 @@ mod tests {
             json!({ StatKey::MoveSpeedBonus.as_str(): -0.5 }),
         );
         let stats = UnitStats::from_refs(&store, false);
-        let effective = stats.final_move_speed(Fixed64::from_i32(100), e).to_f32_for_render();
+        let effective = stats
+            .final_move_speed(Fixed64::from_i32(100), e)
+            .to_f32_for_render();
         assert!(
             (effective - 50.0).abs() < 1.0,
             "expected ~50.0, got {}",
@@ -426,7 +516,9 @@ mod tests {
             json!({ StatKey::MoveSpeedBonus.as_str(): -0.5 }),
         );
         let stats = UnitStats::from_refs(&store, false);
-        let effective = stats.final_move_speed(Fixed64::from_i32(300), e).to_f32_for_render();
+        let effective = stats
+            .final_move_speed(Fixed64::from_i32(300), e)
+            .to_f32_for_render();
         assert!(
             (effective - 195.0).abs() < 1.0,
             "expected ~195.0, got {}",
@@ -460,7 +552,9 @@ mod tests {
             json!({ StatKey::MoveSpeedBonusBuff.as_str(): 60.0 }),
         );
         let stats = UnitStats::from_refs(&store, false);
-        let effective = stats.final_move_speed(Fixed64::from_i32(300), e).to_f32_for_render();
+        let effective = stats
+            .final_move_speed(Fixed64::from_i32(300), e)
+            .to_f32_for_render();
         assert!(
             (effective - 255.0).abs() < 1.0,
             "expected ~255.0, got {}",
@@ -468,4 +562,3 @@ mod tests {
         );
     }
 }
-

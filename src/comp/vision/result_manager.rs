@@ -1,9 +1,8 @@
-/// 視野結果管理器
-
-use std::collections::HashMap;
-use specs::Entity;
-use vek::Vec2;
 use super::components::*;
+use specs::Entity;
+/// 視野結果管理器
+use std::collections::HashMap;
+use vek::Vec2;
 
 /// 視野結果管理器
 pub struct ResultManager {
@@ -45,11 +44,10 @@ impl ResultManager {
     /// 清理過期的視野結果
     pub fn cleanup_expired_results(&mut self, current_time: f64, max_age: f64) {
         let before_count = self.entity_results.len();
-        
-        self.entity_results.retain(|_, result| {
-            current_time - result.timestamp < max_age
-        });
-        
+
+        self.entity_results
+            .retain(|_, result| current_time - result.timestamp < max_age);
+
         let removed_count = before_count - self.entity_results.len();
         self.update_stats.expired_cleanups += removed_count;
     }
@@ -65,15 +63,20 @@ impl ResultManager {
     pub fn check_line_of_sight(&self, observer: Entity, target: Entity) -> Option<bool> {
         let observer_result = self.entity_results.get(&observer)?;
         let target_result = self.entity_results.get(&target)?;
-        
+
         // 檢查目標是否在觀察者的視野內
         Some(observer_result.is_point_visible(target_result.observer_pos))
     }
 
     /// 獲取實體視野內的其他實體
-    pub fn get_entities_in_vision(&self, observer: Entity, all_entities: &[(Entity, Vec2<f32>)]) -> Vec<Entity> {
+    pub fn get_entities_in_vision(
+        &self,
+        observer: Entity,
+        all_entities: &[(Entity, Vec2<f32>)],
+    ) -> Vec<Entity> {
         if let Some(observer_result) = self.entity_results.get(&observer) {
-            all_entities.iter()
+            all_entities
+                .iter()
                 .filter(|(entity, pos)| {
                     *entity != observer && observer_result.is_point_visible(*pos)
                 })
@@ -88,11 +91,11 @@ impl ResultManager {
     pub fn calculate_vision_overlap(&self, entity1: Entity, entity2: Entity) -> Option<f32> {
         let result1 = self.entity_results.get(&entity1)?;
         let result2 = self.entity_results.get(&entity2)?;
-        
+
         // 簡化計算：檢查兩個視野圓的重疊
         let distance = (result1.observer_pos - result2.observer_pos).magnitude();
         let total_range = result1.range + result2.range;
-        
+
         if distance >= total_range {
             Some(0.0) // 無重疊
         } else if distance <= (result1.range - result2.range).abs() {
@@ -120,15 +123,15 @@ impl ResultManager {
     /// 獲取視野品質評分
     pub fn get_vision_quality_score(&self, entity: Entity) -> Option<f32> {
         let result = self.entity_results.get(&entity)?;
-        
+
         // 計算視野品質評分
         let total_area = std::f32::consts::PI * result.range.powi(2);
         let visible_area = result.get_visible_area();
         let visibility_ratio = visible_area / total_area;
-        
+
         // 考慮陰影數量對性能的影響
         let shadow_penalty = (result.shadows.len() as f32 * 0.01).min(0.2);
-        
+
         Some((visibility_ratio - shadow_penalty).max(0.0))
     }
 
@@ -155,7 +158,8 @@ impl ResultManager {
 
     /// 導出視野數據（用於調試）
     pub fn export_vision_data(&self) -> HashMap<Entity, VisionExportData> {
-        self.entity_results.iter()
+        self.entity_results
+            .iter()
             .map(|(entity, result)| {
                 let export_data = VisionExportData {
                     observer_pos: result.observer_pos,

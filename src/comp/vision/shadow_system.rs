@@ -1,7 +1,6 @@
-/// 陰影系統
-
-use vek::Vec2;
 use super::components::*;
+/// 陰影系統
+use vek::Vec2;
 
 /// 陰影系統管理器
 pub struct ShadowSystem;
@@ -15,7 +14,7 @@ impl ShadowSystem {
         vision_range: f32,
     ) -> Option<ShadowArea> {
         let distance = (obstacle.position - observer_pos).magnitude();
-        
+
         // 超出視野範圍
         if distance > vision_range {
             return None;
@@ -27,24 +26,35 @@ impl ShadowSystem {
         }
 
         match &obstacle.obstacle_type {
-            ObstacleType::Circular { radius } => {
-                Self::calculate_circular_shadow(
-                    observer_pos, obstacle.position, *radius, 
-                    obstacle.height, observer_height, vision_range
-                )
-            }
-            ObstacleType::Rectangle { width, height, rotation } => {
-                Self::calculate_rectangular_shadow(
-                    observer_pos, obstacle.position, *width, *height, *rotation,
-                    obstacle.height, observer_height, vision_range
-                )
-            }
-            ObstacleType::Terrain { elevation } => {
-                Self::calculate_terrain_shadow(
-                    observer_pos, obstacle.position, *elevation,
-                    observer_height, vision_range
-                )
-            }
+            ObstacleType::Circular { radius } => Self::calculate_circular_shadow(
+                observer_pos,
+                obstacle.position,
+                *radius,
+                obstacle.height,
+                observer_height,
+                vision_range,
+            ),
+            ObstacleType::Rectangle {
+                width,
+                height,
+                rotation,
+            } => Self::calculate_rectangular_shadow(
+                observer_pos,
+                obstacle.position,
+                *width,
+                *height,
+                *rotation,
+                obstacle.height,
+                observer_height,
+                vision_range,
+            ),
+            ObstacleType::Terrain { elevation } => Self::calculate_terrain_shadow(
+                observer_pos,
+                obstacle.position,
+                *elevation,
+                observer_height,
+                vision_range,
+            ),
         }
     }
 
@@ -59,7 +69,7 @@ impl ShadowSystem {
     ) -> Option<ShadowArea> {
         let to_obstacle = obstacle_pos - observer_pos;
         let distance = to_obstacle.magnitude();
-        
+
         if distance <= radius {
             // 觀察者在物體內部，無陰影
             return None;
@@ -68,7 +78,7 @@ impl ShadowSystem {
         // 計算切線角度
         let center_angle = to_obstacle.y.atan2(to_obstacle.x);
         let angle_offset = (radius / distance).asin();
-        
+
         // 陰影太小，忽略
         if angle_offset.to_degrees() < 0.5 {
             return None;
@@ -77,7 +87,7 @@ impl ShadowSystem {
         // 計算陰影長度（考慮高度差）
         let height_ratio = obstacle_height / observer_height;
         let shadow_length = (vision_range - distance) * height_ratio.min(2.0);
-        
+
         Some(ShadowArea {
             shadow_type: ShadowType::Object,
             blocker_id: None,
@@ -105,17 +115,17 @@ impl ShadowSystem {
         // 計算矩形的四個角點
         let half_width = width * 0.5;
         let half_height = height * 0.5;
-        
+
         let cos_rot = rotation.cos();
         let sin_rot = rotation.sin();
-        
+
         let corners = [
             Vec2::new(-half_width, -half_height),
             Vec2::new(half_width, -half_height),
             Vec2::new(half_width, half_height),
             Vec2::new(-half_width, half_height),
         ];
-        
+
         let mut transformed_corners = Vec::new();
         for corner in &corners {
             let rotated = Vec2::new(
@@ -126,18 +136,19 @@ impl ShadowSystem {
         }
 
         // 找到最左和最右的角點（相對於觀察者）
-        let mut angles: Vec<_> = transformed_corners.iter()
+        let mut angles: Vec<_> = transformed_corners
+            .iter()
             .map(|&corner| {
                 let to_corner = corner - observer_pos;
                 to_corner.y.atan2(to_corner.x)
             })
             .collect();
-        
+
         angles.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        
+
         let min_angle = angles[0];
         let max_angle = angles[angles.len() - 1];
-        
+
         // 處理角度跨越問題
         let (start_angle, end_angle) = if max_angle - min_angle > std::f32::consts::PI {
             (max_angle, min_angle + 2.0 * std::f32::consts::PI)
@@ -177,13 +188,13 @@ impl ShadowSystem {
 
         let to_terrain = terrain_pos - observer_pos;
         let distance = to_terrain.magnitude();
-        
+
         if distance > vision_range {
             return None;
         }
 
         let center_angle = to_terrain.y.atan2(to_terrain.x);
-        
+
         // 地形陰影通常較小
         let angle_width = 0.1; // 約5.7度
         let height_ratio = elevation / observer_height;
@@ -208,7 +219,8 @@ impl ShadowSystem {
             return shadows;
         }
 
-        let mut sector_shadows: Vec<_> = shadows.into_iter()
+        let mut sector_shadows: Vec<_> = shadows
+            .into_iter()
             .filter(|s| matches!(s.geometry, ShadowGeometry::Sector { .. }))
             .collect();
 
@@ -218,9 +230,20 @@ impl ShadowSystem {
 
         // 按起始角度排序
         sector_shadows.sort_by(|a, b| {
-            if let (ShadowGeometry::Sector { start_angle: a_start, .. },
-                    ShadowGeometry::Sector { start_angle: b_start, .. }) = (&a.geometry, &b.geometry) {
-                a_start.partial_cmp(b_start).unwrap_or(std::cmp::Ordering::Equal)
+            if let (
+                ShadowGeometry::Sector {
+                    start_angle: a_start,
+                    ..
+                },
+                ShadowGeometry::Sector {
+                    start_angle: b_start,
+                    ..
+                },
+            ) = (&a.geometry, &b.geometry)
+            {
+                a_start
+                    .partial_cmp(b_start)
+                    .unwrap_or(std::cmp::Ordering::Equal)
             } else {
                 std::cmp::Ordering::Equal
             }
@@ -237,17 +260,26 @@ impl ShadowSystem {
                 current = next;
             }
         }
-        
+
         merged.push(current);
         merged
     }
 
     /// 檢查兩個陰影是否可以合併
     fn can_merge_shadows(shadow1: &ShadowArea, shadow2: &ShadowArea) -> bool {
-        if let (ShadowGeometry::Sector { center: c1, end_angle: e1, .. },
-                ShadowGeometry::Sector { center: c2, start_angle: s2, .. }) 
-                = (&shadow1.geometry, &shadow2.geometry) {
-            
+        if let (
+            ShadowGeometry::Sector {
+                center: c1,
+                end_angle: e1,
+                ..
+            },
+            ShadowGeometry::Sector {
+                center: c2,
+                start_angle: s2,
+                ..
+            },
+        ) = (&shadow1.geometry, &shadow2.geometry)
+        {
             // 中心相同且角度相鄰（容許小間隙）
             c1.distance(*c2) < 1.0 && (*s2 - *e1).abs() < 0.1
         } else {
@@ -257,10 +289,20 @@ impl ShadowSystem {
 
     /// 合併兩個陰影
     fn merge_two_shadows(shadow1: ShadowArea, shadow2: ShadowArea) -> ShadowArea {
-        if let (ShadowGeometry::Sector { center, start_angle: s1, radius: r1, .. },
-                ShadowGeometry::Sector { end_angle: e2, radius: r2, .. }) 
-                = (&shadow1.geometry, &shadow2.geometry) {
-            
+        if let (
+            ShadowGeometry::Sector {
+                center,
+                start_angle: s1,
+                radius: r1,
+                ..
+            },
+            ShadowGeometry::Sector {
+                end_angle: e2,
+                radius: r2,
+                ..
+            },
+        ) = (&shadow1.geometry, &shadow2.geometry)
+        {
             ShadowArea {
                 shadow_type: shadow1.shadow_type,
                 blocker_id: shadow1.blocker_id,
@@ -280,7 +322,7 @@ impl ShadowSystem {
     /// 優化陰影列表（移除重疊和無效陰影）
     pub fn optimize_shadows(shadows: Vec<ShadowArea>) -> Vec<ShadowArea> {
         let mut optimized = Vec::new();
-        
+
         for shadow in shadows {
             // 檢查陰影是否有效
             if Self::is_valid_shadow(&shadow) {
@@ -297,15 +339,14 @@ impl ShadowSystem {
     /// 檢查陰影是否有效
     fn is_valid_shadow(shadow: &ShadowArea) -> bool {
         match &shadow.geometry {
-            ShadowGeometry::Sector { start_angle, end_angle, radius, .. } => {
-                *radius > 0.0 && (*end_angle - *start_angle).abs() > 0.01
-            }
-            ShadowGeometry::Polygon { vertices } => {
-                vertices.len() >= 3
-            }
-            ShadowGeometry::Trapezoid { .. } => {
-                true
-            }
+            ShadowGeometry::Sector {
+                start_angle,
+                end_angle,
+                radius,
+                ..
+            } => *radius > 0.0 && (*end_angle - *start_angle).abs() > 0.01,
+            ShadowGeometry::Polygon { vertices } => vertices.len() >= 3,
+            ShadowGeometry::Trapezoid { .. } => true,
         }
     }
 
@@ -322,10 +363,21 @@ impl ShadowSystem {
     /// 檢查一個陰影是否完全包含另一個陰影
     fn shadow_contains_shadow(container: &ShadowArea, contained: &ShadowArea) -> bool {
         // 簡化實現：只處理扇形陰影
-        if let (ShadowGeometry::Sector { center: c1, start_angle: s1, end_angle: e1, radius: r1 },
-                ShadowGeometry::Sector { center: c2, start_angle: s2, end_angle: e2, radius: r2 }) 
-                = (&container.geometry, &contained.geometry) {
-            
+        if let (
+            ShadowGeometry::Sector {
+                center: c1,
+                start_angle: s1,
+                end_angle: e1,
+                radius: r1,
+            },
+            ShadowGeometry::Sector {
+                center: c2,
+                start_angle: s2,
+                end_angle: e2,
+                radius: r2,
+            },
+        ) = (&container.geometry, &contained.geometry)
+        {
             c1.distance(*c2) < 1.0 && // 同心
             *s1 <= *s2 && *e1 >= *e2 && // 角度包含
             *r1 >= *r2 // 半徑包含

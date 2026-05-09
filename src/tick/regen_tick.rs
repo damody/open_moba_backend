@@ -9,7 +9,7 @@
 use crossbeam_channel::Sender;
 use rayon::prelude::*;
 use serde_json::json;
-use specs::{shred, Read, ReadStorage, SystemData, Write, WriteStorage, World};
+use specs::{shred, Read, ReadStorage, SystemData, World, Write, WriteStorage};
 
 use crate::ability_runtime::{BuffStore, UnitStats};
 use crate::comp::*;
@@ -110,11 +110,12 @@ impl<'a> System<'a> for Sys {
         };
 
         let candidates_vec: Vec<specs::Entity> = candidates.into_iter().collect();
-        let hp_updates: Vec<(specs::Entity, omoba_sim::Fixed64, omoba_sim::Fixed64)> = if candidates_vec.len() >= PAR_MIN {
-            candidates_vec.par_iter().filter_map(compute).collect()
-        } else {
-            candidates_vec.iter().filter_map(compute).collect()
-        };
+        let hp_updates: Vec<(specs::Entity, omoba_sim::Fixed64, omoba_sim::Fixed64)> =
+            if candidates_vec.len() >= PAR_MIN {
+                candidates_vec.par_iter().filter_map(compute).collect()
+            } else {
+                candidates_vec.iter().filter_map(compute).collect()
+            };
 
         // 寫回 CProperty
         for (e, new_hp, _mhp) in &hp_updates {
@@ -122,7 +123,5 @@ impl<'a> System<'a> for Sys {
                 cp.hp = *new_hp;
             }
         }
-
     }
 }
-

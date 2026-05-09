@@ -1,12 +1,14 @@
 /// 視野系統測試
-/// 
+///
 /// 基本功能測試和性能驗證
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::comp::circular_vision::{
+        CircularVision, ObstacleInfo, ObstacleProperties, ObstacleType,
+    };
+    use crate::vision::{Bounds, ShadowCalculator, VisionOutputGenerator};
     use vek::Vec2;
-    use crate::comp::circular_vision::{CircularVision, ObstacleInfo, ObstacleType, ObstacleProperties};
-    use crate::vision::{VisionOutputGenerator, ShadowCalculator, Bounds};
 
     /// 測試基本的圓形視野創建
     #[test]
@@ -26,7 +28,7 @@ mod tests {
     #[test]
     fn test_vision_output_generator() {
         let mut generator = VisionOutputGenerator::new(25.0);
-        
+
         // 創建測試視野結果
         let vision_result = crate::comp::circular_vision::VisionResult {
             observer_pos: Vec2::new(100.0, 200.0),
@@ -72,37 +74,34 @@ mod tests {
                     blocks_completely: false,
                     opacity: 0.8,
                     shadow_multiplier: 2.0,
-                }
+                },
             },
             ObstacleInfo {
                 position: Vec2::new(800.0, 600.0),
-                obstacle_type: ObstacleType::Rectangle { 
-                    width: 100.0, 
-                    height: 150.0, 
-                    rotation: 0.0 
+                obstacle_type: ObstacleType::Rectangle {
+                    width: 100.0,
+                    height: 150.0,
+                    rotation: 0.0,
                 },
                 height: 300.0,
                 properties: ObstacleProperties {
                     blocks_completely: true,
                     opacity: 1.0,
                     shadow_multiplier: 1.5,
-                }
+                },
             },
         ];
 
         // 初始化四叉樹
-        let world_bounds = Bounds::new(
-            Vec2::new(0.0, 0.0),
-            Vec2::new(2000.0, 2000.0)
-        );
+        let world_bounds = Bounds::new(Vec2::new(0.0, 0.0), Vec2::new(2000.0, 2000.0));
         calculator.initialize_quadtree(world_bounds, obstacles);
 
         // 計算視野
         let observer_pos = Vec2::new(100.0, 100.0);
         let vision_result = calculator.calculate_optimized_vision(
-            observer_pos, 
-            30.0,  // 觀察者高度
-            1400.0 // 視野範圍
+            observer_pos,
+            30.0,   // 觀察者高度
+            1400.0, // 視野範圍
         );
 
         assert_eq!(vision_result.observer_pos, observer_pos);
@@ -119,14 +118,11 @@ mod tests {
     /// 測試四叉樹邊界檢查
     #[test]
     fn test_bounds_functionality() {
-        let bounds = Bounds::new(
-            Vec2::new(0.0, 0.0),
-            Vec2::new(100.0, 100.0)
-        );
+        let bounds = Bounds::new(Vec2::new(0.0, 0.0), Vec2::new(100.0, 100.0));
 
         assert_eq!(bounds.width(), 100.0);
         assert_eq!(bounds.height(), 100.0);
-        
+
         assert!(bounds.contains_point(Vec2::new(50.0, 50.0)));
         assert!(bounds.contains_point(Vec2::new(0.0, 0.0)));
         assert!(bounds.contains_point(Vec2::new(100.0, 100.0)));
@@ -162,48 +158,39 @@ mod tests {
         use std::time::Instant;
 
         let mut calculator = ShadowCalculator::new();
-        
+
         // 創建大量障礙物
         let obstacles: Vec<ObstacleInfo> = (0..100)
             .map(|i| ObstacleInfo {
-                position: Vec2::new(
-                    (i as f32 * 37.0) % 2000.0,
-                    (i as f32 * 43.0) % 2000.0
-                ),
-                obstacle_type: ObstacleType::Circular { 
-                    radius: 20.0 + (i as f32 % 30.0) 
+                position: Vec2::new((i as f32 * 37.0) % 2000.0, (i as f32 * 43.0) % 2000.0),
+                obstacle_type: ObstacleType::Circular {
+                    radius: 20.0 + (i as f32 % 30.0),
                 },
                 height: 100.0 + (i as f32 % 200.0),
                 properties: ObstacleProperties {
                     blocks_completely: i % 3 == 0,
                     opacity: 0.5 + (i as f32 % 50.0) / 100.0,
                     shadow_multiplier: 1.0 + (i as f32 % 20.0) / 20.0,
-                }
+                },
             })
             .collect();
 
-        let world_bounds = Bounds::new(
-            Vec2::new(0.0, 0.0),
-            Vec2::new(2000.0, 2000.0)
-        );
+        let world_bounds = Bounds::new(Vec2::new(0.0, 0.0), Vec2::new(2000.0, 2000.0));
 
         // 測量初始化時間
         let start = Instant::now();
         calculator.initialize_quadtree(world_bounds, obstacles);
         let init_duration = start.elapsed();
-        
+
         println!("四叉樹初始化時間: {:?}", init_duration);
         assert!(init_duration.as_millis() < 100); // 應該在100毫秒內完成
 
         // 測量視野計算時間
         let start = Instant::now();
-        let _result = calculator.calculate_optimized_vision(
-            Vec2::new(1000.0, 1000.0),
-            30.0,
-            1400.0
-        );
+        let _result =
+            calculator.calculate_optimized_vision(Vec2::new(1000.0, 1000.0), 30.0, 1400.0);
         let calc_duration = start.elapsed();
-        
+
         println!("視野計算時間: {:?}", calc_duration);
         assert!(calc_duration.as_millis() < 50); // 應該在50毫秒內完成
 
@@ -217,7 +204,7 @@ mod tests {
     #[test]
     fn test_caching_functionality() {
         let mut generator = VisionOutputGenerator::new(25.0);
-        
+
         let vision_result = crate::comp::circular_vision::VisionResult {
             observer_pos: Vec2::new(100.0, 200.0),
             range: 1400.0,
@@ -237,7 +224,10 @@ mod tests {
         let second_duration = start.elapsed();
 
         // 第二次應該更快（使用緩存）
-        println!("第一次生成: {:?}, 第二次生成: {:?}", first_duration, second_duration);
+        println!(
+            "第一次生成: {:?}, 第二次生成: {:?}",
+            first_duration, second_duration
+        );
         // 注意：在測試環境中時間差可能很小，這個斷言可能不總是成功
         // 斷言！ （第二持續時間<=第一持續時間）；
     }

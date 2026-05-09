@@ -1,10 +1,10 @@
 use crate::comp::span;
+use log::info;
 use ordered_float::NotNan;
 use std::{
     collections::VecDeque,
     time::{Duration, Instant},
 };
-use log::info;
 
 /// 這個時鐘試圖透過休眠其餘的時間來使這個滴答聲保持恆定的時間
 /// 蜱蟲
@@ -73,11 +73,17 @@ impl Clock {
         }
     }
 
-    pub fn set_target_dt(&mut self, target_dt: Duration) { self.target_dt = target_dt; }
+    pub fn set_target_dt(&mut self, target_dt: Duration) {
+        self.target_dt = target_dt;
+    }
 
-    pub fn stats(&self) -> &ClockStats { &self.stats }
+    pub fn stats(&self) -> &ClockStats {
+        &self.stats
+    }
 
-    pub fn dt(&self) -> Duration { self.last_dt }
+    pub fn dt(&self) -> Duration {
+        self.last_dt
+    }
 
     pub fn get_stable_dt(&self) -> Duration {
         let stable_dt = Duration::from_secs_f32(
@@ -101,8 +107,10 @@ impl Clock {
         span!(guard, "clock work");
         let current_sys_time = Instant::now();
         let estimated_time = self.last_sys_time.checked_add(self.target_dt).unwrap();
-        let mut  busy_delta = current_sys_time.duration_since(self.last_sys_time);
-        let busy_delta2 = self.total_tick_time.checked_sub(self.target_total_tick_time);
+        let mut busy_delta = current_sys_time.duration_since(self.last_sys_time);
+        let busy_delta2 = self
+            .total_tick_time
+            .checked_sub(self.target_total_tick_time);
         if let Some(busy_delta2) = busy_delta2 {
             busy_delta = busy_delta.checked_add(busy_delta2).unwrap();
         }

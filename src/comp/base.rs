@@ -1,7 +1,7 @@
 #![feature(fundamental)]
 
-
-#[cfg(feature = "tracy")] pub use tracy_client;
+#[cfg(feature = "tracy")]
+pub use tracy_client;
 
 /// 允許下游 crates 根據 tracy 是否有條件地執行操作
 /// 無需公開貨物功能即可啟用。
@@ -155,7 +155,6 @@ impl Drop for GuardlessSpan {
     }
 }
 
-
 macro_rules! no_guard_span {
     ($level:ident, $name:expr, $($fields:tt)*) => {
         GuardlessSpan::new(
@@ -173,4 +172,3 @@ macro_rules! no_guard_span {
         )
     };
 }
-

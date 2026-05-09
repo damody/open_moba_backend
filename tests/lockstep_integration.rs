@@ -57,7 +57,7 @@ async fn two_clients_receive_synchronized_tick_batch() {
 async fn state_hash_broadcast_every_600_ticks() {
     // 所需的不變量：
     // 1. GameStart後，subscribe_lockstep串流接收第一個
-    // StateHash 位於 `tick == start_tick + 600`（60Hz 下 10 秒）。
+    // StateHash 位於 configured 10s lockstep interval。
     // 2. 兩個客戶端收到相同的StateHash（佔位符哈希
     // 公式“tick * 0x9E3779B97F4A7C15”純粹依賴tick
     // 所以這在第 2 階段是非常正確的）。

@@ -1,18 +1,18 @@
+use std::collections::BTreeMap;
+use std::time::{SystemTime, UNIX_EPOCH};
 /// 高效能陰影計算器
 ///
 /// 提供空間分割優化、陰影合併、增量計算等性能優化功能
 use vek::Vec2;
-use std::collections::BTreeMap;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::comp::circular_vision::{VisionResult, ShadowArea, ObstacleInfo, ObstacleType};
+use crate::comp::circular_vision::{ObstacleInfo, ObstacleType, ShadowArea, VisionResult};
 
 // 從視覺模組導入重構模組
-use super::spatial_index::{Bounds, Entry, SpatialIndex, SpatialIndexParams, build_spatial_index};
+use super::geometry_utils::GeometryUtils;
 use super::quadtree::QuadTree;
 use super::shadow_calculation::ShadowCalculator as ShadowCalc;
+use super::spatial_index::{build_spatial_index, Bounds, Entry, SpatialIndex, SpatialIndexParams};
 use super::vision_cache::{CacheManager, CacheStats};
-use super::geometry_utils::GeometryUtils;
 
 /// 計算 ObstacleInfo 的外接半徑（用於 spatial index 的 bounding_radius 欄位）。
 fn obstacle_bounding_radius(o: &ObstacleInfo) -> f32 {
@@ -59,18 +59,17 @@ impl ShadowCalculator {
         max_obstacles_per_node: usize,
     ) -> Self {
         Self {
-            index: Box::new(QuadTree::<String, ObstacleInfo>::new(max_tree_depth, max_obstacles_per_node)),
+            index: Box::new(QuadTree::<String, ObstacleInfo>::new(
+                max_tree_depth,
+                max_obstacles_per_node,
+            )),
             cache_manager: CacheManager::new(max_cache_size),
             obstacle_index: BTreeMap::new(),
         }
     }
 
     /// 用指定的 spatial index kind + params 構造（生產注入路徑）
-    pub fn with_index_kind(
-        kind: &str,
-        params: SpatialIndexParams,
-        max_cache_size: usize,
-    ) -> Self {
+    pub fn with_index_kind(kind: &str, params: SpatialIndexParams, max_cache_size: usize) -> Self {
         Self {
             index: build_spatial_index(kind, params),
             cache_manager: CacheManager::new(max_cache_size),
@@ -100,8 +99,10 @@ impl ShadowCalculator {
         observer_height: f32,
         vision_range: f32,
     ) -> VisionResult {
-        let cache_key = format!("{:.1}_{:.1}_{:.1}_{:.1}",
-            observer_pos.x, observer_pos.y, observer_height, vision_range);
+        let cache_key = format!(
+            "{:.1}_{:.1}_{:.1}_{:.1}",
+            observer_pos.x, observer_pos.y, observer_height, vision_range
+        );
 
         if let Some(cached) = self.cache_manager.get_cached_vision(&cache_key) {
             return cached.result.clone();
@@ -134,26 +135,28 @@ impl ShadowCalculator {
         };
 
         // 緩存依賴清單用真實 obstacle id
-        let dependencies = relevant_entries.iter()
-            .map(|e| e.id.clone())
-            .collect();
+        let dependencies = relevant_entries.iter().map(|e| e.id.clone()).collect();
 
-        self.cache_manager.cache_vision_result(cache_key, result.clone(), dependencies);
+        self.cache_manager
+            .cache_vision_result(cache_key, result.clone(), dependencies);
 
         result
     }
 
     /// 增量更新障礙物
     pub fn update_obstacle(&mut self, obstacle_id: String, obstacle: ObstacleInfo) {
-        self.obstacle_index.insert(obstacle_id.clone(), obstacle.clone());
-        self.cache_manager.invalidate_cache_for_obstacle(&obstacle_id);
+        self.obstacle_index
+            .insert(obstacle_id.clone(), obstacle.clone());
+        self.cache_manager
+            .invalidate_cache_for_obstacle(&obstacle_id);
         self.index.update(obstacle_to_entry(obstacle_id, obstacle));
     }
 
     /// 移除障礙物
     pub fn remove_obstacle(&mut self, obstacle_id: &str) {
         self.obstacle_index.remove(obstacle_id);
-        self.cache_manager.invalidate_cache_for_obstacle(obstacle_id);
+        self.cache_manager
+            .invalidate_cache_for_obstacle(obstacle_id);
         self.index.remove(&obstacle_id.to_string());
     }
 
@@ -196,7 +199,12 @@ impl ShadowCalculator {
         radius: f32,
     ) -> Option<f32> {
         GeometryUtils::ray_sector_intersection_improved(
-            origin, direction, center, start_angle, end_angle, radius
+            origin,
+            direction,
+            center,
+            start_angle,
+            end_angle,
+            radius,
         )
     }
 

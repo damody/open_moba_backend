@@ -1,11 +1,11 @@
 use hashbrown::HashSet;
+use instant_distance::{Builder, Search};
+use omoba_sim::{Fixed64, Vec2 as SimVec2};
 use serde::{Deserialize, Serialize};
+use specs::storage::VecStorage;
 use specs::{Component, FlaggedStorage, NullStorage};
 use std::sync::Arc;
 use vek::*;
-use specs::storage::VecStorage;
-use instant_distance::{Builder, Search};
-use omoba_sim::{Vec2 as SimVec2, Fixed64};
 
 /// 位置
 #[derive(Copy, Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
@@ -69,7 +69,9 @@ impl Rot {
 pub struct Vel(pub SimVec2);
 
 impl Vel {
-    pub fn zero() -> Self { Vel(SimVec2::ZERO) }
+    pub fn zero() -> Self {
+        Vel(SimVec2::ZERO)
+    }
 
     /// 注意：舊版 f32 幫助程式保留為線格式/配置讀取邊界的轉換實用程式。
     #[inline]
@@ -153,13 +155,14 @@ impl Component for Scale {
 pub struct Mass(pub Fixed64);
 
 impl Default for Mass {
-    fn default() -> Mass { Mass(Fixed64::ONE) }
+    fn default() -> Mass {
+        Mass(Fixed64::ONE)
+    }
 }
 
 impl Component for Mass {
     type Storage = FlaggedStorage<Self, VecStorage<Self>>;
 }
-
 
 #[derive(Copy, Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Sticky;
@@ -189,7 +192,9 @@ impl Component for ForceUpdate {
 pub struct CollisionRadius(pub Fixed64);
 
 impl Default for CollisionRadius {
-    fn default() -> Self { CollisionRadius(Fixed64::from_i32(20)) }
+    fn default() -> Self {
+        CollisionRadius(Fixed64::from_i32(20))
+    }
 }
 
 impl Component for CollisionRadius {

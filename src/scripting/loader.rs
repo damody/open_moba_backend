@@ -47,7 +47,10 @@ pub fn load_scripts_dir(dir: &Path) -> ScriptRegistry {
     for path in candidates {
         match load_one(&path) {
             Ok(manifest) => {
-                log::info!("[scripting] loaded {:?}", path.file_name().unwrap_or_default());
+                log::info!(
+                    "[scripting] loaded {:?}",
+                    path.file_name().unwrap_or_default()
+                );
                 reg.insert_manifest(manifest);
             }
             Err(e) => {
