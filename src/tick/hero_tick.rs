@@ -131,6 +131,9 @@ impl<'a> System<'a> for Sys {
 
                     let attack_phase =
                         advance_attack_phase(&mut atk.asd_count, dt, effective_interval);
+                    if matches!(attack_phase, AttackPhaseStep::Ready) {
+                        atk.clear_attack_sequence();
+                    }
 
                     // 移動優先於自動攻擊：有 MoveTarget 時不自動攻擊
                     // （否則 hero 會一直想轉向敵人，與移動轉向互相拉扯卡住）
@@ -236,8 +239,11 @@ impl<'a> System<'a> for Sys {
                                                 &mut atk.asd_count,
                                                 effective_interval,
                                             );
+                                            let attack_seq = atk.begin_attack_windup();
                                             outcomes.push(Outcome::AttackPhaseCue {
                                                 entity: e,
+                                                attack_seq,
+                                                is_critical: false,
                                                 target: Some(target),
                                                 target_pos: tr.pos.get(target).map(|p| p.0),
                                                 windup_ms: fixed_secs_to_ms(windup),
@@ -245,6 +251,7 @@ impl<'a> System<'a> for Sys {
                                                 dir_rad: desired,
                                             });
                                         } else {
+                                            atk.mark_attack_impact();
                                             outcomes.push(Outcome::ProjectileLine2 {
                                                 pos: pos.0,
                                                 source: Some(e.clone()),

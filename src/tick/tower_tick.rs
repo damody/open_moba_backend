@@ -98,6 +98,9 @@ impl<'a> System<'a> for Sys {
                     } else {
                         advance_attack_phase(&mut atk.asd_count, dt, atk.asd.val())
                     };
+                    if matches!(attack_phase, AttackPhaseStep::Ready) {
+                        atk.clear_attack_sequence();
+                    }
                     if pty.mblock > 0 {
                         // 確認所有檔的怪死了沒
                         let mut rm_ids = vec![];
@@ -229,8 +232,11 @@ impl<'a> System<'a> for Sys {
                                                 &mut atk.asd_count,
                                                 atk.asd.val(),
                                             );
+                                            let attack_seq = atk.begin_attack_windup();
                                             outcomes.push(Outcome::AttackPhaseCue {
                                                 entity: e,
+                                                attack_seq,
+                                                is_critical: false,
                                                 target: Some(target_entity),
                                                 target_pos: tr.pos.get(target_entity).map(|p| p.0),
                                                 windup_ms: fixed_secs_to_ms(windup),
@@ -238,6 +244,7 @@ impl<'a> System<'a> for Sys {
                                                 dir_rad: desired,
                                             });
                                         } else {
+                                            atk.mark_attack_impact();
                                             outcomes.push(Outcome::ProjectileLine2 {
                                                 pos: pos.0,
                                                 source: Some(e.clone()),

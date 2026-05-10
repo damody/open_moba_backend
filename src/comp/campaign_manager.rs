@@ -196,6 +196,8 @@ impl CampaignManager {
             range: Vf32::new(attack_range),
             asd_count: Fixed64::ZERO,
             bullet_speed: Fixed64::from_i32(1000),
+            attack_seq: 0,
+            attack_phase: AttackSequencePhase::Idle,
         }
     }
 
@@ -245,6 +247,8 @@ impl CampaignManager {
                     range: Vf32::new(unit.attack_range),
                     asd_count: Fixed64::ZERO,
                     bullet_speed: Fixed64::from_i32(800),
+                    attack_seq: 0,
+                    attack_phase: AttackSequencePhase::Idle,
                 };
 
                 // 注意：CircularVision 是客戶端渲染提示（戰爭迷霧）；從權威 Pos 進行的每次報價重建可保持跨客戶端的一致性。
@@ -307,6 +311,8 @@ impl CampaignManager {
                     range: Vf32::new(unit.attack_range),
                     asd_count: Fixed64::ZERO,
                     bullet_speed: Fixed64::from_i32(600),
+                    attack_seq: 0,
+                    attack_phase: AttackSequencePhase::Idle,
                 };
 
                 let unit_entity = ecs

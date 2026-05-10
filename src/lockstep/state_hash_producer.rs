@@ -244,6 +244,7 @@ mod tests {
                 entity_gen: 1,
                 spawn_tick: 9,
                 attack_seq: 3,
+                is_critical: false,
                 windup_ms: 100,
                 impact_at_ms: 100,
                 backswing_ms: 200,
@@ -254,6 +255,16 @@ mod tests {
             }],
             next_seq: 4,
         });
+        w.insert(crate::comp::AttackCancelFxQueue {
+            pending: vec![crate::comp::AttackCancelFx {
+                entity_id: 1,
+                entity_gen: 1,
+                spawn_tick: 10,
+                attack_seq: 3,
+                phase: crate::comp::AttackCancelPhase::Windup,
+                impact_committed: false,
+            }],
+        });
         let after_insert = compute_state_hash(&w);
         {
             let mut fire = w.write_resource::<crate::comp::TowerFireFxQueue>();
@@ -262,6 +273,10 @@ mod tests {
         {
             let mut phases = w.write_resource::<crate::comp::AttackPhaseFxQueue>();
             let _ = std::mem::take(&mut phases.pending);
+        }
+        {
+            let mut cancels = w.write_resource::<crate::comp::AttackCancelFxQueue>();
+            let _ = std::mem::take(&mut cancels.pending);
         }
         let after_drain = compute_state_hash(&w);
         assert_eq!(before, after_insert);

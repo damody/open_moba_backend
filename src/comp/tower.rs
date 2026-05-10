@@ -39,6 +39,14 @@ impl Component for Tower {
     type Storage = VecStorage<Self>;
 }
 
+#[derive(Copy, Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub enum AttackSequencePhase {
+    #[default]
+    Idle,
+    Windup,
+    Backswing,
+}
+
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub struct TAttack {
     pub atk_physic: Vf32, // 物攻
@@ -46,6 +54,10 @@ pub struct TAttack {
     pub range: Vf32,      // 射程
     pub asd_count: Fixed64,
     pub bullet_speed: Fixed64,
+    #[serde(default)]
+    pub attack_seq: u32,
+    #[serde(default)]
+    pub attack_phase: AttackSequencePhase,
 }
 
 impl TAttack {
@@ -56,7 +68,23 @@ impl TAttack {
             asd_count: asd,
             range: Vf32::new(range),
             bullet_speed,
+            attack_seq: 0,
+            attack_phase: AttackSequencePhase::Idle,
         }
+    }
+
+    pub fn begin_attack_windup(&mut self) -> u32 {
+        self.attack_seq = self.attack_seq.wrapping_add(1);
+        self.attack_phase = AttackSequencePhase::Windup;
+        self.attack_seq
+    }
+
+    pub fn mark_attack_impact(&mut self) {
+        self.attack_phase = AttackSequencePhase::Backswing;
+    }
+
+    pub fn clear_attack_sequence(&mut self) {
+        self.attack_phase = AttackSequencePhase::Idle;
     }
 }
 

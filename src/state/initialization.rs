@@ -491,6 +491,7 @@ impl StateInitializer {
         ecs.insert(crate::comp::ExplosionFxQueue::default());
         ecs.insert(crate::comp::TowerFireFxQueue::default());
         ecs.insert(crate::comp::AttackPhaseFxQueue::default());
+        ecs.insert(crate::comp::AttackCancelFxQueue::default());
 
         // 階段 1b：實體刪除隊列－delete_entity_tracked 助手
         // 推入，sim_runner snapshot extractor 每 tick drain 進
@@ -576,6 +577,8 @@ impl StateInitializer {
                 range: Vf32::new(hero_template_stats.attack_range),
                 asd_count: Fixed64::ZERO,
                 bullet_speed: Fixed64::from_i32(1000),
+                attack_seq: 0,
+                attack_phase: AttackSequencePhase::Idle,
             };
 
             // 創建英雄圓形視野組件
@@ -831,6 +834,8 @@ impl StateInitializer {
                     range: Vf32::new(unit.attack_range),
                     asd_count: omoba_sim::Fixed64::ZERO,
                     bullet_speed: omoba_sim::Fixed64::from_i32(800),
+                    attack_seq: 0,
+                    attack_phase: AttackSequencePhase::Idle,
                 };
 
                 let enemy_vision = CircularVision::new(

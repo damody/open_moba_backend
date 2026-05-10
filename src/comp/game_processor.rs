@@ -94,6 +94,51 @@ fn outcome_kind(o: &Outcome) -> &'static str {
 pub struct GameProcessor;
 
 impl GameProcessor {
+    fn interrupt_attack_for_accepted_command(world: &mut World, entity: Entity) -> Option<AttackCancelPhase> {
+        let current_tick = world.read_resource::<Tick>().0 as u32;
+        let cancel = {
+            let mut attacks = world.write_storage::<TAttack>();
+            let Some(attack) = attacks.get_mut(entity) else {
+                return None;
+            };
+
+            let cancel_phase = if attack.attack_phase == AttackSequencePhase::Windup
+                && attack.asd_count < omoba_sim::Fixed64::ZERO
+            {
+                Some((AttackCancelPhase::Windup, false))
+            } else if attack.attack_phase == AttackSequencePhase::Backswing {
+                Some((AttackCancelPhase::Backswing, true))
+            } else {
+                None
+            };
+
+            cancel_phase.map(|(phase, impact_committed)| {
+                let fx = AttackCancelFx {
+                    entity_id: entity.id(),
+                    entity_gen: entity.gen().id() as u32,
+                    spawn_tick: current_tick,
+                    attack_seq: attack.attack_seq,
+                    phase,
+                    impact_committed,
+                };
+                attack.asd_count = attack.asd.v;
+                attack.clear_attack_sequence();
+                fx
+            })
+        };
+
+        if let Some(fx) = cancel {
+            let phase = fx.phase;
+            world
+                .write_resource::<AttackCancelFxQueue>()
+                .pending
+                .push(fx);
+            Some(phase)
+        } else {
+            None
+        }
+    }
+
     pub fn process_outcomes(
         ecs: &mut World,
         mqtx: &crossbeam_channel::Sender<OutboundMsg>,
@@ -268,6 +313,8 @@ impl GameProcessor {
                     }
                     Outcome::AttackPhaseCue {
                         entity,
+                        attack_seq,
+                        is_critical,
                         target,
                         target_pos,
                         windup_ms,
@@ -276,13 +323,12 @@ impl GameProcessor {
                     } => {
                         let current_tick = ecs.read_resource::<Tick>().0 as u32;
                         let mut q = ecs.write_resource::<AttackPhaseFxQueue>();
-                        let attack_seq = q.next_seq;
-                        q.next_seq = q.next_seq.wrapping_add(1);
                         q.pending.push(AttackPhaseFx {
                             entity_id: entity.id(),
                             entity_gen: entity.gen().id() as u32,
                             spawn_tick: current_tick,
                             attack_seq,
+                            is_critical,
                             windup_ms,
                             impact_at_ms: windup_ms,
                             backswing_ms,
@@ -1680,6 +1726,8 @@ impl GameProcessor {
             crate::scripting::event::SkillTarget::None
         };
 
+        Self::interrupt_attack_for_accepted_command(world, caster);
+
         world
             .write_resource::<crate::scripting::ScriptEventQueue>()
             .push(crate::scripting::ScriptEvent::SkillCast {
@@ -1955,7 +2003,6 @@ impl GameProcessor {
             );
             return;
         };
-        let mut move_targets = world.write_storage::<MoveTarget>();
         for req in drained {
             log::info!(
                 "MoveTo pid={} → hero={:?} pos=({:.1},{:.1})",
@@ -1964,7 +2011,10 @@ impl GameProcessor {
                 req.pos.x.to_f32_for_render(),
                 req.pos.y.to_f32_for_render(),
             );
-            let _ = move_targets.insert(hero, MoveTarget(req.pos));
+            Self::interrupt_attack_for_accepted_command(world, hero);
+            let _ = world
+                .write_storage::<MoveTarget>()
+                .insert(hero, MoveTarget(req.pos));
         }
     }
 
@@ -2240,6 +2290,8 @@ mod tests {
         let mut world = World::new();
         world.register::<Hero>();
         world.register::<Faction>();
+        world.register::<MoveTarget>();
+        world.register::<TAttack>();
 
         let ability_id = "test_ability".to_string();
         let mut registry = crate::ability_runtime::AbilityRegistry::new();
@@ -2248,6 +2300,9 @@ mod tests {
         world.insert(crate::scripting::ScriptEventQueue::default());
         world.insert(crate::comp::PendingAbilityUpgradeQueue::default());
         world.insert(crate::comp::PendingAbilityCastQueue::default());
+        world.insert(crate::comp::PendingMoveQueue::default());
+        world.insert(crate::comp::AttackCancelFxQueue::default());
+        world.insert(Tick(0));
 
         let mut hero = Hero::new(
             "hero_test".to_string(),
@@ -2266,6 +2321,12 @@ mod tests {
                 faction_id: FactionType::Player,
                 team_id: 1,
             })
+            .with(TAttack::new(
+                omoba_sim::Fixed64::from_i32(10),
+                omoba_sim::Fixed64::from_i32(1),
+                omoba_sim::Fixed64::from_i32(100),
+                omoba_sim::Fixed64::from_i32(1000),
+            ))
             .build();
         (world, entity, ability_id)
     }
@@ -2502,6 +2563,142 @@ mod tests {
             }
             other => panic!("unexpected event: {:?}", other),
         }
+    }
+
+    fn set_attack_sequence(
+        world: &mut World,
+        entity: Entity,
+        phase: AttackSequencePhase,
+        asd_count: omoba_sim::Fixed64,
+        seq: u32,
+    ) {
+        let mut attacks = world.write_storage::<TAttack>();
+        let attack = attacks.get_mut(entity).expect("hero attack component");
+        attack.attack_phase = phase;
+        attack.asd_count = asd_count;
+        attack.attack_seq = seq;
+    }
+
+    fn assert_attack_cancel(
+        world: &mut World,
+        phase: AttackCancelPhase,
+        seq: u32,
+        impact_committed: bool,
+    ) {
+        let mut queue = world.write_resource::<AttackCancelFxQueue>();
+        assert_eq!(queue.pending.len(), 1);
+        let fx = queue.pending.pop().unwrap();
+        assert_eq!(fx.phase, phase);
+        assert_eq!(fx.attack_seq, seq);
+        assert_eq!(fx.impact_committed, impact_committed);
+    }
+
+    fn assert_attack_idle_and_ready(world: &mut World, entity: Entity) {
+        let attacks = world.read_storage::<TAttack>();
+        let attack = attacks.get(entity).expect("hero attack component");
+        assert_eq!(attack.attack_phase, AttackSequencePhase::Idle);
+        assert_eq!(attack.asd_count, attack.asd.v);
+    }
+
+    #[test]
+    fn move_command_cancels_windup_before_damage() {
+        let (mut world, hero_entity, _ability_id) = world_with_hero(0, 1, 2);
+        set_attack_sequence(
+            &mut world,
+            hero_entity,
+            AttackSequencePhase::Windup,
+            omoba_sim::Fixed64::ZERO - omoba_sim::Fixed64::from_raw(100),
+            7,
+        );
+        world
+            .write_resource::<PendingMoveQueue>()
+            .requests
+            .push(PendingMoveTo {
+                pos: omoba_sim::Vec2::new(
+                    omoba_sim::Fixed64::from_i32(10),
+                    omoba_sim::Fixed64::from_i32(20),
+                ),
+                owner_pid: 1,
+            });
+
+        GameProcessor::drain_pending_moves(&mut world);
+
+        assert_attack_idle_and_ready(&mut world, hero_entity);
+        assert!(world.read_storage::<MoveTarget>().get(hero_entity).is_some());
+        assert_attack_cancel(&mut world, AttackCancelPhase::Windup, 7, false);
+    }
+
+    #[test]
+    fn skill_command_cancels_windup_before_damage() {
+        let (mut world, hero_entity, _ability_id) = world_with_hero(0, 1, 2);
+        set_attack_sequence(
+            &mut world,
+            hero_entity,
+            AttackSequencePhase::Windup,
+            omoba_sim::Fixed64::ZERO - omoba_sim::Fixed64::from_raw(100),
+            8,
+        );
+
+        GameProcessor::handle_ability_cast_from_input(&mut world, 0, None, None, 1).unwrap();
+
+        assert_attack_idle_and_ready(&mut world, hero_entity);
+        assert_attack_cancel(&mut world, AttackCancelPhase::Windup, 8, false);
+        assert_eq!(
+            world
+                .read_resource::<crate::scripting::ScriptEventQueue>()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn move_command_during_backswing_preserves_committed_attack() {
+        let (mut world, hero_entity, _ability_id) = world_with_hero(0, 1, 2);
+        set_attack_sequence(
+            &mut world,
+            hero_entity,
+            AttackSequencePhase::Backswing,
+            omoba_sim::Fixed64::from_raw(100),
+            9,
+        );
+        world
+            .write_resource::<PendingMoveQueue>()
+            .requests
+            .push(PendingMoveTo {
+                pos: omoba_sim::Vec2::new(
+                    omoba_sim::Fixed64::from_i32(30),
+                    omoba_sim::Fixed64::from_i32(40),
+                ),
+                owner_pid: 1,
+            });
+
+        GameProcessor::drain_pending_moves(&mut world);
+
+        assert_attack_idle_and_ready(&mut world, hero_entity);
+        assert_attack_cancel(&mut world, AttackCancelPhase::Backswing, 9, true);
+    }
+
+    #[test]
+    fn skill_command_during_backswing_preserves_committed_attack() {
+        let (mut world, hero_entity, _ability_id) = world_with_hero(0, 1, 2);
+        set_attack_sequence(
+            &mut world,
+            hero_entity,
+            AttackSequencePhase::Backswing,
+            omoba_sim::Fixed64::from_raw(100),
+            10,
+        );
+
+        GameProcessor::handle_ability_cast_from_input(&mut world, 0, None, None, 1).unwrap();
+
+        assert_attack_idle_and_ready(&mut world, hero_entity);
+        assert_attack_cancel(&mut world, AttackCancelPhase::Backswing, 10, true);
+        assert_eq!(
+            world
+                .read_resource::<crate::scripting::ScriptEventQueue>()
+                .len(),
+            1
+        );
     }
 
     #[test]

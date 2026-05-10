@@ -463,6 +463,8 @@ impl<'a> GameWorld for WorldAdapter<'a> {
             range: Vf32::new(unit.attack_range),
             asd_count: Fixed64::ZERO,
             bullet_speed: Fixed64::from_i32(1000),
+            attack_seq: 0,
+            attack_phase: AttackSequencePhase::Idle,
         };
 
         let summon_time = self.cache.time.0 as f32;
@@ -1145,6 +1147,7 @@ impl<'a> GameWorld for WorldAdapter<'a> {
             entity_gen: ent.gen().id() as u32,
             spawn_tick: self.cache.tick.0 as u32,
             attack_seq,
+            is_critical: false,
             windup_ms,
             impact_at_ms: windup_ms,
             backswing_ms,

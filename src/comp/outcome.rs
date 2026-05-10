@@ -122,6 +122,9 @@ pub enum Outcome {
     /// legacy host-driven attacks 使用的 render-only windup cue。
     AttackPhaseCue {
         entity: Entity,
+        attack_seq: u32,
+        #[serde(default)]
+        is_critical: bool,
         target: Option<Entity>,
         target_pos: Option<SimVec2>,
         windup_ms: u32,
@@ -217,6 +220,7 @@ pub struct AttackPhaseFx {
     pub entity_gen: u32,
     pub spawn_tick: u32,
     pub attack_seq: u32,
+    pub is_critical: bool,
     pub windup_ms: u32,
     pub impact_at_ms: u32,
     pub backswing_ms: u32,
@@ -230,6 +234,27 @@ pub struct AttackPhaseFx {
 pub struct AttackPhaseFxQueue {
     pub pending: Vec<AttackPhaseFx>,
     pub next_seq: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AttackCancelPhase {
+    Windup,
+    Backswing,
+}
+
+#[derive(Clone, Debug)]
+pub struct AttackCancelFx {
+    pub entity_id: u32,
+    pub entity_gen: u32,
+    pub spawn_tick: u32,
+    pub attack_seq: u32,
+    pub phase: AttackCancelPhase,
+    pub impact_committed: bool,
+}
+
+#[derive(Default)]
+pub struct AttackCancelFxQueue {
+    pub pending: Vec<AttackCancelFx>,
 }
 
 /// 待實體刪除的佇列資源。由“process_outcomes”推動
@@ -373,6 +398,7 @@ mod tests {
             entity_gen: 1,
             spawn_tick: 42,
             attack_seq: 4,
+            is_critical: false,
             windup_ms: 120,
             impact_at_ms: 120,
             backswing_ms: 240,
@@ -386,6 +412,27 @@ mod tests {
         assert_eq!(drained.len(), 1);
         assert!(queue.pending.is_empty());
         assert_eq!(queue.next_seq, 5);
+        let drained_again = std::mem::take(&mut queue.pending);
+        assert!(drained_again.is_empty());
+    }
+
+    #[test]
+    fn attack_cancel_fx_queue_drains_once() {
+        let mut queue = AttackCancelFxQueue::default();
+        queue.pending.push(AttackCancelFx {
+            entity_id: 7,
+            entity_gen: 1,
+            spawn_tick: 42,
+            attack_seq: 4,
+            phase: AttackCancelPhase::Windup,
+            impact_committed: false,
+        });
+
+        let drained = std::mem::take(&mut queue.pending);
+        assert_eq!(drained.len(), 1);
+        assert_eq!(drained[0].phase, AttackCancelPhase::Windup);
+        assert!(!drained[0].impact_committed);
+        assert!(queue.pending.is_empty());
         let drained_again = std::mem::take(&mut queue.pending);
         assert!(drained_again.is_empty());
     }
