@@ -970,6 +970,7 @@ pub fn populate_tower_template_registry(
             render_mode: meta.render.render_mode.to_string(),
             base: meta.render.base.to_string(),
             barrel: meta.render.barrel.to_string(),
+            size: meta.render.size.to_f32_for_render(),
             barrel_frames: meta
                 .render
                 .barrel_frames

@@ -26,6 +26,7 @@ pub struct TowerStats {
     pub render_mode: String,
     pub base_image: String,
     pub barrel_image: String,
+    pub render_size: f32,
     pub barrel_frames: Vec<String>,
     pub body_frames: Vec<String>,
     pub rotation_mode: String,

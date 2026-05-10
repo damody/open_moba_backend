@@ -690,6 +690,7 @@ impl State {
                     "render_mode": tpl.render.render_mode,
                     "base": tpl.render.base,
                     "barrel": tpl.render.barrel,
+                    "size": tpl.render.size,
                     "barrel_frames": tpl.render.barrel_frames,
                     "body_frames": tpl.render.body_frames,
                     "barrel_animation": {

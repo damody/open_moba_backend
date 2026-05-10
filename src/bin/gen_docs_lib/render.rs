@@ -138,6 +138,7 @@ fn tower_card(u: &UnitEntry) -> Markup {
                 dt { "cost" } dd { (t.cost) }
                 dt { "hp / footprint" } dd { (t.hp) " / " (t.footprint) }
                 dt { "render" } dd { (t.render_mode) " · " (t.rotation_mode) " · " (t.barrel_layout) }
+                dt { "render size" } dd { (t.render_size) }
                 dt { "base / barrel" } dd { code { (t.base_image) } " / " code { (t.barrel_image) } }
                 dt { "barrel frames" } dd { (t.barrel_frames.len()) }
                 dt { "body frames" } dd { (t.body_frames.len()) }

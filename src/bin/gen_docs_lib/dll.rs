@@ -58,8 +58,19 @@ pub fn load(dll_path: &Path) -> Result<DllData> {
                 render_mode: tm.render.render_mode.to_string(),
                 base_image: tm.render.base.to_string(),
                 barrel_image: tm.render.barrel.to_string(),
-                barrel_frames: tm.render.barrel_frames.iter().map(|s| s.to_string()).collect(),
-                body_frames: tm.render.body_frames.iter().map(|s| s.to_string()).collect(),
+                render_size: tm.render.size.to_f32_for_render(),
+                barrel_frames: tm
+                    .render
+                    .barrel_frames
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect(),
+                body_frames: tm
+                    .render
+                    .body_frames
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect(),
                 rotation_mode: tm.render.rotation_mode.to_string(),
                 barrel_layout: tm.render.barrel_layout.to_string(),
                 barrel_variants: tm

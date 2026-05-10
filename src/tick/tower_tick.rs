@@ -225,8 +225,10 @@ impl<'a> System<'a> for Sys {
                                         < MOVE_ANGLE_THRESHOLD
                                     {
                                         if matches!(attack_phase, AttackPhaseStep::Ready) {
-                                            let (windup, backswing) =
-                                                start_attack_windup(&mut atk.asd_count, atk.asd.val());
+                                            let (windup, backswing) = start_attack_windup(
+                                                &mut atk.asd_count,
+                                                atk.asd.val(),
+                                            );
                                             outcomes.push(Outcome::AttackPhaseCue {
                                                 entity: e,
                                                 target: Some(target_entity),

@@ -11,8 +11,8 @@ pub enum AttackPhaseStep {
 }
 
 pub fn attack_phase_durations(interval: Fixed64) -> (Fixed64, Fixed64) {
-    let windup = interval * Fixed64::from_i32(DEFAULT_ATTACK_WINDUP_WEIGHT as i32)
-        / Fixed64::from_i32(1000);
+    let windup =
+        interval * Fixed64::from_i32(DEFAULT_ATTACK_WINDUP_WEIGHT as i32) / Fixed64::from_i32(1000);
     let backswing = interval - windup;
     (windup, backswing)
 }

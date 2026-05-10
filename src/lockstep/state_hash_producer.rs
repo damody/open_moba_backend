@@ -225,7 +225,10 @@ mod tests {
     #[test]
     fn render_only_fx_queues_do_not_affect_hash() {
         let mut w = make_world();
-        w.create_entity().with(pos_xy(5, 5)).with(cprop(100, 100)).build();
+        w.create_entity()
+            .with(pos_xy(5, 5))
+            .with(cprop(100, 100))
+            .build();
         let before = compute_state_hash(&w);
         w.insert(crate::comp::TowerFireFxQueue {
             pending: vec![crate::comp::TowerFireFx {

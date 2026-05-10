@@ -163,13 +163,13 @@ impl<'a> System<'a> for Sys {
                             potential_targets.extend(creep_targets);
                             potential_targets.extend(tower_targets);
                             potential_targets.sort_by(|a, b| a.dis.partial_cmp(&b.dis).unwrap_or(std::cmp::Ordering::Equal));
-                            
+
                             // 偵錯：顯示搜尋結果
                             // 獲取英雄名稱
                             let hero_name = hero_name_map.get(&e)
                                 .cloned()
                                 .unwrap_or_else(|| format!("英雄 {}", e.id()));
-                            
+
                             if potential_targets.len() > 0 {
                                 log::trace!("{} 在位置 ({:.0}, {:.0}) 搜尋到 {} 個潛在目標，攻擊範圍: {:.1} (基礎 {:.1} + buff {:.1})",
                                     hero_name, pos_x_f, pos_y_f, potential_targets.len(),
@@ -184,7 +184,7 @@ impl<'a> System<'a> for Sys {
                             // 注意：搜尋器返回 f32 平方距離； f32 中的比較可接受（邊界有損還可以）。
                             let mut valid_targets = Vec::new();
                             let attack_range_squared = attack_range_f * attack_range_f; // 計算攻擊範圍的平方
-                            
+
                             if let Some(hero_faction) = hero_faction_map.get(&e) {
                                 for target_info in potential_targets.iter() {
                                     let target_distance_squared = target_info.dis;
@@ -203,7 +203,7 @@ impl<'a> System<'a> for Sys {
                             } else {
                                 log::warn!("{} 沒有陣營信息，無法進行敵友判斷", hero_name);
                             }
-                            
+
                             if valid_targets.len() > 0 {
                                 // 攻擊最近的敵人：先轉向，角度 < 30° 才能開火
                                 let target = valid_targets[0].e;
@@ -272,7 +272,7 @@ impl<'a> System<'a> for Sys {
                             }
                         }
                     }
-                    
+
                     outcomes
                 },
             )
