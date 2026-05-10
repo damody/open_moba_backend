@@ -414,13 +414,12 @@ impl StateInitializer {
         // 調度程式在主機 (omb) 和副本 (omfx sim_runner) 上執行。
         ecs.insert(crate::comp::PendingItemUseQueue::default());
 
-        // Deferred hero ability upgrade requests from lockstep UpgradeAbility
-        // inputs. Drained before script dispatch so SkillLearn hooks run in the
-        // same tick on host and replica.
+        // 延遲來自 lockstep UpgradeAbility inputs 的 hero ability upgrade requests。
+        // 在 script dispatch 前 drain，讓 SkillLearn hooks 在 host 與 replica 的同一 tick 執行。
         ecs.insert(crate::comp::PendingAbilityUpgradeQueue::default());
 
-        // Deferred hero ability cast requests from lockstep CastAbility inputs.
-        // Drained before script dispatch so SkillCast runs in the same tick.
+        // 延遲來自 lockstep CastAbility inputs 的 hero ability cast requests。
+        // 在 script dispatch 前 drain，讓 SkillCast 在同一 tick 執行。
         ecs.insert(crate::comp::PendingAbilityCastQueue::default());
 
         // MoveTo (右鍵移動): deferred hero MoveTarget writes from lockstep

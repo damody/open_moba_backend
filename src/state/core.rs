@@ -362,12 +362,12 @@ impl State {
         // sim_runner。
         crate::comp::GameProcessor::drain_pending_item_uses(&mut self.ecs);
 
-        // AbilityUpgrade: spend skill point + queue SkillLearn before script
-        // dispatch. Replica mirrors this in sim_runner.
+        // AbilityUpgrade：消耗 skill point 並在 script dispatch 前排入 SkillLearn。
+        // Replica 端在 sim_runner 中鏡像同一流程。
         crate::comp::GameProcessor::drain_pending_ability_upgrades(&mut self.ecs);
 
-        // AbilityCast: queue SkillCast before script dispatch. Drained after
-        // upgrades so same-tick Shift+key learn then key cast can succeed.
+        // AbilityCast：在 script dispatch 前排入 SkillCast。放在 upgrades 後 drain，
+        // 讓同 tick 的 Shift+key 學習後再 key cast 可以成功。
         crate::comp::GameProcessor::drain_pending_ability_casts(&mut self.ecs);
 
         // MoveTo (右鍵移動): drain `PendingMoveQueue` — writes `MoveTarget`

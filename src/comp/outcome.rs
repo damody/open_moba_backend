@@ -119,7 +119,7 @@ pub enum Outcome {
         source: Option<Entity>,
         end_pos: SimVec2,
     },
-    /// Render-only windup cue for legacy host-driven attacks.
+    /// legacy host-driven attacks 使用的 render-only windup cue。
     AttackPhaseCue {
         entity: Entity,
         target: Option<Entity>,

@@ -56,7 +56,6 @@ impl<'a> System<'a> for Sys {
                 .collect()
         };
 
-        //log::info!("projs count {}", tw.projs.count());
         let mut outcomes = (&tr.entities, &mut tw.projs, &mut tw.pos)
             .par_join()
             .filter(|(e, proj, p)| proj.time_left > Fixed64::ZERO)
