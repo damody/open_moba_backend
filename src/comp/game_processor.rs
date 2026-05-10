@@ -872,6 +872,106 @@ impl GameProcessor {
     /// 在主機 (omb) 和副本 (omfx sim_runner) 上確定性地運行
     /// 因為隊列兩邊的填充量相同
     /// `TickBatch.inputs` 並在同一調度邊界處耗盡。
+    fn validate_tower_place_from_input(
+        world: &World,
+        tpl: &crate::comp::tower_registry::TowerTemplate,
+        pos: vek::Vec2<f32>,
+        owner_pid: u32,
+    ) -> Result<Entity, Error> {
+        use specs::{Join, LendJoin};
+
+        let hero_entity = {
+            let entities = world.entities();
+            let heroes = world.read_storage::<Hero>();
+            let factions = world.read_storage::<Faction>();
+            let mut found = None;
+            for (e, _h, f) in (&entities, &heroes, &factions).join() {
+                if f.faction_id == FactionType::Player {
+                    found = Some(e);
+                    break;
+                }
+            }
+            found
+        }
+        .ok_or_else(|| failure::err_msg(format!("TowerPlace: no player hero pid={}", owner_pid)))?;
+
+        let has_gold = {
+            let golds = world.read_storage::<Gold>();
+            golds.get(hero_entity).map(|g| g.0).unwrap_or(0) >= tpl.cost
+        };
+        if !has_gold {
+            return Err(failure::err_msg(format!(
+                "TowerPlace: insufficient gold pid={} unit_id='{}' cost={}",
+                owner_pid, tpl.unit_id, tpl.cost
+            )));
+        }
+
+        let placement_radius = tpl.placement_radius;
+
+        {
+            let regions = world.read_resource::<BlockedRegions>();
+            for r in regions.0.iter() {
+                if crate::util::geometry::circle_hits_polygon(pos, placement_radius, &r.points) {
+                    return Err(failure::err_msg(format!(
+                        "TowerPlace: blocked by region '{}' pid={} unit_id='{}'",
+                        r.name, owner_pid, tpl.unit_id
+                    )));
+                }
+            }
+        }
+
+        const PATH_HALF_WIDTH: f32 = 64.0;
+        {
+            let paths = world.read_resource::<BTreeMap<String, Path>>();
+            let clear = placement_radius + PATH_HALF_WIDTH;
+            let clear_sq = clear * clear;
+            for (name, path) in paths.iter() {
+                let cps = &path.check_points;
+                for i in 0..cps.len().saturating_sub(1) {
+                    let a = cps[i].pos;
+                    let b = cps[i + 1].pos;
+                    if crate::util::geometry::point_segment_dist_sq(pos, a, b) < clear_sq {
+                        return Err(failure::err_msg(format!(
+                            "TowerPlace: blocked by path '{}' pid={} unit_id='{}'",
+                            name, owner_pid, tpl.unit_id
+                        )));
+                    }
+                }
+            }
+        }
+
+        {
+            let entities = world.entities();
+            let towers = world.read_storage::<Tower>();
+            let positions = world.read_storage::<Pos>();
+            let tags = world.read_storage::<crate::scripting::ScriptUnitTag>();
+            let registry =
+                world.read_resource::<crate::comp::tower_registry::TowerTemplateRegistry>();
+            for (_e, _t, p, tag) in (&entities, &towers, &positions, tags.maybe()).join() {
+                let Some(existing_radius) = tag
+                    .and_then(|tag| registry.get(&tag.unit_id))
+                    .map(|tpl| tpl.placement_radius)
+                else {
+                    return Err(failure::err_msg(
+                        "TowerPlace: existing tower missing script-owned placement_radius metadata",
+                    ));
+                };
+                let (px, py) = p.xy_f32();
+                let dx = px - pos.x;
+                let dy = py - pos.y;
+                let min_d = placement_radius + existing_radius;
+                if dx * dx + dy * dy < min_d * min_d {
+                    return Err(failure::err_msg(format!(
+                        "TowerPlace: overlaps tower pid={} unit_id='{}'",
+                        owner_pid, tpl.unit_id
+                    )));
+                }
+            }
+        }
+
+        Ok(hero_entity)
+    }
+
     pub fn handle_tower_spawn_from_input(
         world: &mut World,
         kind_id: u32,
@@ -888,6 +988,13 @@ impl GameProcessor {
         }
         // spawn_td_tower 需要 Vec2<f32>；經由 to_f32_for_render 橋接。
         let pos_f32 = vek::Vec2::new(pos.x.to_f32_for_render(), pos.y.to_f32_for_render());
+        let tpl = {
+            let reg = world.read_resource::<crate::comp::tower_registry::TowerTemplateRegistry>();
+            reg.get(unit_id).cloned().ok_or_else(|| {
+                failure::err_msg(format!("TowerPlace: unknown unit_id '{}'", unit_id))
+            })?
+        };
+        let hero_entity = Self::validate_tower_place_from_input(world, &tpl, pos_f32, owner_pid)?;
         let entity = crate::comp::tower_template::spawn_td_tower(world, pos_f32, unit_id)
             .ok_or_else(|| {
                 failure::err_msg(format!(
@@ -895,11 +1002,18 @@ impl GameProcessor {
                     unit_id
                 ))
             })?;
+        {
+            let mut golds = world.write_storage::<Gold>();
+            if let Some(g) = golds.get_mut(hero_entity) {
+                g.0 -= tpl.cost;
+            }
+        }
         log::info!(
-            "TowerPlace ok pid={} kind_id={} unit_id='{}' pos=({:.1},{:.1}) entity={:?}",
+            "TowerPlace ok pid={} kind_id={} unit_id='{}' cost={} pos=({:.1},{:.1}) entity={:?}",
             owner_pid,
             kind_id,
             unit_id,
+            tpl.cost,
             pos_f32.x,
             pos_f32.y,
             entity
@@ -2096,10 +2210,10 @@ impl GameProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
+    use std::collections::{BTreeMap, HashMap};
 
     use omoba_core::ability_meta::{AbilityDef, AbilityType, CastType, TargetType};
-    use specs::{Builder, World, WorldExt};
+    use specs::{Builder, Join, World, WorldExt};
 
     fn ability_def(id: &str, max_level: u8) -> AbilityDef {
         AbilityDef {
@@ -2154,6 +2268,142 @@ mod tests {
             })
             .build();
         (world, entity, ability_id)
+    }
+
+    fn test_tower_template(
+        unit_id: &str,
+        placement_radius: f32,
+        cost: i32,
+    ) -> crate::comp::tower_registry::TowerTemplate {
+        use crate::comp::tower_registry::{
+            AttackTimingMetadata, TowerRecoil, TowerRenderAnimation, TowerRenderMetadata,
+            TowerRenderPoint, TowerTemplate,
+        };
+
+        TowerTemplate {
+            unit_id: unit_id.to_string(),
+            label: unit_id.to_string(),
+            atk: 1.0,
+            asd_interval: 1.0,
+            range: 100.0,
+            bullet_speed: 100.0,
+            splash_radius: 0.0,
+            hit_radius: 0.0,
+            slow_factor: 0.0,
+            slow_duration: 0.0,
+            cost,
+            footprint: 10.0,
+            placement_radius,
+            hp: 1.0,
+            turn_speed_deg: 360.0,
+            render: TowerRenderMetadata {
+                render_mode: "base_barrel".to_string(),
+                base: String::new(),
+                barrel: String::new(),
+                visual_size: 180.0,
+                barrel_frames: Vec::new(),
+                body_frames: Vec::new(),
+                barrel_animation: TowerRenderAnimation {
+                    fps: 1.0,
+                    loop_animation: true,
+                    fire_fps: 1.0,
+                    fire_once: true,
+                },
+                body_animation: TowerRenderAnimation {
+                    fps: 1.0,
+                    loop_animation: true,
+                    fire_fps: 1.0,
+                    fire_once: true,
+                },
+                rotation_mode: "targeted".to_string(),
+                barrel_layout: "single".to_string(),
+                barrel_variants: Vec::new(),
+                barrel_offset: TowerRenderPoint { x: 0.0, y: 0.0 },
+                barrel_pivot: TowerRenderPoint { x: 0.5, y: 0.65 },
+                muzzle_offset: TowerRenderPoint { x: 0.0, y: 0.0 },
+                default_angle_deg: 0.0,
+                recoil: TowerRecoil {
+                    mode: "directional".to_string(),
+                    distance: 0.0,
+                    scale: 1.0,
+                    duration_ms: 1,
+                    return_ms: 1,
+                },
+            },
+            attack_timing: AttackTimingMetadata {
+                windup: 500,
+                backswing: 500,
+            },
+        }
+    }
+
+    fn world_with_tower_place_context(placement_radius: f32) -> (World, Entity) {
+        let mut world = World::new();
+        world.register::<Hero>();
+        world.register::<Faction>();
+        world.register::<Gold>();
+        world.register::<Tower>();
+        world.register::<Pos>();
+        world.register::<crate::scripting::ScriptUnitTag>();
+
+        let hero = world
+            .create_entity()
+            .with(Hero::new(
+                "hero_test".to_string(),
+                "Hero Test".to_string(),
+                "Tester".to_string(),
+            ))
+            .with(Faction {
+                faction_id: FactionType::Player,
+                team_id: 1,
+            })
+            .with(Gold(1_000))
+            .build();
+
+        let mut registry = crate::comp::tower_registry::TowerTemplateRegistry::default();
+        registry.insert(test_tower_template("tower_ice", placement_radius, 400));
+        world.insert(registry);
+        world.insert(BlockedRegions::default());
+        world.insert(BTreeMap::<String, Path>::from([(
+            "main".to_string(),
+            Path {
+                check_points: vec![
+                    CheckPoint {
+                        name: "a".to_string(),
+                        class: String::new(),
+                        pos: vek::Vec2::new(500.0, -100.0),
+                    },
+                    CheckPoint {
+                        name: "b".to_string(),
+                        class: String::new(),
+                        pos: vek::Vec2::new(500.0, 100.0),
+                    },
+                ],
+            },
+        )]));
+
+        (world, hero)
+    }
+
+    #[test]
+    fn tower_place_lockstep_rejects_path_overlap_from_placement_radius() {
+        let (mut world, hero_entity) = world_with_tower_place_context(900.0);
+        let pos = omoba_sim::Vec2::new(omoba_sim::Fixed64::ZERO, omoba_sim::Fixed64::ZERO);
+
+        let err = GameProcessor::handle_tower_spawn_from_input(
+            &mut world,
+            omoba_template_ids::TOWER_ICE.0 as u32,
+            pos,
+            1,
+        )
+        .expect_err("large placement radius should block path-overlapping tower place");
+
+        assert!(format!("{}", err).contains("blocked by path"));
+        let golds = world.read_storage::<Gold>();
+        assert_eq!(golds.get(hero_entity).map(|g| g.0), Some(1_000));
+        let entities = world.entities();
+        let towers = world.read_storage::<Tower>();
+        assert_eq!((&entities, &towers).join().count(), 0);
     }
 
     #[test]
