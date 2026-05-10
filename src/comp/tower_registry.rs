@@ -45,7 +45,7 @@ pub struct TowerRenderMetadata {
     pub render_mode: String,
     pub base: String,
     pub barrel: String,
-    pub size: f32,
+    pub visual_size: f32,
     pub barrel_frames: Vec<String>,
     pub body_frames: Vec<String>,
     pub barrel_animation: TowerRenderAnimation,
@@ -83,6 +83,7 @@ pub struct TowerTemplate {
 
     pub cost: i32,
     pub footprint: f32,
+    pub placement_radius: f32,
     pub hp: f32,
     pub turn_speed_deg: f32,
     pub render: TowerRenderMetadata,

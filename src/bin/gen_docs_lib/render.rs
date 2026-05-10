@@ -137,8 +137,9 @@ fn tower_card(u: &UnitEntry) -> Markup {
                 dt { "slow" } dd { "×" (t.slow_factor) " · " (t.slow_duration) "s" }
                 dt { "cost" } dd { (t.cost) }
                 dt { "hp / footprint" } dd { (t.hp) " / " (t.footprint) }
+                dt { "placement radius" } dd { (t.placement_radius) }
                 dt { "render" } dd { (t.render_mode) " · " (t.rotation_mode) " · " (t.barrel_layout) }
-                dt { "render size" } dd { (t.render_size) }
+                dt { "render visual size" } dd { (t.render_visual_size) }
                 dt { "base / barrel" } dd { code { (t.base_image) } " / " code { (t.barrel_image) } }
                 dt { "barrel frames" } dd { (t.barrel_frames.len()) }
                 dt { "body frames" } dd { (t.body_frames.len()) }

@@ -649,7 +649,7 @@ impl State {
         // 動態實體建完後再填 Region blockers（Searcher 索引一次性完成）
         StateInitializer::populate_region_blockers(&mut self.ecs);
         // 階段 5.2：遺留 0x02 GameEvent 廣播剪輯。塔模板
-        // 仍在 — 前端 TD placement UI 需要 cost/footprint/label。
+        // 仍在 — 前端 TD placement UI 需要 cost、placement radius、label。
         self.send_tower_templates();
     }
 
@@ -664,7 +664,7 @@ impl State {
     }
 
     /// 收集 script registry 內每支塔腳本的 tower_metadata，合併 host TowerTemplate
-    /// 的 cost/footprint/label，廣播 `game/tower_templates` 給前端。
+    /// 的 cost/placement radius/label，廣播 `game/tower_templates` 給前端。
     fn send_tower_templates(&self) {
         use serde_json::json;
         let reg = self
@@ -678,6 +678,7 @@ impl State {
                 "label": tpl.label,
                 "cost": tpl.cost,
                 "footprint": tpl.footprint,
+                "placement_radius": tpl.placement_radius,
                 "atk": tpl.atk,
                 "asd_interval": tpl.asd_interval,
                 "range": tpl.range,
@@ -690,7 +691,7 @@ impl State {
                     "render_mode": tpl.render.render_mode,
                     "base": tpl.render.base,
                     "barrel": tpl.render.barrel,
-                    "size": tpl.render.size,
+                    "visual_size": tpl.render.visual_size,
                     "barrel_frames": tpl.render.barrel_frames,
                     "body_frames": tpl.render.body_frames,
                     "barrel_animation": {

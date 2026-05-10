@@ -966,11 +966,20 @@ pub fn populate_tower_template_registry(
             RSome(m) => m,
             _ => continue,
         };
+        if meta.placement_radius <= omoba_sim::Fixed64::ZERO
+            || meta.render.visual_size <= omoba_sim::Fixed64::ZERO
+        {
+            log::warn!(
+                "[tower_registry] skipping '{}' with invalid explicit sizing metadata",
+                uid
+            );
+            continue;
+        }
         let render = RuntimeRenderMetadata {
             render_mode: meta.render.render_mode.to_string(),
             base: meta.render.base.to_string(),
             barrel: meta.render.barrel.to_string(),
-            size: meta.render.size.to_f32_for_render(),
+            visual_size: meta.render.visual_size.to_f32_for_render(),
             barrel_frames: meta
                 .render
                 .barrel_frames
@@ -1024,6 +1033,7 @@ pub fn populate_tower_template_registry(
             slow_duration: meta.slow_duration.to_f32_for_render(),
             cost: meta.cost,
             footprint: meta.footprint.to_f32_for_render(),
+            placement_radius: meta.placement_radius.to_f32_for_render(),
             hp: meta.hp.to_f32_for_render(),
             turn_speed_deg: meta.turn_speed_deg.to_f32_for_render(),
             render,

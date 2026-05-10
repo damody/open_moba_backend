@@ -52,13 +52,14 @@ pub fn load(dll_path: &Path) -> Result<DllData> {
                 slow_duration: tm.slow_duration.to_f32_for_render(),
                 cost: tm.cost,
                 footprint: tm.footprint.to_f32_for_render(),
+                placement_radius: tm.placement_radius.to_f32_for_render(),
                 hp: tm.hp.to_f32_for_render(),
                 turn_speed_deg: tm.turn_speed_deg.to_f32_for_render(),
                 label: tm.label.to_string(),
                 render_mode: tm.render.render_mode.to_string(),
                 base_image: tm.render.base.to_string(),
                 barrel_image: tm.render.barrel.to_string(),
-                render_size: tm.render.size.to_f32_for_render(),
+                render_visual_size: tm.render.visual_size.to_f32_for_render(),
                 barrel_frames: tm
                     .render
                     .barrel_frames

@@ -7,8 +7,8 @@ use crate::comp::*;
 use crate::transport::{InboundMsg, OutboundMsg};
 use crate::Outcome;
 
-fn td_tower_placement_footprint(tpl: &crate::comp::tower_registry::TowerTemplate) -> f32 {
-    (tpl.render.size * 0.5).max(tpl.footprint)
+fn td_tower_placement_radius(tpl: &crate::comp::tower_registry::TowerTemplate) -> f32 {
+    tpl.placement_radius
 }
 
 /// 資源管理器
@@ -259,13 +259,13 @@ impl ResourceManager {
             return Ok(());
         }
 
-        let placement_footprint = td_tower_placement_footprint(&tpl);
+        let placement_radius = td_tower_placement_radius(&tpl);
 
         // Region 碰撞
         {
             let regions = world.read_resource::<BlockedRegions>();
             for r in regions.0.iter() {
-                if crate::util::geometry::circle_hits_polygon(pos, placement_footprint, &r.points) {
+                if crate::util::geometry::circle_hits_polygon(pos, placement_radius, &r.points) {
                     log::info!(
                         "TD 蓋塔：位置 ({:.0},{:.0}) 壓到 region '{}'",
                         pos.x,
@@ -282,7 +282,7 @@ impl ResourceManager {
         {
             use std::collections::BTreeMap;
             let paths = world.read_resource::<BTreeMap<String, Path>>();
-            let clear = placement_footprint + PATH_HALF_WIDTH;
+            let clear = placement_radius + PATH_HALF_WIDTH;
             let clear_sq = clear * clear;
             for (name, path) in paths.iter() {
                 let cps = &path.check_points;
@@ -307,22 +307,23 @@ impl ResourceManager {
             let entities = world.entities();
             let towers = world.read_storage::<Tower>();
             let positions = world.read_storage::<Pos>();
-            let radii = world.read_storage::<CollisionRadius>();
             let tags = world.read_storage::<crate::scripting::ScriptUnitTag>();
             let registry =
                 world.read_resource::<crate::comp::tower_registry::TowerTemplateRegistry>();
-            for (_e, _t, p, r, tag) in (&entities, &towers, &positions, &radii, tags.maybe()).join()
-            {
+            for (_e, _t, p, tag) in (&entities, &towers, &positions, tags.maybe()).join() {
                 // 注意：搜尋器/空間索引在內部使用 f32 來實作 instant_distance lib 相容性。
                 let (px, py) = p.xy_f32();
                 let dx = px - pos.x;
                 let dy = py - pos.y;
                 let d_sq = dx * dx + dy * dy;
-                let existing_footprint = tag
+                let Some(existing_radius) = tag
                     .and_then(|tag| registry.get(&tag.unit_id))
-                    .map(td_tower_placement_footprint)
-                    .unwrap_or_else(|| r.0.to_f32_for_render());
-                let min_d = placement_footprint + existing_footprint;
+                    .map(td_tower_placement_radius)
+                else {
+                    log::warn!("TD 蓋塔：既有塔缺少 script-owned placement_radius metadata");
+                    return Ok(());
+                };
+                let min_d = placement_radius + existing_radius;
                 if d_sq < min_d * min_d {
                     log::info!("TD 蓋塔：位置 ({:.0},{:.0}) 與其他塔重疊", pos.x, pos.y);
                     return Ok(());
