@@ -37,7 +37,7 @@ debug = "none"
 
 [dependencies]
 log = "0.4"
-log4rs = { path="../log4rs", features = ["mqtt_appender", "yaml_format", "config_parsing"] }
+log4rs = { path="../log4rs", default-features = false, features = ["console_appender", "file_appender", "yaml_format", "config_parsing"] }
 failure = "0.1.8"
 fern = "0.7"
 chrono = { version = "0.4", features = ["serde"] }
