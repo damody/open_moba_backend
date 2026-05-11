@@ -18,6 +18,7 @@ mod lockstep;
 #[cfg(feature = "mqtt")]
 mod mqtt;
 mod msg;
+mod runtime_events;
 mod scripting;
 mod state;
 mod tick;
