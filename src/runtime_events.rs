@@ -1,4 +1,6 @@
 use omoba_core::runtime::{RuntimeBroadcast, RuntimeEvent};
+#[cfg(feature = "kcp")]
+use serde_json::Value;
 
 use crate::transport::OutboundMsg;
 
@@ -6,6 +8,11 @@ use crate::transport::OutboundMsg;
 use crate::transport::BroadcastPolicy;
 
 pub fn runtime_event_to_outbound(event: RuntimeEvent) -> OutboundMsg {
+    #[cfg(feature = "kcp")]
+    if let Some(msg) = typed_runtime_event_to_outbound(&event) {
+        return msg;
+    }
+
     let RuntimeEvent {
         topic,
         kind,
@@ -27,6 +34,45 @@ pub fn runtime_event_to_outbound(event: RuntimeEvent) -> OutboundMsg {
     }
 
     msg
+}
+
+#[cfg(feature = "kcp")]
+fn typed_runtime_event_to_outbound(event: &RuntimeEvent) -> Option<OutboundMsg> {
+    use crate::state::resource_management::proto_build;
+    use crate::transport::TypedOutbound;
+
+    match (event.topic.as_str(), event.kind.as_str(), event.action.as_str()) {
+        ("td/all/res", "game", "lives") => {
+            let lives = event.data.get("lives")?.as_i64()? as i32;
+            Some(OutboundMsg::new_typed_all(
+                "td/all/res",
+                "game",
+                "lives",
+                TypedOutbound::GameLives(proto_build::game_lives(lives)),
+                event.data.clone(),
+            ))
+        }
+        ("td/all/res", "game", "end") => {
+            let winner = game_end_winner(&event.data);
+            Some(OutboundMsg::new_typed_all(
+                "td/all/res",
+                "game",
+                "end",
+                TypedOutbound::GameEnd(proto_build::game_end(&winner)),
+                event.data.clone(),
+            ))
+        }
+        _ => None,
+    }
+}
+
+#[cfg(feature = "kcp")]
+fn game_end_winner(data: &Value) -> String {
+    data.get("winner")
+        .or_else(|| data.get("result"))
+        .and_then(|value| value.as_str())
+        .unwrap_or("unknown")
+        .to_string()
 }
 
 pub fn runtime_events_to_outbound(
