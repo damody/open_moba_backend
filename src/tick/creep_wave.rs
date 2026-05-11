@@ -1,6 +1,6 @@
 use crate::comp::*;
-use omoba_sim::{Fixed64, Vec2 as SimVec2};
 use omoba_core::runtime::{RuntimeBroadcast, RuntimeEvent, RuntimeEvents};
+use omoba_sim::{Fixed64, Vec2 as SimVec2};
 use serde_json::json;
 use specs::{shred, Entities, Join, Read, ReadStorage, SystemData, Write};
 use std::collections::BTreeMap;

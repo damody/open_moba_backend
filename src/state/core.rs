@@ -6,7 +6,7 @@ use omoba_core::lockstep_timing::{
     LOCKSTEP_THIRTY_SECONDS_TICKS_U64, LOCKSTEP_TPS_U64,
 };
 use rayon::ThreadPool;
-use specs::{World, WorldExt};
+use specs::{Join, World, WorldExt};
 /// 遊戲狀態核心結構
 use std::sync::Arc;
 use std::time::Instant;
@@ -83,6 +83,9 @@ pub struct State {
     last_visibility_tick: u64,
     /// 載入的本機腳本 DLL（H1 — 進程生命週期，從不重新載入）。
     script_registry: ScriptRegistry,
+    /// DEV-only Lua content hot reload poller; disabled unless env explicitly enables it.
+    #[cfg(feature = "runtime-lua-content")]
+    dev_lua_hot_reload: Option<super::dev_lua_hot_reload::DevLuaHotReload>,
     /// P5：共享 AOI 寬相網格。從相同的每個蜱蟲重建
     /// 預先收集的（id，pos）傳遞已經使用的心跳。運輸
     /// 廣播線程讀取它以進行“BroadcastPolicy::AoiEntity”查找。
@@ -194,6 +197,8 @@ impl State {
             local_tick: 0,
             last_visibility_tick: 0,
             script_registry: ScriptRegistry::new(),
+            #[cfg(feature = "runtime-lua-content")]
+            dev_lua_hot_reload: None,
             #[cfg(feature = "kcp")]
             aoi_grid: None,
             #[cfg(feature = "kcp")]
@@ -207,6 +212,8 @@ impl State {
         state.load_item_registry();
         state.load_scripts();
         state.initialize_standard_game();
+        #[cfg(feature = "runtime-lua-content")]
+        state.initialize_dev_lua_hot_reload();
 
         // 階段 5.2：遺留 0x02 心跳廣播切斷。鎖步刻度批次處理
         // (0x10) 透過每週期 state_hash 處理客戶端活躍度。
@@ -241,6 +248,244 @@ impl State {
                 crate::item::ItemRegistry::default()
             });
         self.ecs.insert(item_reg);
+    }
+
+    #[cfg(feature = "runtime-lua-content")]
+    fn initialize_dev_lua_hot_reload(&mut self) {
+        let manager = super::dev_lua_hot_reload::DevLuaHotReload::from_env();
+        let status = manager
+            .as_ref()
+            .map(super::dev_lua_hot_reload::DevLuaHotReload::status)
+            .unwrap_or_default();
+        self.ecs.insert(status);
+        self.dev_lua_hot_reload = manager;
+    }
+
+    #[cfg(feature = "runtime-lua-content")]
+    fn poll_dev_lua_hot_reload(&mut self) {
+        let event = {
+            let Some(manager) = self.dev_lua_hot_reload.as_mut() else {
+                return;
+            };
+            let event = manager.poll(self.local_tick);
+            self.ecs.insert(manager.status());
+            event
+        };
+
+        match event {
+            Some(super::dev_lua_hot_reload::DevLuaHotReloadEvent::Candidate(info)) => {
+                let result = self
+                    .script_registry
+                    .reload_runtime_lua_content_dev(&info.hash)
+                    .and_then(|modules| {
+                        omoba_template_ids::reload_runtime_lua_content_dev(Some(&info.hash))
+                            .and_then(|committed| {
+                                committed.ok_or_else(|| {
+                                    "runtime Lua content became inactive during reload".to_string()
+                                })
+                            })
+                            .map(|committed| (modules, committed))
+                    });
+                match result {
+                    Ok((modules, committed)) => {
+                        self.refresh_dev_lua_gameplay_content();
+                        let pending = self
+                            .dev_lua_hot_reload
+                            .as_mut()
+                            .expect("dev Lua hot reload manager")
+                            .complete_reload(committed, self.local_tick);
+                        log::info!(
+                            "[dev-lua-hot-reload] reloaded {} script modules; scheduled generation={} hash={} apply_tick={}",
+                            modules.len(),
+                            pending.generation,
+                            pending.hash,
+                            pending.apply_tick
+                        );
+                    }
+                    Err(err) => {
+                        if let Some(manager) = self.dev_lua_hot_reload.as_mut() {
+                            manager.fail_reload(err.clone());
+                        }
+                        log::warn!("[dev-lua-hot-reload] reload rejected: {}", err);
+                    }
+                }
+            }
+            Some(super::dev_lua_hot_reload::DevLuaHotReloadEvent::Scheduled(pending)) => {
+                log::info!(
+                    "[dev-lua-hot-reload] scheduled generation={} hash={} apply_tick={}",
+                    pending.generation,
+                    pending.hash,
+                    pending.apply_tick
+                );
+            }
+            Some(super::dev_lua_hot_reload::DevLuaHotReloadEvent::Failed(err)) => {
+                log::warn!("[dev-lua-hot-reload] reload failed: {}", err);
+            }
+            None => {}
+        }
+        if let Some(manager) = self.dev_lua_hot_reload.as_ref() {
+            self.ecs.insert(manager.status());
+        }
+    }
+
+    #[cfg(feature = "runtime-lua-content")]
+    fn refresh_dev_lua_gameplay_content(&mut self) {
+        if let Some(campaign) = self.campaign.as_ref() {
+            StateInitializer::refresh_creep_emiters(&mut self.ecs, &campaign.map);
+        }
+        super::initialization::populate_tower_template_registry(
+            &mut self.ecs,
+            &self.script_registry,
+        );
+        super::initialization::populate_tower_upgrade_registry(&mut self.ecs);
+        super::initialization::populate_ability_registry(&mut self.ecs, &self.script_registry);
+        self.refresh_live_heroes_from_lua();
+        self.refresh_live_creeps_from_lua();
+        self.refresh_live_towers_from_lua();
+        log::info!("[dev-lua-hot-reload] gameplay registries and live base stats refreshed");
+    }
+
+    #[cfg(feature = "runtime-lua-content")]
+    fn refresh_live_heroes_from_lua(&mut self) {
+        use crate::comp::{AttackSequencePhase, AttributeType, Hero, LevelGrowth, Vf32};
+        use omoba_sim::Fixed64;
+        let mut heroes = self.ecs.write_storage::<Hero>();
+        let mut props = self.ecs.write_storage::<CProperty>();
+        let mut attacks = self.ecs.write_storage::<TAttack>();
+        let mut turns = self.ecs.write_storage::<TurnSpeed>();
+        for (hero, prop, attack, turn) in (&mut heroes, &mut props, &mut attacks, &mut turns).join()
+        {
+            let Some(hero_id) = omoba_template_ids::hero_by_name(&hero.id) else {
+                continue;
+            };
+            let Some(stats) = omoba_template_ids::active_hero_stats(hero_id) else {
+                continue;
+            };
+            hero.name = omoba_template_ids::active_hero_display(hero_id).to_string();
+            hero.title = omoba_template_ids::active_hero_title(hero_id).to_string();
+            hero.strength = stats.strength;
+            hero.agility = stats.agility;
+            hero.intelligence = stats.intelligence;
+            hero.primary_attribute = match stats.primary_attribute {
+                1 => AttributeType::Agility,
+                2 => AttributeType::Intelligence,
+                _ => AttributeType::Strength,
+            };
+            hero.level_growth = LevelGrowth {
+                strength_per_level: stats.level_growth.strength_per_level,
+                agility_per_level: stats.level_growth.agility_per_level,
+                intelligence_per_level: stats.level_growth.intelligence_per_level,
+                damage_per_level: stats.level_growth.damage_per_level,
+                hp_per_level: stats.level_growth.hp_per_level,
+                mana_per_level: stats.level_growth.mana_per_level,
+            };
+            let new_abilities: Vec<String> = omoba_template_ids::active_hero_abilities(hero_id)
+                .iter()
+                .map(|id| id.as_str().to_string())
+                .collect();
+            for id in &new_abilities {
+                hero.ability_levels.entry(id.clone()).or_insert(0);
+            }
+            hero.ability_levels
+                .retain(|id, _| new_abilities.iter().any(|new_id| new_id == id));
+            hero.abilities = new_abilities;
+
+            let new_mhp = Fixed64::from_i32(500)
+                + Fixed64::from_i32(hero.level) * hero.level_growth.hp_per_level;
+            preserve_cproperty_hp_ratio(prop, new_mhp);
+            prop.msd = stats.move_speed;
+            prop.def_physic = Fixed64::from_i32(hero.strength) * Fixed64::from_raw(205);
+            prop.def_magic = Fixed64::from_i32(hero.intelligence) * Fixed64::from_raw(154);
+            attack.atk_physic = Vf32::new(
+                Fixed64::from_i32(50)
+                    + Fixed64::from_i32(hero.level) * hero.level_growth.damage_per_level,
+            );
+            attack.range = Vf32::new(stats.attack_range);
+            attack.attack_phase = AttackSequencePhase::Idle;
+            turn.0 = Fixed64::from_raw(
+                (stats.turn_speed.to_f32_for_render().to_radians() * 1024.0) as i64,
+            );
+        }
+    }
+
+    #[cfg(feature = "runtime-lua-content")]
+    fn refresh_live_creeps_from_lua(&mut self) {
+        let emitters = self
+            .ecs
+            .read_resource::<BTreeMap<String, CreepEmiter>>()
+            .clone();
+        let mut creeps = self.ecs.write_storage::<Creep>();
+        let mut props = self.ecs.write_storage::<CProperty>();
+        let mut bounties = self.ecs.write_storage::<Bounty>();
+        let mut turns = self.ecs.write_storage::<TurnSpeed>();
+        for (creep, prop, bounty, turn) in
+            (&mut creeps, &mut props, &mut bounties, &mut turns).join()
+        {
+            let Some(creep_id) = omoba_template_ids::creep_by_name(&creep.name) else {
+                continue;
+            };
+            let Some(stats) = omoba_template_ids::active_creep_stats(creep_id) else {
+                continue;
+            };
+            let display = omoba_template_ids::active_creep_display(creep_id);
+            creep.label = (!display.is_empty()).then(|| display.to_string());
+            preserve_cproperty_hp_ratio(prop, stats.hp);
+            prop.msd = stats.move_speed;
+            prop.def_physic = stats.armor;
+            prop.def_magic = stats.magic_resistance;
+            bounty.gold = stats.gold_reward;
+            bounty.exp = stats.exp_reward;
+            if let Some(emitter) = emitters.get(&creep.name) {
+                turn.0 = omoba_sim::Fixed64::from_raw(
+                    (emitter.turn_speed_deg.to_radians() * 1024.0) as i64,
+                );
+            }
+        }
+    }
+
+    #[cfg(feature = "runtime-lua-content")]
+    fn refresh_live_towers_from_lua(&mut self) {
+        let registry = self.ecs.read_resource::<TowerTemplateRegistry>().clone();
+        let tags = self.ecs.read_storage::<crate::scripting::ScriptUnitTag>();
+        let mut towers = self.ecs.write_storage::<Tower>();
+        let mut tprops = self.ecs.write_storage::<TProperty>();
+        let mut cprops = self.ecs.write_storage::<CProperty>();
+        let mut attacks = self.ecs.write_storage::<TAttack>();
+        let mut visions = self.ecs.write_storage::<CircularVision>();
+        let mut turns = self.ecs.write_storage::<TurnSpeed>();
+        let mut radii = self.ecs.write_storage::<CollisionRadius>();
+        let f32_to_fx = |v: f32| omoba_sim::Fixed64::from_raw((v * 1024.0) as i64);
+        for (tag, _tower, tprop, cprop, attack, vision, turn, radius) in (
+            &tags,
+            &mut towers,
+            &mut tprops,
+            &mut cprops,
+            &mut attacks,
+            &mut visions,
+            &mut turns,
+            &mut radii,
+        )
+            .join()
+        {
+            let Some(tpl) = registry.get(&tag.unit_id) else {
+                continue;
+            };
+            let new_hp = f32_to_fx(tpl.hp);
+            let current_hp = scaled_hp(tprop.hp.v, tprop.hp.bv, new_hp);
+            tprop.hp = Vf32 {
+                bv: new_hp,
+                v: current_hp,
+            };
+            preserve_cproperty_hp_ratio(cprop, new_hp);
+            attack.atk_physic = Vf32::new(f32_to_fx(tpl.atk));
+            attack.asd = Vf32::new(f32_to_fx(tpl.asd_interval));
+            attack.range = Vf32::new(f32_to_fx(tpl.range));
+            attack.bullet_speed = f32_to_fx(tpl.bullet_speed);
+            vision.range = tpl.range + 100.0;
+            turn.0 = f32_to_fx(tpl.turn_speed_deg.to_radians());
+            radius.0 = f32_to_fx(tpl.footprint);
+        }
+        self.ecs.write_resource::<Searcher>().tower.mark_dirty();
     }
 
     /// 創建新的遊戲狀態（戰役模式）
@@ -289,6 +534,8 @@ impl State {
             local_tick: 0,
             last_visibility_tick: 0,
             script_registry: ScriptRegistry::new(),
+            #[cfg(feature = "runtime-lua-content")]
+            dev_lua_hot_reload: None,
             #[cfg(feature = "kcp")]
             aoi_grid: None,
             #[cfg(feature = "kcp")]
@@ -303,6 +550,8 @@ impl State {
         // 先載 scripts，才能讓 initialize_campaign_game 內的 send_tower_templates 拿到 registry
         state.load_scripts();
         state.initialize_campaign_game(&campaign_data);
+        #[cfg(feature = "runtime-lua-content")]
+        state.initialize_dev_lua_hot_reload();
 
         // 階段 5.2：遺留 0x02 GameEvent 廣播剪輯。
 
@@ -317,6 +566,9 @@ impl State {
         // 更新時間管理
         self.time_manager
             .update(&mut self.ecs, dt, Some(dt_fixed_raw))?;
+
+        #[cfg(feature = "runtime-lua-content")]
+        self.poll_dev_lua_hot_reload();
 
         // 吸收 transport 傳進來的 viewport 更新
         #[cfg(any(feature = "grpc", feature = "kcp"))]
@@ -775,6 +1027,52 @@ impl State {
             payload,
         ));
         log::info!("已發送 {} 個 tower template 給前端", n);
+    }
+}
+
+#[cfg(feature = "runtime-lua-content")]
+fn preserve_cproperty_hp_ratio(prop: &mut CProperty, new_mhp: omoba_sim::Fixed64) {
+    let new_hp = scaled_hp(prop.hp, prop.mhp, new_mhp);
+    prop.mhp = new_mhp;
+    prop.hp = new_hp;
+}
+
+#[cfg(feature = "runtime-lua-content")]
+fn scaled_hp(
+    old_hp: omoba_sim::Fixed64,
+    old_mhp: omoba_sim::Fixed64,
+    new_mhp: omoba_sim::Fixed64,
+) -> omoba_sim::Fixed64 {
+    if old_mhp.raw() <= 0 {
+        return new_mhp;
+    }
+    let raw = (old_hp.raw() as i128 * new_mhp.raw() as i128 / old_mhp.raw() as i128)
+        .clamp(0, new_mhp.raw() as i128) as i64;
+    omoba_sim::Fixed64::from_raw(raw)
+}
+
+#[cfg(all(test, feature = "runtime-lua-content"))]
+mod dev_lua_hot_reload_tests {
+    use super::*;
+
+    #[test]
+    fn scaled_hp_preserves_ratio_and_clamps() {
+        assert_eq!(
+            scaled_hp(
+                omoba_sim::Fixed64::from_i32(25),
+                omoba_sim::Fixed64::from_i32(100),
+                omoba_sim::Fixed64::from_i32(200),
+            ),
+            omoba_sim::Fixed64::from_i32(50)
+        );
+        assert_eq!(
+            scaled_hp(
+                omoba_sim::Fixed64::from_i32(150),
+                omoba_sim::Fixed64::from_i32(100),
+                omoba_sim::Fixed64::from_i32(200),
+            ),
+            omoba_sim::Fixed64::from_i32(200)
+        );
     }
 }
 

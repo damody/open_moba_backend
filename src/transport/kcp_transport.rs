@@ -1540,6 +1540,7 @@ mod tests {
                 tick: 1,
                 inputs: Vec::new(),
                 server_events: Vec::new(),
+                ..Default::default()
             },
         )))
         .unwrap();
@@ -1567,6 +1568,7 @@ mod tests {
                 tick: 1,
                 inputs: Vec::new(),
                 server_events: Vec::new(),
+                ..Default::default()
             },
         )))
         .unwrap();

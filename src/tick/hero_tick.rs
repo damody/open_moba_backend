@@ -4,9 +4,7 @@ use crate::tick::attack_phase::{
 };
 use omoba_sim::Fixed64;
 use specs::prelude::ParallelIterator;
-use specs::{
-    shred, Entities, Join, ParJoin, Read, ReadStorage, SystemData, Write, WriteStorage,
-};
+use specs::{shred, Entities, Join, ParJoin, Read, ReadStorage, SystemData, Write, WriteStorage};
 use std::time::Instant;
 
 /// MOBA 鏡頭下肉眼無感的 facing 變化量（~15°）。舊值 0.05 (~3°) 造成過多 F event。

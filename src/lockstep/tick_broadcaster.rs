@@ -196,6 +196,14 @@ impl TickBroadcaster {
             inputs: inputs_proto,
             // 第2階段：空；第 5+ 階段注入 PlayerJoin/WaveStart/等。
             server_events: vec![],
+            lua_content_generation: omoba_template_ids::runtime_lua_content_generation()
+                .ok()
+                .flatten()
+                .unwrap_or(0),
+            lua_content_hash: omoba_template_ids::runtime_lua_content_hash()
+                .ok()
+                .flatten()
+                .unwrap_or_default(),
         };
 
         let msg = OutboundMsg::lockstep_frame(LockstepFrame::TickBatch(batch));

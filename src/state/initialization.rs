@@ -258,6 +258,14 @@ impl StateInitializer {
         }
     }
 
+    /// DEV Lua hot reload path: rebuild only cached creep emitters from the
+    /// current active template generation without resetting wave progress.
+    pub fn refresh_creep_emiters(ecs: &mut World, cw: &CreepWaveData) {
+        ecs.write_resource::<std::collections::BTreeMap<String, CreepEmiter>>()
+            .clear();
+        Self::setup_creep_emiters(ecs, cw);
+    }
+
     /// 設置小兵波
     fn setup_creep_waves(ecs: &mut World, cw: &CreepWaveData) {
         // Debug 開關：設 OMB_NO_CREEPS=1 完全跳過小兵波載入（碰撞除錯用）
@@ -918,11 +926,7 @@ pub fn create_world_for_scene(scene_path: &std::path::Path) -> Result<World, fai
     let dir_str = std::env::var("OMB_SCRIPTS_DIR").unwrap_or_else(|_| "./scripts".to_string());
     let dir = std::path::Path::new(&dir_str);
     let registry = crate::scripting::loader::load_scripts_dir(dir);
-    create_world_for_scene_with_content(
-        scene_path,
-        crate::item::ItemRegistry::default(),
-        registry,
-    )
+    create_world_for_scene_with_content(scene_path, crate::item::ItemRegistry::default(), registry)
 }
 
 /// Build a fully initialized ECS world from already-loaded runtime content.

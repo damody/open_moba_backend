@@ -41,7 +41,11 @@ fn typed_runtime_event_to_outbound(event: &RuntimeEvent) -> Option<OutboundMsg> 
     use crate::state::resource_management::proto_build;
     use crate::transport::TypedOutbound;
 
-    match (event.topic.as_str(), event.kind.as_str(), event.action.as_str()) {
+    match (
+        event.topic.as_str(),
+        event.kind.as_str(),
+        event.action.as_str(),
+    ) {
         ("td/all/res", "game", "lives") => {
             let lives = event.data.get("lives")?.as_i64()? as i32;
             Some(OutboundMsg::new_typed_all(

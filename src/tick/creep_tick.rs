@@ -3,9 +3,7 @@ use crate::comp::*;
 use omoba_sim::trig::{angle_rotate_toward, atan2 as sim_atan2, fixed_rad_to_ticks, TAU_TICKS};
 use omoba_sim::{Angle, Fixed64, Vec2 as SimVec2};
 use specs::prelude::ParallelIterator;
-use specs::{
-    shred, Entities, ParJoin, Read, ReadStorage, SystemData, Write, WriteStorage,
-};
+use specs::{shred, Entities, ParJoin, Read, ReadStorage, SystemData, Write, WriteStorage};
 use std::collections::BTreeMap;
 
 /// MOBA 鏡頭下肉眼無感的 facing 變化量（~15°）。舊值 0.05 (~3°) 造成過多 F event。
