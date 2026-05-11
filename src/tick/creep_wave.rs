@@ -43,7 +43,7 @@ impl<'a> System<'a> for Sys {
     fn run(_job: &mut Job<Self>, (tr, mut tw): Self::SystemData) {
         let totaltime = tr.time.0;
         let is_td = tr.game_mode.is_td();
-        // omfx sim_runner 不連接傳輸；回退到接收器發送器
+        // Local replica 不連接傳輸；回退到 sink sender，
         // 因此靜默廣播站點無操作（try_send 返回斷開連接，被忽略）。
         let tx = tw.mqtx.get(0).cloned().unwrap_or_else(|| {
             let (tx, _rx) = crossbeam_channel::unbounded::<OutboundMsg>();

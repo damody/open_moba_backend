@@ -27,6 +27,14 @@ members = [
     ".",
 ]
 
+[profile.release]
+# Release artifacts should not emit Windows PDB / split debug files.
+debug = "none"
+split-debuginfo = "off"
+
+[profile.release.build-override]
+debug = "none"
+
 [dependencies]
 log = "0.4"
 log4rs = { path="../log4rs", features = ["mqtt_appender", "yaml_format", "config_parsing"] }
@@ -86,7 +94,7 @@ prost-build = { version = "0.13", optional = true }
 default = ["kcp"]
 mqtt = ["rumqttc"]
 grpc = ["tonic", "prost", "async-stream", "tokio-stream/sync", "tonic-build", "tokio/sync", "tokio/time"]
-kcp = ["tokio_kcp", "prost", "prost-build", "tokio/sync", "tokio/time", "tokio/net", "tokio/io-util", "dep:lz4_flex"]
+kcp = ["omoba-core/kcp", "tokio_kcp", "prost", "prost-build", "tokio/sync", "tokio/time", "tokio/net", "tokio/io-util", "dep:lz4_flex"]
 gen-docs = ["maud", "syn", "clap", "anyhow", "quote", "proc-macro2"]
 runtime-lua-content = ["omoba-template-ids/runtime-lua-content"]
 # legacy_broadcast removed (Phase 5.2) — was used Phase 4.4-4.5 to gate the

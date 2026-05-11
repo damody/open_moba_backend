@@ -12,6 +12,7 @@ pub mod lockstep;
 #[cfg(feature = "mqtt")]
 pub mod mqtt;
 pub mod msg;
+pub mod runtime_events;
 pub mod scripting;
 pub mod state;
 pub mod tick;

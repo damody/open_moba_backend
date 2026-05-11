@@ -1,7 +1,7 @@
 //! 階段 3.4：每次調度程式勾選時都會耗盡「PendingPlayerInputs」。
 //!
-//! 鎖步線（或 omfx sim_runner）寫入新的地圖
-//! 每個 TickBatch 上的資源中都包含「player_id → PlayerInput」。這
+//! Lockstep runtime consumer 將每個 TickBatch 的
+//! 「player_id → PlayerInput」寫入資源。這
 //! 系統消耗它們（清除資源，這樣過時的輸入就不會
 //! 累積）並將每個變體路由到適當的遊戲端
 //! 處理程序。
@@ -99,7 +99,7 @@ impl<'a> System<'a> for Sys {
 fn route_input(
     player_id: u32,
     tick: u32,
-    input: crate::lockstep::PlayerInput,
+    input: omoba_core::runtime::PlayerInput,
     cw: &mut CurrentCreepWave,
     totaltime: f32,
     tower_q: &mut PendingTowerSpawnQueue,
@@ -110,7 +110,7 @@ fn route_input(
     item_q: &mut PendingItemUseQueue,
     move_q: &mut PendingMoveQueue,
 ) {
-    use crate::lockstep::PlayerInputEnum;
+    use omoba_core::runtime::PlayerInputEnum;
 
     match input.action {
         Some(PlayerInputEnum::StartRound(_)) => {

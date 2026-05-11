@@ -9,7 +9,7 @@ use vek::*;
 use crate::comp::phys::MAX_COLLISION_RADIUS;
 use crate::comp::*;
 use crate::transport::OutboundMsg;
-use crate::util::geometry::point_in_polygon;
+use omoba_core::runtime::geometry::point_in_polygon;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static TICK_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -25,7 +25,7 @@ pub struct HeroMoveRead<'a> {
     searcher: Read<'a, Searcher>,
     /// Debug only：驗證 hero 是否進入 polygon 但未被 blocker 擋
     regions: Read<'a, BlockedRegions>,
-    buff_store: Read<'a, crate::ability_runtime::BuffStore>,
+    buff_store: Read<'a, omoba_core::runtime::ability_runtime::BuffStore>,
     is_buildings: ReadStorage<'a, IsBuilding>,
 }
 
@@ -182,7 +182,7 @@ impl<'a> System<'a> for Sys {
                     // 用 UnitStats 聚合移速（對應 Dota MOVESPEED_BONUS_* / MOVESPEED_ABSOLUTE /
                     // MOVESPEED_MAX/MIN/LIMIT）；建築物會被 is_buildings 跳過（hero 不會）。
                     // CProperty.msd 仍然是 f32（第 1c 階段遷移）；保留 f32 路徑。
-                    let stats = crate::ability_runtime::UnitStats::from_refs(
+                    let stats = omoba_core::runtime::ability_runtime::UnitStats::from_refs(
                         &*tr.buff_store,
                         tr.is_buildings.get(entity).is_some(),
                     );

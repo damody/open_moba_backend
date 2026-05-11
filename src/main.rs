@@ -65,12 +65,13 @@ async fn main() -> std::result::Result<(), Error> {
     }
 
     // 載入戰役資料（由 game.toml 的 STORY 欄位決定 generated story id）。
-    let campaign_data = CampaignData::load_generated(&CONFIG.STORY).unwrap_or_else(|e| {
-        panic!(
-            "Failed to load generated campaign '{}': {}",
-            CONFIG.STORY, e
-        )
-    });
+    let campaign_data =
+        crate::ue4::import_campaign::load_generated(&CONFIG.STORY).unwrap_or_else(|e| {
+            panic!(
+                "Failed to load generated campaign '{}': {}",
+                CONFIG.STORY, e
+            )
+        });
 
     // 驗證戰役資料完整性
     if let Err(err) = campaign_data.validate() {

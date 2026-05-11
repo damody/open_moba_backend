@@ -14,10 +14,10 @@ use omb_script_abi::stat_keys::StatKey;
 use serde_json::json;
 use specs::{shred, Read, ReadStorage, SystemData, World, Write};
 
-use crate::ability_runtime::{BuffStore, UnitStats};
 use crate::comp::*;
 use crate::scripting::{ScriptEvent, ScriptEventQueue};
 use crate::transport::OutboundMsg;
+use omoba_core::runtime::ability_runtime::{BuffStore, UnitStats};
 
 /// 位移類 payload key — 任一存在於過期 buff 的 payload 就要重算 creep 移速並廣播 `creep/S`。
 /// 對應 Dota MOVESPEED_BONUS_* / MOVESPEED_ABSOLUTE / MIN / MAX / LIMIT。

@@ -22,11 +22,11 @@ use specs::{
     WriteStorage,
 };
 
-use crate::ability_runtime::{BuffStore, UnitStats};
 use crate::comp::*;
 use crate::scripting::event::{ScriptEvent, ScriptEventQueue};
 use crate::scripting::tag::ScriptUnitTag;
 use crate::transport::OutboundMsg;
+use omoba_core::runtime::ability_runtime::{BuffStore, UnitStats};
 
 /// 預先 fetch 好的 storage / resource 集合。
 /// 在整個 `run_script_dispatch` 期間共用，每個 `GameWorld` API 不再重複 borrow。

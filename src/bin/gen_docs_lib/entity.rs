@@ -10,7 +10,7 @@ pub struct EntityData {
 }
 
 pub fn load(story_id: &str) -> Result<EntityData> {
-    let campaign = omobab::ue4::import_campaign::CampaignData::load_generated(story_id)
+    let campaign = omobab::ue4::import_campaign::load_generated(story_id)
         .with_context(|| format!("loading generated story {story_id}"))?;
     let mut heroes = BTreeMap::new();
     let mut creeps = BTreeMap::new();

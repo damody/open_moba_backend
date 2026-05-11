@@ -35,7 +35,7 @@ pub struct HeroRead<'a> {
     units: ReadStorage<'a, Unit>,
     turn_speeds: ReadStorage<'a, TurnSpeed>,
     move_targets: ReadStorage<'a, MoveTarget>,
-    buff_store: Read<'a, crate::ability_runtime::BuffStore>,
+    buff_store: Read<'a, omoba_core::runtime::ability_runtime::BuffStore>,
     is_buildings: ReadStorage<'a, IsBuilding>,
 }
 
@@ -119,7 +119,7 @@ impl<'a> System<'a> for Sys {
                     }
 
                     // 用 UnitStats 聚合攻速（Dota ATTACKSPEED_BONUS_CONSTANT 100 → 1 + 100/100 = 2× AS）
-                    let stats = crate::ability_runtime::UnitStats::from_refs(
+                    let stats = omoba_core::runtime::ability_runtime::UnitStats::from_refs(
                         &*tr.buff_store,
                         tr.is_buildings.get(e).is_some(),
                     );

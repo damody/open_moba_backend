@@ -4,9 +4,9 @@ use specs::{Entity, Join, World, WorldExt};
 /// 提供 read-only 的 ECS World 查詢，供 MCP server 使用
 use std::collections::BTreeMap;
 
-use crate::ability_runtime::AbilityRegistry;
 use crate::comp::*;
 use crate::transport::QueryResponse;
+use omoba_core::runtime::ability_runtime::AbilityRegistry;
 
 /// 列出所有玩家及其英雄的基本資訊
 pub fn query_list_players(world: &World) -> QueryResponse {

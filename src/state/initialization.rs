@@ -386,36 +386,36 @@ impl StateInitializer {
         // 從 GameStart 訊息中覆寫它；現在使用固定的預設值。
         ecs.insert(crate::comp::MasterSeed::default());
 
-        // 階段 3.4：等待同步玩家輸入。由 omfx 填充
-        // 來自每個 TickBatch 的 sim_runner （或透過主機端測試程式碼）和
-        // 每個調度程序滴答聲都會被 `tick::player_input_tick::Sys` 耗盡。
+        // 階段 3.4：等待同步玩家輸入。由 lockstep runtime consumer
+        // 從每個 TickBatch 填入（或由 authoritative-side tests 注入），
+        // 並在每個 dispatcher tick 由 `tick::player_input_tick::Sys` drain。
         // 無條件插入，以便消費者係統的 `Write<>` 始終
         // 解決；非 kcp 構建使用空的單元結構變體。
         ecs.insert(crate::comp::PendingPlayerInputs::default());
 
         // 階段 2.1：延遲來自同步 TowerPlace 的塔生成請求
-        // 輸入。之後被 `GameProcessor::drain_pending_tower_spawns` 耗盡
-        // 調度程式在主機 (omb) 和副本 (omfx sim_runner) 上執行。
+        // 輸入。之後在 dispatcher 後由 `GameProcessor::drain_pending_tower_spawns`
+        // drain，authoritative runtime 與 local replica 使用相同 boundary。
         ecs.insert(crate::comp::PendingTowerSpawnQueue::default());
 
         // 階段 2.2：延後來自同步 TowerSell 的塔樓銷售請求
-        // 輸入。之後被 `GameProcessor::drain_pending_tower_sells` 耗盡
-        // 調度程式在主機 (omb) 和副本 (omfx sim_runner) 上執行。
+        // 輸入。之後在 dispatcher 後由 `GameProcessor::drain_pending_tower_sells`
+        // drain，authoritative runtime 與 local replica 使用相同 boundary。
         ecs.insert(crate::comp::PendingTowerSellQueue::default());
 
         // 階段 2.3：延遲塔升級請求
         // TowerUpgrade 輸入。耗盡於
-        // 調度程式之後的“GameProcessor::drain_pending_tower_upgrades”
-        // 在主機 (omb) 和副本 (omfx sim_runner) 上執行。
+        // dispatcher 後由 `GameProcessor::drain_pending_tower_upgrades` drain，
+        // authoritative runtime 與 local replica 使用相同 boundary。
         ecs.insert(crate::comp::PendingTowerUpgradeQueue::default());
 
         // 階段 2.4：延遲來自鎖步 ItemUse 輸入的物品使用請求。
-        // 在之後由 `GameProcessor::drain_pending_item_uses` 耗盡
-        // 調度程式在主機 (omb) 和副本 (omfx sim_runner) 上執行。
+        // 在 dispatcher 後由 `GameProcessor::drain_pending_item_uses` drain，
+        // authoritative runtime 與 local replica 使用相同 boundary。
         ecs.insert(crate::comp::PendingItemUseQueue::default());
 
         // 延遲來自 lockstep UpgradeAbility inputs 的 hero ability upgrade requests。
-        // 在 script dispatch 前 drain，讓 SkillLearn hooks 在 host 與 replica 的同一 tick 執行。
+        // 在 script dispatch 前 drain，讓 SkillLearn hooks 在 authoritative/local replica 的同一 tick 執行。
         ecs.insert(crate::comp::PendingAbilityUpgradeQueue::default());
 
         // 延遲來自 lockstep CastAbility inputs 的 hero ability cast requests。
@@ -423,8 +423,8 @@ impl StateInitializer {
         ecs.insert(crate::comp::PendingAbilityCastQueue::default());
 
         // MoveTo (右鍵移動): deferred hero MoveTarget writes from lockstep
-        // 移至輸入。之後被 `GameProcessor::drain_pending_moves` 耗盡
-        // 調度程式在主機 (omb) 和副本 (omfx sim_runner) 上執行。
+        // 移至輸入。之後在 dispatcher 後由 `GameProcessor::drain_pending_moves`
+        // drain，authoritative runtime 與 local replica 使用相同 boundary。
         ecs.insert(crate::comp::PendingMoveQueue::default());
 
         // 階段 5.3：觀察者重新加入的最新序列化世界快照。
@@ -481,7 +481,7 @@ impl StateInitializer {
         >::new());
 
         // 初始化 Searcher 資源
-        ecs.insert(crate::comp::outcome::Searcher::default());
+        ecs.insert(crate::comp::outcome::searcher_from_config());
 
         // 初始化不可通行多邊形區域（由 init_creep_wave 載入 generated map data 時填入）
         ecs.insert(BlockedRegions::default());
@@ -504,7 +504,7 @@ impl StateInitializer {
         ecs.insert(PlayerLives::default());
 
         // 載入裝備 Registry (MVP LoL item system)
-        let item_reg = crate::item::ItemRegistry::load_from_path("item-configs/items.json")
+        let item_reg = crate::item::load_registry_from_path("item-configs/items.json")
             .unwrap_or_else(|e| {
                 log::warn!("裝備 Registry 載入失敗（{}），使用空 registry", e);
                 crate::item::ItemRegistry::default()
@@ -515,7 +515,7 @@ impl StateInitializer {
         ecs.insert(crate::scripting::ScriptEventQueue::default());
 
         // Buff 系統資源（取代舊的 SlowBuff component）— creep_tick / buff_tick 都會讀
-        ecs.insert(crate::ability_runtime::BuffStore::new());
+        ecs.insert(omoba_core::runtime::ability_runtime::BuffStore::new());
 
         log::info!("ECS 基本資源初始化完成");
     }
@@ -876,12 +876,12 @@ impl StateInitializer {
 }
 
 // =====================================================================
-// 第 3 階段 omfx 端助手
+// 第 3 階段 local runtime bootstrap helper
 //
 // 露出一條細長的、無傳輸的引導路徑，產生完全
-// 為 omfx sim_runner 工作執行緒初始化了 ECS World。遺產
+// 為 local lockstep replica worker 初始化 ECS World。legacy
 // `State::new_with_campaign` 路徑也使用這些相同的建構塊，
-// 因此 omfx 端模擬器與 omobab.exe 保持同步。
+// 因此 local replica 與 authoritative runtime 保持同步。
 //
 // 筆記：
 // * 世界插入了一個空的`Vec<Sender<OutboundMsg>>`（透過
@@ -889,7 +889,7 @@ impl StateInitializer {
 // 訊息會默默地丟棄它們，這正是
 // 確定性模擬想要 — 線發射是主機的工作，而不是
 // 複製模擬器的。
-// * `MasterSeed` 保留預設值；呼叫者 (sim_runner)
+// * `MasterSeed` 保留預設值；runtime caller
 // 一旦 GameStart 訊息到達，就會覆蓋它。
 // * 腳本註冊表（塔/能力/塔升級）已滿
 // 在這裡，單位蜱可以正確產生/調度。
@@ -899,8 +899,8 @@ impl StateInitializer {
 /// （例如`scripts/lua_data/MVP_1`）。此路徑僅用於匯出
 /// 產生的故事 ID；運行時遊戲不會讀取故事 JSON/Lua 檔案。
 /// 插入戰役+腳本+塔/能力
-/// 註冊表。由階段 3 omfx sim_runner 使用；反映什麼
-/// `State::new_with_campaign` 確實減去了所有傳輸/心跳
+/// 註冊表。由階段 3 local replica bootstrap 使用；反映
+/// `State::new_with_campaign`，但移除所有傳輸/心跳
 /// 管道。
 pub fn create_world_for_scene(scene_path: &std::path::Path) -> Result<World, failure::Error> {
     use failure::err_msg;
@@ -917,7 +917,7 @@ pub fn create_world_for_scene(scene_path: &std::path::Path) -> Result<World, fai
         story_id,
         scene_str
     );
-    let campaign_data = CampaignData::load_generated(story_id).map_err(|e| {
+    let campaign_data = crate::ue4::import_campaign::load_generated(story_id).map_err(|e| {
         err_msg(format!(
             "CampaignData::load_generated({}) failed: {}",
             story_id, e
@@ -1076,7 +1076,7 @@ pub fn populate_tower_upgrade_registry(ecs: &mut World) {
 /// 第 3 階段 omfx 端幫助程式：從腳本登錄複製能力元數據
 /// 進入 ECS 端“AbilityRegistry”資源。
 pub fn populate_ability_registry(ecs: &mut World, registry: &crate::scripting::ScriptRegistry) {
-    use crate::ability_runtime::AbilityRegistry;
+    use omoba_core::runtime::ability_runtime::AbilityRegistry;
     let mut reg = AbilityRegistry::new();
     for (_id, def, _script) in registry.iter_abilities() {
         reg.register(def.clone());
@@ -1092,7 +1092,8 @@ mod tests {
 
     #[test]
     fn td_stress_emitter_uses_generated_template_stats() {
-        let campaign = CampaignData::load_generated("TD_STRESS").expect("generated TD_STRESS");
+        let campaign =
+            crate::ue4::import_campaign::load_generated("TD_STRESS").expect("generated TD_STRESS");
         let mut ecs = World::new();
         ecs.insert(BTreeMap::<String, CreepEmiter>::new());
 

@@ -571,7 +571,8 @@ impl ResourceManager {
             }
         }
         for (buff_id, payload) in stat_mods {
-            let mut store = world.write_resource::<crate::ability_runtime::BuffStore>();
+            let mut store =
+                world.write_resource::<omoba_core::runtime::ability_runtime::BuffStore>();
             // 階段 1c.3：BuffStore::add 採用 Fix64 — 透過原始 i64::MAX 進行「永久」標記。
             store.add(
                 tower_entity,
@@ -701,7 +702,8 @@ impl ResourceManager {
 
         // 清除 BuffStore 殘留（防止 upgrade_* f32::MAX 永久 buff 累積洩漏）
         {
-            let mut store = world.write_resource::<crate::ability_runtime::BuffStore>();
+            let mut store =
+                world.write_resource::<omoba_core::runtime::ability_runtime::BuffStore>();
             store.remove_all_for(target_entity);
         }
 

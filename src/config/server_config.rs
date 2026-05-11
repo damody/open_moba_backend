@@ -40,10 +40,9 @@ struct Setting {
 
 impl Default for ServerSetting {
     fn default() -> Self {
-        // omobab.exe 使用 cwd=omb 運行，因此透過相對路徑找到「game.toml」。
-        // omfx sim_runner 運行在 omfx 進程 cwd 中，其中相對路徑
-        // 錯過； OMB_GAME_TOML 環境變數讓呼叫者指向右側
-        // 絕對路徑（omfx 將其設為 D:/omoba/omb/game.toml）。
+        // omobab.exe 通常使用 cwd=omb 執行，因此相對路徑可找到 `game.toml`。
+        // 其他 runtime caller 可能使用不同 cwd；OMB_GAME_TOML 讓呼叫者提供
+        // 正確的絕對路徑。
         let file_path = std::env::var("OMB_GAME_TOML").unwrap_or_else(|_| "game.toml".to_string());
         let mut file = match File::open(&file_path) {
             Ok(f) => f,

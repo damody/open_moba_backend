@@ -219,8 +219,8 @@ impl State {
     ///
     /// 階段 3.2：將 populate_* 助手提取到
     /// `狀態::初始化::{populate_tower_template_registry,
-    /// populate_tower_upgrade_registry、populate_ability_registry}` 所以
-    /// omfx sim_runner 可以重複使用相同的引導程式碼。
+    /// populate_tower_upgrade_registry、populate_ability_registry}`，讓
+    /// local replica bootstrap 可以重複使用相同引導程式碼。
     fn load_scripts(&mut self) {
         let dir_str = std::env::var("OMB_SCRIPTS_DIR").unwrap_or_else(|_| "./scripts".to_string());
         let dir = std::path::Path::new(&dir_str);
@@ -322,12 +322,22 @@ impl State {
                 accumulated.extend(batch);
             }
             if !accumulated.is_empty() {
+                use prost::Message as _;
+
                 use crate::comp::PendingPlayerInputs;
                 let mut pending = self.ecs.write_resource::<PendingPlayerInputs>();
                 pending.tick = self.local_tick as u32;
                 pending.by_player.clear();
                 for (player_id, input) in accumulated {
-                    pending.by_player.insert(player_id, input);
+                    let bytes = input.encode_to_vec();
+                    match omoba_core::runtime::PlayerInput::decode(bytes.as_slice()) {
+                        Ok(input) => {
+                            pending.by_player.insert(player_id, input);
+                        }
+                        Err(e) => {
+                            log::warn!("failed to decode shared PlayerInput for host sidecar: {e}");
+                        }
+                    }
                 }
             }
         }
@@ -340,20 +350,19 @@ impl State {
         // 階段 2.1：耗盡 `PendingTowerSpawnQueue` 填充
         // 上述調度期間的`player_input_tick::Sys`。需要 `&mut World`
         // （TowerTemplateRegistry 尋找 + 實體建立 + ScriptEvent::Spawn
-        // Push) 是「System」的規格無法借用。副本（omfx sim_runner）
-        // 在其自己的調度程序運行後鏡像此調用。
+        // Push) 是「System」的規格無法借用。local replica 在自己的
+        // dispatcher 運行後使用相同 boundary drain。
         crate::comp::GameProcessor::drain_pending_tower_spawns(&mut self.ecs);
 
         // 階段 2.2：排出`PendingTowerSellQueue`（TowerSell 鎖步輸入）
         // — 相同的「&mut World」要求（金幣+BuffStore清除+
-        // 實體刪除）。副本在 sim_runner 中反映了這一點。
+        // 實體刪除）。local replica 使用相同 boundary。
         crate::comp::GameProcessor::drain_pending_tower_sells(&mut self.ecs);
 
         // 階段 2.3：排空`PendingTowerUpgradeQueue`（TowerUpgrade 鎖步
         // 輸入） - 需要 `&mut World` （TowerUpgradeRegistry 讀取，驗證
         // 透過 tower_upgrade_rules，扣除 Gold，寫入 Tower.upgrade_levels +
-        // Upgrade_flags，將 StatMod 推入 BuffStore）。複製品反映了這一點
-        // 在 sim_runner 中。
+        // Upgrade_flags，將 StatMod 推入 BuffStore）。local replica 使用相同 boundary。
         crate::comp::GameProcessor::drain_pending_tower_upgrades(&mut self.ecs);
 
         // 階段 2.4：排出 `PendingItemUseQueue` （ItemUse 鎖步輸入） —

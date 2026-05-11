@@ -200,10 +200,9 @@ impl SystemDispatcher {
     }
 }
 
-/// 第 3 階段 omfx 端助手：建立相同的類比調度程序
+/// 第 3 階段 local runtime helper：建立相同的 simulation dispatcher，
 /// `SystemDispatcher::run_systems` 將構建，但作為一個免費的獨立版本
-/// 呼叫者擁有的 `Dispatcher<'static, 'static>` (omfx sim_runner
-/// 工作線程）。使用內部人造絲線程池 - 呼叫者不使用
+/// 呼叫者擁有的 `Dispatcher<'static, 'static>`。使用內部 rayon thread pool；呼叫者不
 /// 需要與 omobab.exe 共用一個。
 ///
 /// 鏡像依賴鏈

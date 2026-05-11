@@ -31,7 +31,7 @@ pub struct CreepRead<'a> {
     turn_speeds: ReadStorage<'a, TurnSpeed>,
     radii: ReadStorage<'a, CollisionRadius>,
     searcher: Read<'a, Searcher>,
-    buff_store: Read<'a, crate::ability_runtime::BuffStore>,
+    buff_store: Read<'a, omoba_core::runtime::ability_runtime::BuffStore>,
     is_buildings: ReadStorage<'a, IsBuilding>,
 }
 
@@ -64,7 +64,7 @@ impl<'a> System<'a> for Sys {
         // CProperty.msd 的 dt 的舊版 f32 視圖（仍然是 f32；第 1c 階段）。
         let dt_f = dt.to_f32_for_render();
         let server_tick = tr.tick.0;
-        // omfx sim_runner 不連接傳輸；回退到接收器發送器
+        // Local replica 不連接傳輸；回退到 sink sender，
         // 因此靜默廣播站點無操作（try_send 返回斷開連接，被忽略）。
         let tx = tw.mqtx.get(0).cloned().unwrap_or_else(|| {
             let (tx, _rx) = crossbeam_channel::unbounded::<OutboundMsg>();
@@ -156,10 +156,11 @@ impl<'a> System<'a> for Sys {
                                     let mut next_status = creep.status.clone();
                                     // P4：每個週期計算一次有效移動速度 - 分享
                                     // 在移動步驟和 M 發射候選之間。
-                                    let stats = crate::ability_runtime::UnitStats::from_refs(
-                                        &*tr.buff_store,
-                                        tr.is_buildings.get(e).is_some(),
-                                    );
+                                    let stats =
+                                        omoba_core::runtime::ability_runtime::UnitStats::from_refs(
+                                            &*tr.buff_store,
+                                            tr.is_buildings.get(e).is_some(),
+                                        );
                                     let effective_msd = stats.final_move_speed(cp.msd, e);
                                     match creep.status {
                                         CreepStatus::PreWalk => {

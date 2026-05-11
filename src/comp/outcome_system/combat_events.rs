@@ -1,9 +1,9 @@
-use crate::ability_runtime::UnitStats;
 use crate::comp::*;
 use crate::transport::OutboundMsg;
 use crossbeam_channel::Sender;
 use omb_script_abi::stat_keys::StatKey;
 use omb_script_abi::types::DamageKind;
+use omoba_core::runtime::ability_runtime::UnitStats;
 use serde_json::json;
 /// 戰鬥相關事件處理
 use specs::{Entity, ReadStorage, World, WorldExt, WriteStorage};
@@ -54,7 +54,7 @@ impl CombatEventHandler {
         // 結果;子蜱攻擊順序不會打亂給定的投擲順序
         // 攻擊消耗。
         let (miss_chance, evasion): (f32, f32) = {
-            let buffs = world.read_resource::<crate::ability_runtime::BuffStore>();
+            let buffs = world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>();
             let is_bldgs = world.read_storage::<IsBuilding>();
             let tgt_stats = UnitStats::from_refs(&*buffs, is_bldgs.get(target).is_some());
             let src_stats = UnitStats::from_refs(&*buffs, is_bldgs.get(source).is_some());
@@ -98,7 +98,7 @@ impl CombatEventHandler {
         // ---- 套 UnitStats::apply_incoming_damage 逐類型減免 ----
         // CProperty 的 def_physic 當 armor；def_magic 當 magic_resist (0..1)。
         let (final_phys, final_magi, final_real) = {
-            let buffs = world.read_resource::<crate::ability_runtime::BuffStore>();
+            let buffs = world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>();
             let is_bldgs = world.read_storage::<IsBuilding>();
             let cps = world.read_storage::<CProperty>();
             let tgt_stats = UnitStats::from_refs(&*buffs, is_bldgs.get(target).is_some());
@@ -155,13 +155,13 @@ impl CombatEventHandler {
 
         // ---- 扣 HP，套 MIN_HEALTH 下限 ----
         let min_health: f32 = {
-            let buffs = world.read_resource::<crate::ability_runtime::BuffStore>();
+            let buffs = world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>();
             buffs
                 .sum_add(target, StatKey::MinHealth)
                 .to_f32_for_render()
         };
         let has_reincarnation = {
-            let buffs = world.read_resource::<crate::ability_runtime::BuffStore>();
+            let buffs = world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>();
             buffs.has(target, StatKey::Reincarnation.as_str())
         };
 
@@ -210,7 +210,8 @@ impl CombatEventHandler {
                 }
                 // 移除 reincarnation（一次性）
                 {
-                    let mut buffs = world.write_resource::<crate::ability_runtime::BuffStore>();
+                    let mut buffs =
+                        world.write_resource::<omoba_core::runtime::ability_runtime::BuffStore>();
                     buffs.remove(target, StatKey::Reincarnation.as_str());
                 }
                 let target_name = Self::get_entity_name(world, target);
@@ -246,7 +247,7 @@ impl CombatEventHandler {
         // 先查 buff 套 modifier
         let half = Fixed64::from_raw(512); // 0.5
         let effective_amount: Fixed64 = {
-            let buffs = world.read_resource::<crate::ability_runtime::BuffStore>();
+            let buffs = world.read_resource::<omoba_core::runtime::ability_runtime::BuffStore>();
             let disabled = buffs.has(target, StatKey::DisableHealing.as_str())
                 || buffs.sum_add(target, StatKey::DisableHealing) > half;
             if disabled {

@@ -11,10 +11,10 @@ use rayon::prelude::*;
 use serde_json::json;
 use specs::{shred, Read, ReadStorage, SystemData, World, Write, WriteStorage};
 
-use crate::ability_runtime::{BuffStore, UnitStats};
 use crate::comp::*;
 use crate::transport::OutboundMsg;
 use omb_script_abi::stat_keys::StatKey;
+use omoba_core::runtime::ability_runtime::{BuffStore, UnitStats};
 
 #[derive(SystemData)]
 pub struct RegenTickData<'a> {
