@@ -28,4 +28,3 @@ loggers:
     appenders:
       - requests
     additive: false
-  
