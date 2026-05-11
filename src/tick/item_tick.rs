@@ -1,8 +1,6 @@
 use crate::comp::*;
 use omoba_sim::Fixed64;
-use specs::{
-    shred, Entities, Join, Read, ReadExpect, ReadStorage, SystemData, Write, WriteStorage,
-};
+use specs::{shred, Entities, Join, Read, ReadExpect, SystemData, WriteStorage};
 
 #[inline]
 fn f32_to_fx(v: f32) -> Fixed64 {

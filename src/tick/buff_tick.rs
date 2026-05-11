@@ -9,14 +9,11 @@
 //! **DoT (Task 15)**：payload 含 `dot_damage` 的 buff 每秒對 target 扣 HP。
 //! 以 1 秒累計槽 (`dot_accum: f32`) 控制頻率，累積到 1s 時觸發一次整批 dot。
 
-use crossbeam_channel::Sender;
 use omb_script_abi::stat_keys::StatKey;
-use serde_json::json;
-use specs::{shred, Read, ReadStorage, SystemData, World, Write};
+use specs::{shred, Read, ReadStorage, SystemData, Write};
 
 use crate::comp::*;
 use crate::scripting::{ScriptEvent, ScriptEventQueue};
-use crate::transport::OutboundMsg;
 use omoba_core::runtime::ability_runtime::{BuffStore, UnitStats};
 
 /// 位移類 payload key — 任一存在於過期 buff 的 payload 就要重算 creep 移速並廣播 `creep/S`。
@@ -42,7 +39,6 @@ pub struct BuffTickData<'a> {
     creeps: ReadStorage<'a, Creep>,
     cpropertys: specs::WriteStorage<'a, CProperty>,
     is_buildings: ReadStorage<'a, IsBuilding>,
-    mqtx: Write<'a, Vec<Sender<OutboundMsg>>>,
     script_events: Write<'a, ScriptEventQueue>,
 }
 
@@ -58,7 +54,6 @@ impl<'a> System<'a> for Sys {
         // 階段 1c.3：BuffStore::tick 現在直接採用 Fix64。
         let dt = data.dt.0;
         let expired = data.buffs.tick(dt);
-        let tx = data.mqtx.get(0).cloned();
 
         // DoT (Task 15)：連續扣血，每 tick dot_damage * dt，達 dot/s 持續傷害
         // 累積到單次廣播避免每 tick 刷 creep/H。

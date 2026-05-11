@@ -1,4 +1,3 @@
-use crate::comp::base::span;
 use specs::{ReadExpect, RunNow};
 use std::sync::Mutex;
 use std::{collections::HashMap, time::Instant};

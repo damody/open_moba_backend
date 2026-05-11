@@ -1,16 +1,9 @@
 use crate::comp::*;
-use crate::transport::OutboundMsg;
-use crossbeam_channel::{Receiver, Sender};
 use omoba_sim::{Fixed64, Vec2 as SimVec2};
-use rayon::iter::IntoParallelRefIterator;
+use omoba_core::runtime::{RuntimeBroadcast, RuntimeEvent, RuntimeEvents};
 use serde_json::json;
-use specs::prelude::ParallelIterator;
-use specs::{
-    shred, Entities, Join, LazyUpdate, ParJoin, Read, ReadExpect, ReadStorage, SystemData, World,
-    Write, WriteStorage,
-};
-use std::{collections::BTreeMap, ops::Deref, thread};
-use vek::Vec2;
+use specs::{shred, Entities, Join, Read, ReadStorage, SystemData, Write};
+use std::collections::BTreeMap;
 
 #[derive(SystemData)]
 pub struct CreepWaveRead<'a> {
@@ -29,7 +22,7 @@ pub struct CreepWaveWrite<'a> {
     outcomes: Write<'a, Vec<Outcome>>,
     cur_creep_wave: Write<'a, CurrentCreepWave>,
     creep_waves: Write<'a, Vec<CreepWave>>,
-    mqtx: Write<'a, Vec<Sender<OutboundMsg>>>,
+    runtime_events: Write<'a, RuntimeEvents>,
 }
 
 #[derive(Default)]
@@ -43,12 +36,6 @@ impl<'a> System<'a> for Sys {
     fn run(_job: &mut Job<Self>, (tr, mut tw): Self::SystemData) {
         let totaltime = tr.time.0;
         let is_td = tr.game_mode.is_td();
-        // Local replica 不連接傳輸；回退到 sink sender，
-        // 因此靜默廣播站點無操作（try_send 返回斷開連接，被忽略）。
-        let tx = tw.mqtx.get(0).cloned().unwrap_or_else(|| {
-            let (tx, _rx) = crossbeam_channel::unbounded::<OutboundMsg>();
-            tx
-        });
         let mut cw = tw.cur_creep_wave;
         if cw.wave >= tw.creep_waves.len() {
             return;
@@ -134,12 +121,10 @@ impl<'a> System<'a> for Sys {
                     "total": total,
                     "is_running": false,
                 });
-                // P5：遊戲/回合+遊戲/結束是整個遊戲範圍的－觸及每位玩家。
-                #[cfg(any(feature = "grpc", feature = "kcp"))]
-                let round_msg = OutboundMsg::new_s_all("td/all/res", "game", "round", payload);
-                #[cfg(not(any(feature = "grpc", feature = "kcp")))]
-                let round_msg = OutboundMsg::new_s("td/all/res", "game", "round", payload);
-                let _ = tx.try_send(round_msg);
+                tw.runtime_events.push(
+                    RuntimeEvent::new("td/all/res", "game", "round", payload)
+                        .with_broadcast(RuntimeBroadcast::All),
+                );
                 log::info!(
                     "✅ TD 第 {} 波結束，等待 StartRound（已完成 {}/{}）",
                     finished,
@@ -150,11 +135,10 @@ impl<'a> System<'a> for Sys {
                 if finished >= total {
                     let end_payload =
                         json!({ "result": "victory", "reason": "all_rounds_cleared" });
-                    #[cfg(any(feature = "grpc", feature = "kcp"))]
-                    let end_msg = OutboundMsg::new_s_all("td/all/res", "game", "end", end_payload);
-                    #[cfg(not(any(feature = "grpc", feature = "kcp")))]
-                    let end_msg = OutboundMsg::new_s("td/all/res", "game", "end", end_payload);
-                    let _ = tx.try_send(end_msg);
+                    tw.runtime_events.push(
+                        RuntimeEvent::new("td/all/res", "game", "end", end_payload)
+                            .with_broadcast(RuntimeBroadcast::All),
+                    );
                     log::info!("🏆 TD 勝利：全部 {} 波已清空", total);
                 }
             } else {

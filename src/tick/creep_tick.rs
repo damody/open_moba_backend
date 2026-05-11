@@ -1,18 +1,12 @@
 use crate::comp::phys::MAX_COLLISION_RADIUS;
 use crate::comp::*;
-use crate::transport::OutboundMsg;
-use crossbeam_channel::Sender;
 use omoba_sim::trig::{angle_rotate_toward, atan2 as sim_atan2, fixed_rad_to_ticks, TAU_TICKS};
 use omoba_sim::{Angle, Fixed64, Vec2 as SimVec2};
-use rayon::iter::IntoParallelRefIterator;
-use serde_json::json;
 use specs::prelude::ParallelIterator;
 use specs::{
-    shred, Entities, Join, LazyUpdate, ParJoin, Read, ReadExpect, ReadStorage, SystemData, World,
-    Write, WriteStorage,
+    shred, Entities, ParJoin, Read, ReadStorage, SystemData, Write, WriteStorage,
 };
-use std::ops::Sub;
-use std::{collections::BTreeMap, ops::Deref, thread};
+use std::collections::BTreeMap;
 
 /// MOBA 鏡頭下肉眼無感的 facing 變化量（~15°）。舊值 0.05 (~3°) 造成過多 F event。
 const FACING_BROADCAST_THRESHOLD_RAD: f32 = 0.26;
@@ -47,7 +41,6 @@ pub struct CreepWrite<'a> {
     mv_broadcasts: WriteStorage<'a, CreepMoveBroadcast>,
     outcomes: Write<'a, Vec<Outcome>>,
     taken_damages: Write<'a, Vec<TakenDamage>>,
-    mqtx: Write<'a, Vec<Sender<OutboundMsg>>>,
 }
 
 #[derive(Default)]
@@ -64,12 +57,6 @@ impl<'a> System<'a> for Sys {
         // CProperty.msd 的 dt 的舊版 f32 視圖（仍然是 f32；第 1c 階段）。
         let dt_f = dt.to_f32_for_render();
         let server_tick = tr.tick.0;
-        // Local replica 不連接傳輸；回退到 sink sender，
-        // 因此靜默廣播站點無操作（try_send 返回斷開連接，被忽略）。
-        let tx = tw.mqtx.get(0).cloned().unwrap_or_else(|| {
-            let (tx, _rx) = crossbeam_channel::unbounded::<OutboundMsg>();
-            tx
-        });
 
         // P4 發出從 par_join 通道收集的候選者，由實體鍵入。
         // 承載電流（目標、速度、起始位置、朝向）- 閘控 +

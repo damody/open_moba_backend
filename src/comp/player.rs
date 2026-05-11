@@ -1,9 +1,7 @@
-use crate::TProperty;
 use crate::TowerData;
 use serde::{Deserialize, Serialize};
 use specs::storage::VecStorage;
 use specs::Component;
-use specs::Entity;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Player {

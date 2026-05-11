@@ -9,10 +9,9 @@ use abi_stable::{
     std_types::{RNone, RSome},
     RMut,
 };
-use crossbeam_channel::Sender;
 use omb_script_abi::{
     types::{DamageInfo, DamageKind, EntityHandle, Fixed64, Target, Vec2},
-    world::{GameWorld, GameWorldDyn, GameWorld_TO},
+    world::{GameWorldDyn, GameWorld_TO},
 };
 use specs::{Entity, Join, World, WorldExt};
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -23,7 +22,6 @@ use super::event::{ScriptEvent, ScriptEventQueue, SkillTarget};
 use super::registry::ScriptRegistry;
 use super::tag::ScriptUnitTag;
 use super::world_adapter::{AdapterCache, WorldAdapter};
-use crate::transport::OutboundMsg;
 
 /// 主入口點 - 在所有平行報價系統之後，每個報價調用一次
 /// 已經完成並且在 `world.maintain()` 之前。
@@ -35,7 +33,6 @@ pub fn run_script_dispatch(
     registry: &ScriptRegistry,
     rng_seed: u64,
     dt: Fixed64,
-    mqtx: Sender<OutboundMsg>,
 ) {
     // 先收集所有帶 tag 的 entity（避免 adapter 建立後又要 read_storage 借用衝突）
     let tagged: Vec<(Entity, String)> = {
@@ -60,7 +57,7 @@ pub fn run_script_dispatch(
     // 確定性重播（由上游滴答計數器驅動的種子）。
     // Cached storages 在這個 adapter 生命週期內共用，所有 GameWorld API 不再
     // 重新 borrow specs storage（單筆 4.17µs → 預期 ~1.5µs）。
-    let mut adapter = WorldAdapter::new(&*world, rng_seed, mqtx);
+    let mut adapter = WorldAdapter::new(&*world, rng_seed);
 
     // 首先調度排隊事件（Spawn / AttackHit / Damage / Death / ...）
     // 這樣新 spawn 的塔 on_spawn 能先初始化 stats，第一次 on_tick 看得到正確值

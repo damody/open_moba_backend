@@ -347,6 +347,8 @@ impl State {
         self.system_dispatcher.run_systems(&self.ecs)?;
         let run_systems_ns = t_run.elapsed().as_nanos();
 
+        self.flush_runtime_events();
+
         // 階段 2.1：耗盡 `PendingTowerSpawnQueue` 填充
         // 上述調度期間的`player_input_tick::Sys`。需要 `&mut World`
         // （TowerTemplateRegistry 尋找 + 實體建立 + ScriptEvent::Spawn
@@ -394,7 +396,6 @@ impl State {
             &self.script_registry,
             self.local_tick,
             dt_fx,
-            self.mqtx.clone(),
         );
         let script_dispatch_ns = t_dispatch.elapsed().as_nanos();
 
@@ -479,6 +480,18 @@ impl State {
         }
 
         Ok(())
+    }
+
+    fn flush_runtime_events(&mut self) {
+        let events = {
+            let mut events = self
+                .ecs
+                .write_resource::<Vec<omoba_core::runtime::RuntimeEvent>>();
+            std::mem::take(&mut *events)
+        };
+        for msg in crate::runtime_events::runtime_events_to_outbound(events) {
+            let _ = self.mqtx.try_send(msg);
+        }
     }
 
     /// 從傳輸層排出視窗更新。調用每個蜱蟲。

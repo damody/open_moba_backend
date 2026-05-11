@@ -1,15 +1,10 @@
-use crossbeam_channel::Sender;
 use omoba_sim::trig::{angle_rotate_toward, atan2 as sim_atan2, fixed_rad_to_ticks, TAU_TICKS};
 use omoba_sim::{Angle, Fixed64, Vec2 as SimVec2};
-use serde_json::json;
 use specs::prelude::ParallelIterator;
-use specs::{shred, Entities, Join, ParJoin, Read, ReadStorage, SystemData, Write, WriteStorage};
-use vek::*;
+use specs::{shred, Entities, ParJoin, Read, ReadStorage, SystemData, WriteStorage};
 
 use crate::comp::phys::MAX_COLLISION_RADIUS;
 use crate::comp::*;
-use crate::transport::OutboundMsg;
-use omoba_core::runtime::geometry::point_in_polygon;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static TICK_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -34,7 +29,6 @@ pub struct HeroMoveWrite<'a> {
     pos: WriteStorage<'a, Pos>,
     move_targets: WriteStorage<'a, MoveTarget>,
     facings: WriteStorage<'a, Facing>,
-    mqtx: Write<'a, Vec<Sender<OutboundMsg>>>,
 }
 
 #[derive(Default)]
@@ -147,7 +141,7 @@ impl<'a> System<'a> for Sys {
 
         // par_join 並行處理所有 hero — 各 hero 的 collision query 是 Searcher 的 read-only
         // 操作，可安全並行；&mut tw.pos / &mut tw.facings 由 specs 保證同 entity 只被一個
-        // thread 寫入。collect 結果後再一次性 remove move_targets + 廣播 OutboundMsg。
+        // thread 寫入。collect 結果後再一次性 remove move_targets。
         // 注意：ParJoin 在這裡是確定性安全的——每個英雄只寫入自己的 pos/face 儲存槽
         // （規範強制每個實體隔離），且每個實體的固定64/角度數學是與順序無關的。
         // 收集到的「結果」Vec 排序僅是有線格式（廣播順序）；鎖步狀態不受影響。

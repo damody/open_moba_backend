@@ -7,7 +7,6 @@
 //! 表面與 PoC-1（以及後續 PoC）實際需要的一樣小。
 
 use abi_stable::std_types::{RNone, ROption, RSome, RStr, RVec};
-use crossbeam_channel::Sender;
 use omb_script_abi::{
     stat_keys::StatKey,
     types::{Angle, DamageKind, EntityHandle, Fixed64, PathSpec, ProjectileSpec, Target, Vec2},
@@ -15,7 +14,6 @@ use omb_script_abi::{
 };
 use rand::{RngCore, SeedableRng};
 use rand_pcg::Pcg64Mcg;
-use serde_json::json;
 use specs::world::Generation;
 use specs::{
     Builder, Entities, Entity, Join, LazyUpdate, Read, ReadStorage, World, WorldExt, Write,
@@ -23,9 +21,8 @@ use specs::{
 };
 
 use crate::comp::*;
-use crate::scripting::event::{ScriptEvent, ScriptEventQueue};
-use crate::scripting::tag::ScriptUnitTag;
-use crate::transport::OutboundMsg;
+use super::event::{ScriptEvent, ScriptEventQueue};
+use super::tag::ScriptUnitTag;
 use omoba_core::runtime::ability_runtime::{BuffStore, UnitStats};
 
 /// 預先 fetch 好的 storage / resource 集合。
@@ -113,16 +110,13 @@ impl<'a> AdapterCache<'a> {
 pub struct WorldAdapter<'a> {
     pub cache: AdapterCache<'a>,
     pub rng: Pcg64Mcg,
-    /// 廣播給前端的 sender；spawn_projectile_ex、emit_explosion 會用到
-    pub mqtx: Sender<OutboundMsg>,
 }
 
 impl<'a> WorldAdapter<'a> {
-    pub fn new(world: &'a World, seed: u64, mqtx: Sender<OutboundMsg>) -> Self {
+    pub fn new(world: &'a World, seed: u64) -> Self {
         Self {
             cache: AdapterCache::new(world),
             rng: Pcg64Mcg::seed_from_u64(seed),
-            mqtx,
         }
     }
 
@@ -573,8 +567,8 @@ impl<'a> GameWorld for WorldAdapter<'a> {
     }
 
     fn emit_explosion(&mut self, pos: Vec2, radius: Fixed64, duration: Fixed64) {
-        // 階段 4.2：是 `mqtx.try_send(make_game_explosion_script(...))`；
-        // 現在透過推入來完成鎖定快照管道
+        // 階段 4.2：爆炸特效走鎖步快照管道；
+        // 現在透過推入來完成
         // `ExplosionFxQueue`。 sim_runner 提取器會耗盡每個
         // 勾選，渲染線程會產生帶有 omfx-wall-clock 的圓環
         // 生命週期。 ExplosionFxQueue 是一種無狀態資源（sim 從不

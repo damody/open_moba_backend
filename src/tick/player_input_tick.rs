@@ -10,14 +10,16 @@
 //! 再由 `GameProcessor` 在 dispatcher input routing 之後、script dispatch
 //! 之前統一 drain。
 
+#[cfg(feature = "kcp")]
 use specs::{Read, Write};
 
 use crate::comp::ecs::{Job, System};
-use crate::comp::{CurrentCreepWave, PendingPlayerInputs, Time};
+use crate::comp::PendingPlayerInputs;
 #[cfg(feature = "kcp")]
 use crate::comp::{
-    PendingAbilityCastQueue, PendingAbilityUpgradeQueue, PendingItemUseQueue, PendingMoveQueue,
-    PendingTowerSellQueue, PendingTowerSpawnQueue, PendingTowerUpgradeQueue,
+    CurrentCreepWave, PendingAbilityCastQueue, PendingAbilityUpgradeQueue, PendingItemUseQueue,
+    PendingMoveQueue, PendingTowerSellQueue, PendingTowerSpawnQueue, PendingTowerUpgradeQueue,
+    Time,
 };
 
 #[derive(Default)]

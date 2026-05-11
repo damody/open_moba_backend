@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use specs::storage::VecStorage;
-use specs::{Component, Entity};
+use specs::Component;
 use std::collections::HashMap;
 
 /// 戰役組件 - 管理戰役狀態和進度

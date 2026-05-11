@@ -34,6 +34,7 @@ mod tests {
         "omfx/game/src/lib.rs",
         "omfx/game/src/native.rs",
         "omfx/game/src/sim_runner.rs",
+        "omoba-core/src/runtime/native/snapshot.rs",
         "proto/game.proto",
     ];
 

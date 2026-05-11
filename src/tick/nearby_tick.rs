@@ -1,15 +1,7 @@
-use std::collections::hash_map;
-
-use crate::comp::phys::*;
 use crate::comp::*;
-use hashbrown::HashMap;
 use specs::prelude::ParallelIterator;
-use specs::{
-    shred, Entities, Entity, Join, LazyUpdate, ParJoin, Read, ReadExpect, ReadStorage, SystemData,
-    World, Write, WriteStorage,
-};
-use std::time::{Duration, Instant};
-use voracious_radix_sort::RadixSort;
+use specs::{shred, Entities, Entity, ParJoin, Read, ReadStorage, SystemData, Write, WriteStorage};
+use std::time::Instant;
 
 #[derive(SystemData)]
 pub struct NearbyRead<'a> {

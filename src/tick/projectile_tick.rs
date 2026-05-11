@@ -1,23 +1,15 @@
 use crate::comp::*;
-use crate::transport::OutboundMsg;
-use crossbeam_channel::Sender;
 use omb_script_abi::buff_ids::BuffId;
 use omb_script_abi::stat_keys::StatKey;
 use omoba_sim::{Fixed64, Vec2 as SimVec2};
 use specs::prelude::ParallelIterator;
-use specs::Entity;
-use specs::{
-    shred, Entities, Join, LazyUpdate, ParJoin, Read, ReadExpect, ReadStorage, SystemData, World,
-    Write, WriteStorage,
-};
+use specs::{shred, Entities, ParJoin, Read, SystemData, Write, WriteStorage};
 
 #[derive(SystemData)]
 pub struct ProjectileRead<'a> {
     entities: Entities<'a>,
-    time: Read<'a, Time>,
     dt: Read<'a, DeltaTime>,
     searcher: Read<'a, Searcher>,
-    hero_attacks: ReadStorage<'a, TAttack>,
 }
 
 #[derive(SystemData)]
@@ -25,9 +17,6 @@ pub struct ProjectileWrite<'a> {
     pos: WriteStorage<'a, Pos>,
     projs: WriteStorage<'a, Projectile>,
     outcomes: Write<'a, Vec<Outcome>>,
-    taken_damages: Write<'a, Vec<TakenDamage>>,
-    damage_instances: Write<'a, Vec<DamageInstance>>,
-    mqtx: Write<'a, Vec<Sender<OutboundMsg>>>,
 }
 
 #[derive(Default)]
@@ -39,7 +28,6 @@ impl<'a> System<'a> for Sys {
     const NAME: &'static str = "projectile";
 
     fn run(_job: &mut Job<Self>, (tr, mut tw): Self::SystemData) {
-        let time = tr.time.0;
         // dt 是固定64；針對彈道的算術保留在 Fix64 中。
         let dt: Fixed64 = tr.dt.0;
 
@@ -58,7 +46,7 @@ impl<'a> System<'a> for Sys {
 
         let mut outcomes = (&tr.entities, &mut tw.projs, &mut tw.pos)
             .par_join()
-            .filter(|(e, proj, p)| proj.time_left > Fixed64::ZERO)
+            .filter(|(_e, proj, _p)| proj.time_left > Fixed64::ZERO)
             .map_init(
                 || {
                     prof_span!(guard, "projectile update rayon job");

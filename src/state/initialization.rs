@@ -471,6 +471,7 @@ impl StateInitializer {
             wave_start_time: 0.0,
         });
         ecs.insert(Vec::<crate::Outcome>::new());
+        ecs.insert(Vec::<omoba_core::runtime::RuntimeEvent>::new());
         ecs.insert(Vec::<TakenDamage>::new());
         ecs.insert(SysMetrics::default());
         ecs.insert(crate::comp::TickProfile::default());

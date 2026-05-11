@@ -1,14 +1,6 @@
 use crate::comp::*;
 use omoba_sim::Fixed64;
-use specs::prelude::ParallelIterator;
-use specs::{
-    shred, Entities, Entity, Join, LazyUpdate, ParJoin, Read, ReadExpect, ReadStorage, SystemData,
-    World, Write, WriteStorage,
-};
-use std::{
-    collections::HashMap,
-    time::{Duration, Instant},
-};
+use specs::{shred, Entities, Entity, Join, Read, ReadStorage, SystemData, Write};
 
 #[derive(SystemData)]
 pub struct DeathRead<'a> {
@@ -35,8 +27,6 @@ impl<'a> System<'a> for Sys {
     const NAME: &'static str = "death";
 
     fn run(_job: &mut Job<Self>, (tr, mut tw): Self::SystemData) {
-        let time = tr.time.0;
-
         // 收集所有需要檢查死亡的實體
         let mut dead_entities = Vec::new();
         let mut death_rewards = Vec::new();
@@ -104,7 +94,7 @@ fn distribute_death_rewards(reward: &DeathReward, tr: &DeathRead, tw: &mut Death
     let mut eligible_heroes = Vec::new();
 
     // 找到範圍內的友方英雄
-    for (hero_entity, hero, hero_pos, hero_faction) in
+    for (hero_entity, _hero, hero_pos, hero_faction) in
         (&tr.entities, &tr.heroes, &tr.positions, &tr.factions).join()
     {
         let (hx, hy) = hero_pos.xy_f32();
@@ -144,8 +134,8 @@ fn distribute_death_rewards(reward: &DeathReward, tr: &DeathRead, tw: &mut Death
     };
 
     // 分配經驗值
-    for (i, (hero_entity, distance_sq)) in eligible_heroes.iter().enumerate() {
-        if let Some(hero) = tr.heroes.get(*hero_entity) {
+    for (i, (hero_entity, _distance_sq)) in eligible_heroes.iter().enumerate() {
+        if let Some(_hero) = tr.heroes.get(*hero_entity) {
             let exp_to_give = if i == 0 {
                 // 最近的英雄獲得主要經驗
                 primary_exp

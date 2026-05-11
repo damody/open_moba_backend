@@ -2,18 +2,11 @@ use crate::comp::*;
 use crate::tick::attack_phase::{
     advance_attack_phase, fixed_secs_to_ms, start_attack_windup, AttackPhaseStep,
 };
-use crate::transport::OutboundMsg;
-use crossbeam_channel::Sender;
-use instant_distance::Point;
-use omoba_sim::{Fixed64, Vec2 as SimVec2};
+use omoba_sim::Fixed64;
 use specs::prelude::ParallelIterator;
 use specs::Entity;
-use specs::{
-    shred, Entities, Join, LazyUpdate, ParJoin, Read, ReadExpect, ReadStorage, SystemData, World,
-    Write, WriteStorage,
-};
-use std::time::{Duration, Instant};
-use vek::*;
+use specs::{shred, Entities, ParJoin, Read, ReadStorage, SystemData, Write, WriteStorage};
+use std::time::Instant;
 
 /// MOBA 鏡頭下肉眼無感的 facing 變化量（~15°）。舊值 0.05 (~3°) 造成過多 F event。
 const FACING_BROADCAST_THRESHOLD_RAD: f32 = 0.26;
@@ -46,7 +39,6 @@ pub struct TowerWrite<'a> {
     tatks: WriteStorage<'a, TAttack>,
     facings: WriteStorage<'a, Facing>,
     facing_bcs: WriteStorage<'a, FacingBroadcast>,
-    mqtx: Write<'a, Vec<Sender<OutboundMsg>>>,
 }
 
 #[derive(Default)]
@@ -58,7 +50,6 @@ impl<'a> System<'a> for Sys {
     const NAME: &'static str = "tower";
 
     fn run(_job: &mut Job<Self>, (tr, mut tw): Self::SystemData) {
-        let time = tr.time.0;
         // 階段 1c.4：dt 在整個戰鬥週期中固定為 64。
         let dt: Fixed64 = tr.dt.0;
         // 有損投影僅保留面向弧度算術+搜尋器邊界。
@@ -68,7 +59,6 @@ impl<'a> System<'a> for Sys {
         let master_seed: u64 = tr.master_seed.0;
         let tick: u32 = tr.tick.0 as u32;
         let time1 = Instant::now();
-        let tx = tw.mqtx.get(0).cloned();
         let mut outcomes = (
             &tr.entities,
             &mut tw.towers,
@@ -273,25 +263,23 @@ impl<'a> System<'a> for Sys {
                             }
                         }
                     }
-                    (outcomes)
+                    outcomes
                 },
             )
             .fold(
                 || Vec::new(),
-                |(mut all_outcomes), (mut outcomes)| {
+                |mut all_outcomes, mut outcomes| {
                     all_outcomes.append(&mut outcomes);
                     all_outcomes
                 },
             )
             .reduce(
                 || Vec::new(),
-                |(mut outcomes_a), (mut outcomes_b)| {
+                |mut outcomes_a, mut outcomes_b| {
                     outcomes_a.append(&mut outcomes_b);
                     outcomes_a
                 },
             );
-        let time2 = Instant::now();
-        let elpsed = time2.duration_since(time1);
         // log::info!("塔更新1時間{:?}", elpsed);
         tw.outcomes.append(&mut outcomes);
     }

@@ -2,16 +2,12 @@ use crate::comp::*;
 use crate::tick::attack_phase::{
     advance_attack_phase, fixed_secs_to_ms, start_attack_windup, AttackPhaseStep,
 };
-use instant_distance::Point;
-use omoba_sim::{Fixed64, Vec2 as SimVec2};
+use omoba_sim::Fixed64;
 use specs::prelude::ParallelIterator;
-use specs::Entity;
 use specs::{
-    shred, Entities, Join, LazyUpdate, ParJoin, Read, ReadExpect, ReadStorage, SystemData, World,
-    Write, WriteStorage,
+    shred, Entities, Join, ParJoin, Read, ReadStorage, SystemData, Write, WriteStorage,
 };
-use std::time::{Duration, Instant};
-use vek::*;
+use std::time::Instant;
 
 /// MOBA 鏡頭下肉眼無感的 facing 變化量（~15°）。舊值 0.05 (~3°) 造成過多 F event。
 const FACING_BROADCAST_THRESHOLD_RAD: f32 = 0.26;
@@ -32,7 +28,6 @@ pub struct HeroRead<'a> {
     searcher: Read<'a, Searcher>,
     factions: ReadStorage<'a, Faction>,
     propertys: ReadStorage<'a, CProperty>,
-    units: ReadStorage<'a, Unit>,
     turn_speeds: ReadStorage<'a, TurnSpeed>,
     move_targets: ReadStorage<'a, MoveTarget>,
     buff_store: Read<'a, omoba_core::runtime::ability_runtime::BuffStore>,
@@ -46,7 +41,6 @@ pub struct HeroWrite<'a> {
     tatks: WriteStorage<'a, TAttack>,
     facings: WriteStorage<'a, Facing>,
     facing_bcs: WriteStorage<'a, FacingBroadcast>,
-    mqtx: Write<'a, Vec<crossbeam_channel::Sender<crate::transport::OutboundMsg>>>,
 }
 
 #[derive(Default)]
@@ -58,7 +52,6 @@ impl<'a> System<'a> for Sys {
     const NAME: &'static str = "hero";
 
     fn run(_job: &mut Job<Self>, (tr, mut tw): Self::SystemData) {
-        let time = tr.time.0;
         // 階段 1c.4：dt 現在在整個戰鬥週期中固定為 64。
         let dt: Fixed64 = tr.dt.0;
         // 有損投影僅保留用於搜尋者邊界+面向弧度數學。
@@ -90,7 +83,6 @@ impl<'a> System<'a> for Sys {
             hero.tick_cooldowns(dt);
         }
 
-        let tx = tw.mqtx.get(0).cloned();
         let mut outcomes = (
             &tr.entities,
             &mut tw.heroes,
@@ -106,7 +98,7 @@ impl<'a> System<'a> for Sys {
                     prof_span!(guard, "hero update rayon job");
                     guard
                 },
-                |_guard, (e, hero, pty, atk, pos, facing, facing_bc)| {
+                |_guard, (e, _hero, _pty, atk, pos, facing, facing_bc)| {
                     let mut outcomes: Vec<Outcome> = Vec::new();
 
                     // 注意：搜尋器內部使用 f32 來實作 instant_distance lib 相容性；呼叫者的最終距離檢查是固定64。
@@ -190,8 +182,6 @@ impl<'a> System<'a> for Sys {
 
                             if let Some(hero_faction) = hero_faction_map.get(&e) {
                                 for target_info in potential_targets.iter() {
-                                    let target_distance_squared = target_info.dis;
-
                                     // 首先檢查距離是否在攻擊範圍內
                                     if target_info.dis <= attack_range_squared {
                                         if let Some(target_faction) = tr.factions.get(target_info.e) {

@@ -6,13 +6,10 @@
 //! 建築物（IsBuilding）仍參與 HP regen（只有位移、復活、視野等 key 跳過）。
 //! 只對 `cp.hp > 0` 的單位 tick；死亡後 regen 暫停。
 
-use crossbeam_channel::Sender;
 use rayon::prelude::*;
-use serde_json::json;
-use specs::{shred, Read, ReadStorage, SystemData, World, Write, WriteStorage};
+use specs::{shred, Read, ReadStorage, SystemData, WriteStorage};
 
 use crate::comp::*;
-use crate::transport::OutboundMsg;
 use omb_script_abi::stat_keys::StatKey;
 use omoba_core::runtime::ability_runtime::{BuffStore, UnitStats};
 
@@ -24,7 +21,6 @@ pub struct RegenTickData<'a> {
     cpropertys: WriteStorage<'a, CProperty>,
     creeps: ReadStorage<'a, Creep>,
     heroes: ReadStorage<'a, Hero>,
-    mqtx: Write<'a, Vec<Sender<OutboundMsg>>>,
 }
 
 #[derive(Default)]
@@ -50,7 +46,6 @@ impl<'a> System<'a> for Sys {
         }
         let dt_f = std::mem::replace(&mut job.own.dt_acc, 0.0);
         let dt = omoba_sim::Fixed64::from_raw((dt_f * 1024.0) as i64);
-        let tx = data.mqtx.get(0).cloned();
 
         // 候選 entity：身上至少有一條 buff 含 HP regen 相關 key（任一）。
         // stress map 預期空集合 → 整個 system 跳過。

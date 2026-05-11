@@ -4,12 +4,11 @@
 //!    召喚物的自動攻擊 / 追敵 AI 在 UnitScript::on_tick（script 端）跑，這裡只做
 //!    「玩家命令移動」的通用覆蓋層，不處理碰撞（summoned units 允許穿越其他單位）。
 
-use crossbeam_channel::Sender;
+use omoba_core::runtime::{RuntimeBroadcast, RuntimeEvent, RuntimeEvents};
 use serde_json::json;
-use specs::{shred, Entities, Join, Read, ReadStorage, SystemData, World, Write, WriteStorage};
+use specs::{shred, Entities, Join, Read, SystemData, Write, WriteStorage};
 
 use crate::comp::*;
-use crate::transport::OutboundMsg;
 
 /// 召喚物被玩家命令移動時使用的固定移速。
 /// 與 saika_gunner.rs 內的 MOVE_SPEED 對齊，避免 AI chase 跟玩家 command 移速差太多。
@@ -23,7 +22,7 @@ pub struct SummonTickData<'a> {
     pos: WriteStorage<'a, Pos>,
     move_targets: WriteStorage<'a, MoveTarget>,
     facings: WriteStorage<'a, Facing>,
-    mqtx: Write<'a, Vec<Sender<OutboundMsg>>>,
+    runtime_events: Write<'a, RuntimeEvents>,
 }
 
 #[derive(Default)]
@@ -84,16 +83,11 @@ impl<'a> System<'a> for Sys {
             }
         }
 
-        let tx = data.mqtx.get(0).cloned();
         for e in expired {
-            if let Some(ref t) = tx {
-                let _ = t.try_send(OutboundMsg::new_s(
-                    "td/all/res",
-                    "unit",
-                    "D",
-                    json!({ "id": e.id() }),
-                ));
-            }
+            data.runtime_events.push(
+                RuntimeEvent::new("td/all/res", "unit", "D", json!({ "id": e.id() }))
+                    .with_broadcast(RuntimeBroadcast::All),
+            );
             let _ = data.entities.delete(e);
         }
     }

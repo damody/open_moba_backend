@@ -1,14 +1,7 @@
 use crate::comp::*;
 use omoba_sim::Fixed64;
-use specs::prelude::ParallelIterator;
-use specs::{
-    shred, Entities, Entity, Join, LazyUpdate, ParJoin, Read, ReadExpect, ReadStorage, SystemData,
-    World, Write, WriteStorage,
-};
-use std::{
-    collections::HashMap,
-    time::{Duration, Instant},
-};
+use specs::{shred, Entities, Entity, Join, Read, ReadStorage, SystemData, Write};
+use std::collections::HashMap;
 
 /// Damage_tick 的每實體 SimRng 操作類型。每個（實體，操作）對都得到它的
 /// 自己的確定性流－保持這些常數穩定；重新排序會
@@ -45,8 +38,6 @@ impl<'a> System<'a> for Sys {
     const NAME: &'static str = "damage";
 
     fn run(_job: &mut Job<Self>, (tr, mut tw): Self::SystemData) {
-        let time = tr.time.0;
-        let dt = tr.dt.0;
         let master_seed: u64 = tr.master_seed.0;
         let tick: u32 = tr.tick.0 as u32;
 
@@ -55,7 +46,7 @@ impl<'a> System<'a> for Sys {
         let mut unit_stats: HashMap<Entity, (Fixed64, Fixed64, Fixed64, Fixed64)> = HashMap::new();
 
         // 收集 Unit 屬性
-        for (entity, unit, properties) in (&tr.entities, &tr.units, &tr.properties).join() {
+        for (entity, unit, _properties) in (&tr.entities, &tr.units, &tr.properties).join() {
             unit_stats.insert(
                 entity,
                 (
