@@ -1,4 +1,4 @@
-[server]
+﻿[server]
 MAP = "map.json"
 MAX_PLAYER = 10000
 SERVER_IP = "localhost"
@@ -6,5 +6,40 @@ SERVER_PORT = "50061"
 CLIENT_ID = "omobab"
 PLAYER_NAME = "player1"
 RENDER_DELAY_MS = 100
-# 壓力測試場景：1000 塔 × 1000 × 10000HP 怪（由 scripts/gen_stress_map.py 生成）
-STORY = "TD_STRESS"
+# 預設場景。run.bat 直接讀此檔；run_stress.bat 會臨時 swap 成 game_stress.toml
+# (STORY = TD_STRESS) 並在結束時自動還原。
+STORY = "TD_1"
+# Game speed multiplier (debug only)。1 = real-time，2/4/8 = 快轉。
+# 每 real frame 跑 N 個 sub-tick，sim 推進 N × 固定 120Hz tick dt。
+# Runtime: 在 omb 的 stdin 輸入 `:speed 4` 切到 4×、`:speed 1` 還原。範圍 1..=16。
+# 注意：硬體跟不上 N× 模擬負擔時會 frame drop（變成 N 倍以下的有效速度）。
+SPEED_MULT = 1
+
+# Vision shadow casting 用 spatial index。可選: "quadtree" | "hash_grid" | "bvh" | "sap"。
+[vision]
+SPATIAL_INDEX = "quadtree"
+SHG_CELL_SIZE = 128.0
+QUADTREE_MAX_DEPTH = 8
+QUADTREE_MAX_PER_NODE = 10
+BVH_MAX_LEAF = 4
+# Collision pre-detection 用 spatial index。Searcher 4 個類別獨立選演算法。
+# 可選: "quadtree" | "hash_grid" | "bvh" | "sap"
+#
+# 預設配置依據 micro-bench (N=5000) 的觀察：
+#   spatial_index_consistency_tests::bench_four_impls
+#
+# - tower: 變更罕見（mark_dirty 觸發）+ tower_tick 每 tick query → BVH
+#          (5000 entry: query 2.5 ms vs SAP 5.9 ms；rebuild 5 ms 罕見可吞)
+# - creep: 每 tick rebuild_from + 大量 entries → SAP（diff + voracious_mt_sort）
+# （5000 個條目：批次 0.65 毫秒 vs hash_grid 1.66 毫秒 vs 四叉樹 4.48 毫秒）
+# - hero: N 通常 < 10，演算法差異不可量；用 SAP 沿用 creep 風格保持一致
+# - region: 一次性 init 後永遠 query → BVH（query 最快、rebuild 只發生一次）
+[collision]
+SPATIAL_INDEX_TOWER = "bvh"
+SPATIAL_INDEX_CREEP = "sap"
+SPATIAL_INDEX_HERO = "sap"
+SPATIAL_INDEX_REGION = "bvh"
+SHG_CELL_SIZE = 128.0
+QUADTREE_MAX_DEPTH = 8
+QUADTREE_MAX_PER_NODE = 10
+BVH_MAX_LEAF = 4

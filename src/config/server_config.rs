@@ -53,7 +53,12 @@ impl Default for ServerSetting {
             Ok(s) => s,
             Err(e) => panic!("Error Reading ApplicationConfig: {}", e),
         };
-        let setting: Setting = toml::from_str(&str_val).unwrap();
+        let mut setting: Setting = toml::from_str(&str_val).unwrap();
+        if let Ok(story) = std::env::var("OMB_STORY") {
+            if !story.trim().is_empty() {
+                setting.server.STORY = story;
+            }
+        }
         setting.server
     }
 }
