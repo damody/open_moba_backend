@@ -1,6 +1,22 @@
+#![allow(
+    ambiguous_glob_reexports,
+    dead_code,
+    non_snake_case,
+    redundant_semicolons,
+    unexpected_cfgs,
+    unused_assignments,
+    unused_attributes,
+    unused_imports,
+    unused_macros,
+    unused_mut,
+    unused_parens,
+    unused_variables
+)]
+
 /// 開啟MOBA後端庫
 ///
 /// Open MOBA 遊戲後端的主庫箱
+
 pub mod ability_runtime;
 pub mod aoi;
 pub mod comp;

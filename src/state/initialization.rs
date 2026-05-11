@@ -504,13 +504,10 @@ impl StateInitializer {
         ecs.insert(GameMode::default());
         ecs.insert(PlayerLives::default());
 
-        // 載入裝備 Registry (MVP LoL item system)
-        let item_reg = crate::item::load_registry_from_path("item-configs/items.json")
-            .unwrap_or_else(|e| {
-                log::warn!("裝備 Registry 載入失敗（{}），使用空 registry", e);
-                crate::item::ItemRegistry::default()
-            });
-        ecs.insert(item_reg);
+        // Item loading is host/launcher IO. Runtime world initialization only
+        // installs the resource slot; backend or local replica callers provide
+        // the loaded registry through their adapter before gameplay starts.
+        ecs.insert(crate::item::ItemRegistry::default());
 
         // 腳本事件佇列（由 tick 系統推入、ScriptDispatchSystem 於本 tick 尾端抽乾）
         ecs.insert(crate::scripting::ScriptEventQueue::default());
@@ -918,28 +915,40 @@ pub fn create_world_for_scene(scene_path: &std::path::Path) -> Result<World, fai
         story_id,
         scene_str
     );
-    let campaign_data = crate::ue4::import_campaign::load_generated(story_id).map_err(|e| {
-        err_msg(format!(
-            "CampaignData::load_generated({}) failed: {}",
-            story_id, e
-        ))
-    })?;
+    let dir_str = std::env::var("OMB_SCRIPTS_DIR").unwrap_or_else(|_| "./scripts".to_string());
+    let dir = std::path::Path::new(&dir_str);
+    let registry = crate::scripting::loader::load_scripts_dir(dir);
+    create_world_for_scene_with_content(
+        scene_path,
+        crate::item::ItemRegistry::default(),
+        registry,
+    )
+}
+
+/// Build a fully initialized ECS world from already-loaded runtime content.
+///
+/// This is the shared pure bootstrap boundary: callers own filesystem/config
+/// IO (game.toml, item JSON, script DLL discovery) and pass loaded content in.
+pub fn create_world_from_loaded_content(
+    campaign_data: CampaignData,
+    item_registry: crate::item::ItemRegistry,
+    script_registry: crate::scripting::ScriptRegistry,
+) -> Result<World, failure::Error> {
+    use failure::err_msg;
     if let Err(err) = campaign_data.validate() {
         return Err(err_msg(format!("Campaign data validation failed: {}", err)));
     }
 
     let thread_pool = StateInitializer::create_thread_pool();
     let mut ecs = StateInitializer::setup_campaign_ecs_world(&thread_pool);
+    ecs.insert(item_registry);
 
-    // 在場景初始化之前載入腳本，以便spawn_td_tower可以解析
-    // unit_id → 腳本模板。
-    let dir_str = std::env::var("OMB_SCRIPTS_DIR").unwrap_or_else(|_| "./scripts".to_string());
-    let dir = std::path::Path::new(&dir_str);
-    let registry = crate::scripting::loader::load_scripts_dir(dir);
-    populate_tower_template_registry(&mut ecs, &registry);
+    // Script metadata is supplied by the caller; runtime init only projects it
+    // into ECS registries used by deterministic gameplay and snapshots.
+    populate_tower_template_registry(&mut ecs, &script_registry);
     populate_tower_upgrade_registry(&mut ecs);
-    populate_ability_registry(&mut ecs, &registry);
-    ecs.insert(registry);
+    populate_ability_registry(&mut ecs, &script_registry);
+    ecs.insert(script_registry);
 
     // 應用戰役/地圖資料。
     StateInitializer::init_campaign_data(&mut ecs, &campaign_data);
@@ -947,8 +956,31 @@ pub fn create_world_for_scene(scene_path: &std::path::Path) -> Result<World, fai
     StateInitializer::create_campaign_scene(&mut ecs, &campaign_data);
     StateInitializer::populate_region_blockers(&mut ecs);
 
-    log::info!("[create_world_for_scene] ECS world ready");
+    log::info!("[create_world_from_loaded_content] ECS world ready");
     Ok(ecs)
+}
+
+/// Convenience adapter for callers that still derive the generated campaign
+/// from a scene path but have already loaded item/script content.
+pub fn create_world_for_scene_with_content(
+    scene_path: &std::path::Path,
+    item_registry: crate::item::ItemRegistry,
+    script_registry: crate::scripting::ScriptRegistry,
+) -> Result<World, failure::Error> {
+    use failure::err_msg;
+    let story_id = scene_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| err_msg("scene_path does not end in a valid story id"))?;
+
+    let campaign_data = crate::ue4::import_campaign::load_generated(story_id).map_err(|e| {
+        err_msg(format!(
+            "CampaignData::load_generated({}) failed: {}",
+            story_id, e
+        ))
+    })?;
+
+    create_world_from_loaded_content(campaign_data, item_registry, script_registry)
 }
 
 /// 第 3 階段 omfx 端幫助程式：從 a 填入 `TowerTemplateRegistry`

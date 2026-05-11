@@ -204,8 +204,9 @@ impl State {
             host_input_rx: None,
         };
 
-        state.initialize_standard_game();
+        state.load_item_registry();
         state.load_scripts();
+        state.initialize_standard_game();
 
         // 階段 5.2：遺留 0x02 心跳廣播切斷。鎖步刻度批次處理
         // (0x10) 透過每週期 state_hash 處理客戶端活躍度。
@@ -231,6 +232,15 @@ impl State {
         );
         super::initialization::populate_tower_upgrade_registry(&mut self.ecs);
         super::initialization::populate_ability_registry(&mut self.ecs, &self.script_registry);
+    }
+
+    fn load_item_registry(&mut self) {
+        let item_reg = crate::item::load_registry_from_path("item-configs/items.json")
+            .unwrap_or_else(|e| {
+                log::warn!("裝備 Registry 載入失敗（{}），使用空 registry", e);
+                crate::item::ItemRegistry::default()
+            });
+        self.ecs.insert(item_reg);
     }
 
     /// 創建新的遊戲狀態（戰役模式）
@@ -289,6 +299,7 @@ impl State {
             host_input_rx: None,
         };
 
+        state.load_item_registry();
         // 先載 scripts，才能讓 initialize_campaign_game 內的 send_tower_templates 拿到 registry
         state.load_scripts();
         state.initialize_campaign_game(&campaign_data);
