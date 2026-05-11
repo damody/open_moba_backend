@@ -90,13 +90,13 @@ impl CampaignManager {
         hero_data: &crate::ue4::import_campaign::HeroJD,
         campaign_data: &CampaignData,
     ) {
-        use omoba_template_ids::{hero_abilities, hero_by_name, hero_stats};
+        use omoba_template_ids::{active_hero_abilities, active_hero_stats, hero_by_name};
         let hero = Hero::from_campaign_data(hero_data);
         // 從 templates.lua generated stats 取 attack_range / base_armor — story hero 條目已 slim
         // 成只剩 id，campaign-specific 的 stats 來源唯一。
         let id = hero_by_name(&hero_data.id)
             .unwrap_or_else(|| panic!("hero id '{}' not in generated templates", hero_data.id));
-        let s = hero_stats(id).unwrap_or_else(|| {
+        let s = active_hero_stats(id).unwrap_or_else(|| {
             panic!(
                 "hero '{}' has no stats in generated templates",
                 hero_data.id
@@ -106,7 +106,7 @@ impl CampaignManager {
         let hero_properties = Self::create_hero_properties(&hero, s.base_armor);
         let hero_attack = Self::create_hero_attack(&hero, s.attack_range);
         let abilities: Vec<String> = if hero_data.abilities.is_empty() {
-            hero_abilities(id)
+            active_hero_abilities(id)
                 .iter()
                 .map(|a| a.as_str().to_string())
                 .collect()

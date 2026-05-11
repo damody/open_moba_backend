@@ -60,6 +60,10 @@ fn read_input() -> Option<String> {
 async fn main() -> std::result::Result<(), Error> {
     log4rs::init_file("log4rs.yml", Default::default()).unwrap();
 
+    if omoba_template_ids::ensure_runtime_lua_content().map_err(err_msg)? {
+        log::info!("Runtime Lua content mode enabled");
+    }
+
     // 載入戰役資料（由 game.toml 的 STORY 欄位決定 generated story id）。
     let campaign_data = CampaignData::load_generated(&CONFIG.STORY).unwrap_or_else(|e| {
         panic!(
@@ -83,8 +87,8 @@ async fn main() -> std::result::Result<(), Error> {
         let hid = omoba_template_ids::hero_by_name(hid_str).unwrap_or_default();
         log::info!(
             "Hero: {} - {}",
-            omoba_template_ids::hero_display(hid),
-            omoba_template_ids::hero_title(hid),
+            omoba_template_ids::active_hero_display(hid),
+            omoba_template_ids::active_hero_title(hid),
         );
     }
     log::info!("Total stages: {}", campaign_data.mission.stages.len());

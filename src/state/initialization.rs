@@ -211,9 +211,9 @@ impl StateInitializer {
             let creep_id = omoba_template_ids::creep_by_name(&cp.Name).unwrap_or_else(|| {
                 panic!("map creep '{}' missing generated creep template", cp.Name)
             });
-            let stats = omoba_template_ids::creep_stats(creep_id)
+            let stats = omoba_template_ids::active_creep_stats(creep_id)
                 .unwrap_or_else(|| panic!("map creep '{}' has no generated creep stats", cp.Name));
-            let display_name = omoba_template_ids::creep_display(creep_id);
+            let display_name = omoba_template_ids::active_creep_display(creep_id);
             let label = if display_name.is_empty() {
                 None
             } else {
@@ -568,7 +568,7 @@ impl StateInitializer {
             // 從 templates.lua generated stats 取 hero stats（attack_range / turn_speed / 等）。
             // generated story hero 條目已 slim 成只剩 id，無 attack_range / turn_speed / collision_radius。
             let hero_template_stats = omoba_template_ids::hero_by_name(&hero_data.id)
-                .and_then(|hid| omoba_template_ids::hero_stats(hid))
+                .and_then(|hid| omoba_template_ids::active_hero_stats(hid))
                 .unwrap_or_else(|| panic!("hero '{}' not in generated templates", hero_data.id));
 
             let hero_attack = TAttack {

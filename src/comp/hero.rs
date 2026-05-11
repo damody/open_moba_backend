@@ -87,11 +87,12 @@ impl Hero {
     /// `HeroJD`（generated story）只剩 `id` 拿來查 generated templates。
     pub fn from_campaign_data(hero_data: &crate::ue4::import_campaign::HeroJD) -> Self {
         use omoba_template_ids::{
-            hero_abilities, hero_by_name, hero_display, hero_stats, hero_title,
+            active_hero_abilities, active_hero_display, active_hero_stats, active_hero_title,
+            hero_by_name,
         };
         let id = hero_by_name(&hero_data.id)
             .unwrap_or_else(|| panic!("hero id '{}' not in generated templates", hero_data.id));
-        let s = hero_stats(id).unwrap_or_else(|| {
+        let s = active_hero_stats(id).unwrap_or_else(|| {
             panic!(
                 "hero '{}' has no stats in generated templates",
                 hero_data.id
@@ -103,7 +104,7 @@ impl Hero {
             2 => AttributeType::Intelligence,
             _ => AttributeType::Strength,
         };
-        let abilities: Vec<String> = hero_abilities(id)
+        let abilities: Vec<String> = active_hero_abilities(id)
             .iter()
             .map(|aid| aid.as_str().to_string())
             .collect();
@@ -114,8 +115,8 @@ impl Hero {
 
         Hero {
             id: hero_data.id.clone(),
-            name: hero_display(id).to_string(),
-            title: hero_title(id).to_string(),
+            name: active_hero_display(id).to_string(),
+            title: active_hero_title(id).to_string(),
             background: String::new(), // background 不再放 ECS Hero component（templates.lua 內部用）
             strength: s.strength,
             agility: s.agility,

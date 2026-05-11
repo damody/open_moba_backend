@@ -9,7 +9,7 @@ use std::time::SystemTime;
 use crate::comp::*;
 use crate::transport::{InboundMsg, OutboundMsg};
 use omoba_sim::{Fixed64, Vec2 as SimVec2};
-use omoba_template_ids::{hero_abilities, HERO_SAIKA_MAGOICHI};
+use omoba_template_ids::{active_hero_abilities, HERO_SAIKA_MAGOICHI};
 
 pub struct MqttHandler;
 
@@ -127,7 +127,7 @@ impl MqttHandler {
                         "position": [400.0, 300.0],
                         "health": [100.0, 100.0],
                         "hero_type": HERO_SAIKA_MAGOICHI.as_str(),
-                        "abilities": hero_abilities(HERO_SAIKA_MAGOICHI)
+                        "abilities": active_hero_abilities(HERO_SAIKA_MAGOICHI)
                             .iter()
                             .map(|aid| json!({
                                 "ability_id": aid.as_str(),

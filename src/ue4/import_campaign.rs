@@ -189,11 +189,15 @@ pub struct UiSettingsJD {
 
 // ===== 載入函數 =====
 impl CampaignData {
-    /// 從「omoba-template-ids」產生的 Rust 資料載入已傳送的活動資料。
-    /// 運行時遊戲不會讀取 JSON 或 Lua 內容原始檔。
+    /// 從 active template content 載入戰役資料。預設為 generated Rust data；
+    /// `runtime-lua-content` feature + `OMB_LUA_CONTENT=1` 時改讀 Lua-loaded snapshot。
     pub fn load_generated(story_id: &str) -> Result<CampaignData, Box<dyn std::error::Error>> {
-        let story = omoba_template_ids::story_by_name(story_id)
-            .ok_or_else(|| format!("unknown generated story '{}'", story_id))?;
+        omoba_template_ids::ensure_runtime_lua_content().map_err(|e| {
+            Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
+                as Box<dyn std::error::Error>
+        })?;
+        let story = omoba_template_ids::active_story_by_name(story_id)
+            .ok_or_else(|| format!("unknown active story '{}'", story_id))?;
         Self::from_generated_story(story)
     }
 

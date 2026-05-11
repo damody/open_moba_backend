@@ -8,7 +8,7 @@
 
 use omoba_core::tower_meta::{StatOp, TowerUpgradeDef, UpgradeEffect};
 use omoba_template_ids::{
-    tower_upgrades, StatOpC, UpgradeDefConst, UpgradeEffectConst, UpgradeEffectKindC, TOWER_BOMB,
+    active_tower_upgrades, StatOpC, UpgradeEffectConst, UpgradeEffectKindC, TOWER_BOMB,
     TOWER_DART, TOWER_ICE, TOWER_TACK,
 };
 use std::collections::HashMap;
@@ -23,7 +23,7 @@ impl TowerUpgradeRegistry {
         let mut defs = HashMap::new();
         for &tid in &[TOWER_DART, TOWER_TACK, TOWER_BOMB, TOWER_ICE] {
             let kind = tid.as_str();
-            let Some(paths) = tower_upgrades(tid) else {
+            let Some(paths) = active_tower_upgrades(tid) else {
                 continue;
             };
             for (path_idx, path) in paths.iter().enumerate() {

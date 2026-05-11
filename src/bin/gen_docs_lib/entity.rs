@@ -19,10 +19,10 @@ pub fn load(story_id: &str) -> Result<EntityData> {
         let id = hero.id.clone();
         let hid = omoba_template_ids::hero_by_name(&id)
             .with_context(|| format!("hero template missing: {id}"))?;
-        let stats = omoba_template_ids::hero_stats(hid)
+        let stats = omoba_template_ids::active_hero_stats(hid)
             .with_context(|| format!("hero template has no stats: {id}"))?;
         let abilities = if hero.abilities.is_empty() {
-            omoba_template_ids::hero_abilities(hid)
+            omoba_template_ids::active_hero_abilities(hid)
                 .iter()
                 .map(|id| omoba_template_ids::ability_id_str(*id).to_string())
                 .filter(|id| !id.is_empty())
@@ -53,8 +53,8 @@ fn hero_info(
     abilities: Vec<String>,
 ) -> HeroInfo {
     HeroInfo {
-        name: omoba_template_ids::hero_display(id).to_string(),
-        title: omoba_template_ids::hero_title(id).to_string(),
+        name: omoba_template_ids::active_hero_display(id).to_string(),
+        title: omoba_template_ids::active_hero_title(id).to_string(),
         background: String::new(),
         strength: stats.strength as f32,
         agility: stats.agility as f32,
@@ -86,7 +86,7 @@ fn insert_creep(
 ) -> Result<()> {
     let cid = omoba_template_ids::creep_by_name(id)
         .with_context(|| format!("creep template missing: {id}"))?;
-    let stats = omoba_template_ids::creep_stats(cid)
+    let stats = omoba_template_ids::active_creep_stats(cid)
         .with_context(|| format!("creep template has no stats: {id}"))?;
     creeps.insert(id.to_string(), creep_info(cid, stats, abilities));
     Ok(())
@@ -98,7 +98,7 @@ fn creep_info(
     abilities: Vec<String>,
 ) -> CreepInfo {
     CreepInfo {
-        name: omoba_template_ids::creep_display(id).to_string(),
+        name: omoba_template_ids::active_creep_display(id).to_string(),
         enemy_type: enemy_type_name(stats.enemy_type).to_string(),
         hp: stats.hp.to_f32_for_render(),
         armor: stats.armor.to_f32_for_render(),

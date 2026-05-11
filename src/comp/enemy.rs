@@ -99,10 +99,10 @@ impl Enemy {
     /// `omoba_template_ids::creep_stats(id)` const 查找，`EnemyJD`（產生的故事）
     /// 只剩 `id` 拿來查 generated templates。abilities 仍允許 story override。
     pub fn from_campaign_data(enemy_data: &crate::ue4::import_campaign::EnemyJD) -> Self {
-        use omoba_template_ids::{creep_by_name, creep_display, creep_stats};
+        use omoba_template_ids::{active_creep_display, active_creep_stats, creep_by_name};
         let id = creep_by_name(&enemy_data.id)
             .unwrap_or_else(|| panic!("enemy id '{}' not in generated templates", enemy_data.id));
-        let s = creep_stats(id).unwrap_or_else(|| {
+        let s = active_creep_stats(id).unwrap_or_else(|| {
             panic!(
                 "enemy '{}' has no stats in generated templates",
                 enemy_data.id
@@ -131,7 +131,7 @@ impl Enemy {
         // 是固定 64 真相來源，敵人結構字段按設計保持 f32/i32 並在生成邊界轉換。
         Enemy {
             id: enemy_data.id.clone(),
-            name: creep_display(id).to_string(),
+            name: active_creep_display(id).to_string(),
             enemy_type,
             max_hp: s.hp.to_f32_for_render() as i32,
             current_hp: s.hp.to_f32_for_render() as i32,
