@@ -32,6 +32,7 @@ mod tests {
         "omb/src/transport/kcp_transport.rs",
         "omfx/game/src/lockstep_client.rs",
         "omfx/game/src/lib.rs",
+        "omfx/game/src/native.rs",
         "omfx/game/src/sim_runner.rs",
         "proto/game.proto",
     ];
