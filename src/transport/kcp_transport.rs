@@ -323,6 +323,114 @@ fn outbound_urgency(msg: &OutboundMsg) -> Urgency {
     urgency(&t, &a)
 }
 
+const URGENT_PIGGYBACK_LIMIT: usize = 64;
+const LOCKSTEP_BACKLOG_LOG_THRESHOLD: usize = 1024;
+
+fn recv_priority(
+    normal_rx: &Receiver<OutboundMsg>,
+    lockstep_rx: &Receiver<OutboundMsg>,
+) -> Option<OutboundMsg> {
+    if let Ok(msg) = lockstep_rx.try_recv() {
+        return Some(msg);
+    }
+    crossbeam_channel::select! {
+        recv(lockstep_rx) -> msg => msg.ok(),
+        recv(normal_rx) -> msg => msg.ok(),
+    }
+}
+
+fn collect_priority_batch(
+    normal_rx: &Receiver<OutboundMsg>,
+    lockstep_rx: &Receiver<OutboundMsg>,
+    min_batch: std::time::Duration,
+    max_batch: std::time::Duration,
+) -> Option<Vec<OutboundMsg>> {
+    let first = recv_priority(normal_rx, lockstep_rx)?;
+    let first_is_lockstep = first.lockstep_frame.is_some();
+    let first_is_urgent = outbound_urgency(&first) == Urgency::Urgent;
+    let mut batch: Vec<OutboundMsg> = vec![first];
+    let window_start = std::time::Instant::now();
+
+    if first_is_lockstep {
+        let normal_backlog = normal_rx.len();
+        if normal_backlog >= LOCKSTEP_BACKLOG_LOG_THRESHOLD {
+            debug!(
+                "KCP lockstep priority send bypassing ordinary_backlog={}",
+                normal_backlog
+            );
+        }
+        while let Ok(m) = lockstep_rx.try_recv() {
+            batch.push(m);
+        }
+        return Some(batch);
+    }
+
+    if first_is_urgent {
+        for _ in 0..URGENT_PIGGYBACK_LIMIT {
+            if let Ok(m) = lockstep_rx.try_recv() {
+                debug!(
+                    "KCP lockstep priority piggyback bypassing ordinary_backlog={}",
+                    normal_rx.len()
+                );
+                batch.push(m);
+                break;
+            }
+            match normal_rx.try_recv() {
+                Ok(m) => batch.push(m),
+                Err(_) => break,
+            }
+        }
+        return Some(batch);
+    }
+
+    loop {
+        if let Ok(m) = lockstep_rx.try_recv() {
+            debug!(
+                "KCP lockstep priority interrupted normal batch ordinary_backlog={}",
+                normal_rx.len()
+            );
+            batch.push(m);
+            break;
+        }
+
+        let elapsed = window_start.elapsed();
+        if elapsed >= max_batch {
+            break;
+        }
+        let timeout = max_batch - elapsed;
+        crossbeam_channel::select! {
+            recv(lockstep_rx) -> msg => {
+                match msg {
+                    Ok(m) => {
+                        debug!(
+                            "KCP lockstep priority interrupted normal wait ordinary_backlog={}",
+                            normal_rx.len()
+                        );
+                        batch.push(m);
+                    }
+                    Err(_) => break,
+                }
+                break;
+            }
+            recv(normal_rx) -> msg => {
+                match msg {
+                    Ok(m) => {
+                        let is_urg = outbound_urgency(&m) == Urgency::Urgent;
+                        batch.push(m);
+                        if is_urg && window_start.elapsed() >= min_batch {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+            default(timeout) => break,
+        }
+    }
+
+    Some(batch)
+}
+
 /// 從 OutboundMsg JSON 中提取 (msg_type, action, Option<entity_id>)
 /// 有效負載。 `entity_id = None` 表示解析失敗或 `d.id` 不存在；
 /// 呼叫者將其視為不可重複資料。目前的「d.id = 0」是合法的
@@ -348,20 +456,67 @@ fn peek_kind_and_id(payload: &str) -> (String, String, Option<u64>) {
     (t, a, id)
 }
 
+fn snapshot_resp_from_store(store: &crate::comp::SnapshotStore) -> SnapshotResp {
+    SnapshotResp {
+        tick: store.tick,
+        state: Some(SimSnapshot {
+            world_bytes: store.bytes.clone(),
+            schema_version: crate::lockstep::SNAPSHOT_SCHEMA_VERSION,
+        }),
+    }
+}
+
+fn bootstrap_snapshot_frame(
+    client_session_id: String,
+    store: &crate::comp::SnapshotStore,
+) -> crate::lockstep::LockstepFrame {
+    crate::lockstep::LockstepFrame::SnapshotResp {
+        client_session_id,
+        msg: snapshot_resp_from_store(store),
+    }
+}
+
+fn enqueue_bootstrap_snapshot(
+    session_id: &str,
+    lockstep_tx: &Sender<OutboundMsg>,
+    lockstep_snapshot_store: &Arc<std::sync::Mutex<crate::comp::SnapshotStore>>,
+) {
+    let (frame, bytes_len) = {
+        let store = lockstep_snapshot_store
+            .lock()
+            .expect("SnapshotStore mutex poisoned");
+        (
+            bootstrap_snapshot_frame(session_id.to_string(), &store),
+            store.bytes.len(),
+        )
+    };
+    let tick = match &frame {
+        crate::lockstep::LockstepFrame::SnapshotResp { msg, .. } => msg.tick,
+        _ => unreachable!("bootstrap_snapshot_frame always returns SnapshotResp"),
+    };
+
+    info!(
+        "📸 bootstrap SnapshotResp for {} tick={} bytes={}",
+        session_id, tick, bytes_len
+    );
+    if let Err(e) = lockstep_tx.send(OutboundMsg::lockstep_frame(frame)) {
+        warn!("Failed to enqueue bootstrap SnapshotResp: {}", e);
+    }
+}
+
 /// 啟動KCP傳輸層。
 ///
 /// 步驟 2 鎖定步驟：呼叫者傳遞共享的 `Arc<Mutex<InputBuffer>>` 並
 /// `Arc<Mutex<LockstepState>>` 因此每個客戶端的讀取循環可以：
 /// - 將 0x10 InputSubmit 有效負載推送到右側刻度處的緩衝區；
 /// - 註冊玩家+在 0x13 JoinRequest 上回覆 0x14 GameStart；
-/// - 在 0x15 SnapshotReq 上回覆 0x16 SnapshotResp。
+/// - 在 0x13 JoinRequest bootstrap 後回覆 0x16 SnapshotResp。
 ///
 /// 階段 5.3 新增了「lockstep_snapshot_store」：調度程式滴答循環
 /// `state::core::tick()` 每隔一段時間就會將一個新的 `WorldSnapshot` 映像檔到這個 Arc 中
-/// `SNAPSHOT_INTERVAL_TICKS`（= 30 秒 @ 120 Hz）。 0x15 SnapshotReq 處理程序
-/// 克隆出最新的位元組並將它們作為 0x16 SnapshotResp 返回到
-/// 請求觀察者客戶端。空字節 (`tick=0`) 是有效的 —
-/// 觀察者在沒有引導程式的情況下從目前的tick開始播放。
+/// `SNAPSHOT_INTERVAL_TICKS`（= 30 秒 @ 120 Hz）。Join bootstrap 克隆出最新的
+/// 位元組並將它們作為 0x16 SnapshotResp 返回到剛加入的 client。空字節
+/// (`tick=0`) 是有效的 — client 在沒有引導程式的情況下從目前的 tick 開始播放。
 pub async fn start(
     server_addr: String,
     server_port: String,
@@ -380,6 +535,7 @@ pub async fn start(
     // 遺留事件完全廣播（第 5 階段範圍）和/或分割鎖步
     // 和遊戲事件頻道，因此一個頻道的緩慢消耗不會阻礙另一個頻道的發展。
     let (out_tx, out_rx): (Sender<OutboundMsg>, Receiver<OutboundMsg>) = bounded(100_000);
+    let (lockstep_tx, lockstep_rx): (Sender<OutboundMsg>, Receiver<OutboundMsg>) = bounded(10_000);
     let (in_tx, in_rx): (Sender<InboundMsg>, Receiver<InboundMsg>) = bounded(10000);
     let (query_tx, query_rx): (Sender<QueryRequest>, Receiver<QueryRequest>) = bounded(100);
     let (viewport_tx, viewport_rx): (Sender<ViewportMsg>, Receiver<ViewportMsg>) = bounded(1024);
@@ -429,56 +585,18 @@ pub async fn start(
             const MAX_BATCH: Duration = Duration::from_millis(33);
 
             'outer: loop {
-                // 等第一筆訊息（阻塞）
-                let first = match out_rx.recv() {
-                    Ok(m) => m,
-                    Err(_) => {
+                // 等第一筆訊息（阻塞）。Lockstep frames have a separate priority
+                // channel so ordinary TD_STRESS GameEvent backlog cannot place a
+                // TickBatch behind thousands of creep/entity updates.
+                let Some(batch) = collect_priority_batch(
+                    &out_rx,
+                    &lockstep_rx,
+                    MIN_BATCH,
+                    MAX_BATCH,
+                ) else {
                         info!("Outbound channel closed, stopping KCP broadcaster");
                         break 'outer;
-                    }
                 };
-                let first_is_urgent = outbound_urgency(&first) == Urgency::Urgent;
-                let mut batch: Vec<crate::transport::OutboundMsg> = vec![first];
-                let window_start = Instant::now();
-
-                if first_is_urgent {
-                    // 緊急負責人：排空已經排隊的所有內容
-                    // 堵塞，立即沖洗。保持延遲預算
-                    // 此事件<1ms，同時仍批處理任何
-                    // 碰巧和它一起到達。
-                    while let Ok(m) = out_rx.try_recv() {
-                        batch.push(m);
-                    }
-                } else {
-                    // 普通頭：無條件批次為MIN_BATCH，然後
-                    // MIN_BATCH..=MAX_BATCH 之間任何緊急情況都會儘早重新整理。
-                    loop {
-                        let now = Instant::now();
-                        let elapsed = now.duration_since(window_start);
-                        if elapsed >= MAX_BATCH {
-                            break;
-                        }
-                        let timeout = MAX_BATCH - elapsed;
-                        match out_rx.recv_timeout(timeout) {
-                            Ok(m) => {
-                                let is_lockstep = m.lockstep_frame.is_some();
-                                let is_urg = outbound_urgency(&m) == Urgency::Urgent;
-                                batch.push(m);
-                                if is_lockstep {
-                                    break;
-                                }
-                                // 如果緊急情況在 MIN_BATCH 之後到達，則不要
-                                // 再等一下——批次已經
-                                // 節省了重複資料刪除成本。
-                                if is_urg && window_start.elapsed() >= MIN_BATCH {
-                                    break;
-                                }
-                            }
-                            Err(crossbeam_channel::RecvTimeoutError::Timeout) => break,
-                            Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break 'outer,
-                        }
-                    }
-                }
 
                 // 折疊多餘的最新勝利更新（creep.M/*.H/entity.F/creep.S/hero.stats）
                 // 編碼之前。有關完整策略，請參閱“is_dedupable”。
@@ -776,7 +894,7 @@ pub async fn start(
     let in_tx_accept = in_tx.clone();
     let query_tx_accept = query_tx.clone();
     let viewport_tx_accept = viewport_tx.clone();
-    let out_tx_accept = out_tx.clone();
+    let lockstep_tx_accept = lockstep_tx.clone();
     let lockstep_input_buffer_accept = lockstep_input_buffer.clone();
     let lockstep_state_accept = lockstep_state.clone();
     let lockstep_snapshot_store_accept = lockstep_snapshot_store.clone();
@@ -802,7 +920,7 @@ pub async fn start(
             let in_tx = in_tx_accept.clone();
             let query_tx = query_tx_accept.clone();
             let viewport_tx = viewport_tx_accept.clone();
-            let out_tx = out_tx_accept.clone();
+            let lockstep_tx = lockstep_tx_accept.clone();
             let lockstep_input_buffer = lockstep_input_buffer_accept.clone();
             let lockstep_state = lockstep_state_accept.clone();
             let lockstep_snapshot_store = lockstep_snapshot_store_accept.clone();
@@ -816,7 +934,7 @@ pub async fn start(
                     in_tx,
                     query_tx,
                     viewport_tx,
-                    out_tx,
+                    lockstep_tx,
                     lockstep_input_buffer,
                     lockstep_state,
                     lockstep_snapshot_store,
@@ -831,6 +949,7 @@ pub async fn start(
 
     Ok(TransportHandle {
         tx: out_tx,
+        lockstep_tx,
         rx: in_rx,
         query_rx,
         viewport_rx,
@@ -846,7 +965,7 @@ async fn handle_client(
     in_tx: Sender<InboundMsg>,
     query_tx: Sender<QueryRequest>,
     viewport_tx: Sender<ViewportMsg>,
-    out_tx: Sender<OutboundMsg>,
+    lockstep_tx: Sender<OutboundMsg>,
     lockstep_input_buffer: Arc<std::sync::Mutex<crate::lockstep::InputBuffer>>,
     lockstep_state: Arc<std::sync::Mutex<crate::lockstep::LockstepState>>,
     lockstep_snapshot_store: Arc<std::sync::Mutex<crate::comp::SnapshotStore>>,
@@ -1093,8 +1212,14 @@ async fn handle_client(
                                             client_session_id: session_id.clone(),
                                             msg: game_start,
                                         };
-                                        if let Err(e) = out_tx.send(OutboundMsg::lockstep_frame(frame)) {
+                                        if let Err(e) = lockstep_tx.send(OutboundMsg::lockstep_frame(frame)) {
                                             warn!("Failed to enqueue GameStart: {}", e);
+                                        } else {
+                                            enqueue_bootstrap_snapshot(
+                                                &session_id,
+                                                &lockstep_tx,
+                                                &lockstep_snapshot_store,
+                                            );
                                         }
                                     }
                                     Err(e) => warn!("Failed to decode JoinRequest: {}", e),
@@ -1103,41 +1228,11 @@ async fn handle_client(
                             TAG_SNAPSHOT_REQ => {
                                 match SnapshotReq::decode(payload.as_slice()) {
                                     Ok(req) => {
-                                        // 階段5.3：服務最新
-                                        // bincode 序列化的世界快照
-                                        // 來自共享 SnapshotStore。這
-                                        // 調度程序滴答循環刷新此
-                                        // 每 SNAPSHOT_INTERVAL_TICKS
-                                        // （= 30 秒 @ 30 赫茲）。空字節的意思
-                                        // 尚未拍攝任何快照 —
-                                        // 觀察者重新開始玩耍
-                                        // 從 `current_tick` 轉發，不含
-                                        // 引導程式。
-                                        let (snapshot_tick, snapshot_bytes) = {
-                                            let store = lockstep_snapshot_store
-                                                .lock()
-                                                .expect("SnapshotStore mutex poisoned");
-                                            (store.tick, store.bytes.clone())
-                                        };
                                         let current_tick = lockstep_state.lock().unwrap().current_tick;
-                                        info!(
-                                            "📸 SnapshotReq from {} for from_tick={} → serving snapshot tick={} bytes={} (current_tick={})",
-                                            session_id, req.from_tick, snapshot_tick, snapshot_bytes.len(), current_tick
+                                        warn!(
+                                            "Ignoring SnapshotReq from {} for from_tick={} (current_tick={}): snapshots are bootstrap-only",
+                                            session_id, req.from_tick, current_tick
                                         );
-                                        let resp = SnapshotResp {
-                                            tick: snapshot_tick,
-                                            state: Some(SimSnapshot {
-                                                world_bytes: snapshot_bytes,
-                                                schema_version: crate::lockstep::SNAPSHOT_SCHEMA_VERSION,
-                                            }),
-                                        };
-                                        let frame = crate::lockstep::LockstepFrame::SnapshotResp {
-                                            client_session_id: session_id.clone(),
-                                            msg: resp,
-                                        };
-                                        if let Err(e) = out_tx.send(OutboundMsg::lockstep_frame(frame)) {
-                                            warn!("Failed to enqueue SnapshotResp: {}", e);
-                                        }
                                     }
                                     Err(e) => warn!("Failed to decode SnapshotReq: {}", e),
                                 }
@@ -1468,7 +1563,7 @@ mod tests {
     // 小幫手，使用 crossbeam 接收器並返回收集到的數據
     // 批。這讓我們可以提供合成（定時）輸入並斷言刷新
     // 定時。與上面的真實廣播循環保持同步。
-    use crossbeam_channel::{bounded, RecvTimeoutError};
+    use crossbeam_channel::bounded;
     use std::time::{Duration, Instant};
 
     fn collect_batch(
@@ -1476,37 +1571,8 @@ mod tests {
         min_batch: Duration,
         max_batch: Duration,
     ) -> Option<Vec<OutboundMsg>> {
-        let first = rx.recv().ok()?;
-        let first_urg = outbound_urgency(&first);
-        let mut batch = vec![first];
-        let start = Instant::now();
-        if first_urg == Urgency::Urgent {
-            while let Ok(m) = rx.try_recv() {
-                batch.push(m);
-            }
-            return Some(batch);
-        }
-        loop {
-            let now = Instant::now();
-            let elapsed = now.duration_since(start);
-            if elapsed >= max_batch {
-                break;
-            }
-            let timeout = max_batch - elapsed;
-            match rx.recv_timeout(timeout) {
-                Ok(m) => {
-                    let is_lockstep = m.lockstep_frame.is_some();
-                    let is_urg = outbound_urgency(&m) == Urgency::Urgent;
-                    batch.push(m);
-                    if is_lockstep || (is_urg && start.elapsed() >= min_batch) {
-                        break;
-                    }
-                }
-                Err(RecvTimeoutError::Timeout) => break,
-                Err(RecvTimeoutError::Disconnected) => break,
-            }
-        }
-        Some(batch)
+        let (_lockstep_tx, lockstep_rx) = bounded::<OutboundMsg>(32);
+        collect_priority_batch(rx, &lockstep_rx, min_batch, max_batch)
     }
 
     #[test]
@@ -1534,19 +1600,26 @@ mod tests {
     fn lockstep_frame_flushes_immediately() {
         use crate::lockstep::{LockstepFrame, TickBatch};
 
-        let (tx, rx) = bounded::<OutboundMsg>(32);
-        tx.send(OutboundMsg::lockstep_frame(LockstepFrame::TickBatch(
-            TickBatch {
-                tick: 1,
-                inputs: Vec::new(),
-                server_events: Vec::new(),
-                ..Default::default()
-            },
-        )))
-        .unwrap();
+        let (_normal_tx, normal_rx) = bounded::<OutboundMsg>(32);
+        let (lockstep_tx, lockstep_rx) = bounded::<OutboundMsg>(32);
+        lockstep_tx
+            .send(OutboundMsg::lockstep_frame(LockstepFrame::TickBatch(
+                TickBatch {
+                    tick: 1,
+                    inputs: Vec::new(),
+                    server_events: Vec::new(),
+                    ..Default::default()
+                },
+            )))
+            .unwrap();
         let t0 = Instant::now();
-        let batch =
-            collect_batch(&rx, Duration::from_millis(10), Duration::from_millis(33)).unwrap();
+        let batch = collect_priority_batch(
+            &normal_rx,
+            &lockstep_rx,
+            Duration::from_millis(10),
+            Duration::from_millis(33),
+        )
+        .unwrap();
         let elapsed = t0.elapsed();
         assert!(
             elapsed < Duration::from_millis(5),
@@ -1560,28 +1633,89 @@ mod tests {
     fn lockstep_frame_short_circuits_normal_batch() {
         use crate::lockstep::{LockstepFrame, TickBatch};
 
-        let (tx, rx) = bounded::<OutboundMsg>(32);
-        tx.send(make("creep", "H", json!({ "id": 42, "hp": 10.0 })))
+        let (normal_tx, normal_rx) = bounded::<OutboundMsg>(32);
+        let (lockstep_tx, lockstep_rx) = bounded::<OutboundMsg>(32);
+        normal_tx
+            .send(make("creep", "H", json!({ "id": 42, "hp": 10.0 })))
             .unwrap();
-        tx.send(OutboundMsg::lockstep_frame(LockstepFrame::TickBatch(
-            TickBatch {
-                tick: 1,
-                inputs: Vec::new(),
-                server_events: Vec::new(),
-                ..Default::default()
-            },
-        )))
-        .unwrap();
+        lockstep_tx
+            .send(OutboundMsg::lockstep_frame(LockstepFrame::TickBatch(
+                TickBatch {
+                    tick: 1,
+                    inputs: Vec::new(),
+                    server_events: Vec::new(),
+                    ..Default::default()
+                },
+            )))
+            .unwrap();
         let t0 = Instant::now();
-        let batch =
-            collect_batch(&rx, Duration::from_millis(10), Duration::from_millis(33)).unwrap();
+        let batch = collect_priority_batch(
+            &normal_rx,
+            &lockstep_rx,
+            Duration::from_millis(10),
+            Duration::from_millis(33),
+        )
+        .unwrap();
         let elapsed = t0.elapsed();
         assert!(
             elapsed < Duration::from_millis(5),
             "lockstep did not short-circuit: {:?}",
             elapsed
         );
-        assert_eq!(batch.len(), 2);
+        assert_eq!(batch.len(), 1);
+        assert!(batch[0].lockstep_frame.is_some());
+        assert_eq!(normal_rx.len(), 1);
+    }
+
+    #[test]
+    fn lockstep_priority_bypasses_large_ordinary_backlog() {
+        use crate::lockstep::{LockstepFrame, TickBatch};
+
+        let (normal_tx, normal_rx) = bounded::<OutboundMsg>(512);
+        let (lockstep_tx, lockstep_rx) = bounded::<OutboundMsg>(32);
+        for id in 0..400u64 {
+            normal_tx
+                .send(make("creep", "H", json!({ "id": id, "hp": 10.0 })))
+                .unwrap();
+        }
+        lockstep_tx
+            .send(OutboundMsg::lockstep_frame(LockstepFrame::TickBatch(
+                TickBatch {
+                    tick: 99,
+                    inputs: Vec::new(),
+                    server_events: Vec::new(),
+                    ..Default::default()
+                },
+            )))
+            .unwrap();
+
+        let batch = collect_priority_batch(
+            &normal_rx,
+            &lockstep_rx,
+            Duration::from_millis(10),
+            Duration::from_millis(33),
+        )
+        .unwrap();
+
+        assert_eq!(batch.len(), 1);
+        assert!(batch[0].lockstep_frame.is_some());
+        assert_eq!(normal_rx.len(), 400);
+    }
+
+    #[test]
+    fn urgent_flush_does_not_drain_unbounded_ordinary_events() {
+        let (tx, rx) = bounded::<OutboundMsg>(256);
+        tx.send(make("creep", "D", json!({ "id": 42 }))).unwrap();
+        for id in 0..128u64 {
+            tx.send(make("creep", "H", json!({ "id": id, "hp": 10.0 })))
+                .unwrap();
+        }
+
+        let batch =
+            collect_batch(&rx, Duration::from_millis(10), Duration::from_millis(33)).unwrap();
+
+        assert_eq!(batch.len(), URGENT_PIGGYBACK_LIMIT + 1);
+        assert!(rx.len() > 0);
     }
 
     #[test]
@@ -1688,6 +1822,73 @@ mod tests {
     }
 
     // ===== 第 2 階段鎖步往返測試 =====
+
+    fn source_between<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+        let start_idx = source.find(start).expect("start marker exists");
+        let tail = &source[start_idx..];
+        let end_idx = tail.find(end).expect("end marker exists");
+        &tail[..end_idx]
+    }
+
+    #[test]
+    fn bootstrap_snapshot_frame_uses_latest_store() {
+        let store = crate::comp::SnapshotStore {
+            tick: 42,
+            bytes: vec![1, 2, 3, 4],
+        };
+
+        let frame = bootstrap_snapshot_frame("session-a".to_string(), &store);
+
+        match frame {
+            crate::lockstep::LockstepFrame::SnapshotResp {
+                client_session_id,
+                msg,
+            } => {
+                assert_eq!(client_session_id, "session-a");
+                assert_eq!(msg.tick, 42);
+                let state = msg.state.expect("bootstrap snapshot state");
+                assert_eq!(state.world_bytes, vec![1, 2, 3, 4]);
+                assert_eq!(
+                    state.schema_version,
+                    crate::lockstep::SNAPSHOT_SCHEMA_VERSION
+                );
+            }
+            other => panic!("unexpected frame: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn input_submit_arm_does_not_touch_snapshot_delivery() {
+        let source = include_str!("kcp_transport.rs");
+        let arm = source_between(source, "TAG_INPUT_SUBMIT =>", "TAG_JOIN_REQUEST =>");
+
+        assert!(!arm.contains("lockstep_snapshot_store"));
+        assert!(!arm.contains("SnapshotResp"));
+        assert!(!arm.contains("snapshot_resp_from_store"));
+        assert!(!arm.contains("bootstrap_snapshot"));
+    }
+
+    #[test]
+    fn player_command_arm_does_not_touch_snapshot_delivery() {
+        let source = include_str!("kcp_transport.rs");
+        let arm = source_between(source, "TAG_PLAYER_COMMAND =>", "TAG_GAME_STATE_REQUEST =>");
+
+        assert!(!arm.contains("lockstep_snapshot_store"));
+        assert!(!arm.contains("SnapshotResp"));
+        assert!(!arm.contains("snapshot_resp_from_store"));
+        assert!(!arm.contains("bootstrap_snapshot"));
+    }
+
+    #[test]
+    fn explicit_snapshot_req_arm_does_not_send_snapshot_response() {
+        let source = include_str!("kcp_transport.rs");
+        let arm = source_between(source, "TAG_SNAPSHOT_REQ =>", "TAG_PING_REQ =>");
+
+        assert!(!arm.contains("lockstep_snapshot_store"));
+        assert!(!arm.contains("OutboundMsg::lockstep_frame"));
+        assert!(!arm.contains("SnapshotResp"));
+        assert!(!arm.contains("snapshot_resp_from_store"));
+    }
 
     #[test]
     fn lockstep_input_submit_decode_roundtrip() {

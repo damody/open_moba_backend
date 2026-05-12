@@ -30,7 +30,7 @@
 
 use crossbeam_channel::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
-use tokio::time::{interval, Duration};
+use tokio::time::{interval, Duration, MissedTickBehavior};
 
 use crate::lockstep::{
     InputBuffer, InputForPlayer, LockstepFrame, LockstepState, StateHash, TickBatch,
@@ -135,6 +135,9 @@ impl TickBroadcaster {
             log::info!("TickBroadcaster: state_hash_rx wired — using authoritative ECS hash");
         }
         let mut ticker = interval(Duration::from_micros(self.config.tick_period_us));
+        // Hard-cap the server cadence: if the task is delayed, skip catch-up bursts
+        // instead of emitting multiple TickBatches back-to-back.
+        ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
         // tokio 的第一個間隔刻度立即觸發；跳過它所以
         // 第一個發布的價格變動出現在 +period，而不是 t=0。
         ticker.tick().await;

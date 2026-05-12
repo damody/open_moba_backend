@@ -439,6 +439,11 @@ pub enum ViewportMsg {
 /// 傳輸層初始化傳回的句柄。
 pub struct TransportHandle {
     pub tx: Sender<OutboundMsg>,
+    /// KCP-only priority path for lockstep frames. Gameplay events continue using
+    /// `tx`; TickBatch/GameStart/SnapshotResp should use this sender so high
+    /// volume legacy GameEvent traffic cannot starve lockstep input playback.
+    #[cfg(feature = "kcp")]
+    pub lockstep_tx: Sender<OutboundMsg>,
     pub rx: Receiver<InboundMsg>,
     #[cfg(any(feature = "grpc", feature = "kcp"))]
     pub query_rx: Receiver<QueryRequest>,

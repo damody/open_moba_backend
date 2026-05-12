@@ -47,6 +47,12 @@ use std::{
 
 const TPS: u64 = LOCKSTEP_TPS_U64;
 
+#[cfg(target_os = "windows")]
+#[link(name = "winmm")]
+extern "system" {
+    fn timeBeginPeriod(u_period: u32) -> u32;
+}
+
 fn read_input() -> Option<String> {
     let mut buffer = String::new();
 
@@ -59,6 +65,13 @@ fn read_input() -> Option<String> {
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Error> {
+    // Windows default timer granularity is too coarse for 120Hz lockstep.
+    // Match omfx so tokio intervals can wake close to the 8.33ms cadence.
+    #[cfg(target_os = "windows")]
+    unsafe {
+        timeBeginPeriod(1);
+    }
+
     log4rs::init_file("log4rs.yml", Default::default()).unwrap();
 
     if omoba_template_ids::ensure_runtime_lua_content().map_err(err_msg)? {
@@ -255,7 +268,7 @@ async fn main() -> std::result::Result<(), Error> {
             TickBroadcasterConfig::default(),
             input_buffer_handle.clone(),
             lockstep_state_handle.clone(),
-            handle.tx.clone(),
+            handle.lockstep_tx.clone(),
         )
         .with_state_hash_rx(state_hash_rx)
         .with_host_input_tx(host_input_tx.clone());
