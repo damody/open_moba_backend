@@ -140,6 +140,7 @@ fn default_dll_path() -> PathBuf {
     let candidates: &[&str] = &[
         // run.bat / stress 腳本 stage 的 staged 正本 — 最權威
         "scripts/base_content.dll",
+        "../scripts/base_content.dll",
         // fallback: omb 自家 target（若未來整合進同 workspace）
         "target/release/base_content.dll",
         "target/debug/base_content.dll",

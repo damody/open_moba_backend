@@ -53,6 +53,8 @@ pub fn run_script_dispatch(
         return;
     }
 
+    let tagged = filter_ready_on_ticks(world, tagged, dt);
+
     // 每個刻度一個適配器； RNG 對此調度通道而言是本地的
     // 確定性重播（由上游滴答計數器驅動的種子）。
     // Cached storages 在這個 adapter 生命週期內共用，所有 GameWorld API 不再
@@ -105,6 +107,48 @@ pub fn run_script_dispatch(
             profile.record_script(&id, ns);
         }
     }
+}
+
+fn filter_ready_on_ticks(
+    world: &mut World,
+    tagged: Vec<(Entity, String)>,
+    dt: Fixed64,
+) -> Vec<(Entity, String)> {
+    use crate::comp::{TAttack, Tower};
+
+    let towers = world.read_storage::<Tower>();
+    let mut attacks = world.write_storage::<TAttack>();
+    tagged
+        .into_iter()
+        .filter(|(ent, _)| {
+            if towers.get(*ent).is_none() {
+                return true;
+            }
+            let Some(atk) = attacks.get_mut(*ent) else {
+                return true;
+            };
+            let interval = atk.asd.val();
+            if interval <= Fixed64::ZERO {
+                return true;
+            }
+            if atk.asd_count < Fixed64::ZERO {
+                let next = atk.asd_count + dt;
+                if next < Fixed64::ZERO {
+                    atk.asd_count = next;
+                    return false;
+                }
+                return true;
+            }
+            if atk.asd_count < interval {
+                let next = atk.asd_count + dt;
+                if next < interval {
+                    atk.asd_count = next;
+                    return false;
+                }
+            }
+            true
+        })
+        .collect()
 }
 
 fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: ScriptEvent) {

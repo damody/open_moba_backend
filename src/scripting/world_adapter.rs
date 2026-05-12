@@ -723,31 +723,18 @@ impl<'a> GameWorld for WorldAdapter<'a> {
             Some(f) => f.team_id,
             None => return RNone,
         };
-        let r2 = radius * radius;
-        let mut best: Option<(Entity, Fixed64)> = None;
-        // 只選 creep（氣球）為目標；不要誤選隊友/其他塔
-        for (ent, pos, fac, _c) in (
-            &self.cache.entities,
-            &self.cache.pos,
-            &self.cache.faction,
-            &self.cache.creep,
-        )
-            .join()
-        {
-            if fac.team_id == my_team {
+        let center_f = vek::Vec2::new(center.x.to_f32_for_render(), center.y.to_f32_for_render());
+        let radius_f = radius.to_f32_for_render();
+        // 只選 creep（氣球）為目標；走 spatial index 避免每座塔掃全部 creep。
+        for di in self.cache.searcher.creep.search_nn(center_f, radius_f, 16) {
+            let Some(fac) = self.cache.faction.get(di.e) else {
                 continue;
-            }
-            let d2 = pos.0.distance_squared(center);
-            if d2 <= r2 {
-                if best.map(|(_, b)| d2 < b).unwrap_or(true) {
-                    best = Some((ent, d2));
-                }
+            };
+            if fac.team_id != my_team && self.cache.creep.get(di.e).is_some() {
+                return RSome(Self::entity_to_handle(di.e));
             }
         }
-        match best {
-            Some((ent, _)) => RSome(Self::entity_to_handle(ent)),
-            None => RNone,
-        }
+        RNone
     }
 
     // ---------------- 副作用 ----------------

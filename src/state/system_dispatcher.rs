@@ -98,7 +98,7 @@ impl SystemDispatcher {
         dispatch::<buff_tick::Sys>(dispatch_builder, &["item_sys"]);
         dispatch::<regen_tick::Sys>(dispatch_builder, &["buff_sys"]);
         dispatch::<summon_tick::Sys>(dispatch_builder, &["regen_sys"]);
-        dispatch::<creep_tick::Sys>(dispatch_builder, &["summon_sys"]);
+        dispatch::<core_creep_tick::Sys>(dispatch_builder, &["summon_sys"]);
         dispatch::<creep_wave::Sys>(dispatch_builder, &["creep_sys"]);
         dispatch::<damage_tick::Sys>(dispatch_builder, &["creep_wave_sys"]);
         dispatch::<death_tick::Sys>(dispatch_builder, &["damage_sys"]);
@@ -120,7 +120,7 @@ impl SystemDispatcher {
     }
 
     fn build_movement_systems(&self, dispatch_builder: &mut DispatcherBuilder<'_, '_>) {
-        dispatch::<creep_tick::Sys>(dispatch_builder, &[]);
+        dispatch::<core_creep_tick::Sys>(dispatch_builder, &[]);
         dispatch::<projectile_tick::Sys>(dispatch_builder, &[]);
     }
 
@@ -237,7 +237,7 @@ pub fn build_phase3_dispatcher() -> Result<Dispatcher<'static, 'static>, Error> 
     dispatch::<buff_tick::Sys>(&mut builder, &["item_sys"]);
     dispatch::<regen_tick::Sys>(&mut builder, &["buff_sys"]);
     dispatch::<summon_tick::Sys>(&mut builder, &["regen_sys"]);
-    dispatch::<creep_tick::Sys>(&mut builder, &["summon_sys"]);
+    dispatch::<core_creep_tick::Sys>(&mut builder, &["summon_sys"]);
     dispatch::<creep_wave::Sys>(&mut builder, &["creep_sys"]);
     dispatch::<damage_tick::Sys>(&mut builder, &["creep_wave_sys"]);
     dispatch::<death_tick::Sys>(&mut builder, &["damage_sys"]);

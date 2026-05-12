@@ -53,8 +53,11 @@ fn dll_dir() -> Option<PathBuf> {
     if primary.exists() {
         return Some(primary.parent().unwrap().to_path_buf());
     }
-    // 後備：run.bat 使用的 omb 階段副本。
-    let staged = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scripts/base_content.dll");
+    // 後備：run.bat 使用的 repo-level scripts 階段副本。
+    let staged = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("omb has a parent dir (omoba root)")
+        .join("scripts/base_content.dll");
     if staged.exists() {
         return Some(staged.parent().unwrap().to_path_buf());
     }

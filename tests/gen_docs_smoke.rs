@@ -14,6 +14,7 @@ fn dll_present() -> bool {
         "target/release/base_content.dll",
         "target/debug/base_content.dll",
         "scripts/base_content.dll",
+        "../scripts/base_content.dll",
         "../scripts/target/release/base_content.dll",
         "../scripts/target/debug/base_content.dll",
     ] {

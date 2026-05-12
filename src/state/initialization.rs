@@ -192,12 +192,7 @@ impl StateInitializer {
                     cp_in_path.push(v.clone());
                 }
             }
-            paths.insert(
-                p.Name.clone(),
-                Path {
-                    check_points: cp_in_path,
-                },
-            );
+            paths.insert(p.Name.clone(), Path::new(cp_in_path));
         }
     }
 
@@ -334,6 +329,7 @@ impl StateInitializer {
             // TD 模式下塔由玩家運行時建造，不在場景初始化時生訓練敵人
             Self::create_training_enemies(ecs, campaign_data);
         }
+        Self::spawn_initial_creeps_from_map(ecs, &campaign_data.map);
         Self::create_terrain_blockers(ecs);
         log::info!("創建戰役場景完成: {}", campaign_data.mission.campaign.name);
     }
@@ -716,6 +712,82 @@ impl StateInitializer {
             script_count,
             dumb_count
         );
+    }
+
+    pub fn spawn_initial_creeps_from_map(ecs: &mut World, cw: &CreepWaveData) {
+        use std::collections::BTreeMap;
+
+        if cw.InitialCreeps.is_empty() {
+            return;
+        }
+
+        let emitters = {
+            let emitters = ecs.read_resource::<BTreeMap<String, CreepEmiter>>();
+            (*emitters).clone()
+        };
+        let mut spawned = 0usize;
+        for c in &cw.InitialCreeps {
+            let Some(emitter) = emitters.get(&c.Creep) else {
+                log::warn!("InitialCreeps 未知 Creep 模板 '{}'，跳過", c.Creep);
+                continue;
+            };
+            let mut creep = emitter.root.clone();
+            creep.path = c.Path.clone();
+            creep.pidx = c.PathIndex;
+
+            let faction_name = c
+                .Faction
+                .clone()
+                .unwrap_or_else(|| emitter.faction_name.clone());
+            let faction = match faction_name.as_str() {
+                "Player" | "player" => Faction::new(FactionType::Player, 0),
+                _ => Faction::new(FactionType::Enemy, 1),
+            };
+            let bounty = Self::creep_bounty_from_template(&c.Creep);
+            let turn_speed_rad = emitter.turn_speed_deg.to_radians();
+            let entity = ecs
+                .create_entity()
+                .with(Pos::from_xy_f32(c.X, c.Y))
+                .with(creep)
+                .with(emitter.property.clone())
+                .with(faction)
+                .with(bounty)
+                .with(Facing(omoba_sim::Angle::ZERO))
+                .with(FacingBroadcast(None))
+                .with(TurnSpeed(omoba_sim::Fixed64::from_raw(
+                    (turn_speed_rad * omoba_sim::fixed::SCALE as f32) as i64,
+                )))
+                .with(crate::scripting::ScriptUnitTag {
+                    unit_id: format!("creep_{}", c.Creep),
+                })
+                .build();
+            ecs.write_resource::<crate::scripting::ScriptEventQueue>()
+                .push(crate::scripting::ScriptEvent::Spawn { e: entity });
+            ecs.write_resource::<omoba_core::runtime::ability_runtime::BuffStore>()
+                .add(
+                    entity,
+                    "creep_min_speed_floor",
+                    omoba_sim::Fixed64::from_raw(i64::MAX),
+                    serde_json::json!({ "movespeed_absolute_min": 10.0 }),
+                );
+            spawned += 1;
+        }
+        log::info!("已依 generated map data 放置 {} 個 InitialCreeps", spawned);
+    }
+
+    fn creep_bounty_from_template(creep_name: &str) -> Bounty {
+        if creep_name.starts_with("ally_") {
+            return Bounty { gold: 0, exp: 0 };
+        }
+        if let Some(stats) = omoba_template_ids::creep_by_name(creep_name)
+            .and_then(omoba_template_ids::active_creep_stats)
+        {
+            return Bounty {
+                gold: stats.gold_reward,
+                exp: stats.exp_reward,
+            };
+        }
+        Bounty { gold: 0, exp: 0 }
     }
 
     fn spawn_tower(

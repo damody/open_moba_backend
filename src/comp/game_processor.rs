@@ -75,6 +75,7 @@ fn outcome_kind(o: &Outcome) -> &'static str {
         Outcome::Creep { .. } => "Creep",
         Outcome::CreepStop { .. } => "CreepStop",
         Outcome::CreepWalk { .. } => "CreepWalk",
+        Outcome::CreepUpdate { .. } => "CreepUpdate",
         Outcome::Tower { .. } => "Tower",
         Outcome::Heal { .. } => "Heal",
         Outcome::UpdateAttack { .. } => "UpdateAttack",
