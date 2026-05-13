@@ -585,22 +585,12 @@ impl State {
                 accumulated.extend(batch);
             }
             if !accumulated.is_empty() {
-                use prost::Message as _;
-
                 use crate::comp::PendingPlayerInputs;
                 let mut pending = self.ecs.write_resource::<PendingPlayerInputs>();
                 pending.tick = self.local_tick as u32;
                 pending.by_player.clear();
                 for (player_id, input) in accumulated {
-                    let bytes = input.encode_to_vec();
-                    match omoba_core::runtime::PlayerInput::decode(bytes.as_slice()) {
-                        Ok(input) => {
-                            pending.by_player.insert(player_id, input);
-                        }
-                        Err(e) => {
-                            log::warn!("failed to decode shared PlayerInput for host sidecar: {e}");
-                        }
-                    }
+                    pending.by_player.insert(player_id, input);
                 }
             }
         }

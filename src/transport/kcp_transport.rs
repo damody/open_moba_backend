@@ -17,12 +17,7 @@ use super::types::{
 use crate::aoi::AoiGrid;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-// 包含生成的原始程式碼
-pub mod game_proto {
-    include!(concat!(env!("OUT_DIR"), "/game.rs"));
-}
-
-use game_proto::*;
+use omoba_core::game_proto::*;
 use prost::Message;
 
 // 框架標籤常數（與 omoba-core 相同的協定）。

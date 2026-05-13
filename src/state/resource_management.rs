@@ -1286,8 +1286,8 @@ pub(crate) fn build_heartbeat_tick(
     hp_snapshot: &[(u32, f32)],
     pos_snapshot: &[(u32, f32, f32)],
     in_flight_projectiles: &[u32],
-) -> crate::transport::kcp_transport::game_proto::HeartbeatTick {
-    use crate::transport::kcp_transport::game_proto::{
+) -> omoba_core::game_proto::HeartbeatTick {
+    use omoba_core::game_proto::{
         Fixed16, HeartbeatEntry, HeartbeatPosEntry, HeartbeatTick, Position16,
     };
     use omoba_core::quant::{fixed_quant, pos_quant};
@@ -1334,11 +1334,11 @@ pub(crate) fn build_heartbeat_tick(
 
 #[cfg(feature = "kcp")]
 pub(crate) mod proto_build {
-    use crate::transport::kcp_transport::game_proto::*;
+    use omoba_core::game_proto::*;
     use omoba_core::quant::{facing_quant, fixed_quant, pos_quant};
 
     // P9：重新匯出 EntityKind，以便呼叫網站可以執行 `proto_build::EntityKind::Hero`。
-    pub use crate::transport::kcp_transport::game_proto::EntityKind;
+    pub use omoba_core::game_proto::EntityKind;
 
     pub fn pos16(x: f32, y: f32) -> Position16 {
         Position16 {

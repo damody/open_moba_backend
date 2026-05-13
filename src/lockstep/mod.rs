@@ -25,10 +25,9 @@ pub use self::state::{JoinRoleEnum, LockstepState, PlayerSession};
 pub use self::state_hash_producer::compute_state_hash;
 pub use self::tick_broadcaster::{TickBroadcaster, TickBroadcasterConfig};
 
-// 重新導出該模組使用的原型類型，以便呼叫者不需要
-// 了解 prost 生成的路径。原型類型生活在
-// `crate::transport::kcp_transport::game_proto` （參見 kcp_transport.rs:18）。
-pub use crate::transport::kcp_transport::game_proto::{
+// 重新導出該模組使用的 protocol 類型，以便呼叫者不需要
+// 了解 prost 生成的路徑。Protocol source of truth 來自 `omoba-core`。
+pub use omoba_core::game_proto::{
     AngleI, AttackTarget, CastAbility, FixedI, GameEndEvent, GameStart, InputForPlayer,
     InputSubmit, ItemUse, JoinRequest, JoinRole, MoveTo, NoOp, PlayerInput, PlayerJoinEvent,
     PlayerLeaveEvent, ServerEvent, SimSnapshot, SnapshotReq, SnapshotResp, StateHash, TickBatch,
@@ -38,10 +37,10 @@ pub use crate::transport::kcp_transport::game_proto::{
 // PlayerInput oneof 內部枚舉由 prost 產生為
 // `mod player_input { pub enum Action { NoOp(...), MoveTo(...), ... } }`。
 // 重新匯出為「PlayerInputEnum」以實現符合人體工學的構造。
-pub use crate::transport::kcp_transport::game_proto::player_input::Action as PlayerInputEnum;
+pub use omoba_core::game_proto::player_input::Action as PlayerInputEnum;
 
 // 同樣，ServerEvent oneof 內部枚舉。
-pub use crate::transport::kcp_transport::game_proto::server_event::Event as ServerEventEnum;
+pub use omoba_core::game_proto::server_event::Event as ServerEventEnum;
 
 /// 鎖步線框變體 - 由
 /// kcp_transport 線程。第 2 階段引入了 4 種幀類型：

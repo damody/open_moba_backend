@@ -15,19 +15,18 @@ use std::time::SystemTime;
 /// JSON `msg` 欄位保留用於重複資料刪除/路由器自省
 /// 廣播線程。它不會在鍵入的路徑中走線。
 ///
-/// 僅在“kcp”下可用，因為 prost 類型位於
-/// `kcp_transport::game_proto`。
+/// 僅在 `kcp` 下可用，prost 類型來源為 `omoba-core::game_proto`。
 #[cfg(feature = "kcp")]
 #[derive(Clone, Debug)]
 pub enum TypedOutbound {
-    Heartbeat(super::kcp_transport::game_proto::HeartbeatTick),
-    BuffAdd(super::kcp_transport::game_proto::BuffAdd),
-    BuffRemove(super::kcp_transport::game_proto::BuffRemove),
-    HeroCreate(super::kcp_transport::game_proto::HeroCreate),
-    UnitCreate(super::kcp_transport::game_proto::UnitCreate),
-    GameLives(super::kcp_transport::game_proto::GameLives),
-    GameEnd(super::kcp_transport::game_proto::GameEnd),
-    LegacyJson(super::kcp_transport::game_proto::LegacyJson),
+    Heartbeat(omoba_core::game_proto::HeartbeatTick),
+    BuffAdd(omoba_core::game_proto::BuffAdd),
+    BuffRemove(omoba_core::game_proto::BuffRemove),
+    HeroCreate(omoba_core::game_proto::HeroCreate),
+    UnitCreate(omoba_core::game_proto::UnitCreate),
+    GameLives(omoba_core::game_proto::GameLives),
+    GameEnd(omoba_core::game_proto::GameEnd),
+    LegacyJson(omoba_core::game_proto::LegacyJson),
 }
 
 /// P5 广播策略 — 声明谁应该接收此事件。這
