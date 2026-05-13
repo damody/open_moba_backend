@@ -6,5 +6,29 @@ SERVER_PORT = "50061"
 CLIENT_ID = "omobab"
 PLAYER_NAME = "player1"
 RENDER_DELAY_MS = 100
-# 壓力測試場景：1000 塔 × 1000 × 10000HP 怪（由 scripts/gen_stress_map.py 生成）
+STEP_FPS = 120
+# 壓力測試場景（由 scripts/gen_stress_map.py 依下方 [stress] 生成）
 STORY = "TD_STRESS"
+
+[content]
+# Paths are resolved relative to this game.toml.
+SCRIPTS_DIR = "../scripts"
+DLL_PATH = "../scripts/base_content.dll"
+LUA_CONTENT = false
+LUA_CONTENT_ROOT = "../scripts/lua_data"
+LUA_HOT_RELOAD = false
+STORY_DATA_DIR = "../scripts/lua_data"
+
+[client]
+SERVER_ADDR = "127.0.0.1:50061"
+PLAYER_NAME = "omfx_player"
+LOCKSTEP_PLAYER_SUFFIX = "_lockstep"
+AUTO_START_AFTER_SEC = 2
+AUTO_EXIT_AFTER_SEC = 90
+
+[stress]
+CREEPS = 2000
+TOWERS = 1000
+SPAWN_INTERVAL = 0.001
+TOWER_SPACING = 50.0
+DIRECT_CREEPS = true

@@ -1,7 +1,7 @@
 //! 伺服器節奏鎖步的輸入緩衝。
 //!
 //! 玩家提交攜帶target_tick的InputSubmit資料包（目前是
-//! current_server_tick + 2；120Hz 時輸入延遲約 16.7ms）。伺服器收集
+//! client-selected future tick）。伺服器收集
 //! 每刻他們。當蜱蟲觸發時，緩衝區會耗盡所有目標輸入
 //! 在那一刻進入“TickBatch”。
 //!

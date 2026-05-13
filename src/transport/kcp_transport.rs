@@ -1134,8 +1134,12 @@ async fn handle_client(
                                             .submit(current_tick, player_id, target_tick, input, input_id);
                                         if !accepted {
                                             warn!(
-                                                "late InputSubmit from player {} input_id={} target_tick={} current_tick={}",
-                                                player_id, input_id, target_tick, current_tick
+                                                "late InputSubmit from player {} input_id={} target_tick={} current_tick={} step_fps={}",
+                                                player_id,
+                                                input_id,
+                                                target_tick,
+                                                current_tick,
+                                                crate::config::server_config::CONFIG.STEP_FPS
                                             );
                                         }
                                     }
@@ -1202,6 +1206,7 @@ async fn handle_client(
                                                 world_bytes: vec![],
                                                 schema_version: 1,
                                             }),
+                                            step_fps: crate::config::server_config::CONFIG.STEP_FPS,
                                         };
                                         let frame = crate::lockstep::LockstepFrame::GameStart {
                                             client_session_id: session_id.clone(),

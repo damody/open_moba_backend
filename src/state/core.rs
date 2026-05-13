@@ -1,10 +1,8 @@
+use crate::config::server_config::CONFIG;
 use core::time::Duration;
 use crossbeam_channel::{Receiver, Sender};
 use failure::Error;
-use omoba_core::lockstep_timing::{
-    lockstep_dt_fixed_raw_for_tick, LOCKSTEP_TEN_SECONDS_TICKS_U64,
-    LOCKSTEP_THIRTY_SECONDS_TICKS_U64, LOCKSTEP_TPS_U64,
-};
+use omoba_core::lockstep_timing::LockstepTiming;
 use rayon::ThreadPool;
 use specs::{Join, World, WorldExt};
 /// 遊戲狀態核心結構
@@ -79,6 +77,8 @@ pub struct State {
     /// 狀態本地刻度計數器，每次呼叫 `tick()` 時都會增加。
     /// 用於限制可見性差異（不要依賴 ECS `Tick`，它不被維護）。
     local_tick: u64,
+    /// Runtime lockstep cadence from backend game.toml.
+    lockstep_timing: LockstepTiming,
     /// 上次執行可見度差異時「local_tick」的值
     last_visibility_tick: u64,
     /// 載入的本機腳本 DLL（H1 — 進程生命週期，從不重新載入）。
@@ -127,9 +127,6 @@ struct VisSet {
     towers: HashSet<u32>,
 }
 
-#[cfg(any(feature = "grpc", feature = "kcp"))]
-const VISIBILITY_DIFF_INTERVAL_TICKS: u64 = LOCKSTEP_TPS_U64 / 5;
-
 /// 每個玩家至少強制發送一個（可能是空的）心跳，這樣
 /// 客戶端仍然會收到“tick”/“game_time”心跳以進行時鐘同步和
 /// 即使玩家的 AOI 中的 HP 值沒有變化，也能保持活躍度。空的
@@ -140,16 +137,6 @@ const HEARTBEAT_FORCE_SEND_INTERVAL: f64 = 5.0;
 /// 階段 3.4：每 N 個調度程式週期發出一個狀態雜湊樣本。調度員
 /// 以 lockstep cadence 運行，因此此值代表約 10 秒。
 /// 廣播公司的間隔觸發（最多有一個陳舊時間）。
-#[cfg(feature = "kcp")]
-const STATE_HASH_INTERVAL_TICKS: u64 = LOCKSTEP_TEN_SECONDS_TICKS_U64;
-
-/// 階段 5.3：每 N 個調度程序週期序列化一個新的世界快照。
-/// 調度程式以 lockstep cadence 運行，因此此值代表約 30 秒 — 觀察者重新加入最多獲得一個
-/// 快照擷取和引導之間有 30 秒的間隔。跳過 `tick=0`
-/// （讓世界在第一次捕獲之前完成 init）。
-#[cfg(feature = "kcp")]
-const SNAPSHOT_INTERVAL_TICKS: u64 = LOCKSTEP_THIRTY_SECONDS_TICKS_U64;
-
 impl State {
     /// 創建新的遊戲狀態（標準模式）
     pub fn new(
@@ -171,6 +158,7 @@ impl State {
             mqtx_vec.push(mqtx.clone());
         }
 
+        let lockstep_timing = CONFIG.lockstep_timing();
         let mut state = Self {
             ecs,
             cw: creep_wave_data,
@@ -198,6 +186,7 @@ impl State {
             #[cfg(any(feature = "grpc", feature = "kcp"))]
             hb_last_full_send: HashMap::new(),
             local_tick: 0,
+            lockstep_timing,
             last_visibility_tick: 0,
             script_registry: ScriptRegistry::new(),
             #[cfg(feature = "runtime-lua-content")]
@@ -530,6 +519,7 @@ impl State {
             #[cfg(any(feature = "grpc", feature = "kcp"))]
             hb_last_full_send: HashMap::new(),
             local_tick: 0,
+            lockstep_timing: CONFIG.lockstep_timing(),
             last_visibility_tick: 0,
             script_registry: ScriptRegistry::new(),
             #[cfg(feature = "runtime-lua-content")]
@@ -559,7 +549,7 @@ impl State {
     /// 遊戲主循環 tick
     pub fn tick(&mut self, dt: Duration) -> Result<(), Error> {
         self.local_tick = self.local_tick.wrapping_add(1);
-        let dt_fixed_raw = lockstep_dt_fixed_raw_for_tick(self.local_tick);
+        let dt_fixed_raw = self.lockstep_timing.fixed_raw_for_tick(self.local_tick);
 
         // 更新時間管理
         self.time_manager
@@ -688,7 +678,7 @@ impl State {
         // 始終處於待處理狀態。當 state_hash_tx 為 None 時跳過（舊版/
         // 非鎖步建置）。
         #[cfg(feature = "kcp")]
-        if self.local_tick % STATE_HASH_INTERVAL_TICKS == 0 {
+        if self.local_tick % self.lockstep_timing.ticks_for_seconds_u64(10) == 0 {
             if let Some(tx) = &self.state_hash_tx {
                 let hash = crate::lockstep::compute_state_hash(&self.ecs);
                 // u32 包裝與原始 StateHash.tick 欄位相符。
@@ -708,7 +698,9 @@ impl State {
         // 路徑）和（2）可選的 `snapshot_store` Arc<Mutex<>> 時
         // 由 main.rs 連接（KCP 傳輸從中讀取）。
         #[cfg(feature = "kcp")]
-        if self.local_tick > 0 && self.local_tick % SNAPSHOT_INTERVAL_TICKS == 0 {
+        if self.local_tick > 0
+            && self.local_tick % self.lockstep_timing.ticks_for_seconds_u64(30) == 0
+        {
             let bytes = crate::lockstep::serialize_snapshot(&self.ecs);
             let tick_u32 = self.local_tick as u32;
             let byte_len = bytes.len();

@@ -1,4 +1,4 @@
-//! 120Hz 滴答廣播。在從 main.rs 產生的 tokio 任務中運行。
+//! Configured-cadence 滴答廣播。在從 main.rs 產生的 tokio 任務中運行。
 //!
 //! 每個刻度：
 //! 1. 前進 `LockstepState.current_tick`。
@@ -13,7 +13,7 @@
 //! - `placeholder_state_hash` 是一個替代品 (`tick * Golden_ratio`)；第三階段
 //! 將其替換為 `omoba_sim::state_hash::hash_sorted_by_id`
 //! 真實的 ECS 狀態。
-//! - 類比調度程式與 broadcaster 使用相同 120Hz lockstep cadence。
+//! - 類比調度程式與 broadcaster 使用相同 configured lockstep cadence。
 //! - 在第 2 階段，`server_events` 永遠為空；第5階段將注入
 //! player_join / wave_start / 等伺服器權威事件。
 //!
@@ -21,9 +21,9 @@
 //! - 可選的“state_hash_rx”通道由調度程序滴答循環提供
 //! `state::core::State::tick`，呼叫 `compute_state_hash(&world)`
 //! 每個“state_hash_interval”刻度（使用其自己的調度程序刻度號）。
-//! 廣播者「try_recv」是其 120Hz 狀態時的最新待定值 -
+//! 廣播者「try_recv」是其 configured-cadence 狀態時的最新待定值 -
 //! 哈希間隔觸發。
-//! - 調度員和廣播員都使用 120Hz cadence。哈希值帶有調度程序的時間戳
+//! - 調度員和廣播員都使用 configured cadence。哈希值帶有調度程序的時間戳
 //! 計算時間；廣播公司逐字轉寄「(tick, hash)」。
 //! - 當「state_hash_rx」為「None」（遺留/測試設定）時，廣播者
 //! 回退到“placeholder_state_hash”，以便現有測試繼續通過。
@@ -36,29 +36,42 @@ use crate::lockstep::{
     InputBuffer, InputForPlayer, LockstepFrame, LockstepState, StateHash, TickBatch,
 };
 use crate::transport::OutboundMsg;
-use omoba_core::lockstep_timing::{
-    LOCKSTEP_ONE_SECOND_TICKS_U32, LOCKSTEP_TEN_SECONDS_TICKS_U32, LOCKSTEP_TICK_PERIOD_US,
-};
+use omoba_core::lockstep_timing::LockstepTiming;
 
 /// 階段3.4：調度程序tick循環計算後發布的有效負載
 /// `compute_state_hash(&world)`。廣播公司逐字轉發—‘tick’
-/// 這是調度員的滴答聲（120Hz 節奏），與
-/// 廣播公司自己的 120Hz `LockstepState.current_tick`。
+/// 這是調度員的滴答聲（configured cadence），與
+/// 廣播公司自己的 `LockstepState.current_tick`。
 pub type StateHashSample = (u32, u64);
 
 #[derive(Clone, Copy, Debug)]
 pub struct TickBroadcasterConfig {
     /// 以微秒為單位的刻度週期。預設由 `LOCKSTEP_TPS` 推導。
     pub tick_period_us: u64,
+    /// Server-authoritative step FPS used for diagnostics and tick windows.
+    pub step_fps: u32,
     /// 每 N 個週期發出一個 StateHash。預設 10 秒 @ `LOCKSTEP_TPS`。
     pub state_hash_interval: u32,
+    /// Every N ticks, old future inputs are evicted.
+    pub input_evict_interval: u32,
+    /// Keep about this many ticks of future input before eviction.
+    pub input_retention_ticks: u32,
 }
 
 impl Default for TickBroadcasterConfig {
     fn default() -> Self {
+        Self::from_timing(LockstepTiming::DEFAULT)
+    }
+}
+
+impl TickBroadcasterConfig {
+    pub fn from_timing(timing: LockstepTiming) -> Self {
         Self {
-            tick_period_us: LOCKSTEP_TICK_PERIOD_US,
-            state_hash_interval: LOCKSTEP_TEN_SECONDS_TICKS_U32,
+            tick_period_us: timing.tick_period_us(),
+            step_fps: timing.step_fps(),
+            state_hash_interval: timing.ticks_for_seconds(10),
+            input_evict_interval: timing.ticks_for_seconds(1),
+            input_retention_ticks: timing.ticks_for_seconds(2),
         }
     }
 }
@@ -117,7 +130,7 @@ impl TickBroadcaster {
         self
     }
 
-    /// 產生 120Hz 滴答循環。運行直到“out_tx”關閉（通道
+    /// 產生 configured-cadence 滴答循環。運行直到“out_tx”關閉（通道
     /// 作為發送錯誤斷開表面，然後我們記錄+退出）。
     pub async fn run(self) {
         // 階段 4：如果未連接 state_hash_rx，則會發出響亮的啟動時警告。
@@ -135,9 +148,10 @@ impl TickBroadcaster {
             log::info!("TickBroadcaster: state_hash_rx wired — using authoritative ECS hash");
         }
         let mut ticker = interval(Duration::from_micros(self.config.tick_period_us));
-        // Hard-cap the server cadence: if the task is delayed, skip catch-up bursts
-        // instead of emitting multiple TickBatches back-to-back.
-        ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        // Preserve the configured average cadence. On Windows, individual timer
+        // wakeups can land late enough that Delay mode drifts 120Hz down toward
+        // 80-90Hz; Burst mode catches the next deadline back up instead.
+        ticker.set_missed_tick_behavior(MissedTickBehavior::Burst);
         // tokio 的第一個間隔刻度立即觸發；跳過它所以
         // 第一個發布的價格變動出現在 +period，而不是 t=0。
         ticker.tick().await;
@@ -234,11 +248,11 @@ impl TickBroadcaster {
         // 定期清理過時的未來輸入（例如提交的內容）
         // 引用了我們已經通過的勾號，因為玩家是
         // 斷開連接並重新連接）。
-        if tick % LOCKSTEP_ONE_SECOND_TICKS_U32 == 0 {
+        if tick % self.config.input_evict_interval == 0 {
             self.input_buffer
                 .lock()
                 .unwrap()
-                .evict_older(tick.saturating_sub(LOCKSTEP_ONE_SECOND_TICKS_U32 * 2));
+                .evict_older(tick.saturating_sub(self.config.input_retention_ticks));
         }
 
         true
@@ -333,8 +347,11 @@ mod tests {
     #[test]
     fn fires_tick_batches_with_buffered_inputs() {
         let cfg = TickBroadcasterConfig {
-            tick_period_us: LOCKSTEP_TICK_PERIOD_US,
+            tick_period_us: LockstepTiming::DEFAULT.tick_period_us(),
+            step_fps: LockstepTiming::DEFAULT.step_fps(),
             state_hash_interval: 600,
+            input_evict_interval: LockstepTiming::DEFAULT.ticks_for_seconds(1),
+            input_retention_ticks: LockstepTiming::DEFAULT.ticks_for_seconds(2),
         };
         let (bc, buf, _state, rx) = make_broadcaster(cfg);
 
@@ -391,8 +408,11 @@ mod tests {
     fn emits_state_hash_at_interval_multiples() {
         // 使用較小的間隔 (3) 以避免在測試中觸發 600 個刻度。
         let cfg = TickBroadcasterConfig {
-            tick_period_us: LOCKSTEP_TICK_PERIOD_US,
+            tick_period_us: LockstepTiming::DEFAULT.tick_period_us(),
+            step_fps: LockstepTiming::DEFAULT.step_fps(),
             state_hash_interval: 3,
+            input_evict_interval: LockstepTiming::DEFAULT.ticks_for_seconds(1),
+            input_retention_ticks: LockstepTiming::DEFAULT.ticks_for_seconds(2),
         };
         let (bc, _buf, _state, rx) = make_broadcaster(cfg);
 
@@ -450,8 +470,11 @@ mod tests {
     fn evicts_old_inputs_every_second() {
         // 驗證定期清理分支（`tick % LOCKSTEP_ONE_SECOND_TICKS_U32 == 0`）。
         let cfg = TickBroadcasterConfig {
-            tick_period_us: LOCKSTEP_TICK_PERIOD_US,
+            tick_period_us: LockstepTiming::DEFAULT.tick_period_us(),
+            step_fps: LockstepTiming::DEFAULT.step_fps(),
             state_hash_interval: 100_000, // disable state hash for this test
+            input_evict_interval: LockstepTiming::DEFAULT.ticks_for_seconds(1),
+            input_retention_ticks: LockstepTiming::DEFAULT.ticks_for_seconds(2),
         };
         let (bc, buf, _state, _rx) = make_broadcaster(cfg);
 
@@ -468,7 +491,7 @@ mod tests {
 
         // 發射一秒的刻度。在第一秒時，保留兩秒視窗，因此 tick=200 輸入仍存在。
         // 被驅逐（tick=200 輸入仍然存在）。
-        for _ in 0..LOCKSTEP_ONE_SECOND_TICKS_U32 {
+        for _ in 0..LockstepTiming::DEFAULT.ticks_for_seconds(1) {
             assert!(bc.fire_one_tick());
         }
         assert_eq!(
@@ -478,7 +501,7 @@ mod tests {
         );
 
         // 觸發到 tick=180，仍然未達 tick=200 條目。
-        for _ in LOCKSTEP_ONE_SECOND_TICKS_U32..180 {
+        for _ in LockstepTiming::DEFAULT.ticks_for_seconds(1)..180 {
             assert!(bc.fire_one_tick());
         }
         assert_eq!(buf.lock().unwrap().pending_count(), 1);
@@ -498,8 +521,11 @@ mod tests {
     #[test]
     fn broadcaster_uses_real_hash_when_rx_provided() {
         let cfg = TickBroadcasterConfig {
-            tick_period_us: LOCKSTEP_TICK_PERIOD_US,
+            tick_period_us: LockstepTiming::DEFAULT.tick_period_us(),
+            step_fps: LockstepTiming::DEFAULT.step_fps(),
             state_hash_interval: 3, // small interval so we hit it quickly
+            input_evict_interval: LockstepTiming::DEFAULT.ticks_for_seconds(1),
+            input_retention_ticks: LockstepTiming::DEFAULT.ticks_for_seconds(2),
         };
         let (buf, state) = (
             Arc::new(Mutex::new(InputBuffer::new())),
@@ -535,7 +561,7 @@ mod tests {
                 );
                 assert_eq!(
                     sh.tick, dispatcher_tick,
-                    "broadcaster must forward the dispatcher's tick stamp, not its own 120Hz tick"
+                    "broadcaster must forward the dispatcher's tick stamp, not its own tick"
                 );
                 // 理智：broadcaster_tick=3 的佔位符是
                 // 3 * 0x9E3779B97F4A7C15 — 不應匹配。

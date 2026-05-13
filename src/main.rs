@@ -33,7 +33,7 @@ use uuid::Uuid;
 use crate::ue4::import_campaign::CampaignData;
 use crate::ue4::import_map::CreepWaveData;
 use comp::*;
-use omoba_core::lockstep_timing::{LOCKSTEP_DT_F64, LOCKSTEP_TPS_U64};
+use omoba_core::lockstep_timing::LockstepTiming;
 use serde_json::{self, json};
 use specs::{prelude::Resource, Component, DispatcherBuilder, Entity, WorldExt};
 use std::time::SystemTime;
@@ -44,8 +44,6 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-
-const TPS: u64 = LOCKSTEP_TPS_U64;
 
 #[cfg(target_os = "windows")]
 #[link(name = "winmm")]
@@ -65,8 +63,8 @@ fn read_input() -> Option<String> {
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Error> {
-    // Windows default timer granularity is too coarse for 120Hz lockstep.
-    // Match omfx so tokio intervals can wake close to the 8.33ms cadence.
+    // Windows default timer granularity is too coarse for high-frequency lockstep.
+    // Match omfx so tokio intervals can wake close to the configured cadence.
     #[cfg(target_os = "windows")]
     unsafe {
         timeBeginPeriod(1);
@@ -74,6 +72,7 @@ async fn main() -> std::result::Result<(), Error> {
 
     log4rs::init_file("log4rs.yml", Default::default()).unwrap();
 
+    crate::config::server_config::apply_runtime_env_from_game_toml();
     if omoba_template_ids::ensure_runtime_lua_content().map_err(err_msg)? {
         log::info!("Runtime Lua content mode enabled");
     }
@@ -110,6 +109,7 @@ async fn main() -> std::result::Result<(), Error> {
     log::info!("Total abilities: {}", campaign_data.ability.abilities.len());
 
     // 初始化 transport
+    let lockstep_timing = CONFIG.lockstep_timing();
     let server_addr = CONFIG.SERVER_IP.clone();
     let server_port = CONFIG.SERVER_PORT.clone();
     let client_id = CONFIG.CLIENT_ID.clone();
@@ -127,7 +127,7 @@ async fn main() -> std::result::Result<(), Error> {
     // 步驟 2 鎖定步驟：預先建立共用狀態，以便我們可以將其傳遞給
     // kcp 傳輸（任務 2.3 — 處理 0x10/0x13/0x15）和
     // TickBroadcaster（在下面生成）。 MasterSeed::default() 傳回相同的結果
-    // ECS 資源在 state::initialization 中初始化的值，因此
+    // ECS 資源在 omoba-core runtime 初始化的值，因此
     // 兩個程式碼路徑看到相同的種子。
     //
     // 階段 5.3 新增了第三個 Arc<Mutex<>> — SnapshotStore — 由以下人員編寫
@@ -246,7 +246,7 @@ async fn main() -> std::result::Result<(), Error> {
         host_input_tx
     };
 
-    // 階段 2 鎖定步：產生 120Hz TickBroadcaster，與 authoritative dispatcher
+    // 階段 2 鎖定步：產生 configured-cadence TickBroadcaster，與 authoritative dispatcher
     // 使用相同 cadence。廣播者每消耗一次InputBuffer
     // 勾選並透過以下方式發出 TickBatch（標籤 0x11）+ 週期性 StateHash（標籤 0x12）
     // 現有的 OutboundMsg 通道； kcp 傳輸的廣播線程
@@ -265,7 +265,7 @@ async fn main() -> std::result::Result<(), Error> {
         let (state_hash_tx, state_hash_rx) = crossbeam_channel::unbounded();
         state.set_state_hash_tx(state_hash_tx);
         let broadcaster = TickBroadcaster::new(
-            TickBroadcasterConfig::default(),
+            TickBroadcasterConfig::from_timing(lockstep_timing),
             input_buffer_handle.clone(),
             lockstep_state_handle.clone(),
             handle.lockstep_tx.clone(),
@@ -275,9 +275,9 @@ async fn main() -> std::result::Result<(), Error> {
         tokio::spawn(broadcaster.run());
         log::info!(
             "Lockstep TickBroadcaster spawned at {}Hz (period {}us, state_hash every {} ticks)",
-            TPS,
-            TickBroadcasterConfig::default().tick_period_us,
-            TickBroadcasterConfig::default().state_hash_interval,
+            lockstep_timing.step_fps(),
+            TickBroadcasterConfig::from_timing(lockstep_timing).tick_period_us,
+            TickBroadcasterConfig::from_timing(lockstep_timing).state_hash_interval,
         );
     }
     // 保持句柄處於活動狀態，這樣共享狀態就不會被丟棄。
@@ -288,7 +288,7 @@ async fn main() -> std::result::Result<(), Error> {
         snapshot_store_handle,
     );
 
-    let fixed_dt = Duration::from_secs_f64(LOCKSTEP_DT_F64);
+    let fixed_dt = lockstep_timing.dt_duration();
     let mut clock = Clock::new(fixed_dt);
 
     // Game speed multiplier (debug)。每 real frame 跑 N 個 sub-tick，sim 推進 N×dt。
@@ -332,7 +332,7 @@ async fn main() -> std::result::Result<(), Error> {
             }
             state.send_chat(msg)
         }
-        // 跑 N 個 sub-tick；speed=1 時每迴圈推進一個固定 120Hz sim tick。
+        // 跑 N 個 sub-tick；speed=1 時每迴圈推進一個 configured sim tick。
         let dt = fixed_dt;
         for _ in 0..speed_mult {
             if let Err(e) = state.tick(dt) {
