@@ -99,6 +99,7 @@ fn outcome_kind(o: &Outcome) -> &'static str {
         Outcome::ScriptProjectile { .. } => "ScriptProjectile",
         Outcome::ScriptTowerFireFx { .. } => "ScriptTowerFireFx",
         Outcome::ScriptAttackPhaseCue { .. } => "ScriptAttackPhaseCue",
+        Outcome::ScriptStartCooldown { .. } => "ScriptStartCooldown",
         Outcome::EntityRemoved { .. } => "EntityRemoved",
     }
 }
