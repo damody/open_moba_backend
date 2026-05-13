@@ -40,6 +40,7 @@ const TAG_SNAPSHOT_REQ: u8 = 0x15;
 const TAG_SNAPSHOT_RESP: u8 = 0x16;
 const TAG_PING_REQ: u8 = 0x17;
 const TAG_PING_RESP: u8 = 0x18;
+const LATE_INPUT_GRACE_MS: u32 = 64;
 
 /// 標籤的高位元 — 當幀有效負載經過 LZ4 壓縮時設定。
 /// 基本標籤 0x01~0x07 從不使用該位，因此它始終可以作為標誌自由使用。
@@ -47,6 +48,13 @@ const COMPRESSION_FLAG: u8 = 0x80;
 
 /// 在嘗試 LZ4 壓縮之前，最小有效負載大小。
 const LZ4_THRESHOLD: usize = 128;
+
+fn late_input_grace_ticks(step_fps: u32) -> u32 {
+    step_fps
+        .saturating_mul(LATE_INPUT_GRACE_MS)
+        .saturating_add(999)
+        / 1000
+}
 
 /// 寫入幀訊息：[1 位元組標籤][4 位元組 len (big-endian)][N 位元組有效負載]
 /// 當有效負載≥LZ4_THRESHOLD並且LZ4縮小它時，有效負載被替換為
@@ -1128,19 +1136,46 @@ async fn handle_client(
                                         let target_tick = req.target_tick;
                                         let input_id = req.input_id;
                                         let input = req.input.unwrap_or_default();
-                                        let accepted = lockstep_input_buffer
+                                        let step_fps =
+                                            crate::config::server_config::CONFIG.STEP_FPS;
+                                        let result = lockstep_input_buffer
                                             .lock()
                                             .unwrap()
-                                            .submit(current_tick, player_id, target_tick, input, input_id);
-                                        if !accepted {
-                                            warn!(
+                                            .submit_with_late_grace(
+                                                current_tick,
+                                                player_id,
+                                                target_tick,
+                                                input,
+                                                input_id,
+                                                late_input_grace_ticks(step_fps),
+                                            );
+                                        match result {
+                                            crate::lockstep::InputSubmitResult::Accepted { .. } => {}
+                                            crate::lockstep::InputSubmitResult::Retargeted {
+                                                original_tick,
+                                                effective_tick,
+                                            } => {
+                                                debug!(
+                                                    "retargeted late InputSubmit from player {} input_id={} target_tick={} effective_tick={} current_tick={} step_fps={}",
+                                                    player_id,
+                                                    input_id,
+                                                    original_tick,
+                                                    effective_tick,
+                                                    current_tick,
+                                                    step_fps
+                                                );
+                                            }
+                                            crate::lockstep::InputSubmitResult::RejectedLate {
+                                                original_tick,
+                                                current_tick,
+                                            } => warn!(
                                                 "late InputSubmit from player {} input_id={} target_tick={} current_tick={} step_fps={}",
                                                 player_id,
                                                 input_id,
-                                                target_tick,
+                                                original_tick,
                                                 current_tick,
-                                                crate::config::server_config::CONFIG.STEP_FPS
-                                            );
+                                                step_fps
+                                            ),
                                         }
                                     }
                                     Err(e) => warn!("Failed to decode InputSubmit: {}", e),

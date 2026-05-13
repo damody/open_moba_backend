@@ -16,7 +16,7 @@ pub mod tick_broadcaster;
 #[cfg(test)]
 mod metadata_guard;
 
-pub use self::input_buffer::InputBuffer;
+pub use self::input_buffer::{InputBuffer, InputSubmitResult};
 pub use self::snapshot_producer::{
     serialize_snapshot, EntityKindTag, EntitySnapshot, WorldSnapshot,
     SCHEMA_VERSION as SNAPSHOT_SCHEMA_VERSION,

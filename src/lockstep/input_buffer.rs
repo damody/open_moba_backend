@@ -5,13 +5,27 @@
 //! 每刻他們。當蜱蟲觸發時，緩衝區會耗盡所有目標輸入
 //! 在那一刻進入“TickBatch”。
 //!
-//! 遲到的輸入（target_tick 已經過去）會被刪除並帶有日誌行 —
-//! 玩家的客戶錯過了截止日期，將會看到該操作失敗。
-//! 第 3+ 階段可能會新增「軟延遲擴展」政策。
+//! 剛晚到的輸入會被 server retarget 到下一個 tick，避免本機 thread
+//! phase 差造成偶發掉 input；超過 grace window 的陳舊輸入才會丟棄。
 
 use crate::lockstep::PlayerInput;
 use std::collections::BTreeMap;
 use std::time::Instant;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InputSubmitResult {
+    Accepted {
+        effective_tick: u32,
+    },
+    Retargeted {
+        original_tick: u32,
+        effective_tick: u32,
+    },
+    RejectedLate {
+        original_tick: u32,
+        current_tick: u32,
+    },
+}
 
 #[derive(Clone, Debug)]
 pub struct BufferedPlayerInput {
@@ -37,9 +51,8 @@ impl InputBuffer {
         }
     }
 
-    /// 提交一項輸入。如果「target_tick <= current_tick」（晚）則回傳 false。
-    /// `current_tick` 已經被廣播公司耗盡，所以相等
-    /// 否則會將孤兒輸入停放在永遠不會再次觸發的蜱下。
+    /// 提交一項輸入。若 target tick 已被耗盡，但仍在 grace window 內，
+    /// server 會把它排到下一個 tick；太舊則拒收。
     /// 如果同一玩家在同一時間提交兩次，則後者獲勝
     /// （覆蓋政策－客戶不應重複提交；如果這樣做，
     /// 第二個被解釋為更正）。
@@ -51,11 +64,35 @@ impl InputBuffer {
         input: PlayerInput,
         input_id: u32,
     ) -> bool {
-        if target_tick <= current_tick {
-            return false; // late
-        }
+        matches!(
+            self.submit_with_late_grace(current_tick, player_id, target_tick, input, input_id, 0),
+            InputSubmitResult::Accepted { .. }
+        )
+    }
+
+    pub fn submit_with_late_grace(
+        &mut self,
+        current_tick: u32,
+        player_id: u32,
+        target_tick: u32,
+        input: PlayerInput,
+        input_id: u32,
+        late_grace_ticks: u32,
+    ) -> InputSubmitResult {
+        let effective_tick = if target_tick > current_tick {
+            target_tick
+        } else {
+            let late_by = current_tick.saturating_sub(target_tick).saturating_add(1);
+            if late_by > late_grace_ticks {
+                return InputSubmitResult::RejectedLate {
+                    original_tick: target_tick,
+                    current_tick,
+                };
+            }
+            current_tick.saturating_add(1)
+        };
         self.by_tick
-            .entry(target_tick)
+            .entry(effective_tick)
             .or_insert_with(BTreeMap::new)
             .insert(
                 player_id,
@@ -66,7 +103,14 @@ impl InputBuffer {
                     server_receive_instant: Instant::now(),
                 },
             );
-        true
+        if effective_tick == target_tick {
+            InputSubmitResult::Accepted { effective_tick }
+        } else {
+            InputSubmitResult::Retargeted {
+                original_tick: target_tick,
+                effective_tick,
+            }
+        }
     }
 
     /// 耗盡針對此刻度的所有輸入。返回按player_id排序
@@ -125,6 +169,40 @@ mod tests {
         let mut b = InputBuffer::new();
         assert!(!b.submit(10, 1, 5, noop(), 1)); // target=5 < current=10
         assert!(!b.submit(10, 1, 10, noop(), 2)); // target=10 already drained
+        assert_eq!(b.pending_count(), 0);
+    }
+
+    #[test]
+    fn late_input_within_grace_retargets_to_next_tick() {
+        let mut b = InputBuffer::new();
+        let result = b.submit_with_late_grace(10, 1, 9, noop(), 7, 2);
+
+        assert_eq!(
+            result,
+            InputSubmitResult::Retargeted {
+                original_tick: 9,
+                effective_tick: 11
+            }
+        );
+        assert!(b.drain_for_tick(9).is_empty());
+        let drained = b.drain_for_tick(11);
+        assert_eq!(drained.len(), 1);
+        assert_eq!(drained[0].1.input_id, 7);
+        assert_eq!(drained[0].1.server_receive_tick, 10);
+    }
+
+    #[test]
+    fn late_input_beyond_grace_rejected() {
+        let mut b = InputBuffer::new();
+        let result = b.submit_with_late_grace(10, 1, 8, noop(), 7, 2);
+
+        assert_eq!(
+            result,
+            InputSubmitResult::RejectedLate {
+                original_tick: 8,
+                current_tick: 10
+            }
+        );
         assert_eq!(b.pending_count(), 0);
     }
 
