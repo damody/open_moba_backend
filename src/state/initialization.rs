@@ -1210,11 +1210,13 @@ mod tests {
 
         let emitters = ecs.read_resource::<BTreeMap<String, CreepEmiter>>();
         let emitter = emitters.get("td_stress").expect("td_stress emitter");
+        let creep_id = omoba_template_ids::creep_by_name("td_stress").expect("td_stress template");
+        let stats = omoba_template_ids::active_creep_stats(creep_id).expect("td_stress stats");
         assert_eq!(emitter.root.label.as_deref(), Some("壓測怪"));
-        assert_eq!(emitter.property.hp, omoba_sim::Fixed64::from_i32(10_000));
-        assert_eq!(emitter.property.mhp, omoba_sim::Fixed64::from_i32(10_000));
-        assert_eq!(emitter.property.msd, omoba_sim::Fixed64::from_i32(100));
-        assert_eq!(emitter.property.def_physic, omoba_sim::Fixed64::ZERO);
-        assert_eq!(emitter.property.def_magic, omoba_sim::Fixed64::ZERO);
+        assert_eq!(emitter.property.hp, stats.hp);
+        assert_eq!(emitter.property.mhp, stats.hp);
+        assert_eq!(emitter.property.msd, stats.move_speed);
+        assert_eq!(emitter.property.def_physic, stats.armor);
+        assert_eq!(emitter.property.def_magic, stats.magic_resistance);
     }
 }

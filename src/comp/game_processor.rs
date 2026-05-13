@@ -1287,20 +1287,18 @@ mod tests {
         world.insert(BlockedRegions::default());
         world.insert(BTreeMap::<String, Path>::from([(
             "main".to_string(),
-            Path {
-                check_points: vec![
-                    CheckPoint {
-                        name: "a".to_string(),
-                        class: String::new(),
-                        pos: vek::Vec2::new(500.0, -100.0),
-                    },
-                    CheckPoint {
-                        name: "b".to_string(),
-                        class: String::new(),
-                        pos: vek::Vec2::new(500.0, 100.0),
-                    },
-                ],
-            },
+            Path::new(vec![
+                CheckPoint {
+                    name: "a".to_string(),
+                    class: String::new(),
+                    pos: vek::Vec2::new(500.0, -100.0),
+                },
+                CheckPoint {
+                    name: "b".to_string(),
+                    class: String::new(),
+                    pos: vek::Vec2::new(500.0, 100.0),
+                },
+            ]),
         )]));
 
         (world, hero)
