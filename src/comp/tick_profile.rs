@@ -15,6 +15,9 @@ pub struct TickProfile {
     /// 本 window 累積的 queued events 總耗時（Spawn / Death / AttackHit ... 之類）
     pub script_events_ns: u128,
     pub script_events_count: u64,
+    pub script_compute_ns: u128,
+    pub script_outcome_count: u64,
+    pub script_ready_count: u64,
     /// 每個系統的計時：tower_sys / Creep_sys / Projectile_sys ... → (count,total_ns)。
     /// 由 `Job::<T>::run` 每次系統跑完寫入。Mutex 是必要的：specs 並行系統用
     /// `ReadExpect<TickProfile>` 取資源（不會 serialize 系統），但寫入仍要避競爭。
@@ -63,6 +66,17 @@ impl TickProfile {
     pub fn record_script_event(&mut self, ns: u128) {
         self.script_events_ns += ns;
         self.script_events_count += 1;
+    }
+
+    pub fn record_script_compute_batch(
+        &mut self,
+        ready_count: usize,
+        compute_ns: u128,
+        outcome_count: usize,
+    ) {
+        self.script_ready_count += ready_count as u64;
+        self.script_compute_ns += compute_ns;
+        self.script_outcome_count += outcome_count as u64;
     }
 
     /// Job::<T>::run 結束時呼叫；鎖短暫持有不影響並行 systems。
@@ -164,7 +178,7 @@ impl TickProfile {
         }
 
         // Script dispatch 細項：on_tick 各 script id 排序 + queued events 總和
-        if !self.script_stats.is_empty() || self.script_events_count > 0 {
+        if !self.script_stats.is_empty() || self.script_events_count > 0 || self.script_ready_count > 0 {
             let events_per_frame = self.script_events_count as f64 / window;
             let events_ms_per_frame = self.script_events_ns as f64 / window / 1_000_000.0;
             let events_avg_us = if self.script_events_count > 0 {
@@ -177,6 +191,15 @@ impl TickProfile {
                 events_per_frame,
                 events_ms_per_frame,
                 events_avg_us,
+            );
+            let ready_per_frame = self.script_ready_count as f64 / window;
+            let compute_ms_per_frame = self.script_compute_ns as f64 / window / 1_000_000.0;
+            let outcomes_per_frame = self.script_outcome_count as f64 / window;
+            log::info!(
+                "  script  on_tick_compute       ready/frame={:>7.1} ms/frame={:>7.3} outcomes/frame={:>7.1}",
+                ready_per_frame,
+                compute_ms_per_frame,
+                outcomes_per_frame,
             );
             let mut s_entries: Vec<_> = self.script_stats.iter().collect();
             s_entries.sort_by(|a, b| b.1.ns.cmp(&a.1.ns));
@@ -207,6 +230,9 @@ impl TickProfile {
         self.script_stats.clear();
         self.script_events_ns = 0;
         self.script_events_count = 0;
+        self.script_compute_ns = 0;
+        self.script_outcome_count = 0;
+        self.script_ready_count = 0;
         if let Ok(mut stats) = self.system_stats.lock() {
             stats.clear();
         }

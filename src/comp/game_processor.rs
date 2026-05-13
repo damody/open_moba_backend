@@ -87,6 +87,18 @@ fn outcome_kind(o: &Outcome) -> &'static str {
         Outcome::Explosion { .. } => "Explosion",
         Outcome::ProjectileDirectional { .. } => "ProjectileDirectional",
         Outcome::AttackPhaseCue { .. } => "AttackPhaseCue",
+        Outcome::ScriptSetPos { .. } => "ScriptSetPos",
+        Outcome::ScriptSetFacing { .. } => "ScriptSetFacing",
+        Outcome::ScriptSetAsdCount { .. } => "ScriptSetAsdCount",
+        Outcome::ScriptSetTowerAtk { .. } => "ScriptSetTowerAtk",
+        Outcome::ScriptSetTowerRange { .. } => "ScriptSetTowerRange",
+        Outcome::ScriptSetAsdInterval { .. } => "ScriptSetAsdInterval",
+        Outcome::ScriptDirectDamage { .. } => "ScriptDirectDamage",
+        Outcome::ScriptHeal { .. } => "ScriptHeal",
+        Outcome::ScriptRemoveBuff { .. } => "ScriptRemoveBuff",
+        Outcome::ScriptProjectile { .. } => "ScriptProjectile",
+        Outcome::ScriptTowerFireFx { .. } => "ScriptTowerFireFx",
+        Outcome::ScriptAttackPhaseCue { .. } => "ScriptAttackPhaseCue",
         Outcome::EntityRemoved { .. } => "EntityRemoved",
     }
 }
