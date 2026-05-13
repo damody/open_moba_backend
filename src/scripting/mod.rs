@@ -7,9 +7,8 @@
 //! - [`dispatch`]：排空事件佇列並觸發鉤子。
 //! - [`tag`]：`ScriptUnitTag` 元件 — 標記哪些實體有腳本。
 
-pub mod loader;
-
 pub use omoba_core::runtime::scripting::{
     dispatch, event, parallel_world_adapter, registry, run_script_dispatch, tag, ScriptEvent,
     ScriptEventQueue, ScriptRegistry, ScriptUnitTag, SkillTarget,
 };
+pub use omoba_core::scripting::loader;
