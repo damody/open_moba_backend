@@ -32,8 +32,11 @@ impl ResourceManager {
 
     /// 處理遊戲結果事件
     pub fn process_outcomes(&self, world: &mut World) -> Result<(), Error> {
-        // 使用 GameProcessor 來處理所有的 outcomes
-        crate::comp::GameProcessor::process_outcomes(world, &self.mqtx)?;
+        let mut sink = omoba_core::runtime::RuntimeEventVecSink::default();
+        omoba_core::runtime::process_outcomes(world, &mut sink)?;
+        for msg in crate::runtime_events::runtime_events_to_outbound(sink.events) {
+            let _ = self.mqtx.try_send(msg);
+        }
         Ok(())
     }
 

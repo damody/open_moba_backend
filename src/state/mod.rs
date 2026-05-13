@@ -4,15 +4,12 @@
 pub mod core;
 #[cfg(feature = "runtime-lua-content")]
 pub mod dev_lua_hot_reload;
-pub mod initialization;
 #[cfg(any(feature = "grpc", feature = "kcp"))]
 pub mod query;
 pub mod resource_management;
-pub mod system_dispatcher;
 pub mod time_management;
 
 pub use core::State;
-pub use initialization::StateInitializer;
+pub use omoba_core::runtime::{StateInitializer, SystemDispatcher};
 pub use resource_management::ResourceManager;
-pub use system_dispatcher::SystemDispatcher;
 pub use time_management::TimeManager;

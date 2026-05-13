@@ -164,6 +164,9 @@ impl State {
 
         // 設置 MQTT 發送器
         {
+            // omoba-core installs its own transport::OutboundMsg resource; backend
+            // uses omobab::transport::OutboundMsg, which is a distinct ECS type.
+            ecs.insert(Vec::<Sender<OutboundMsg>>::new());
             let mut mqtx_vec = ecs.write_resource::<Vec<Sender<OutboundMsg>>>();
             mqtx_vec.push(mqtx.clone());
         }
@@ -225,20 +228,15 @@ impl State {
     /// 未設定時預設 `./scripts`（相對於執行目錄）。載入完就順便把塔 template
     /// 從腳本 `tower_metadata()` 收集到 `TowerTemplateRegistry` resource。
     ///
-    /// 階段 3.2：將 populate_* 助手提取到
-    /// `狀態::初始化::{populate_tower_template_registry,
-    /// populate_tower_upgrade_registry、populate_ability_registry}`，讓
-    /// local replica bootstrap 可以重複使用相同引導程式碼。
+    /// 使用 `omoba-core::runtime` 的 shared bootstrap helpers，避免 backend
+    /// 與 local replica 維護兩份 registry 初始化邏輯。
     fn load_scripts(&mut self) {
         let dir_str = std::env::var("OMB_SCRIPTS_DIR").unwrap_or_else(|_| "./scripts".to_string());
         let dir = std::path::Path::new(&dir_str);
         self.script_registry = crate::scripting::loader::load_scripts_dir(dir);
-        super::initialization::populate_tower_template_registry(
-            &mut self.ecs,
-            &self.script_registry,
-        );
-        super::initialization::populate_tower_upgrade_registry(&mut self.ecs);
-        super::initialization::populate_ability_registry(&mut self.ecs, &self.script_registry);
+        omoba_core::runtime::populate_tower_template_registry(&mut self.ecs, &self.script_registry);
+        omoba_core::runtime::populate_tower_upgrade_registry(&mut self.ecs);
+        omoba_core::runtime::populate_ability_registry(&mut self.ecs, &self.script_registry);
     }
 
     fn load_item_registry(&mut self) {
@@ -333,12 +331,9 @@ impl State {
         if let Some(campaign) = self.campaign.as_ref() {
             StateInitializer::refresh_creep_emiters(&mut self.ecs, &campaign.map);
         }
-        super::initialization::populate_tower_template_registry(
-            &mut self.ecs,
-            &self.script_registry,
-        );
-        super::initialization::populate_tower_upgrade_registry(&mut self.ecs);
-        super::initialization::populate_ability_registry(&mut self.ecs, &self.script_registry);
+        omoba_core::runtime::populate_tower_template_registry(&mut self.ecs, &self.script_registry);
+        omoba_core::runtime::populate_tower_upgrade_registry(&mut self.ecs);
+        omoba_core::runtime::populate_ability_registry(&mut self.ecs, &self.script_registry);
         self.refresh_live_heroes_from_lua();
         self.refresh_live_creeps_from_lua();
         self.refresh_live_towers_from_lua();
@@ -501,6 +496,9 @@ impl State {
 
         // 設置 MQTT 發送器
         {
+            // omoba-core installs its own transport::OutboundMsg resource; backend
+            // uses omobab::transport::OutboundMsg, which is a distinct ECS type.
+            ecs.insert(Vec::<Sender<OutboundMsg>>::new());
             let mut mqtx_vec = ecs.write_resource::<Vec<Sender<OutboundMsg>>>();
             mqtx_vec.push(mqtx.clone());
         }
@@ -607,37 +605,37 @@ impl State {
         // （TowerTemplateRegistry 尋找 + 實體建立 + ScriptEvent::Spawn
         // Push) 是「System」的規格無法借用。local replica 在自己的
         // dispatcher 運行後使用相同 boundary drain。
-        crate::comp::GameProcessor::drain_pending_tower_spawns(&mut self.ecs);
+        omoba_core::runtime::drain_pending_tower_spawns(&mut self.ecs);
 
         // 階段 2.2：排出`PendingTowerSellQueue`（TowerSell 鎖步輸入）
         // — 相同的「&mut World」要求（金幣+BuffStore清除+
         // 實體刪除）。local replica 使用相同 boundary。
-        crate::comp::GameProcessor::drain_pending_tower_sells(&mut self.ecs);
+        omoba_core::runtime::drain_pending_tower_sells(&mut self.ecs);
 
         // 階段 2.3：排空`PendingTowerUpgradeQueue`（TowerUpgrade 鎖步
         // 輸入） - 需要 `&mut World` （TowerUpgradeRegistry 讀取，驗證
         // 透過 tower_upgrade_rules，扣除 Gold，寫入 Tower.upgrade_levels +
         // Upgrade_flags，將 StatMod 推入 BuffStore）。local replica 使用相同 boundary。
-        crate::comp::GameProcessor::drain_pending_tower_upgrades(&mut self.ecs);
+        omoba_core::runtime::drain_pending_tower_upgrades(&mut self.ecs);
 
         // 階段 2.4：排出 `PendingItemUseQueue` （ItemUse 鎖步輸入） —
         // 需要`&mut World`（ItemRegistry讀取，寫入Inventory冷卻時間，
         // 為專案效果編寫 CProperty）。副本反映了這一點
         // sim_runner。
-        crate::comp::GameProcessor::drain_pending_item_uses(&mut self.ecs);
+        omoba_core::runtime::drain_pending_item_uses(&mut self.ecs);
 
         // AbilityUpgrade：消耗 skill point 並在 script dispatch 前排入 SkillLearn。
         // Replica 端在 sim_runner 中鏡像同一流程。
-        crate::comp::GameProcessor::drain_pending_ability_upgrades(&mut self.ecs);
+        omoba_core::runtime::drain_pending_ability_upgrades(&mut self.ecs);
 
         // AbilityCast：在 script dispatch 前排入 SkillCast。放在 upgrades 後 drain，
         // 讓同 tick 的 Shift+key 學習後再 key cast 可以成功。
-        crate::comp::GameProcessor::drain_pending_ability_casts(&mut self.ecs);
+        omoba_core::runtime::drain_pending_ability_casts(&mut self.ecs);
 
         // MoveTo (右鍵移動): drain `PendingMoveQueue` — writes `MoveTarget`
         // 玩家英雄實體上的組件。副本反映了這一點
         // sim_runner。
-        crate::comp::GameProcessor::drain_pending_moves(&mut self.ecs);
+        omoba_core::runtime::drain_pending_moves(&mut self.ecs);
 
         // 腳本 dispatch 階段（E1 — 序列、獨佔 World）
         // 放在並行系統之後、其他序列處理之前，確保腳本能看到本 tick 的

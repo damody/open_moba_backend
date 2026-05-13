@@ -1,8 +1,6 @@
 pub mod campaign_manager;
-pub mod game_processor;
 pub mod mqtt_handler;
 pub mod state;
-pub use game_processor::GameProcessor;
 pub use omoba_core::comp::tick_profile;
 pub use omoba_core::comp::{TickPhase, TickProfile};
 pub mod attack;
