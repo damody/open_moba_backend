@@ -576,9 +576,9 @@ impl State {
                 use crate::comp::PendingPlayerInputs;
                 let mut pending = self.ecs.write_resource::<PendingPlayerInputs>();
                 pending.tick = self.local_tick as u32;
-                pending.by_player.clear();
+                pending.inputs.clear();
                 for (player_id, input) in accumulated {
-                    pending.by_player.insert(player_id, input);
+                    pending.inputs.push((player_id, input));
                 }
             }
         }

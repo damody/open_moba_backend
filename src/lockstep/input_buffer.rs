@@ -37,11 +37,11 @@ pub struct BufferedPlayerInput {
 
 #[derive(Default)]
 pub struct InputBuffer {
-    /// target_tick→player_id→輸入加上線邊元資料。
+    /// target_tick→player_id→inputs plus wire metadata.
     /// 外部 BTreeMap，因此在刻度鍵上，drain_for_tick 的複雜度為 O(log N)。
     /// 內部BTreeMap由player_id作為確定性迭代順序的鍵控
     /// 在 TickBatch 組合中。
-    by_tick: BTreeMap<u32, BTreeMap<u32, BufferedPlayerInput>>,
+    by_tick: BTreeMap<u32, BTreeMap<u32, Vec<BufferedPlayerInput>>>,
 }
 
 impl InputBuffer {
@@ -53,9 +53,9 @@ impl InputBuffer {
 
     /// 提交一項輸入。若 target tick 已被耗盡，但仍在 grace window 內，
     /// server 會把它排到下一個 tick；太舊則拒收。
-    /// 如果同一玩家在同一時間提交兩次，則後者獲勝
-    /// （覆蓋政策－客戶不應重複提交；如果這樣做，
-    /// 第二個被解釋為更正）。
+    /// 如果同一玩家在同一 tick 提交多次，會保留所有 input_id，並按抵達順序
+    /// 發進 TickBatch。MoveTo 之類的狀態型命令仍由 runtime 的最後一筆決定
+    /// 最終狀態，但前端不會因為 input id 被覆蓋而誤判 stale。
     pub fn submit(
         &mut self,
         current_tick: u32,
@@ -94,15 +94,14 @@ impl InputBuffer {
         self.by_tick
             .entry(effective_tick)
             .or_insert_with(BTreeMap::new)
-            .insert(
-                player_id,
-                BufferedPlayerInput {
-                    input,
-                    input_id,
-                    server_receive_tick: current_tick,
-                    server_receive_instant: Instant::now(),
-                },
-            );
+            .entry(player_id)
+            .or_insert_with(Vec::new)
+            .push(BufferedPlayerInput {
+                input,
+                input_id,
+                server_receive_tick: current_tick,
+                server_receive_instant: Instant::now(),
+            });
         if effective_tick == target_tick {
             InputSubmitResult::Accepted { effective_tick }
         } else {
@@ -119,7 +118,13 @@ impl InputBuffer {
     pub fn drain_for_tick(&mut self, tick: u32) -> Vec<(u32, BufferedPlayerInput)> {
         self.by_tick
             .remove(&tick)
-            .map(|m| m.into_iter().collect())
+            .map(|m| {
+                m.into_iter()
+                    .flat_map(|(player_id, inputs)| {
+                        inputs.into_iter().map(move |input| (player_id, input))
+                    })
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
@@ -132,7 +137,10 @@ impl InputBuffer {
 
     /// 所有未來報價的待處理輸入總數（用於診斷）。
     pub fn pending_count(&self) -> usize {
-        self.by_tick.values().map(|m| m.len()).sum()
+        self.by_tick
+            .values()
+            .map(|m| m.values().map(Vec::len).sum::<usize>())
+            .sum()
     }
 }
 
@@ -204,6 +212,21 @@ mod tests {
             }
         );
         assert_eq!(b.pending_count(), 0);
+    }
+
+    #[test]
+    fn same_player_same_tick_preserves_input_ids_in_order() {
+        let mut b = InputBuffer::new();
+        assert!(b.submit(0, 1, 5, noop(), 41));
+        assert!(b.submit(0, 1, 5, noop(), 42));
+        assert_eq!(b.pending_count(), 2);
+
+        let drained = b.drain_for_tick(5);
+        assert_eq!(drained.len(), 2);
+        assert_eq!(drained[0].0, 1);
+        assert_eq!(drained[1].0, 1);
+        assert_eq!(drained[0].1.input_id, 41);
+        assert_eq!(drained[1].1.input_id, 42);
     }
 
     #[test]
