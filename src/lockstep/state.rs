@@ -32,7 +32,6 @@ pub struct LockstepState {
     /// `SimRng::from_master_*` 建構子。必須匹配所有同行。
     pub master_seed: u64,
     pub players: BTreeMap<u32, PlayerSession>,
-    pub next_player_id: u32,
 }
 
 impl LockstepState {
@@ -41,13 +40,25 @@ impl LockstepState {
             current_tick: 0,
             master_seed,
             players: BTreeMap::new(),
-            next_player_id: 1,
         }
     }
 
-    pub fn register_player(&mut self, name: String, role: JoinRoleEnum) -> u32 {
-        let id = self.next_player_id;
-        self.next_player_id += 1;
+    pub fn register_player(
+        &mut self,
+        player_id: u32,
+        name: String,
+        role: JoinRoleEnum,
+    ) -> Result<u32, String> {
+        if role == JoinRoleEnum::Player && player_id == 0 {
+            return Err("player join missing non-zero client-declared player_id".to_string());
+        }
+        if role == JoinRoleEnum::Player && self.players.contains_key(&player_id) {
+            return Err(format!(
+                "player_id {} already has an active session",
+                player_id
+            ));
+        }
+        let id = player_id;
         self.players.insert(
             id,
             PlayerSession {
@@ -57,10 +68,48 @@ impl LockstepState {
                 last_input_tick: 0,
             },
         );
-        id
+        Ok(id)
     }
 
     pub fn unregister_player(&mut self, player_id: u32) {
         self.players.remove(&player_id);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn register_player_accepts_client_declared_ids() {
+        let mut state = LockstepState::new(0x1234);
+        assert_eq!(
+            state
+                .register_player(1, "player1".into(), JoinRoleEnum::Player)
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            state
+                .register_player(2, "player2".into(), JoinRoleEnum::Player)
+                .unwrap(),
+            2
+        );
+        assert_eq!(state.players.len(), 2);
+    }
+
+    #[test]
+    fn register_player_rejects_missing_or_duplicate_ids() {
+        let mut state = LockstepState::new(0x1234);
+        assert!(state
+            .register_player(0, "missing".into(), JoinRoleEnum::Player)
+            .is_err());
+        state
+            .register_player(1, "player1".into(), JoinRoleEnum::Player)
+            .unwrap();
+        assert!(state
+            .register_player(1, "dupe".into(), JoinRoleEnum::Player)
+            .is_err());
+        assert_eq!(state.players.len(), 1);
     }
 }

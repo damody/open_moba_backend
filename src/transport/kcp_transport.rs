@@ -983,6 +983,7 @@ async fn handle_client(
     let mut subscribed = false;
     // 追蹤訂閱的player_name，以便我們可以在斷開連接時發送刪除
     let mut player_name: Option<String> = None;
+    let mut joined_player_id: Option<u32> = None;
 
     // 主循環：從客戶端讀取，可選擇寫入出站事件
     loop {
@@ -1133,6 +1134,20 @@ async fn handle_client(
                                     Ok(req) => {
                                         let current_tick = lockstep_state.lock().unwrap().current_tick;
                                         let player_id = req.player_id;
+                                        if !lockstep_state
+                                            .lock()
+                                            .unwrap()
+                                            .players
+                                            .contains_key(&player_id)
+                                        {
+                                            warn!(
+                                                "InputSubmit rejected from unknown player_id={} input_id={} session={}",
+                                                player_id,
+                                                req.input_id,
+                                                session_id
+                                            );
+                                            continue;
+                                        }
                                         let target_tick = req.target_tick;
                                         let input_id = req.input_id;
                                         let input = req.input.unwrap_or_default();
@@ -1188,11 +1203,31 @@ async fn handle_client(
                                             x if x == JoinRole::RoleObserver as i32 => crate::lockstep::JoinRoleEnum::Observer,
                                             _ => crate::lockstep::JoinRoleEnum::Player,
                                         };
-                                        let (player_id, master_seed, start_tick) = {
+                                        let declared_player_id = req.player_id;
+                                        let registered = {
                                             let mut s = lockstep_state.lock().unwrap();
-                                            let pid = s.register_player(req.player_name.clone(), role);
-                                            (pid, s.master_seed, s.current_tick)
+                                            let result = s.register_player(
+                                                declared_player_id,
+                                                req.player_name.clone(),
+                                                role,
+                                            );
+                                            result.map(|pid| (pid, s.master_seed, s.current_tick))
                                         };
+                                        let (player_id, master_seed, start_tick) = match registered {
+                                            Ok(v) => v,
+                                            Err(reason) => {
+                                                warn!(
+                                                    "KCP lockstep JoinRequest rejected player='{}' declared_player_id={} role={:?} session={}: {}",
+                                                    req.player_name,
+                                                    declared_player_id,
+                                                    role,
+                                                    session_id,
+                                                    reason
+                                                );
+                                                break;
+                                            }
+                                        };
+                                        joined_player_id = Some(player_id);
                                         // 將此會話標記為已加入
                                         // 鎖步流因此未來 TickBatch /
                                         // StateHash 廣播到達它。
@@ -1226,7 +1261,7 @@ async fn handle_client(
                                             }
                                         }
                                         info!(
-                                            "🎮 KCP lockstep JoinRequest player='{}' role={:?} → assigned player_id={} (session={})",
+                                            "🎮 KCP lockstep JoinRequest player='{}' role={:?} accepted player_id={} (session={})",
                                             req.player_name, role, player_id, session_id
                                         );
                                         // 透過單播方式傳送 GameStart
@@ -1331,6 +1366,9 @@ async fn handle_client(
     // 通知遊戲循環該玩家的視窗已消失
     if let Some(name) = player_name {
         let _ = viewport_tx.send(ViewportMsg::Remove { player_name: name });
+    }
+    if let Some(player_id) = joined_player_id {
+        lockstep_state.lock().unwrap().unregister_player(player_id);
     }
     info!("KCP session cleaned up: {}", session_id);
     Ok(())
@@ -1952,10 +1990,12 @@ mod tests {
         let player = JoinRequest {
             player_name: "alice".into(),
             role: JoinRole::RolePlayer as i32,
+            player_id: 1,
         };
         let observer = JoinRequest {
             player_name: "bob".into(),
             role: JoinRole::RoleObserver as i32,
+            player_id: 0,
         };
         let p_bytes = player.encode_to_vec();
         let o_bytes = observer.encode_to_vec();
@@ -1963,6 +2003,7 @@ mod tests {
         let o_dec = JoinRequest::decode(o_bytes.as_slice()).unwrap();
         assert_eq!(p_dec.role, JoinRole::RolePlayer as i32);
         assert_eq!(o_dec.role, JoinRole::RoleObserver as i32);
+        assert_eq!(p_dec.player_id, 1);
         assert_eq!(p_dec.player_name, "alice");
         assert_eq!(o_dec.player_name, "bob");
     }
