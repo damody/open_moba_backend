@@ -14,10 +14,9 @@
 //! 直接“process_outcomes”。這隔離了*損壞應用程式*
 //! 邏輯 — 在第 1.4 階段中，handle_damage 刪除的部分可能已經損壞。
 
-use crossbeam_channel::unbounded;
+use omoba_core::runtime::{process_outcomes, RuntimeEventVecSink};
 use omoba_sim::Fixed64;
-use omobab::comp::{CProperty, GameProcessor, Pos};
-use omobab::transport::OutboundMsg;
+use omobab::comp::{CProperty, Pos};
 use omobab::Outcome;
 use rayon::ThreadPoolBuilder;
 use specs::{Builder, World, WorldExt};
@@ -94,8 +93,8 @@ fn damage_outcome_decrements_hp() {
         });
     }
 
-    let (tx, _rx) = unbounded::<OutboundMsg>();
-    GameProcessor::process_outcomes(&mut world, &tx).expect("process_outcomes");
+    let mut sink = RuntimeEventVecSink::default();
+    process_outcomes(&mut world, &mut sink).expect("process_outcomes");
     world.maintain();
 
     let hp_after = read_hp(&world, target);
@@ -137,8 +136,8 @@ fn damage_aggregation_multiple_sources_one_target() {
         });
     }
 
-    let (tx, _rx) = unbounded::<OutboundMsg>();
-    GameProcessor::process_outcomes(&mut world, &tx).expect("process_outcomes");
+    let mut sink = RuntimeEventVecSink::default();
+    process_outcomes(&mut world, &mut sink).expect("process_outcomes");
     world.maintain();
 
     let hp_after = read_hp(&world, target);
@@ -169,12 +168,12 @@ fn fatal_damage_emits_death_and_removes_entity() {
         });
     }
 
-    let (tx, _rx) = unbounded::<OutboundMsg>();
     // 第一次呼叫：傷害將 HP 限制為 0 並排隊 Outcome::Death in
     // 下一個結果。死亡結果將在下一次呼叫時處理。
-    GameProcessor::process_outcomes(&mut world, &tx).expect("first process_outcomes");
+    let mut sink = RuntimeEventVecSink::default();
+    process_outcomes(&mut world, &mut sink).expect("first process_outcomes");
     world.maintain();
-    GameProcessor::process_outcomes(&mut world, &tx).expect("second process_outcomes");
+    process_outcomes(&mut world, &mut sink).expect("second process_outcomes");
     world.maintain();
 
     // 第二遍之後，實體應該被刪除（handle_death Pushed

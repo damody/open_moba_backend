@@ -590,6 +590,8 @@ impl State {
 
         self.flush_runtime_events();
 
+        omoba_core::runtime::drain_pending_hero_command_clears(&mut self.ecs);
+
         // 階段 2.1：耗盡 `PendingTowerSpawnQueue` 填充
         // 上述調度期間的`player_input_tick::Sys`。需要 `&mut World`
         // （TowerTemplateRegistry 尋找 + 實體建立 + ScriptEvent::Spawn
@@ -607,6 +609,8 @@ impl State {
         // 透過 tower_upgrade_rules，扣除 Gold，寫入 Tower.upgrade_levels +
         // Upgrade_flags，將 StatMod 推入 BuffStore）。local replica 使用相同 boundary。
         omoba_core::runtime::drain_pending_tower_upgrades(&mut self.ecs);
+
+        omoba_core::runtime::drain_pending_tower_target_priorities(&mut self.ecs);
 
         // 階段 2.4：排出 `PendingItemUseQueue` （ItemUse 鎖步輸入） —
         // 需要`&mut World`（ItemRegistry讀取，寫入Inventory冷卻時間，

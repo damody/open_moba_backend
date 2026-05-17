@@ -88,9 +88,9 @@ fn two_worlds_same_seed_same_hashes() -> TestResult {
 
     let master_seed: u64 = 0xDEAD_BEEF_CAFE_BABE;
 
-    let mut world_a = omobab::state::initialization::create_world_for_scene(&scene)
+    let mut world_a = omoba_core::runtime::create_world_for_scene(&scene)
         .map_err(|e| format!("create_world_for_scene(world_a) failed: {}", e))?;
-    let mut world_b = omobab::state::initialization::create_world_for_scene(&scene)
+    let mut world_b = omoba_core::runtime::create_world_for_scene(&scene)
         .map_err(|e| format!("create_world_for_scene(world_b) failed: {}", e))?;
 
     // 在兩個世界中覆蓋 MasterSeed。 create_world_for_scene 安裝
@@ -113,9 +113,9 @@ fn two_worlds_same_seed_same_hashes() -> TestResult {
     world_a.insert(registry_a);
     world_b.insert(registry_b);
 
-    let mut dispatcher_a = omobab::state::system_dispatcher::build_phase3_dispatcher()
+    let mut dispatcher_a = omoba_core::runtime::build_phase3_dispatcher()
         .map_err(|e| format!("build_phase3_dispatcher(a) failed: {}", e))?;
-    let mut dispatcher_b = omobab::state::system_dispatcher::build_phase3_dispatcher()
+    let mut dispatcher_b = omoba_core::runtime::build_phase3_dispatcher()
         .map_err(|e| format!("build_phase3_dispatcher(b) failed: {}", e))?;
 
     // 勾選 0 基線。
