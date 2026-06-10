@@ -551,9 +551,14 @@ impl State {
         self.local_tick = self.local_tick.wrapping_add(1);
         let dt_fixed_raw = self.lockstep_timing.fixed_raw_for_tick(self.local_tick);
 
-        // 更新時間管理
-        self.time_manager
-            .update(&mut self.ecs, dt, Some(dt_fixed_raw))?;
+        // 更新時間管理。暫停中仍會繼續收 lockstep input，但 gameplay time 不前進。
+        let was_paused = self.ecs.read_resource::<crate::comp::GamePause>().is_paused;
+        if was_paused {
+            self.time_manager.pause_time(&mut self.ecs);
+        } else {
+            self.time_manager
+                .update(&mut self.ecs, dt, Some(dt_fixed_raw))?;
+        }
 
         #[cfg(feature = "runtime-lua-content")]
         self.poll_dev_lua_hot_reload();
