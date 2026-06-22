@@ -3,7 +3,7 @@ use specs::{World, WorldExt};
 /// 時間管理器 - 負責遊戲時間循環和日夜週期
 use std::time::Duration;
 
-use crate::comp::{DayPeriod, DeltaTime, Time, TimeOfDay};
+use crate::comp::{DayPeriod, DeltaTime, GameSpeed, Time, TimeOfDay};
 
 /// 時間管理器
 pub struct TimeManager {
@@ -49,23 +49,26 @@ impl TimeManager {
         dt: Duration,
         fixed_dt_raw: Option<i64>,
     ) -> Result<(), Error> {
+        let speed = world.read_resource::<GameSpeed>().multiplier();
+        let scaled_dt = dt.mul_f64(f64::from(speed));
         // 更新基本時間
         {
             let mut time_of_day = world.write_resource::<TimeOfDay>();
-            time_of_day.0 += dt.as_secs_f64() * self.day_cycle_factor;
+            time_of_day.0 += scaled_dt.as_secs_f64() * self.day_cycle_factor;
             self.cached_time_of_day = time_of_day.0;
         }
 
         {
             let mut time = world.write_resource::<Time>();
-            time.0 += dt.as_secs_f64();
+            time.0 += scaled_dt.as_secs_f64();
             self.cached_time = time.0;
         }
 
         {
-            let dt_val = dt.as_secs_f32().min(self.max_delta_time);
-            let raw =
-                fixed_dt_raw.unwrap_or_else(|| (dt_val * omoba_sim::fixed::SCALE as f32) as i64);
+            let dt_val = scaled_dt.as_secs_f32().min(self.max_delta_time);
+            let raw = fixed_dt_raw
+                .map(|raw| raw.saturating_mul(i64::from(speed)))
+                .unwrap_or_else(|| (dt_val * omoba_sim::fixed::SCALE as f32) as i64);
             let mut delta_time = world.write_resource::<DeltaTime>();
             delta_time.0 = omoba_sim::Fixed64::from_raw(raw);
             self.cached_delta_time = raw as f32 / omoba_sim::fixed::SCALE as f32;
