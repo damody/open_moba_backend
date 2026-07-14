@@ -38,6 +38,22 @@ pub struct TowerStats {
     pub recoil_scale: f32,
     pub attack_windup: u16,
     pub attack_backswing: u16,
+    pub upgrades: Vec<TowerUpgradeInfo>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TowerUpgradeInfo {
+    pub path: usize,
+    pub level: usize,
+    pub name: String,
+    pub active_ability: Option<TowerActiveAbilityInfo>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TowerActiveAbilityInfo {
+    pub ability_id: String,
+    pub display_name: String,
+    pub cooldown: f32,
 }
 
 #[derive(Debug, Clone, Default)]

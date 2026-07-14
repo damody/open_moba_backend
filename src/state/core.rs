@@ -116,6 +116,107 @@ pub struct State {
     host_input_rx: Option<crossbeam_channel::Receiver<Vec<(u32, crate::lockstep::PlayerInput)>>>,
 }
 
+#[cfg(test)]
+mod tower_ability_phase_order_tests {
+    fn authoritative_phase_source() -> &'static str {
+        let source = include_str!("core.rs");
+        let upgrades = source
+            .find(concat!(
+                "omoba_core::runtime::drain_pending_tower_",
+                "upgrades(&mut self.ecs)"
+            ))
+            .expect("tower upgrade drain");
+        let suffix = &source[upgrades..];
+        let ordinary_ticks = suffix
+            .find(concat!("scripting::run_script_", "dispatch("))
+            .expect("ordinary unit script ticks");
+        &suffix[..ordinary_ticks]
+    }
+
+    fn validate_contiguous_phase(phase: &str) -> Result<(), &'static str> {
+        let casts = phase
+            .find(concat!(
+                "omoba_core::runtime::drain_pending_tower_ability_",
+                "casts(&mut self.ecs)"
+            ))
+            .ok_or("tower ability cast drain missing")?;
+        let scaled_dt = phase
+            .find(concat!(
+                "let scaled_dt = self.ecs.read_resource::<crate::comp::",
+                "DeltaTime>().0;"
+            ))
+            .ok_or("scaled DeltaTime binding missing from phase")?;
+        let scheduler = phase
+            .find(concat!(
+                "omoba_core::runtime::tick_tower_",
+                "abilities(&mut self.ecs, scaled_dt)"
+            ))
+            .ok_or("tower ability scheduler missing")?;
+        let callbacks = phase
+            .find(concat!(
+                "omoba_core::runtime::drain_pending_tower_ability_",
+                "callbacks("
+            ))
+            .ok_or("tower ability callback drain missing")?;
+
+        if !(casts < scaled_dt && scaled_dt < scheduler && scheduler < callbacks) {
+            return Err("tower ability phase order changed");
+        }
+        if phase.matches("drain_pending_").count() != 3 {
+            return Err("unexpected pending drain in phase");
+        }
+        if phase
+            .matches(concat!(
+                "drain_pending_tower_ability_",
+                "callbacks("
+            ))
+            .count()
+            != 1
+        {
+            return Err("callback drain must occur exactly once");
+        }
+        if phase.matches("tick_tower_abilities(").count() != 1 {
+            return Err("scheduler must occur exactly once");
+        }
+        if phase.contains(concat!(".", "maintain()")) {
+            return Err("maintenance boundary inside phase");
+        }
+        if phase.contains(concat!("process_", "outcomes(")) {
+            return Err("outcome boundary inside phase");
+        }
+        if phase.contains(concat!("dispatcher.", "dispatch(")) {
+            return Err("dispatcher boundary inside phase");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn authoritative_runner_keeps_tower_ability_phase_order_and_scaled_delta() {
+        assert_eq!(validate_contiguous_phase(authoritative_phase_source()), Ok(()));
+    }
+
+    #[test]
+    fn phase_validator_rejects_receiver_independent_maintenance_mutation() {
+        let phase = authoritative_phase_source();
+        let mutated = phase.replace(
+            concat!(
+                "omoba_core::runtime::drain_pending_tower_ability_",
+                "casts(&mut self.ecs);"
+            ),
+            concat!(
+                "omoba_core::runtime::drain_pending_tower_ability_",
+                "casts(&mut self.ecs);\n        self.ecs.maintain();"
+            ),
+        );
+
+        assert_ne!(mutated, phase, "mutation fixture must alter the phase");
+        assert_eq!(
+            validate_contiguous_phase(&mutated),
+            Err("maintenance boundary inside phase")
+        );
+    }
+}
+
 /// 每個玩家可見的實體集，按類型劃分，以便規範“Entity::id()”
 /// 跨不同儲存的重複使用不會在單一「HashSet<u32>」內發生衝突。
 #[cfg(any(feature = "grpc", feature = "kcp"))]
@@ -609,12 +710,6 @@ impl State {
         // 實體刪除）。local replica 使用相同 boundary。
         omoba_core::runtime::drain_pending_tower_sells(&mut self.ecs);
 
-        // 階段 2.3：排空`PendingTowerUpgradeQueue`（TowerUpgrade 鎖步
-        // 輸入） - 需要 `&mut World` （TowerUpgradeRegistry 讀取，驗證
-        // 透過 tower_upgrade_rules，扣除 Gold，寫入 Tower.upgrade_levels +
-        // Upgrade_flags，將 StatMod 推入 BuffStore）。local replica 使用相同 boundary。
-        omoba_core::runtime::drain_pending_tower_upgrades(&mut self.ecs);
-
         omoba_core::runtime::drain_pending_tower_target_priorities(&mut self.ecs);
 
         // 階段 2.4：排出 `PendingItemUseQueue` （ItemUse 鎖步輸入） —
@@ -636,16 +731,28 @@ impl State {
         // sim_runner。
         omoba_core::runtime::drain_pending_moves(&mut self.ecs);
 
+        // Tower active abilities use one explicit deterministic phase in both
+        // authoritative and replica runners: upgrades -> casts -> scheduler ->
+        // callbacks -> ordinary unit script ticks.
+        omoba_core::runtime::drain_pending_tower_upgrades(&mut self.ecs);
+        omoba_core::runtime::drain_pending_tower_ability_casts(&mut self.ecs);
+        let scaled_dt = self.ecs.read_resource::<crate::comp::DeltaTime>().0;
+        omoba_core::runtime::tick_tower_abilities(&mut self.ecs, scaled_dt);
+        omoba_core::runtime::drain_pending_tower_ability_callbacks(
+            &mut self.ecs,
+            &self.script_registry,
+            self.local_tick,
+        );
+
         // 腳本 dispatch 階段（E1 — 序列、獨佔 World）
         // 放在並行系統之後、其他序列處理之前，確保腳本能看到本 tick 的
         // 完整戰鬥結果，也能修改狀態讓下游處理看見。
         let t_dispatch = Instant::now();
-        let dt_fx = omoba_template_ids::Fixed64::from_raw(dt_fixed_raw);
         scripting::run_script_dispatch(
             &mut self.ecs,
             &self.script_registry,
             self.local_tick,
-            dt_fx,
+            scaled_dt,
         );
         let script_dispatch_ns = t_dispatch.elapsed().as_nanos();
 

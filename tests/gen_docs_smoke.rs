@@ -62,4 +62,26 @@ fn produces_html_with_known_content() {
     assert!(html.contains("UnitScript Hooks"), "missing API section");
     assert!(html.contains("Coverage Matrix"), "missing coverage section");
     assert!(html.contains("Stat Keys"), "missing stat keys section");
+    assert_eq!(
+        html.matches("data-upgrade-count=\"12\"").count(),
+        7,
+        "every shipped tower must expose twelve catalog upgrades"
+    );
+    assert_eq!(
+        html.matches("class=\"tower-active-ability\"").count(),
+        3,
+        "catalog must expose exactly the three shipped tower actives"
+    );
+    for ability_id in [
+        "boomerang_turbo_charge",
+        "arty_fire_at_will",
+        "cake_dessert_party",
+    ] {
+        assert!(html.contains(ability_id), "missing active {ability_id}");
+    }
+    assert_eq!(
+        html.matches("cooldown 10s").count(),
+        3,
+        "all shipped tower actives must show their authored cooldown"
+    );
 }

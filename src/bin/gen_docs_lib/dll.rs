@@ -1,7 +1,9 @@
 //! 透過abi_stable載入base_content.dll，提取單元id + tower_metadata
 //! 和能力定義。
 
-use crate::lib::model::{AbilityEntry, TowerStats, UnitKind};
+use crate::lib::model::{
+    AbilityEntry, TowerActiveAbilityInfo, TowerStats, TowerUpgradeInfo, UnitKind,
+};
 use abi_stable::library::RootModule;
 use anyhow::{Context, Result};
 use omb_script_abi::manifest::Manifest_Ref;
@@ -34,6 +36,7 @@ pub fn load(dll_path: &Path) -> Result<DllData> {
     let mut units = Vec::new();
     for def in units_fn() {
         let id = def.unit_id.to_string();
+        let upgrades = tower_upgrades(&id);
         // gen_docs_lib::model::TowerStats 是一個報告結構（f32 用於 HTML
         // 展示）;在此邊界處從 ABI Fix64 轉換。
         // 注意：僅渲染 HTML 報告結構； gen-docs 接收器有意設定 f32 邊界。
@@ -85,6 +88,7 @@ pub fn load(dll_path: &Path) -> Result<DllData> {
                 recoil_scale: tm.render.recoil.scale.to_f32_for_render(),
                 attack_windup: tm.attack_timing.windup,
                 attack_backswing: tm.attack_timing.backswing,
+                upgrades,
             });
         let kind = if tower.is_some() {
             UnitKind::Tower
@@ -108,4 +112,35 @@ pub fn load(dll_path: &Path) -> Result<DllData> {
     }
 
     Ok(DllData { units, abilities })
+}
+
+fn tower_upgrades(unit_id: &str) -> Vec<TowerUpgradeInfo> {
+    let Some(tower_id) = omoba_template_ids::tower_by_name(unit_id) else {
+        return Vec::new();
+    };
+    let Some(paths) = omoba_template_ids::active_tower_upgrades(tower_id) else {
+        return Vec::new();
+    };
+
+    paths
+        .iter()
+        .enumerate()
+        .flat_map(|(path, levels)| {
+            levels.iter().enumerate().map(move |(level, upgrade)| {
+                let active_ability = upgrade
+                    .active_ability
+                    .map(|ability| TowerActiveAbilityInfo {
+                        ability_id: ability.ability_id.to_string(),
+                        display_name: ability.display_name.to_string(),
+                        cooldown: ability.cooldown.to_f32_for_render(),
+                    });
+                TowerUpgradeInfo {
+                    path,
+                    level: level + 1,
+                    name: upgrade.name.to_string(),
+                    active_ability,
+                }
+            })
+        })
+        .collect()
 }

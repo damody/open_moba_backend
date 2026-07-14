@@ -11,7 +11,7 @@ pub struct EntityData {
 
 pub fn load(story_id: &str) -> Result<EntityData> {
     let campaign = omobab::ue4::import_campaign::load_generated(story_id)
-        .with_context(|| format!("loading generated story {story_id}"))?;
+        .map_err(|err| anyhow::anyhow!("loading generated story {story_id}: {err}"))?;
     let mut heroes = BTreeMap::new();
     let mut creeps = BTreeMap::new();
 
@@ -30,7 +30,7 @@ pub fn load(story_id: &str) -> Result<EntityData> {
         } else {
             hero.abilities.clone()
         };
-        heroes.insert(id, hero_info(hid, stats, abilities));
+        heroes.insert(id, hero_info(hid, *stats, abilities));
     }
 
     for enemy in &campaign.entity.enemies {
@@ -88,7 +88,7 @@ fn insert_creep(
         .with_context(|| format!("creep template missing: {id}"))?;
     let stats = omoba_template_ids::active_creep_stats(cid)
         .with_context(|| format!("creep template has no stats: {id}"))?;
-    creeps.insert(id.to_string(), creep_info(cid, stats, abilities));
+    creeps.insert(id.to_string(), creep_info(cid, *stats, abilities));
     Ok(())
 }
 

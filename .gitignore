@@ -2,6 +2,7 @@
 Cargo.lock
 /log/
 *.log
+*.dll
 # 執行期 script DLL（由 run.bat 從 ../scripts/target 複製而來）
 /scripts/
 # run_stress.bat swap-and-restore 機制中斷時的殘留 backup

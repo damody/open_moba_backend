@@ -208,6 +208,8 @@ impl CreationEventHandler {
                 slow_duration: Fixed64::ZERO,
                 hit_radius: Fixed64::ZERO,
                 stun_duration: Fixed64::ZERO,
+                kind_id: 0,
+                generation: 0,
             })
             .build();
 

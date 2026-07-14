@@ -126,7 +126,7 @@ fn tower_card(u: &UnitEntry) -> Markup {
     };
     let search = format!("{} {} tower", u.id, t.label);
     html! {
-        div.card data-search=(search) {
+        div.card data-search=(search) data-upgrade-count=(t.upgrades.len()) {
             h3 { (t.label) " " span.sub { "(" (u.id) ")" } }
             dl.kv {
                 dt { "atk" } dd { (t.atk) }
@@ -146,6 +146,31 @@ fn tower_card(u: &UnitEntry) -> Markup {
                 dt { "variants" } dd { (t.barrel_variants.join(", ")) }
                 dt { "recoil" } dd { (t.recoil_mode) " d=" (t.recoil_distance) " scale=" (t.recoil_scale) }
                 dt { "attack timing" } dd { (t.attack_windup) " / " (t.attack_backswing) }
+                dt { "upgrades" } dd { (t.upgrades.len()) }
+            }
+            details {
+                summary { "upgrades (" (t.upgrades.len()) ")" }
+                table.kv {
+                    thead { tr { th { "path" } th { "level" } th { "name" } th { "active" } } }
+                    tbody {
+                        @for upgrade in &t.upgrades {
+                            tr {
+                                td { (upgrade.path + 1) }
+                                td { (upgrade.level) }
+                                td { (upgrade.name) }
+                                td {
+                                    @if let Some(active) = &upgrade.active_ability {
+                                        span.tower-active-ability {
+                                            code { (active.ability_id) }
+                                            " · " (active.display_name)
+                                            " · cooldown " (active.cooldown) "s"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
             (impl_block(u))
         }
