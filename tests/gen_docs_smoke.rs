@@ -69,10 +69,14 @@ fn produces_html_with_known_content() {
     );
     assert_eq!(
         html.matches("class=\"tower-active-ability\"").count(),
-        3,
-        "catalog must expose exactly the three shipped tower actives"
+        7,
+        "catalog must expose exactly one active for every shipped tower"
     );
     for ability_id in [
+        "dart_heavy_burst",
+        "bomb_cluster_overload",
+        "ice_crystal_nova",
+        "tack_blade_maelstrom",
         "boomerang_turbo_charge",
         "arty_fire_at_will",
         "cake_dessert_party",
@@ -82,6 +86,11 @@ fn produces_html_with_known_content() {
     assert_eq!(
         html.matches("cooldown 10s").count(),
         3,
-        "all shipped tower actives must show their authored cooldown"
+        "the three existing tower actives must keep their authored cooldown"
+    );
+    assert_eq!(
+        html.matches("cooldown 12s").count(),
+        4,
+        "the four new tower actives must show their authored cooldown"
     );
 }
