@@ -69,8 +69,8 @@ fn produces_html_with_known_content() {
     );
     assert_eq!(
         html.matches("class=\"tower-active-ability\"").count(),
-        7,
-        "catalog must expose exactly one active for every shipped tower"
+        9,
+        "catalog must expose all nine route-specific tower actives"
     );
     for ability_id in [
         "dart_heavy_burst",
@@ -78,8 +78,10 @@ fn produces_html_with_known_content() {
         "ice_crystal_nova",
         "tack_blade_maelstrom",
         "boomerang_turbo_charge",
+        "boomerang_shuriken_storm",
         "arty_fire_at_will",
         "cake_dessert_party",
+        "cake_frosting_lockdown",
     ] {
         assert!(html.contains(ability_id), "missing active {ability_id}");
     }
@@ -90,7 +92,7 @@ fn produces_html_with_known_content() {
     );
     assert_eq!(
         html.matches("cooldown 12s").count(),
-        4,
-        "the four new tower actives must show their authored cooldown"
+        6,
+        "the six new tower actives must show their authored cooldown"
     );
 }
