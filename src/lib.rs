@@ -17,6 +17,7 @@
 ///
 /// Open MOBA 遊戲後端的主庫箱
 pub mod ability_runtime;
+pub mod knowledge;
 pub mod aoi;
 pub mod comp;
 pub mod config;

@@ -13,6 +13,7 @@ mod comp;
 pub mod config;
 mod item;
 mod json_preprocessor;
+mod knowledge;
 #[cfg(feature = "kcp")]
 mod lockstep;
 #[cfg(feature = "mqtt")]

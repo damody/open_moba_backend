@@ -42,11 +42,51 @@ pub struct ServerSetting {
     pub SPEED_MULT: u32,
 }
 
+/// `[general_knowledge]` section in `game.toml`.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct GeneralKnowledgeSetting {
+    /// 是否啟用將軍知識系統。預設 true。
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// CHIMPS 模式下是否禁用加成（仍照常發 KP）。預設 true。
+    #[serde(default = "default_true")]
+    pub chimps_disable: bool,
+    /// 每局基礎 KP 獎勵。預設 3。
+    #[serde(default = "default_base_kp")]
+    pub base_kp_reward: u32,
+    /// 勝利額外 KP 獎勵。預設 2。
+    #[serde(default = "default_win_kp")]
+    pub win_kp_bonus: u32,
+}
+
+fn default_true() -> bool {
+    true
+}
+fn default_base_kp() -> u32 {
+    3
+}
+fn default_win_kp() -> u32 {
+    2
+}
+
+impl Default for GeneralKnowledgeSetting {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            chimps_disable: true,
+            base_kp_reward: 3,
+            win_kp_bonus: 2,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 struct Setting {
     server: ServerSetting,
     #[serde(default)]
     content: ContentSetting,
+    #[serde(default)]
+    general_knowledge: GeneralKnowledgeSetting,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -157,6 +197,18 @@ pub fn apply_runtime_env_from_game_toml() {
     }
     set_bool_env_if_missing("OMB_LUA_CONTENT", content.LUA_CONTENT);
     set_bool_env_if_missing("OMB_LUA_HOT_RELOAD", content.LUA_HOT_RELOAD);
+}
+
+/// 讀取 `game.toml` 的 `[general_knowledge]` section。
+/// 讀取失敗時回傳 default。
+pub fn read_general_knowledge_setting() -> GeneralKnowledgeSetting {
+    match read_setting() {
+        Ok(s) => s.general_knowledge,
+        Err(e) => {
+            log::warn!("failed to read general_knowledge config: {}; using defaults", e);
+            GeneralKnowledgeSetting::default()
+        }
+    }
 }
 
 impl ServerSetting {

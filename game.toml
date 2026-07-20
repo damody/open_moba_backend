@@ -49,6 +49,16 @@ BVH_MAX_LEAF = 4
 # （5000 個條目：批次 0.65 毫秒 vs hash_grid 1.66 毫秒 vs 四叉樹 4.48 毫秒）
 # - hero: N 通常 < 10，演算法差異不可量；用 SAP 沿用 creep 風格保持一致
 # - region: 一次性 init 後永遠 query → BVH（query 最快、rebuild 只發生一次）
+[general_knowledge]
+# 是否啟用將軍知識系統（跨局持久加成）。預設 true。
+enabled = true
+# CHIMPS 模式（高難度排行榜模式）下禁用知識加成，確保公平性。
+chimps_disable = true
+# 每局結束時的基礎 KP 獎勵。
+base_kp_reward = 3
+# 勝利時額外 KP 獎勵。
+win_kp_bonus = 2
+
 [collision]
 SPATIAL_INDEX_TOWER = "bvh"
 SPATIAL_INDEX_CREEP = "sap"

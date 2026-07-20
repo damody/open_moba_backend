@@ -848,9 +848,45 @@ impl State {
                 .write_resource::<Vec<omoba_core::runtime::RuntimeEvent>>();
             std::mem::take(&mut *events)
         };
+        for event in &events {
+            // 偵測對局結束事件，發放 KP
+            if event.topic == "td/all/res"
+                && event.kind == "game"
+                && event.action == "end"
+            {
+                log::info!("[general_knowledge] 偵測到 game_end 事件，data={}", event.data);
+                self.award_kp_on_game_end(&event.data);
+            }
+        }
         for msg in crate::runtime_events::runtime_events_to_outbound(events) {
             let _ = self.mqtx.try_send(msg);
         }
+    }
+
+    fn award_kp_on_game_end(&self, data: &serde_json::Value) {
+        use crate::config::server_config::read_general_knowledge_setting;
+        use crate::knowledge::kp_reward::{award_kp, KpRewardConfig};
+        use crate::knowledge::player_profile::load_profile;
+
+        let gk_cfg = read_general_knowledge_setting();
+        if !gk_cfg.enabled {
+            return;
+        }
+
+        let is_victory = data
+            .get("winner")
+            .or_else(|| data.get("result"))
+            .and_then(|v| v.as_str())
+            .map(|s| s == "player" || s == "victory" || s == "win")
+            .unwrap_or(false);
+
+        let omb_dir = std::path::PathBuf::from(".");
+        let mut profile = load_profile(&omb_dir);
+        let config = KpRewardConfig {
+            base_kp_reward: gk_cfg.base_kp_reward,
+            win_kp_bonus: gk_cfg.win_kp_bonus,
+        };
+        award_kp(&omb_dir, &mut profile, config, is_victory);
     }
 
     /// 從傳輸層排出視窗更新。調用每個蜱蟲。
@@ -1040,8 +1076,50 @@ impl State {
         StateInitializer::create_campaign_scene(&mut self.ecs, campaign_data);
         StateInitializer::populate_region_blockers(&mut self.ecs);
 
+        // 將軍知識加成初始化（塔已就緒後套入）
+        self.apply_general_knowledge_bonuses();
+
         // Phase 5.2: legacy 0x02 GameEvent broadcast cut. tower_templates 保留。
         self.send_tower_templates();
+    }
+
+    /// 載入 player_profile.json + knowledge_tree.json，將已解鎖節點的加成
+    /// 填入 ECS 的 `KnowledgeBonusResource`，供塔生成時套用。
+    fn apply_general_knowledge_bonuses(&mut self) {
+        use crate::config::server_config::read_general_knowledge_setting;
+        use crate::knowledge::{build_bonus_map, load_knowledge_tree, load_profile};
+        use omoba_core::comp::KnowledgeBonusResource;
+
+        let gk_cfg = read_general_knowledge_setting();
+        if !gk_cfg.enabled {
+            return;
+        }
+
+        // 讀 lua_data root（OMB_LUA_CONTENT_ROOT 或 fallback ../scripts/lua_data）
+        let lua_root = std::env::var("OMB_LUA_CONTENT_ROOT")
+            .unwrap_or_else(|_| "../scripts/lua_data".to_string());
+        let lua_root = std::path::PathBuf::from(&lua_root);
+
+        // omb 執行目錄（game.toml 同層）作為 profile 存放位置
+        let omb_dir = std::path::PathBuf::from(".");
+
+        let tree = load_knowledge_tree(&lua_root);
+        let profile = load_profile(&omb_dir);
+
+        let bonus_map = build_bonus_map(&tree, &profile.unlocked_nodes);
+
+        let mut resource = self
+            .ecs
+            .write_resource::<KnowledgeBonusResource>();
+        resource.enabled = true;
+        resource.bonuses_by_category = bonus_map;
+        resource.unlocked_nodes = profile.unlocked_nodes.clone();
+
+        log::info!(
+            "[general_knowledge] 初始化完成：{} 個解鎖節點，{} 個 category 有加成",
+            profile.unlocked_nodes.len(),
+            resource.bonuses_by_category.len(),
+        );
     }
 
     /// 收集 script registry 內每支塔腳本的 tower_metadata，合併 host TowerTemplate

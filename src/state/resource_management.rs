@@ -34,10 +34,48 @@ impl ResourceManager {
     pub fn process_outcomes(&self, world: &mut World) -> Result<(), Error> {
         let mut sink = omoba_core::runtime::RuntimeEventVecSink::default();
         omoba_core::runtime::process_outcomes(world, &mut sink)?;
+        // 偵測 game_end 事件並在此直接發放 KP（不需要經 ECS resource 中轉）
+        // 注意：creep_wave 系統直接寫進 ECS Vec<RuntimeEvent>，
+        //       由 flush_runtime_events 另行偵測（勝利路徑）。
+        for event in &sink.events {
+            if event.topic == "td/all/res"
+                && event.kind == "game"
+                && event.action == "end"
+            {
+                log::info!("[general_knowledge] process_outcomes 偵測到 game_end，data={}", event.data);
+                self.award_kp_on_game_end(&event.data);
+            }
+        }
         for msg in crate::runtime_events::runtime_events_to_outbound(sink.events) {
             let _ = self.mqtx.try_send(msg);
         }
         Ok(())
+    }
+
+    fn award_kp_on_game_end(&self, data: &serde_json::Value) {
+        use crate::config::server_config::read_general_knowledge_setting;
+        use crate::knowledge::kp_reward::{award_kp, KpRewardConfig};
+        use crate::knowledge::player_profile::load_profile;
+
+        let gk_cfg = read_general_knowledge_setting();
+        if !gk_cfg.enabled {
+            return;
+        }
+
+        let is_victory = data
+            .get("winner")
+            .or_else(|| data.get("result"))
+            .and_then(|v| v.as_str())
+            .map(|s| s == "player" || s == "victory" || s == "win")
+            .unwrap_or(false);
+
+        let omb_dir = std::path::PathBuf::from(".");
+        let mut profile = load_profile(&omb_dir);
+        let config = KpRewardConfig {
+            base_kp_reward: gk_cfg.base_kp_reward,
+            win_kp_bonus: gk_cfg.win_kp_bonus,
+        };
+        award_kp(&omb_dir, &mut profile, config, is_victory);
     }
 
     /// 處理玩家資料
