@@ -27,6 +27,12 @@ pub struct KnowledgeNode {
     pub requires: Vec<String>,
     #[serde(default)]
     pub bonuses: Vec<KnowledgeBonus>,
+    /// 短中文名稱，顯示於知識面板卡片標題。
+    #[serde(default)]
+    pub label: String,
+    /// 一行效果說明，顯示於卡片副標題。
+    #[serde(default)]
+    pub description: String,
 }
 
 /// 載入並驗證 `knowledge_tree.json`。
