@@ -172,7 +172,7 @@ async fn main() -> std::result::Result<(), Error> {
                 let dmsgs = snap.total_msgs - last_total_msgs;
                 last_total_bytes = snap.total_bytes;
                 last_total_msgs = snap.total_msgs;
-                log::info!(
+                log::debug!(
                     "[kcp-p7 Δ5s] bytes={} ({}B/s)  msgs={} ({}m/s)  cum_total={}B",
                     dbytes,
                     dbytes / 5,
@@ -193,7 +193,7 @@ async fn main() -> std::result::Result<(), Error> {
                 }
                 deltas.sort_by_key(|(_, v)| std::cmp::Reverse(v.0));
                 for ((t, a), (db, dm)) in deltas.into_iter().take(12) {
-                    log::info!(
+                    log::debug!(
                         "[kcp-p7 Δ5s]   {:>14}.{:<10}  +bytes={:>8}  +msgs={:>6}",
                         t,
                         a,
