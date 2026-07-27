@@ -1111,14 +1111,15 @@ impl State {
         let mut resource = self
             .ecs
             .write_resource::<KnowledgeBonusResource>();
-        resource.enabled = true;
+        resource.enabled = profile.enabled;
         resource.bonuses_by_category = bonus_map;
         resource.unlocked_nodes = profile.unlocked_nodes.clone();
 
         log::info!(
-            "[hero_knowledge] 初始化完成：{} 個解鎖節點，{} 個 category 有加成",
+            "[hero_knowledge] 初始化完成：{} 個解鎖節點，{} 個 category 有加成，enabled={}",
             profile.unlocked_nodes.len(),
             resource.bonuses_by_category.len(),
+            profile.enabled,
         );
     }
 
