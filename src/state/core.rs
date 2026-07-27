@@ -854,7 +854,7 @@ impl State {
                 && event.kind == "game"
                 && event.action == "end"
             {
-                log::info!("[general_knowledge] 偵測到 game_end 事件，data={}", event.data);
+                log::info!("[hero_knowledge] 偵測到 game_end 事件，data={}", event.data);
                 self.award_kp_on_game_end(&event.data);
             }
         }
@@ -864,11 +864,11 @@ impl State {
     }
 
     fn award_kp_on_game_end(&self, data: &serde_json::Value) {
-        use crate::config::server_config::read_general_knowledge_setting;
+        use crate::config::server_config::read_hero_knowledge_setting;
         use crate::knowledge::kp_reward::{award_kp, KpRewardConfig};
         use crate::knowledge::player_profile::load_profile;
 
-        let gk_cfg = read_general_knowledge_setting();
+        let gk_cfg = read_hero_knowledge_setting();
         if !gk_cfg.enabled {
             return;
         }
@@ -1076,8 +1076,8 @@ impl State {
         StateInitializer::create_campaign_scene(&mut self.ecs, campaign_data);
         StateInitializer::populate_region_blockers(&mut self.ecs);
 
-        // 將軍知識加成初始化（塔已就緒後套入）
-        self.apply_general_knowledge_bonuses();
+        // 英雄知識加成初始化（塔已就緒後套入）
+        self.apply_hero_knowledge_bonuses();
 
         // Phase 5.2: legacy 0x02 GameEvent broadcast cut. tower_templates 保留。
         self.send_tower_templates();
@@ -1085,12 +1085,12 @@ impl State {
 
     /// 載入 player_profile.json + knowledge_tree.json，將已解鎖節點的加成
     /// 填入 ECS 的 `KnowledgeBonusResource`，供塔生成時套用。
-    fn apply_general_knowledge_bonuses(&mut self) {
-        use crate::config::server_config::read_general_knowledge_setting;
+    fn apply_hero_knowledge_bonuses(&mut self) {
+        use crate::config::server_config::read_hero_knowledge_setting;
         use crate::knowledge::{build_bonus_map, load_knowledge_tree, load_profile};
         use omoba_core::comp::KnowledgeBonusResource;
 
-        let gk_cfg = read_general_knowledge_setting();
+        let gk_cfg = read_hero_knowledge_setting();
         if !gk_cfg.enabled {
             return;
         }
@@ -1116,7 +1116,7 @@ impl State {
         resource.unlocked_nodes = profile.unlocked_nodes.clone();
 
         log::info!(
-            "[general_knowledge] 初始化完成：{} 個解鎖節點，{} 個 category 有加成",
+            "[hero_knowledge] 初始化完成：{} 個解鎖節點，{} 個 category 有加成",
             profile.unlocked_nodes.len(),
             resource.bonuses_by_category.len(),
         );

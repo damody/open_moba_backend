@@ -45,7 +45,7 @@ pub fn load_knowledge_tree(lua_data_root: &Path) -> Vec<KnowledgeNode> {
         Ok(s) => s,
         Err(e) => {
             log::warn!(
-                "[general_knowledge] 無法讀取 {:?}：{}；以空知識樹繼續。",
+                "[hero_knowledge] 無法讀取 {:?}：{}；以空知識樹繼續。",
                 path,
                 e
             );
@@ -56,7 +56,7 @@ pub fn load_knowledge_tree(lua_data_root: &Path) -> Vec<KnowledgeNode> {
         Ok(n) => n,
         Err(e) => {
             log::warn!(
-                "[general_knowledge] 解析 {:?} 失敗：{}；以空知識樹繼續。",
+                "[hero_knowledge] 解析 {:?} 失敗：{}；以空知識樹繼續。",
                 path,
                 e
             );
@@ -80,7 +80,7 @@ fn validate_nodes(nodes: Vec<KnowledgeNode>) -> Vec<KnowledgeNode> {
             .collect();
         if !bad_req.is_empty() {
             log::warn!(
-                "[general_knowledge] 節點 '{}' 的 requires {:?} 引用不存在的節點，跳過此節點。",
+                "[hero_knowledge] 節點 '{}' 的 requires {:?} 引用不存在的節點，跳過此節點。",
                 node.id,
                 bad_req
             );

@@ -48,7 +48,7 @@ pub fn load_profile(omb_dir: &Path) -> PlayerProfile {
             Ok(p) => p,
             Err(e) => {
                 log::warn!(
-                    "[general_knowledge] player_profile.json 解析失敗 ({})，重置為空 profile。",
+                    "[hero_knowledge] player_profile.json 解析失敗 ({})，重置為空 profile。",
                     e
                 );
                 PlayerProfile::default()
@@ -62,10 +62,10 @@ pub fn load_profile(omb_dir: &Path) -> PlayerProfile {
 pub fn save_profile(omb_dir: &Path, profile: &PlayerProfile) {
     let path = profile_path(omb_dir);
     match serde_json::to_string_pretty(profile) {
-        Err(e) => log::warn!("[general_knowledge] 序列化 profile 失敗：{}", e),
+        Err(e) => log::warn!("[hero_knowledge] 序列化 profile 失敗：{}", e),
         Ok(json) => {
             if let Err(e) = std::fs::write(&path, json) {
-                log::warn!("[general_knowledge] 寫入 {:?} 失敗：{}", path, e);
+                log::warn!("[hero_knowledge] 寫入 {:?} 失敗：{}", path, e);
             }
         }
     }

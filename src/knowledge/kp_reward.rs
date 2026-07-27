@@ -7,7 +7,7 @@ use std::path::Path;
 
 use super::player_profile::{save_profile, PlayerProfile};
 
-/// `game.toml` `[general_knowledge]` 的 KP 獎勵設定。
+/// `game.toml` `[hero_knowledge]` 的 KP 獎勵設定。
 #[derive(Debug, Clone, Copy)]
 pub struct KpRewardConfig {
     pub base_kp_reward: u32,
@@ -32,7 +32,7 @@ pub fn award_kp(omb_dir: &Path, profile: &mut PlayerProfile, config: KpRewardCon
     profile.total_kp = profile.total_kp.saturating_add(earned);
     save_profile(omb_dir, profile);
     log::info!(
-        "[general_knowledge] 對局結束，{}，發放 KP +{}（total={}）",
+        "[hero_knowledge] 對局結束，{}，發放 KP +{}（total={}）",
         if is_victory { "勝利" } else { "失敗" },
         earned,
         profile.total_kp,

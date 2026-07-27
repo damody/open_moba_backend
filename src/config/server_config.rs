@@ -42,10 +42,10 @@ pub struct ServerSetting {
     pub SPEED_MULT: u32,
 }
 
-/// `[general_knowledge]` section in `game.toml`.
+/// `[hero_knowledge]` section in `game.toml`.
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct GeneralKnowledgeSetting {
-    /// 是否啟用將軍知識系統。預設 true。
+pub struct HeroKnowledgeSetting {
+    /// 是否啟用英雄知識系統。預設 true。
     #[serde(default = "default_true")]
     pub enabled: bool,
     /// CHIMPS 模式下是否禁用加成（仍照常發 KP）。預設 true。
@@ -69,7 +69,7 @@ fn default_win_kp() -> u32 {
     2
 }
 
-impl Default for GeneralKnowledgeSetting {
+impl Default for HeroKnowledgeSetting {
     fn default() -> Self {
         Self {
             enabled: true,
@@ -86,7 +86,7 @@ struct Setting {
     #[serde(default)]
     content: ContentSetting,
     #[serde(default)]
-    general_knowledge: GeneralKnowledgeSetting,
+    hero_knowledge: HeroKnowledgeSetting,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -199,14 +199,14 @@ pub fn apply_runtime_env_from_game_toml() {
     set_bool_env_if_missing("OMB_LUA_HOT_RELOAD", content.LUA_HOT_RELOAD);
 }
 
-/// 讀取 `game.toml` 的 `[general_knowledge]` section。
+/// 讀取 `game.toml` 的 `[hero_knowledge]` section。
 /// 讀取失敗時回傳 default。
-pub fn read_general_knowledge_setting() -> GeneralKnowledgeSetting {
+pub fn read_hero_knowledge_setting() -> HeroKnowledgeSetting {
     match read_setting() {
-        Ok(s) => s.general_knowledge,
+        Ok(s) => s.hero_knowledge,
         Err(e) => {
-            log::warn!("failed to read general_knowledge config: {}; using defaults", e);
-            GeneralKnowledgeSetting::default()
+            log::warn!("failed to read hero_knowledge config: {}; using defaults", e);
+            HeroKnowledgeSetting::default()
         }
     }
 }

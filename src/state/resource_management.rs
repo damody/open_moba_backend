@@ -42,7 +42,7 @@ impl ResourceManager {
                 && event.kind == "game"
                 && event.action == "end"
             {
-                log::info!("[general_knowledge] process_outcomes 偵測到 game_end，data={}", event.data);
+                log::info!("[hero_knowledge] process_outcomes 偵測到 game_end，data={}", event.data);
                 self.award_kp_on_game_end(&event.data);
             }
         }
@@ -53,11 +53,11 @@ impl ResourceManager {
     }
 
     fn award_kp_on_game_end(&self, data: &serde_json::Value) {
-        use crate::config::server_config::read_general_knowledge_setting;
+        use crate::config::server_config::read_hero_knowledge_setting;
         use crate::knowledge::kp_reward::{award_kp, KpRewardConfig};
         use crate::knowledge::player_profile::load_profile;
 
-        let gk_cfg = read_general_knowledge_setting();
+        let gk_cfg = read_hero_knowledge_setting();
         if !gk_cfg.enabled {
             return;
         }

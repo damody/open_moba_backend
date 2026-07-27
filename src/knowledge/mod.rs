@@ -1,4 +1,4 @@
-//! 將軍知識（General Knowledge）系統。
+//! 英雄知識（Hero Knowledge）系統。
 //!
 //! - `loader`：讀取 `scripts/lua_data/knowledge_tree.json`，驗證節點。
 //! - `player_profile`：KP 累積、節點解鎖、持久化 JSON profile。
