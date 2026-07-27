@@ -8,7 +8,7 @@ use super::loader::KnowledgeNode;
 
 const PROFILE_FILENAME: &str = "player_profile.json";
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlayerProfile {
     /// 累計獲得的知識點。
     pub total_kp: u32,
@@ -16,6 +16,17 @@ pub struct PlayerProfile {
     pub spent_kp: u32,
     /// 已解鎖節點的 id 列表。
     pub unlocked_nodes: Vec<String>,
+}
+
+impl Default for PlayerProfile {
+    /// 新玩家初始贈送 20 KP。
+    fn default() -> Self {
+        Self {
+            total_kp: 20,
+            spent_kp: 0,
+            unlocked_nodes: Vec::new(),
+        }
+    }
 }
 
 impl PlayerProfile {
@@ -153,7 +164,7 @@ mod tests {
     fn load_missing_returns_default() {
         let dir = tmp_dir("missing");
         let p = load_profile(&dir);
-        assert_eq!(p.total_kp, 0);
+        assert_eq!(p.total_kp, 20);
         assert_eq!(p.unlocked_nodes.len(), 0);
         cleanup(&dir);
     }

@@ -1,7 +1,5 @@
 {
-  "spent_kp": 3,
-  "total_kp": 5,
-  "unlocked_nodes": [
-    "dart_pierce_1"
-  ]
+  "spent_kp": 0,
+  "total_kp": 20,
+  "unlocked_nodes": []
 }
