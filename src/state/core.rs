@@ -7,7 +7,7 @@ use rayon::ThreadPool;
 use specs::{Join, World, WorldExt};
 /// 遊戲狀態核心結構
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Instant, SystemTime};
 
 use crate::scripting::{self, ScriptRegistry};
 use crate::transport::{InboundMsg, OutboundMsg};
@@ -79,6 +79,8 @@ pub struct State {
     local_tick: u64,
     /// Runtime lockstep cadence from backend game.toml.
     lockstep_timing: LockstepTiming,
+    /// Last observed `player_profile.json` modified time for live hero knowledge reloads.
+    hero_knowledge_profile_modified: Option<SystemTime>,
     /// 上次執行可見度差異時「local_tick」的值
     last_visibility_tick: u64,
     /// 載入的本機腳本 DLL（H1 — 進程生命週期，從不重新載入）。
@@ -288,6 +290,7 @@ impl State {
             hb_last_full_send: HashMap::new(),
             local_tick: 0,
             lockstep_timing,
+            hero_knowledge_profile_modified: None,
             last_visibility_tick: 0,
             script_registry: ScriptRegistry::new(),
             #[cfg(feature = "runtime-lua-content")]
@@ -621,6 +624,7 @@ impl State {
             hb_last_full_send: HashMap::new(),
             local_tick: 0,
             lockstep_timing: CONFIG.lockstep_timing(),
+            hero_knowledge_profile_modified: None,
             last_visibility_tick: 0,
             script_registry: ScriptRegistry::new(),
             #[cfg(feature = "runtime-lua-content")]
@@ -776,6 +780,8 @@ impl State {
         // 處理玩家資料
         self.resource_manager
             .process_player_data(&mut self.ecs, &self.mqrx)?;
+
+        self.poll_hero_knowledge_profile_reload();
 
         // 處理 MCP 查詢請求
         #[cfg(any(feature = "grpc", feature = "kcp"))]
@@ -1092,6 +1098,14 @@ impl State {
 
         let gk_cfg = read_hero_knowledge_setting();
         if !gk_cfg.enabled {
+            {
+                let mut resource = self.ecs.write_resource::<KnowledgeBonusResource>();
+                resource.enabled = false;
+                resource.bonuses_by_category.clear();
+                resource.unlocked_nodes.clear();
+            }
+            self.reapply_hero_knowledge_buffs_to_live_entities();
+            self.hero_knowledge_profile_modified = Self::hero_knowledge_profile_mtime();
             return;
         }
 
@@ -1114,11 +1128,6 @@ impl State {
         resource.enabled = profile.enabled;
         resource.bonuses_by_category = bonus_map;
         resource.unlocked_nodes = profile.unlocked_nodes.clone();
-        let hero_buffs = if resource.enabled {
-            resource.bonuses_for("hero").to_vec()
-        } else {
-            Vec::new()
-        };
 
         log::info!(
             "[hero_knowledge] 初始化完成：{} 個解鎖節點，{} 個 category 有加成，enabled={}",
@@ -1128,32 +1137,91 @@ impl State {
         );
         drop(resource);
 
-        self.apply_hero_knowledge_buffs_to_live_heroes(&hero_buffs);
+        self.reapply_hero_knowledge_buffs_to_live_entities();
+        self.hero_knowledge_profile_modified = Self::hero_knowledge_profile_mtime();
     }
 
-    fn apply_hero_knowledge_buffs_to_live_heroes(&mut self, hero_buffs: &[(String, String)]) {
-        if hero_buffs.is_empty() {
+    fn hero_knowledge_profile_mtime() -> Option<SystemTime> {
+        std::fs::metadata("player_profile.json")
+            .and_then(|metadata| metadata.modified())
+            .ok()
+    }
+
+    fn poll_hero_knowledge_profile_reload(&mut self) {
+        let current = Self::hero_knowledge_profile_mtime();
+        if current == self.hero_knowledge_profile_modified {
             return;
         }
 
-        let hero_entities: Vec<_> = {
+        log::info!(
+            "[hero_knowledge] player_profile.json changed; reloading live knowledge buffs"
+        );
+        self.apply_hero_knowledge_bonuses();
+    }
+
+    fn reapply_hero_knowledge_buffs_to_live_entities(&mut self) {
+        let applications: Vec<(specs::Entity, Vec<(String, String)>)> = {
+            use omoba_core::comp::KnowledgeBonusResource;
+
+            let gk = self.ecs.read_resource::<KnowledgeBonusResource>();
             let entities = self.ecs.entities();
             let heroes = self.ecs.read_storage::<Hero>();
-            (&entities, &heroes)
-                .join()
-                .map(|(entity, _)| entity)
-                .collect()
+            let towers = self.ecs.read_storage::<Tower>();
+            let script_tags = self.ecs.read_storage::<crate::scripting::ScriptUnitTag>();
+            let mut applications = Vec::new();
+
+            for (entity, _) in (&entities, &heroes).join() {
+                let buffs = if gk.enabled {
+                    gk.bonuses_for("hero").to_vec()
+                } else {
+                    Vec::new()
+                };
+                applications.push((entity, buffs));
+            }
+
+            for (entity, _) in (&entities, &towers).join() {
+                let buffs = script_tags
+                    .get(entity)
+                    .map(|tag| {
+                        let category =
+                            omoba_core::runtime::hero_knowledge_category_for_unit_id(&tag.unit_id);
+                        if gk.enabled && !category.is_empty() {
+                            gk.bonuses_for(category)
+                                .iter()
+                                .chain(gk.global_bonuses().iter())
+                                .cloned()
+                                .collect()
+                        } else {
+                            Vec::new()
+                        }
+                    })
+                    .unwrap_or_default();
+                applications.push((entity, buffs));
+            }
+
+            applications
         };
 
-        if hero_entities.is_empty() {
+        if applications.is_empty() {
             return;
         }
 
         let mut buff_store = self
             .ecs
             .write_resource::<omoba_core::runtime::ability_runtime::BuffStore>();
-        for entity in &hero_entities {
-            for (buff_id, payload_str) in hero_buffs {
+        let mut applied_count = 0usize;
+        for (entity, buffs) in &applications {
+            let old_gk_buffs: Vec<String> = buff_store
+                .iter_for(*entity)
+                .map(|(buff_id, _)| buff_id)
+                .filter(|buff_id| buff_id.starts_with("gk_"))
+                .map(str::to_string)
+                .collect();
+            for buff_id in old_gk_buffs {
+                buff_store.remove(*entity, &buff_id);
+            }
+
+            for (buff_id, payload_str) in buffs {
                 let payload: serde_json::Value = serde_json::from_str(payload_str)
                     .unwrap_or_else(|_| serde_json::Value::Object(Default::default()));
                 buff_store.add(
@@ -1162,13 +1230,14 @@ impl State {
                     omoba_sim::Fixed64::from_raw(i64::MAX),
                     payload,
                 );
+                applied_count += 1;
             }
         }
 
         log::info!(
-            "[hero_knowledge] applied {} hero buffs to {} live heroes",
-            hero_buffs.len(),
-            hero_entities.len(),
+            "[hero_knowledge] reapplied {} knowledge buffs across {} live heroes/towers",
+            applied_count,
+            applications.len(),
         );
     }
 
