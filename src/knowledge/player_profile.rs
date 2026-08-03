@@ -19,6 +19,18 @@ pub struct PlayerProfile {
     /// 英雄知識加成是否啟用（false → 下局不套用 buff，但 KP 仍正常發放）。
     #[serde(default = "default_true")]
     pub enabled: bool,
+    /// 累計進行的對局數。
+    #[serde(default)]
+    pub games_played: u32,
+    /// 累計勝利場數。
+    #[serde(default)]
+    pub wins: u32,
+    /// 歷史最高波數（只增不減）。
+    #[serde(default)]
+    pub highest_wave: u32,
+    /// 累計擊殺小兵數。
+    #[serde(default)]
+    pub total_kills: u32,
 }
 
 fn default_true() -> bool { true }
@@ -31,6 +43,10 @@ impl Default for PlayerProfile {
             spent_kp: 0,
             unlocked_nodes: Vec::new(),
             enabled: true,
+            games_played: 0,
+            wins: 0,
+            highest_wave: 0,
+            total_kills: 0,
         }
     }
 }
@@ -192,7 +208,7 @@ mod tests {
     fn unlock_ok() {
         let dir = tmp_dir("unlock_ok");
         let tree = make_tree();
-        let mut p = PlayerProfile { total_kp: 10, spent_kp: 0, unlocked_nodes: vec![], enabled: true };
+        let mut p = PlayerProfile { total_kp: 10, spent_kp: 0, unlocked_nodes: vec![], enabled: true, games_played: 0, wins: 0, highest_wave: 0, total_kills: 0 };
         unlock_node(&dir, &mut p, &tree, "n1").unwrap();
         assert!(p.is_unlocked("n1"));
         assert_eq!(p.spent_kp, 3);
@@ -203,7 +219,7 @@ mod tests {
     fn unlock_insufficient_kp() {
         let dir = tmp_dir("unlock_kp");
         let tree = make_tree();
-        let mut p = PlayerProfile { total_kp: 2, spent_kp: 0, unlocked_nodes: vec![], enabled: true };
+        let mut p = PlayerProfile { total_kp: 2, spent_kp: 0, unlocked_nodes: vec![], enabled: true, games_played: 0, wins: 0, highest_wave: 0, total_kills: 0 };
         let err = unlock_node(&dir, &mut p, &tree, "n1").unwrap_err();
         assert!(err.contains("KP 不足"));
         cleanup(&dir);
@@ -213,7 +229,7 @@ mod tests {
     fn unlock_prereq_not_met() {
         let dir = tmp_dir("unlock_prereq");
         let tree = make_tree();
-        let mut p = PlayerProfile { total_kp: 100, spent_kp: 0, unlocked_nodes: vec![], enabled: true };
+        let mut p = PlayerProfile { total_kp: 100, spent_kp: 0, unlocked_nodes: vec![], enabled: true, games_played: 0, wins: 0, highest_wave: 0, total_kills: 0 };
         let err = unlock_node(&dir, &mut p, &tree, "n2").unwrap_err();
         assert!(err.contains("前置節點"));
         cleanup(&dir);

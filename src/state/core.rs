@@ -855,7 +855,7 @@ impl State {
                 && event.action == "end"
             {
                 log::info!("[hero_knowledge] 偵測到 game_end 事件，data={}", event.data);
-                self.award_kp_on_game_end(&event.data);
+                self.award_kp_on_game_end(&self.ecs, &event.data);
             }
         }
         for msg in crate::runtime_events::runtime_events_to_outbound(events) {
@@ -863,7 +863,7 @@ impl State {
         }
     }
 
-    fn award_kp_on_game_end(&self, data: &serde_json::Value) {
+    fn award_kp_on_game_end(&self, world: &World, data: &serde_json::Value) {
         use crate::config::server_config::read_hero_knowledge_setting;
         use crate::knowledge::kp_reward::{award_kp, KpRewardConfig};
         use crate::knowledge::player_profile::load_profile;
@@ -882,6 +882,30 @@ impl State {
 
         let omb_dir = std::path::PathBuf::from(".");
         let mut profile = load_profile(&omb_dir);
+
+        // Phase 2 戰績記錄：讀本局到達波數與擊殺數，更新累計戰績。
+        // 緊貼 award_kp（同一個 game_end 事件），繼承相同的「每局一次」語意。
+        let wave_reached =
+            world.read_resource::<omoba_core::comp::CurrentCreepWave>().wave as u32;
+        let kills = world.read_resource::<omoba_core::comp::MatchKillCounter>().0;
+        profile.games_played = profile.games_played.saturating_add(1);
+        if is_victory {
+            profile.wins = profile.wins.saturating_add(1);
+        }
+        profile.highest_wave = profile.highest_wave.max(wave_reached);
+        profile.total_kills = profile.total_kills.saturating_add(kills);
+        // 重置本局擊殺計數，下一局重新累計。
+        world.write_resource::<omoba_core::comp::MatchKillCounter>().0 = 0;
+        log::info!(
+            "[戰績] 場數={} 勝場={} 最高波={} 總擊殺={}（本局波={} 擊殺={}）",
+            profile.games_played,
+            profile.wins,
+            profile.highest_wave,
+            profile.total_kills,
+            wave_reached,
+            kills,
+        );
+
         let config = KpRewardConfig {
             base_kp_reward: gk_cfg.base_kp_reward,
             win_kp_bonus: gk_cfg.win_kp_bonus,
