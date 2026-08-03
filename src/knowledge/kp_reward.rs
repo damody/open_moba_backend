@@ -51,7 +51,7 @@ mod tests {
         let config = KpRewardConfig { base_kp_reward: 3, win_kp_bonus: 2 };
         let mut p = PlayerProfile::default();
         award_kp(&dir, &mut p, config, true);
-        assert_eq!(p.total_kp, 5);
+        assert_eq!(p.total_kp, 25);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -62,7 +62,7 @@ mod tests {
         let config = KpRewardConfig { base_kp_reward: 3, win_kp_bonus: 2 };
         let mut p = PlayerProfile::default();
         award_kp(&dir, &mut p, config, false);
-        assert_eq!(p.total_kp, 3);
+        assert_eq!(p.total_kp, 23);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -1114,12 +1114,61 @@ impl State {
         resource.enabled = profile.enabled;
         resource.bonuses_by_category = bonus_map;
         resource.unlocked_nodes = profile.unlocked_nodes.clone();
+        let hero_buffs = if resource.enabled {
+            resource.bonuses_for("hero").to_vec()
+        } else {
+            Vec::new()
+        };
 
         log::info!(
             "[hero_knowledge] 初始化完成：{} 個解鎖節點，{} 個 category 有加成，enabled={}",
             profile.unlocked_nodes.len(),
             resource.bonuses_by_category.len(),
             profile.enabled,
+        );
+        drop(resource);
+
+        self.apply_hero_knowledge_buffs_to_live_heroes(&hero_buffs);
+    }
+
+    fn apply_hero_knowledge_buffs_to_live_heroes(&mut self, hero_buffs: &[(String, String)]) {
+        if hero_buffs.is_empty() {
+            return;
+        }
+
+        let hero_entities: Vec<_> = {
+            let entities = self.ecs.entities();
+            let heroes = self.ecs.read_storage::<Hero>();
+            (&entities, &heroes)
+                .join()
+                .map(|(entity, _)| entity)
+                .collect()
+        };
+
+        if hero_entities.is_empty() {
+            return;
+        }
+
+        let mut buff_store = self
+            .ecs
+            .write_resource::<omoba_core::runtime::ability_runtime::BuffStore>();
+        for entity in &hero_entities {
+            for (buff_id, payload_str) in hero_buffs {
+                let payload: serde_json::Value = serde_json::from_str(payload_str)
+                    .unwrap_or_else(|_| serde_json::Value::Object(Default::default()));
+                buff_store.add(
+                    *entity,
+                    buff_id,
+                    omoba_sim::Fixed64::from_raw(i64::MAX),
+                    payload,
+                );
+            }
+        }
+
+        log::info!(
+            "[hero_knowledge] applied {} hero buffs to {} live heroes",
+            hero_buffs.len(),
+            hero_entities.len(),
         );
     }
 
