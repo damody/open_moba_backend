@@ -22,7 +22,7 @@ pub mod tower_template;
 pub use omoba_core::runtime::comp::{
     blocked_region, bounty, building, check_point, creep, creep_move_broadcast, damage, facing,
     game_mode, gold, heightmap, hero, inventory, is_base, item_effects, last, lockstep_resources,
-    phys, projectile, resources, tower, tower_registry, tower_upgrade_registry,
+    phys, player_economy, projectile, resources, tower, tower_registry, tower_upgrade_registry,
     tower_upgrade_rules, unit,
 };
 pub use omoba_core::runtime::comp::{CreepMoveBroadcast, IsBuilding};
@@ -30,8 +30,9 @@ pub use omoba_core::runtime::comp::{CreepMoveBroadcast, IsBuilding};
 pub use omoba_core::runtime::comp::{
     blocked_region::*, bounty::*, building::*, check_point::*, creep::*, creep_move_broadcast::*,
     damage::*, facing::*, game_mode::*, gold::*, heightmap::*, hero::*, inventory::*, is_base::*,
-    item_effects::*, last::*, lockstep_resources::*, phys::*, projectile::*, resources::*,
-    tower::*, tower_registry::*, tower_upgrade_registry::*, tower_upgrade_rules::*, unit::*,
+    item_effects::*, last::*, lockstep_resources::*, phys::*, player_economy::*, projectile::*,
+    resources::*, tower::*, tower_registry::*, tower_upgrade_registry::*, tower_upgrade_rules::*,
+    unit::*,
 };
 
 pub use self::{

@@ -30,10 +30,12 @@
 use specs::{Join, World, WorldExt};
 
 use omoba_sim::state_hash::hash_sorted_by_id;
+use std::hash::{Hash, Hasher};
 
 use crate::comp::creep::CProperty;
 use crate::comp::facing::Facing;
 use crate::comp::phys::{Pos, Vel};
+use crate::comp::PlayerEconomy;
 
 /// 每個狀態哈希滴答的穩定子集進行哈希處理。 `#[derive(Hash)]` 訂單匹配
 /// 現場申報單；在不破壞協議的情況下不要重新安排
@@ -85,7 +87,15 @@ pub fn compute_state_hash(world: &World) -> u64 {
         })
         .collect();
 
-    hash_sorted_by_id(&items, |i| i.id)
+    let entity_hash = hash_sorted_by_id(&items, |i| i.id);
+    let Some(economy) = world.try_fetch::<PlayerEconomy>() else {
+        return entity_hash;
+    };
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    "omoba-player-economy-v1".hash(&mut hasher);
+    entity_hash.hash(&mut hasher);
+    economy.balances().hash(&mut hasher);
+    hasher.finish()
 }
 
 #[cfg(test)]
@@ -281,5 +291,37 @@ mod tests {
         let after_drain = compute_state_hash(&w);
         assert_eq!(before, after_insert);
         assert_eq!(before, after_drain);
+    }
+
+    #[test]
+    fn player_economy_balance_changes_hash() {
+        let mut w1 = make_world();
+        let mut economy1 = PlayerEconomy::default();
+        economy1.initialize(1, 650);
+        w1.insert(economy1);
+
+        let mut w2 = make_world();
+        let mut economy2 = PlayerEconomy::default();
+        economy2.initialize(1, 649);
+        w2.insert(economy2);
+
+        assert_ne!(compute_state_hash(&w1), compute_state_hash(&w2));
+    }
+
+    #[test]
+    fn player_economy_insertion_order_does_not_change_hash() {
+        let mut w1 = make_world();
+        let mut economy1 = PlayerEconomy::default();
+        economy1.initialize(1, 650);
+        economy1.initialize(2, 10_000);
+        w1.insert(economy1);
+
+        let mut w2 = make_world();
+        let mut economy2 = PlayerEconomy::default();
+        economy2.initialize(2, 10_000);
+        economy2.initialize(1, 650);
+        w2.insert(economy2);
+
+        assert_eq!(compute_state_hash(&w1), compute_state_hash(&w2));
     }
 }
