@@ -171,6 +171,8 @@ mod tests {
                 kp_cost: 3,
                 requires: vec![],
                 bonuses: vec![],
+                label: String::new(),
+                description: String::new(),
             },
             KnowledgeNode {
                 id: "n2".to_string(),
@@ -178,6 +180,8 @@ mod tests {
                 kp_cost: 5,
                 requires: vec!["n1".to_string()],
                 bonuses: vec![],
+                label: String::new(),
+                description: String::new(),
             },
         ]
     }

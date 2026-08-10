@@ -215,6 +215,8 @@ mod tests {
                     add: Some(5.0),
                     multiply: None,
                 }],
+                label: String::new(),
+                description: String::new(),
             },
             KnowledgeNode {
                 id: "n2".to_string(),
@@ -226,6 +228,8 @@ mod tests {
                     add: Some(10.0),
                     multiply: None,
                 }],
+                label: String::new(),
+                description: String::new(),
             },
         ];
         let unlocked = vec!["n1".to_string()];
