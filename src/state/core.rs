@@ -120,6 +120,55 @@ pub struct State {
 
 #[cfg(test)]
 mod tower_ability_phase_order_tests {
+    fn tick_body<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+        let start = source.rfind(start).expect("tick body start");
+        let suffix = &source[start..];
+        let end = suffix.find(end).expect("tick body end");
+        &suffix[..end]
+    }
+
+    fn gameplay_phase_tokens(source: &str) -> Vec<&'static str> {
+        let markers = [
+            ("drain_pending_hero_command_clears", "hero_command_clears"),
+            ("drain_pending_tower_spawns", "tower_spawns"),
+            ("drain_pending_tower_sells", "tower_sells"),
+            (
+                "drain_pending_tower_target_priorities",
+                "tower_target_priorities",
+            ),
+            ("drain_pending_item_uses", "item_uses"),
+            ("drain_pending_ability_upgrades", "ability_upgrades"),
+            ("drain_pending_ability_casts", "ability_casts"),
+            ("drain_pending_moves", "moves"),
+            ("process_outcomes", "outcomes"),
+            ("drain_pending_tower_upgrades", "tower_upgrades"),
+            ("drain_pending_tower_ability_casts", "tower_ability_casts"),
+            ("tick_tower_abilities", "tower_ability_scheduler"),
+            (
+                "drain_pending_tower_ability_callbacks",
+                "tower_ability_callbacks",
+            ),
+            ("run_script_dispatch", "script_dispatch"),
+        ];
+        source
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("//"))
+            .flat_map(|line| {
+                markers
+                    .iter()
+                    .filter_map(move |(needle, token)| {
+                        let matched = if *needle == "process_outcomes" {
+                            line.contains(".process_outcomes(&mut self.ecs)")
+                                || line.trim_start().starts_with("process_outcomes(world,")
+                        } else {
+                            line.contains(needle)
+                        };
+                        matched.then_some(*token)
+                    })
+            })
+            .collect()
+    }
+
     fn authoritative_phase_source() -> &'static str {
         let source = include_str!("core.rs");
         let upgrades = source
@@ -168,10 +217,7 @@ mod tower_ability_phase_order_tests {
             return Err("unexpected pending drain in phase");
         }
         if phase
-            .matches(concat!(
-                "drain_pending_tower_ability_",
-                "callbacks("
-            ))
+            .matches(concat!("drain_pending_tower_ability_", "callbacks("))
             .count()
             != 1
         {
@@ -194,7 +240,44 @@ mod tower_ability_phase_order_tests {
 
     #[test]
     fn authoritative_runner_keeps_tower_ability_phase_order_and_scaled_delta() {
-        assert_eq!(validate_contiguous_phase(authoritative_phase_source()), Ok(()));
+        assert_eq!(
+            validate_contiguous_phase(authoritative_phase_source()),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn authoritative_backend_and_local_replica_share_gameplay_phase_contract() {
+        let backend = tick_body(
+            include_str!("core.rs"),
+            "pub fn tick(",
+            "fn flush_runtime_events",
+        );
+        let replica_source = include_str!(concat!(
+            "../../../omoba-core/src/runtime/native/",
+            "simulation_driver.rs"
+        ));
+        let replica = tick_body(replica_source, "pub fn step(", "Ok(SimulationTickResult");
+
+        let expected = vec![
+            "hero_command_clears",
+            "tower_spawns",
+            "tower_sells",
+            "tower_target_priorities",
+            "item_uses",
+            "ability_upgrades",
+            "ability_casts",
+            "moves",
+            "outcomes",
+            "tower_upgrades",
+            "tower_ability_casts",
+            "tower_ability_scheduler",
+            "tower_ability_callbacks",
+            "script_dispatch",
+            "outcomes",
+        ];
+        assert_eq!(gameplay_phase_tokens(backend), expected);
+        assert_eq!(gameplay_phase_tokens(replica), expected);
     }
 
     #[test]
@@ -701,6 +784,7 @@ impl State {
         self.flush_runtime_events();
 
         omoba_core::runtime::drain_pending_hero_command_clears(&mut self.ecs);
+        self.ecs.maintain();
 
         // 階段 2.1：耗盡 `PendingTowerSpawnQueue` 填充
         // 上述調度期間的`player_input_tick::Sys`。需要 `&mut World`
@@ -708,32 +792,47 @@ impl State {
         // Push) 是「System」的規格無法借用。local replica 在自己的
         // dispatcher 運行後使用相同 boundary drain。
         omoba_core::runtime::drain_pending_tower_spawns(&mut self.ecs);
+        self.ecs.maintain();
 
         // 階段 2.2：排出`PendingTowerSellQueue`（TowerSell 鎖步輸入）
         // — 相同的「&mut World」要求（金幣+BuffStore清除+
         // 實體刪除）。local replica 使用相同 boundary。
         omoba_core::runtime::drain_pending_tower_sells(&mut self.ecs);
+        self.ecs.maintain();
 
         omoba_core::runtime::drain_pending_tower_target_priorities(&mut self.ecs);
+        self.ecs.maintain();
 
         // 階段 2.4：排出 `PendingItemUseQueue` （ItemUse 鎖步輸入） —
         // 需要`&mut World`（ItemRegistry讀取，寫入Inventory冷卻時間，
         // 為專案效果編寫 CProperty）。副本反映了這一點
         // sim_runner。
         omoba_core::runtime::drain_pending_item_uses(&mut self.ecs);
+        self.ecs.maintain();
 
         // AbilityUpgrade：消耗 skill point 並在 script dispatch 前排入 SkillLearn。
         // Replica 端在 sim_runner 中鏡像同一流程。
         omoba_core::runtime::drain_pending_ability_upgrades(&mut self.ecs);
+        self.ecs.maintain();
 
         // AbilityCast：在 script dispatch 前排入 SkillCast。放在 upgrades 後 drain，
         // 讓同 tick 的 Shift+key 學習後再 key cast 可以成功。
         omoba_core::runtime::drain_pending_ability_casts(&mut self.ecs);
+        self.ecs.maintain();
 
         // MoveTo (右鍵移動): drain `PendingMoveQueue` — writes `MoveTarget`
         // 玩家英雄實體上的組件。副本反映了這一點
         // sim_runner。
         omoba_core::runtime::drain_pending_moves(&mut self.ecs);
+        self.ecs.maintain();
+
+        // Keep the authoritative backend on the same two-boundary outcome
+        // contract as SimulationDriver: system outcomes settle before tower
+        // upgrades/scripts, and script outcomes settle afterwards.
+        let t_outcomes = Instant::now();
+        self.resource_manager.process_outcomes(&mut self.ecs)?;
+        self.ecs.maintain();
+        let mut process_outcomes_ns = t_outcomes.elapsed().as_nanos();
 
         // Tower active abilities use one explicit deterministic phase in both
         // authoritative and replica runners: upgrades -> casts -> scheduler ->
@@ -766,7 +865,8 @@ impl State {
         // 處理遊戲結果
         let t_outcomes = Instant::now();
         self.resource_manager.process_outcomes(&mut self.ecs)?;
-        let process_outcomes_ns = t_outcomes.elapsed().as_nanos();
+        self.ecs.maintain();
+        process_outcomes_ns += t_outcomes.elapsed().as_nanos();
 
         {
             use crate::comp::{TickPhase, TickProfile};
@@ -856,10 +956,7 @@ impl State {
         };
         for event in &events {
             // 偵測對局結束事件，發放 KP
-            if event.topic == "td/all/res"
-                && event.kind == "game"
-                && event.action == "end"
-            {
+            if event.topic == "td/all/res" && event.kind == "game" && event.action == "end" {
                 log::info!("[hero_knowledge] 偵測到 game_end 事件，data={}", event.data);
                 self.award_kp_on_game_end(&event.data);
             }
@@ -1122,9 +1219,7 @@ impl State {
 
         let bonus_map = build_bonus_map(&tree, &profile.unlocked_nodes);
 
-        let mut resource = self
-            .ecs
-            .write_resource::<KnowledgeBonusResource>();
+        let mut resource = self.ecs.write_resource::<KnowledgeBonusResource>();
         resource.enabled = profile.enabled;
         resource.bonuses_by_category = bonus_map;
         resource.unlocked_nodes = profile.unlocked_nodes.clone();
@@ -1153,9 +1248,7 @@ impl State {
             return;
         }
 
-        log::info!(
-            "[hero_knowledge] player_profile.json changed; reloading live knowledge buffs"
-        );
+        log::info!("[hero_knowledge] player_profile.json changed; reloading live knowledge buffs");
         self.apply_hero_knowledge_bonuses();
     }
 
