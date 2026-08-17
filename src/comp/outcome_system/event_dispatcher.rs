@@ -28,6 +28,7 @@ impl EventDispatcher {
                 real,
                 source,
                 target,
+                damage_profile: _,
                 predeclared: _,
             } => CombatEventHandler::handle_damage(
                 world, mqtx, pos, phys, magi, real, source, target,

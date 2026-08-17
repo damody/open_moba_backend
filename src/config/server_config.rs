@@ -205,7 +205,10 @@ pub fn read_hero_knowledge_setting() -> HeroKnowledgeSetting {
     match read_setting() {
         Ok(s) => s.hero_knowledge,
         Err(e) => {
-            log::warn!("failed to read hero_knowledge config: {}; using defaults", e);
+            log::warn!(
+                "failed to read hero_knowledge config: {}; using defaults",
+                e
+            );
             HeroKnowledgeSetting::default()
         }
     }

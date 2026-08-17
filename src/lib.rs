@@ -17,12 +17,12 @@
 ///
 /// Open MOBA 遊戲後端的主庫箱
 pub mod ability_runtime;
-pub mod knowledge;
 pub mod aoi;
 pub mod comp;
 pub mod config;
 pub mod item;
 pub mod json_preprocessor;
+pub mod knowledge;
 #[cfg(feature = "kcp")]
 pub mod lockstep;
 #[cfg(feature = "mqtt")]

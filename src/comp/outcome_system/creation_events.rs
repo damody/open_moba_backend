@@ -210,6 +210,7 @@ impl CreationEventHandler {
                 stun_duration: Fixed64::ZERO,
                 kind_id: 0,
                 generation: 0,
+                damage_profile: 0,
             })
             .build();
 

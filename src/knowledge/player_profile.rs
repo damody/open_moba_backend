@@ -33,7 +33,9 @@ pub struct PlayerProfile {
     pub total_kills: u32,
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 impl Default for PlayerProfile {
     /// 新玩家初始贈送 20 KP。
@@ -126,10 +128,7 @@ pub fn unlock_node(
     // 驗證前置節點
     for req in &node.requires {
         if !profile.is_unlocked(req) {
-            return Err(format!(
-                "節點 '{}' 的前置節點 '{}' 尚未解鎖",
-                node_id, req
-            ));
+            return Err(format!("節點 '{}' 的前置節點 '{}' 尚未解鎖", node_id, req));
         }
     }
 
