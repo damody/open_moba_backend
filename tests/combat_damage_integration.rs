@@ -89,6 +89,7 @@ fn damage_outcome_decrements_hp() {
             real: Fixed64::ZERO,
             source,
             target,
+            damage_profile: 0,
             predeclared: false,
         });
     }
@@ -123,6 +124,7 @@ fn damage_aggregation_multiple_sources_one_target() {
             real: Fixed64::ZERO,
             source: s1,
             target,
+            damage_profile: 0,
             predeclared: false,
         });
         outcomes.push(Outcome::Damage {
@@ -132,6 +134,7 @@ fn damage_aggregation_multiple_sources_one_target() {
             real: Fixed64::ZERO,
             source: s2,
             target,
+            damage_profile: 0,
             predeclared: false,
         });
     }
@@ -164,6 +167,7 @@ fn fatal_damage_emits_death_and_removes_entity() {
             real: Fixed64::ZERO,
             source,
             target,
+            damage_profile: 0,
             predeclared: false,
         });
     }
