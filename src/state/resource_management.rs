@@ -38,11 +38,11 @@ impl ResourceManager {
         // 注意：creep_wave 系統直接寫進 ECS Vec<RuntimeEvent>，
         //       由 flush_runtime_events 另行偵測（勝利路徑）。
         for event in &sink.events {
-            if event.topic == "td/all/res"
-                && event.kind == "game"
-                && event.action == "end"
-            {
-                log::info!("[hero_knowledge] process_outcomes 偵測到 game_end，data={}", event.data);
+            if event.topic == "td/all/res" && event.kind == "game" && event.action == "end" {
+                log::info!(
+                    "[hero_knowledge] process_outcomes 偵測到 game_end，data={}",
+                    event.data
+                );
                 self.award_kp_on_game_end(&event.data);
             }
         }

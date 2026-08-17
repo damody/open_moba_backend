@@ -21,7 +21,9 @@ pub struct PlayerProfile {
     pub enabled: bool,
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 impl Default for PlayerProfile {
     /// 新玩家初始贈送 20 KP。
@@ -110,10 +112,7 @@ pub fn unlock_node(
     // 驗證前置節點
     for req in &node.requires {
         if !profile.is_unlocked(req) {
-            return Err(format!(
-                "節點 '{}' 的前置節點 '{}' 尚未解鎖",
-                node_id, req
-            ));
+            return Err(format!("節點 '{}' 的前置節點 '{}' 尚未解鎖", node_id, req));
         }
     }
 
@@ -196,7 +195,12 @@ mod tests {
     fn unlock_ok() {
         let dir = tmp_dir("unlock_ok");
         let tree = make_tree();
-        let mut p = PlayerProfile { total_kp: 10, spent_kp: 0, unlocked_nodes: vec![], enabled: true };
+        let mut p = PlayerProfile {
+            total_kp: 10,
+            spent_kp: 0,
+            unlocked_nodes: vec![],
+            enabled: true,
+        };
         unlock_node(&dir, &mut p, &tree, "n1").unwrap();
         assert!(p.is_unlocked("n1"));
         assert_eq!(p.spent_kp, 3);
@@ -207,7 +211,12 @@ mod tests {
     fn unlock_insufficient_kp() {
         let dir = tmp_dir("unlock_kp");
         let tree = make_tree();
-        let mut p = PlayerProfile { total_kp: 2, spent_kp: 0, unlocked_nodes: vec![], enabled: true };
+        let mut p = PlayerProfile {
+            total_kp: 2,
+            spent_kp: 0,
+            unlocked_nodes: vec![],
+            enabled: true,
+        };
         let err = unlock_node(&dir, &mut p, &tree, "n1").unwrap_err();
         assert!(err.contains("KP 不足"));
         cleanup(&dir);
@@ -217,7 +226,12 @@ mod tests {
     fn unlock_prereq_not_met() {
         let dir = tmp_dir("unlock_prereq");
         let tree = make_tree();
-        let mut p = PlayerProfile { total_kp: 100, spent_kp: 0, unlocked_nodes: vec![], enabled: true };
+        let mut p = PlayerProfile {
+            total_kp: 100,
+            spent_kp: 0,
+            unlocked_nodes: vec![],
+            enabled: true,
+        };
         let err = unlock_node(&dir, &mut p, &tree, "n2").unwrap_err();
         assert!(err.contains("前置節點"));
         cleanup(&dir);

@@ -27,7 +27,12 @@ impl Default for KpRewardConfig {
 ///
 /// - `is_victory`：是否勝利（勝利額外獎勵 `win_kp_bonus`）。
 /// - CHIMPS 模式下 `is_victory` 語意相同，KP 照常發放（CHIMPS 只禁對局內加成）。
-pub fn award_kp(omb_dir: &Path, profile: &mut PlayerProfile, config: KpRewardConfig, is_victory: bool) {
+pub fn award_kp(
+    omb_dir: &Path,
+    profile: &mut PlayerProfile,
+    config: KpRewardConfig,
+    is_victory: bool,
+) {
     let earned = config.base_kp_reward + if is_victory { config.win_kp_bonus } else { 0 };
     profile.total_kp = profile.total_kp.saturating_add(earned);
     save_profile(omb_dir, profile);
@@ -48,7 +53,10 @@ mod tests {
     fn victory_gives_base_plus_bonus() {
         let dir = std::env::temp_dir().join("gk_kp_victory");
         let _ = std::fs::create_dir_all(&dir);
-        let config = KpRewardConfig { base_kp_reward: 3, win_kp_bonus: 2 };
+        let config = KpRewardConfig {
+            base_kp_reward: 3,
+            win_kp_bonus: 2,
+        };
         let mut p = PlayerProfile::default();
         award_kp(&dir, &mut p, config, true);
         assert_eq!(p.total_kp, 25);
@@ -59,7 +67,10 @@ mod tests {
     fn defeat_gives_base_only() {
         let dir = std::env::temp_dir().join("gk_kp_defeat");
         let _ = std::fs::create_dir_all(&dir);
-        let config = KpRewardConfig { base_kp_reward: 3, win_kp_bonus: 2 };
+        let config = KpRewardConfig {
+            base_kp_reward: 3,
+            win_kp_bonus: 2,
+        };
         let mut p = PlayerProfile::default();
         award_kp(&dir, &mut p, config, false);
         assert_eq!(p.total_kp, 23);
