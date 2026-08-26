@@ -5,7 +5,7 @@
 
 use std::path::Path;
 
-use super::player_profile::{save_profile, PlayerProfile};
+use super::player_profile::{load_profile, save_profile, PlayerProfile};
 
 /// `game.toml` `[hero_knowledge]` 的 KP 獎勵設定。
 #[derive(Debug, Clone, Copy)]
@@ -44,6 +44,18 @@ pub fn award_kp(
     );
 }
 
+/// Applies the end-of-match KP reward without owning match statistics.
+/// Match statistics are settled by the native frontend after session teardown.
+pub fn award_kp_for_game_end(
+    omb_dir: &Path,
+    config: KpRewardConfig,
+    is_victory: bool,
+) -> PlayerProfile {
+    let mut profile = load_profile(omb_dir);
+    award_kp(omb_dir, &mut profile, config, is_victory);
+    profile
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -75,5 +87,33 @@ mod tests {
         award_kp(&dir, &mut p, config, false);
         assert_eq!(p.total_kp, 23);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn game_end_kp_preserves_frontend_owned_match_statistics() {
+        let dir = std::env::temp_dir().join(format!(
+            "gk_kp_stats_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut profile = PlayerProfile::default();
+        profile.games_played = 9;
+        profile.wins = 4;
+        profile.highest_wave = 37;
+        profile.total_kills = 1234;
+        save_profile(&dir, &profile);
+
+        let saved = award_kp_for_game_end(&dir, KpRewardConfig::default(), true);
+
+        assert_eq!(saved.total_kp, 25);
+        assert_eq!(saved.games_played, 9);
+        assert_eq!(saved.wins, 4);
+        assert_eq!(saved.highest_wave, 37);
+        assert_eq!(saved.total_kills, 1234);
+        let _ = std::fs::remove_dir_all(dir);
     }
 }
