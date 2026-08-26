@@ -900,6 +900,11 @@ impl State {
             self.local_tick,
             1,
         );
+        omoba_core::runtime::run_team_projection_after_wave_b(
+            &mut self.ecs,
+            self.local_tick,
+        )
+        .map_err(|error| failure::err_msg(format!("team projection failed: {error:?}")))?;
 
         {
             use crate::comp::{TickPhase, TickProfile};
