@@ -552,6 +552,8 @@ pub async fn start(
 
     let sessions: Arc<Mutex<HashMap<String, ClientSession>>> = Arc::new(Mutex::new(HashMap::new()));
     let team_stream_router = Arc::new(Mutex::new(omoba_core::runtime::TeamStreamRouter::new(2048)));
+    let observer_validation = omoba_core::runtime::ObserverValidationWorker::start(4096);
+    let observer_tap = observer_validation.tap();
 
     // 每個事件位元組/訊息計數器。與廣播線程共享以便測試
     // 遊戲循環可以快照/重置觀察到的線量。
@@ -568,6 +570,7 @@ pub async fn start(
     let counter_broadcast = counter.clone();
     let aoi_broadcast = aoi.clone();
     let team_stream_router_broadcast = Arc::clone(&team_stream_router);
+    let observer_tap_broadcast = observer_tap.clone();
     thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -625,13 +628,16 @@ pub async fn start(
                     if let Some(frame) = msg.lockstep_frame.clone() {
                         match frame {
                             crate::lockstep::LockstepFrame::TeamGameStartV2 { client_session_id, msg } => {
+                                let encoded: Arc<[u8]> = Arc::from(msg.encode_to_vec());
                                 let frame_arc: Arc<[u8]> = Arc::from(
-                                    build_framed_bytes(TAG_TEAM_GAME_START_V2, &msg.encode_to_vec()).into_boxed_slice()
+                                    build_framed_bytes(TAG_TEAM_GAME_START_V2, &encoded).into_boxed_slice()
                                 );
                                 let sessions = sessions_broadcast.lock().await;
                                 if let Some(session) = sessions.get(&client_session_id) {
                                     if session.negotiated_protocol_version == 2 && session.secure_match_capability {
-                                        let _ = session.event_tx.try_send(frame_arc);
+                                        if session.event_tx.try_send(frame_arc).is_ok() {
+                                            observer_tap_broadcast.try_bootstrap(encoded);
+                                        }
                                     }
                                 }
                             }
@@ -659,6 +665,12 @@ pub async fn start(
                                     let mut sessions = sessions_broadcast.lock().await;
                                     for id in to_remove { sessions.remove(&id); }
                                 }
+                                observer_tap_broadcast.try_frame(
+                                    team_id,
+                                    sequence,
+                                    replica_tick,
+                                    Arc::clone(&encoded),
+                                );
                             }
                             crate::lockstep::LockstepFrame::TickBatch(batch_msg) => {
                                 let payload = batch_msg.encode_to_vec();
@@ -1006,6 +1018,7 @@ pub async fn start(
         viewport_rx,
         counter,
         aoi,
+        observer_validation,
     })
 }
 

@@ -459,6 +459,8 @@ pub struct TransportHandle {
     /// 互斥鎖爭用很少——兩者都保持鎖定微秒。
     #[cfg(feature = "kcp")]
     pub aoi: Arc<std::sync::Mutex<crate::aoi::AoiGrid>>,
+    #[cfg(feature = "kcp")]
+    pub observer_validation: omoba_core::runtime::ObserverValidationWorker,
 }
 
 #[cfg(test)]
