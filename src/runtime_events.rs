@@ -1,4 +1,6 @@
-use omoba_core::runtime::{RuntimeBroadcast, RuntimeEvent};
+use omoba_core::runtime::{
+    FactKind, FactOrderingKey, FactPhase, OrderedOutput, RuntimeBroadcast, RuntimeEvent,
+};
 #[cfg(feature = "kcp")]
 use serde_json::Value;
 
@@ -79,10 +81,53 @@ fn game_end_winner(data: &Value) -> String {
         .to_string()
 }
 
-pub fn runtime_events_to_outbound(
-    events: impl IntoIterator<Item = RuntimeEvent>,
+pub fn ordered_runtime_events_to_outbound(
+    events: impl IntoIterator<Item = OrderedOutput<RuntimeEvent>>,
 ) -> Vec<OutboundMsg> {
-    events.into_iter().map(runtime_event_to_outbound).collect()
+    let mut events: Vec<_> = events.into_iter().collect();
+    events.retain(|event| event.key.validate().is_ok());
+    events.sort_by_key(|event| event.key);
+    events.into_iter().map(|event| runtime_event_to_outbound(event.value)).collect()
+}
+
+/// Transitional adapter for legacy Outcome producers. The caller supplies the
+/// authoritative tick/phase; vector position is canonical only after the
+/// deterministic Outcome processor has completed.
+pub fn order_processed_runtime_events(
+    tick: u64,
+    phase: FactPhase,
+    events: Vec<RuntimeEvent>,
+) -> Vec<OrderedOutput<RuntimeEvent>> {
+    events
+        .into_iter()
+        .enumerate()
+        .map(|(ordinal, value)| OrderedOutput {
+            key: FactOrderingKey {
+                tick,
+                phase,
+                canonical_source_order: ordinal as u64,
+                local_ordinal: 0,
+                fact_kind: runtime_event_fact_kind(&value),
+            },
+            value,
+        })
+        .collect()
+}
+
+fn runtime_event_fact_kind(event: &RuntimeEvent) -> FactKind {
+    match (event.kind.as_str(), event.action.as_str()) {
+        ("game", "end") => FactKind::Terminal,
+        ("game", _) => FactKind::Hud,
+        ("unit", "spawn") | ("creep", "spawn") | ("tower", "spawn") => FactKind::Spawn,
+        ("unit", "death") | ("creep", "death") | ("tower", "death") => FactKind::Death,
+        ("projectile", _) => FactKind::Projectile,
+        ("buff", _) => FactKind::Buff,
+        ("ability", _) => FactKind::Ability,
+        ("item", _) => FactKind::Item,
+        ("tower", _) => FactKind::Tower,
+        ("move", _) | ("movement", _) => FactKind::Movement,
+        _ => FactKind::DirectCombat,
+    }
 }
 
 #[cfg(any(feature = "grpc", feature = "kcp"))]

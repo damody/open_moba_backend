@@ -46,7 +46,12 @@ impl ResourceManager {
                 self.award_kp_on_game_end(&event.data);
             }
         }
-        for msg in crate::runtime_events::runtime_events_to_outbound(sink.events) {
+        let ordered = crate::runtime_events::order_processed_runtime_events(
+            0,
+            omoba_core::runtime::FactPhase::PostStep,
+            sink.events,
+        );
+        for msg in crate::runtime_events::ordered_runtime_events_to_outbound(ordered) {
             let _ = self.mqtx.try_send(msg);
         }
         Ok(())
