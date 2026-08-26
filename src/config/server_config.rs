@@ -25,7 +25,7 @@ fn default_false() -> bool { false }
 #[serde(rename_all = "snake_case")]
 pub enum MatchLockstepMode { Legacy, SecureV2OptIn, SecureV2Required }
 
-impl Default for MatchLockstepMode { fn default() -> Self { Self::Legacy } }
+impl Default for MatchLockstepMode { fn default() -> Self { Self::SecureV2Required } }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ServerSetting {
@@ -339,5 +339,25 @@ RENDER_DELAY_MS = 100
         let setting = toml::from_str::<Setting>(raw).unwrap().server;
         assert_eq!(setting.STEP_FPS, LOCKSTEP_TPS);
         assert!(setting.validate().is_ok());
+    }
+
+    #[test]
+    fn secure_v2_is_default_but_explicit_legacy_remains_pre_match_option() {
+        let secure = parse_with_step_fps(120);
+        assert_eq!(secure.MATCH_LOCKSTEP_MODE, MatchLockstepMode::SecureV2Required);
+        let raw = r#"
+[server]
+MAP="map.json"
+MAX_PLAYER=1
+SERVER_IP="localhost"
+SERVER_PORT="50061"
+CLIENT_ID="omb"
+PLAYER_NAME="p"
+RENDER_DELAY_MS=1
+MATCH_LOCKSTEP_MODE="legacy"
+"#;
+        let legacy = toml::from_str::<Setting>(raw).unwrap().server;
+        assert_eq!(legacy.MATCH_LOCKSTEP_MODE, MatchLockstepMode::Legacy);
+        assert!(!legacy.secure_v2_required());
     }
 }

@@ -18,7 +18,7 @@ use crate::ue4::import_map::CreepWaveData;
 use crate::{comp::*, CreepWave};
 use std::collections::BTreeMap;
 #[cfg(any(feature = "grpc", feature = "kcp"))]
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use super::{ResourceManager, StateInitializer, SystemDispatcher, TimeManager};
 
@@ -59,9 +59,6 @@ pub struct State {
     /// 每個已連線玩家目前的 viewport
     #[cfg(any(feature = "grpc", feature = "kcp"))]
     client_viewports: HashMap<String, Viewport>,
-    /// 每個玩家最後一次已知可見的實體集合（分四類避免 entity id 重用衝突）
-    #[cfg(any(feature = "grpc", feature = "kcp"))]
-    client_visibility: HashMap<String, VisSet>,
     /// 每位玩家的差異快取：`entity_id→last_sent_quantized_hp`。心跳
     /// 僅在量化值與實際值不同的情況下重新發出 HP 條目
     /// 緩存了一份。修剪目前 AOI 中實體的每個刻度，以便
@@ -81,8 +78,6 @@ pub struct State {
     lockstep_timing: LockstepTiming,
     /// Last observed `player_profile.json` modified time for live hero knowledge reloads.
     hero_knowledge_profile_modified: Option<SystemTime>,
-    /// 上次執行可見度差異時「local_tick」的值
-    last_visibility_tick: u64,
     /// 載入的本機腳本 DLL（H1 — 進程生命週期，從不重新載入）。
     script_registry: ScriptRegistry,
     /// DEV-only Lua content hot reload poller; disabled unless env explicitly enables it.
@@ -312,17 +307,6 @@ mod tower_ability_phase_order_tests {
     }
 }
 
-/// 每個玩家可見的實體集，按類型劃分，以便規範“Entity::id()”
-/// 跨不同儲存的重複使用不會在單一「HashSet<u32>」內發生衝突。
-#[cfg(any(feature = "grpc", feature = "kcp"))]
-#[derive(Default, Debug)]
-struct VisSet {
-    heroes: HashSet<u32>,
-    units: HashSet<u32>,
-    creeps: HashSet<u32>,
-    towers: HashSet<u32>,
-}
-
 /// 每個玩家至少強制發送一個（可能是空的）心跳，這樣
 /// 客戶端仍然會收到“tick”/“game_time”心跳以進行時鐘同步和
 /// 即使玩家的 AOI 中的 HP 值沒有變化，也能保持活躍度。空的
@@ -376,7 +360,6 @@ impl State {
             #[cfg(any(feature = "grpc", feature = "kcp"))]
             client_viewports: HashMap::new(),
             #[cfg(any(feature = "grpc", feature = "kcp"))]
-            client_visibility: HashMap::new(),
             #[cfg(any(feature = "grpc", feature = "kcp"))]
             hb_last_hp_sent: HashMap::new(),
             #[cfg(any(feature = "grpc", feature = "kcp"))]
@@ -384,7 +367,6 @@ impl State {
             local_tick: 0,
             lockstep_timing,
             hero_knowledge_profile_modified: None,
-            last_visibility_tick: 0,
             script_registry: ScriptRegistry::new(),
             #[cfg(feature = "runtime-lua-content")]
             dev_lua_hot_reload: None,
@@ -720,7 +702,6 @@ impl State {
             #[cfg(any(feature = "grpc", feature = "kcp"))]
             client_viewports: HashMap::new(),
             #[cfg(any(feature = "grpc", feature = "kcp"))]
-            client_visibility: HashMap::new(),
             #[cfg(any(feature = "grpc", feature = "kcp"))]
             hb_last_hp_sent: HashMap::new(),
             #[cfg(any(feature = "grpc", feature = "kcp"))]
@@ -728,7 +709,6 @@ impl State {
             local_tick: 0,
             lockstep_timing: CONFIG.lockstep_timing(),
             hero_knowledge_profile_modified: None,
-            last_visibility_tick: 0,
             script_registry: ScriptRegistry::new(),
             #[cfg(feature = "runtime-lua-content")]
             dev_lua_hot_reload: None,
@@ -1242,7 +1222,6 @@ impl State {
                 ViewportMsg::Remove { player_name } => {
                     log::info!("📥 [State] ViewportMsg::Remove player='{}'", player_name);
                     self.client_viewports.remove(&player_name);
-                    self.client_visibility.remove(&player_name);
                     // 刪除玩家的心跳差異緩存，以便未來
                     // 重新連接從頭開始（完整快照
                     // 重新加入後的第一個刻度 - 每個“prev”都是“None”

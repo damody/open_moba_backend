@@ -752,7 +752,7 @@ pub async fn start(
                                 let frame_bytes = build_framed_bytes(TAG_GAME_START, &payload);
                                 let frame_arc: Arc<[u8]> = Arc::from(frame_bytes.into_boxed_slice());
                                 let sessions = sessions_broadcast.lock().await;
-                                if let Some(session) = sessions.get(&client_session_id) {
+                                if let Some(session) = sessions.get(&client_session_id).filter(|session| session.negotiated_protocol_version != 2) {
                                     let _ = session.event_tx.try_send(frame_arc);
                                 } else {
                                     warn!("GameStart unicast: session '{}' not found", client_session_id);
@@ -763,7 +763,7 @@ pub async fn start(
                                 let frame_bytes = build_framed_bytes(TAG_SNAPSHOT_RESP, &payload);
                                 let frame_arc: Arc<[u8]> = Arc::from(frame_bytes.into_boxed_slice());
                                 let sessions = sessions_broadcast.lock().await;
-                                if let Some(session) = sessions.get(&client_session_id) {
+                                if let Some(session) = sessions.get(&client_session_id).filter(|session| session.negotiated_protocol_version != 2) {
                                     let _ = session.event_tx.try_send(frame_arc);
                                 } else {
                                     warn!("SnapshotResp unicast: session '{}' not found", client_session_id);
@@ -829,7 +829,7 @@ pub async fn start(
                         // 尊重 AOI 的「entity_pos」視窗過濾 —
                         // 保持蠕動/拋射事件 AOI 門控
                         // 按站點遷移推出。
-                        let targets: Vec<String> = match &msg.policy {
+                        let mut targets: Vec<String> = match &msg.policy {
                             Some(BroadcastPolicy::All) => {
                                 sessions.keys().cloned().collect()
                             }
@@ -890,6 +890,11 @@ pub async fn start(
                                     .collect()
                             }
                         };
+                        // Secure V2 players receive only the team-scoped stream.
+                        // Legacy GameEvent payloads may contain global/raw IDs.
+                        targets.retain(|id| sessions.get(id).is_some_and(|session| {
+                            session.negotiated_protocol_version != 2
+                        }));
 
                         let is_per_player_topic = !msg.topic.contains("/all/") && msg.topic.starts_with("td/") && msg.topic.ends_with("/res");
                         let mut route_hits = 0u32;
@@ -1107,6 +1112,20 @@ async fn handle_client(
             result = read_framed(&mut reader) => {
                 match result {
                     Ok(Some((tag, payload, _wire_bytes))) => {
+                        let secure_v2_session = {
+                            let sessions = sessions.lock().await;
+                            sessions.get(&session_id).is_some_and(|session| {
+                                session.negotiated_protocol_version == 2
+                                    && session.secure_match_capability
+                            })
+                        };
+                        if secure_v2_session && matches!(tag,
+                            TAG_PLAYER_COMMAND | TAG_GAME_STATE_REQUEST | TAG_VIEWPORT_UPDATE
+                                | TAG_INPUT_SUBMIT | TAG_SNAPSHOT_REQ
+                        ) {
+                            warn!("secure V2 session denied legacy/global tag 0x{:02x}", tag);
+                            continue;
+                        }
                         match tag {
                             TAG_SECURE_TARGET_INPUT_V2 => {
                                 let started = tokio::time::Instant::now();
@@ -2329,6 +2348,16 @@ mod tests {
         assert!(!arm.contains("OutboundMsg::lockstep_frame"));
         assert!(!arm.contains("SnapshotResp"));
         assert!(!arm.contains("snapshot_resp_from_store"));
+    }
+
+    #[test]
+    fn secure_v2_transport_denies_every_legacy_global_player_path() {
+        let source = include_str!("kcp_transport.rs");
+        assert!(source.contains("secure_v2_session && matches!(tag"));
+        assert!(source.contains("TAG_PLAYER_COMMAND | TAG_GAME_STATE_REQUEST | TAG_VIEWPORT_UPDATE"));
+        assert!(source.contains("TAG_INPUT_SUBMIT | TAG_SNAPSHOT_REQ"));
+        assert!(source.contains("session.negotiated_protocol_version != 2"));
+        assert!(source.contains("targets.retain"));
     }
 
     #[test]
