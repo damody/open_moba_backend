@@ -116,6 +116,10 @@ pub struct State {
     authority_mismatch_rx: Option<crossbeam_channel::Receiver<omoba_core::runtime::ClientHashMismatch>>,
     #[cfg(feature = "kcp")]
     rebase_failure_rx: Option<crossbeam_channel::Receiver<omoba_core::runtime::RebaseFailureSignal>>,
+    #[cfg(feature = "kcp")]
+    secure_input_validation: Option<omoba_core::runtime::SharedSecureInputValidationSnapshot>,
+    #[cfg(feature = "kcp")]
+    selective_security_metrics: Option<std::sync::Arc<omoba_core::runtime::SelectiveSecurityMetrics>>,
     /// 階段 5.x 橋接器：與 `TickBroadcaster::host_input_tx` 配對的接收器。
     /// 每個廣播公司都會從「InputBuffer」消耗輸入一段時間
     /// `TickBatch` 也會沿著這個通道發送一個副本； `State::tick` 排水溝
@@ -398,6 +402,8 @@ impl State {
             authority_mismatch_rx: None,
             #[cfg(feature = "kcp")]
             rebase_failure_rx: None,
+            secure_input_validation: None,
+            selective_security_metrics: None,
             #[cfg(feature = "kcp")]
             host_input_rx: None,
         };
@@ -740,6 +746,8 @@ impl State {
             authority_mismatch_rx: None,
             #[cfg(feature = "kcp")]
             rebase_failure_rx: None,
+            secure_input_validation: None,
+            selective_security_metrics: None,
             #[cfg(feature = "kcp")]
             host_input_rx: None,
         };
@@ -962,6 +970,48 @@ impl State {
             self.local_tick,
         )
         .map_err(|error| failure::err_msg(format!("team projection failed: {error:?}")))?;
+        #[cfg(feature = "kcp")]
+        if let Some(shared) = &self.secure_input_validation {
+            let visibility = self.ecs.read_resource::<omoba_core::runtime::TeamVisibilityRuntime>();
+            let projection = self.ecs.read_resource::<omoba_core::runtime::TeamProjectionRuntime>();
+            *shared.lock().expect("secure input validation snapshot mutex poisoned") =
+                projection.build_input_validation_snapshot(&visibility);
+        }
+        #[cfg(feature = "kcp")]
+        if let Some(metrics) = &self.selective_security_metrics {
+            use std::sync::atomic::Ordering;
+            let visibility = self.ecs.read_resource::<omoba_core::runtime::TeamVisibilityRuntime>();
+            let projection = self.ecs.read_resource::<omoba_core::runtime::TeamProjectionRuntime>();
+            metrics.visibility_transition_count.fetch_add(
+                visibility.last_transitions.values().map(Vec::len).sum::<usize>() as u64,
+                Ordering::Relaxed,
+            );
+            metrics.steady_state_padding_bytes.fetch_add(
+                projection.latest_frames.values().map(|frame| frame.padding_len as u64).sum::<u64>(),
+                Ordering::Relaxed,
+            );
+            metrics.encoded_frame_bytes.fetch_add(
+                projection.latest_frames.values().map(|frame| frame.wire_bytes.len() as u64).sum::<u64>(),
+                Ordering::Relaxed,
+            );
+            metrics.reveal_burst_bytes.fetch_add(
+                projection.latest_frames.values().map(|frame| {
+                    frame.frame.pre_step.as_ref().map_or(0, |pre| pre.transitions.iter()
+                        .filter(|transition| matches!(transition.transition, Some(omoba_core::game_proto::transition::Transition::Reveal(_))))
+                        .map(prost::Message::encoded_len).sum::<usize>()) as u64
+                }).sum::<u64>(),
+                Ordering::Relaxed,
+            );
+            metrics.outbound_queue_depth.store(self.mqtx.len() as u64, Ordering::Relaxed);
+            let coordinator = self.ecs.read_resource::<omoba_core::runtime::AuthorityRepairCoordinator>();
+            metrics.authority_repair_count.store(coordinator.repair_count, Ordering::Relaxed);
+            metrics.authority_rebase_count.store(coordinator.rebase_count, Ordering::Relaxed);
+            if let Some(worker) = &self.observer_validation {
+                let observer = &worker.tap().metrics;
+                metrics.observer_audit_lag_ticks.store(observer.audit_lag_ticks.load(Ordering::Relaxed), Ordering::Relaxed);
+                metrics.coverage_gap_count.store(observer.coverage_gap_count.load(Ordering::Relaxed), Ordering::Relaxed);
+            }
+        }
         if let Some(diagnostic) = self
             .ecs
             .read_resource::<omoba_core::runtime::TeamProjectionRuntime>()
@@ -1016,28 +1066,26 @@ impl State {
         #[cfg(feature = "kcp")]
         {
             use prost::Message as _;
-            let rebase_frames: Vec<_> = self
-                .ecs
-                .read_resource::<omoba_core::runtime::TeamProjectionRuntime>()
-                .latest_rebases
-                .iter()
-                .map(|(team_id, bundle)| {
-                    (
-                        *team_id,
-                        bundle.chunks.iter().map(|chunk| Arc::<[u8]>::from(chunk.encode_to_vec())).collect::<Vec<_>>(),
-                        Arc::<[u8]>::from(bundle.manifest.encode_to_vec()),
-                    )
-                })
-                .collect();
+            let rebase_frames = self.ecs
+                .write_resource::<omoba_core::runtime::TeamProjectionRuntime>()
+                .take_rate_limited_rebase_outbound();
             for (team_id, chunks, manifest) in rebase_frames {
                 for encoded in chunks {
+                    if let Some(metrics) = &self.selective_security_metrics {
+                        metrics.rebase_burst_bytes.fetch_add(encoded.len() as u64, std::sync::atomic::Ordering::Relaxed);
+                    }
                     let _ = self.mqtx.try_send(OutboundMsg::lockstep_frame(
-                        crate::lockstep::LockstepFrame::TeamRebaseChunkV2 { team_id, encoded },
+                        crate::lockstep::LockstepFrame::TeamRebaseChunkV2 { team_id, encoded: Arc::from(encoded) },
                     ));
                 }
-                let _ = self.mqtx.try_send(OutboundMsg::lockstep_frame(
-                    crate::lockstep::LockstepFrame::TeamRebaseManifestV2 { team_id, encoded: manifest },
-                ));
+                if let Some(manifest) = manifest {
+                    if let Some(metrics) = &self.selective_security_metrics {
+                        metrics.rebase_burst_bytes.fetch_add(manifest.len() as u64, std::sync::atomic::Ordering::Relaxed);
+                    }
+                    let _ = self.mqtx.try_send(OutboundMsg::lockstep_frame(
+                        crate::lockstep::LockstepFrame::TeamRebaseManifestV2 { team_id, encoded: Arc::from(manifest) },
+                    ));
+                }
             }
         }
 
@@ -1292,6 +1340,16 @@ impl State {
         rx: crossbeam_channel::Receiver<omoba_core::runtime::RebaseFailureSignal>,
     ) {
         self.rebase_failure_rx = Some(rx);
+    }
+
+    #[cfg(feature = "kcp")]
+    pub fn attach_secure_input_security(
+        &mut self,
+        validation: omoba_core::runtime::SharedSecureInputValidationSnapshot,
+        metrics: std::sync::Arc<omoba_core::runtime::SelectiveSecurityMetrics>,
+    ) {
+        self.secure_input_validation = Some(validation);
+        self.selective_security_metrics = Some(metrics);
     }
 
     /// 階段 5.x 橋接器：註冊與配對的主機輸入接收器

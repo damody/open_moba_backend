@@ -47,6 +47,8 @@ const TAG_CLIENT_TEAM_HASH_MISMATCH_V2: u8 = 0x25;
 const TAG_TEAM_REBASE_CHUNK_V2: u8 = 0x22;
 const TAG_TEAM_REBASE_MANIFEST_V2: u8 = 0x23;
 const TAG_TEAM_REBASE_ACK_V2: u8 = 0x26;
+const TAG_SECURE_TARGET_INPUT_V2: u8 = 0x27;
+const TAG_SECURE_TARGET_INPUT_RESULT_V2: u8 = 0x28;
 const LATE_INPUT_GRACE_MS: u32 = 64;
 
 /// 標籤的高位元 — 當幀有效負載經過 LZ4 壓縮時設定。
@@ -556,6 +558,10 @@ pub async fn start(
     let (viewport_tx, viewport_rx): (Sender<ViewportMsg>, Receiver<ViewportMsg>) = bounded(1024);
     let (authority_mismatch_tx, authority_mismatch_rx) = bounded(1024);
     let (rebase_failure_tx, rebase_failure_rx) = bounded(256);
+    let secure_input_validation = Arc::new(std::sync::Mutex::new(
+        omoba_core::runtime::SecureInputValidationSnapshot::default(),
+    ));
+    let selective_security_metrics = Arc::new(omoba_core::runtime::SelectiveSecurityMetrics::default());
 
     let sessions: Arc<Mutex<HashMap<String, ClientSession>>> = Arc::new(Mutex::new(HashMap::new()));
     let team_stream_router = Arc::new(Mutex::new(omoba_core::runtime::TeamStreamRouter::new(2048)));
@@ -978,6 +984,7 @@ pub async fn start(
     info!("Starting KCP server on {}", addr);
 
     let sessions_accept = sessions.clone();
+    let secure_input_validation_accept = Arc::clone(&secure_input_validation);
     let in_tx_accept = in_tx.clone();
     let query_tx_accept = query_tx.clone();
     let viewport_tx_accept = viewport_tx.clone();
@@ -1019,6 +1026,7 @@ pub async fn start(
             let team_stream_router = Arc::clone(&team_stream_router_accept);
             let authority_mismatch_tx = authority_mismatch_tx_accept.clone();
             let rebase_failure_tx = rebase_failure_tx_accept.clone();
+            let secure_input_validation = Arc::clone(&secure_input_validation_accept);
             let session_id = format!("kcp_{}", peer_addr);
 
             tokio::spawn(async move {
@@ -1037,6 +1045,7 @@ pub async fn start(
                     team_stream_router,
                     authority_mismatch_tx,
                     rebase_failure_tx,
+                    secure_input_validation,
                 )
                 .await
                 {
@@ -1057,6 +1066,8 @@ pub async fn start(
         observer_validation,
         authority_mismatch_rx,
         rebase_failure_rx,
+        secure_input_validation,
+        selective_security_metrics,
     })
 }
 
@@ -1075,6 +1086,7 @@ async fn handle_client(
     team_stream_router: Arc<Mutex<omoba_core::runtime::TeamStreamRouter>>,
     authority_mismatch_tx: Sender<omoba_core::runtime::ClientHashMismatch>,
     rebase_failure_tx: Sender<omoba_core::runtime::RebaseFailureSignal>,
+    secure_input_validation: omoba_core::runtime::SharedSecureInputValidationSnapshot,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let (mut reader, mut writer) = tokio::io::split(stream);
 
@@ -1087,6 +1099,7 @@ async fn handle_client(
     // 追蹤訂閱的player_name，以便我們可以在斷開連接時發送刪除
     let mut player_name: Option<String> = None;
     let mut joined_player_id: Option<u32> = None;
+    let mut invalid_reference_limiter = omoba_core::runtime::InvalidReferenceRateLimiter::new(16, 120);
 
     // 主循環：從客戶端讀取，可選擇寫入出站事件
     loop {
@@ -1095,6 +1108,53 @@ async fn handle_client(
                 match result {
                     Ok(Some((tag, payload, _wire_bytes))) => {
                         match tag {
+                            TAG_SECURE_TARGET_INPUT_V2 => {
+                                let started = tokio::time::Instant::now();
+                                let request = SecureTargetInput::decode(payload.as_slice());
+                                let binding = {
+                                    let sessions = sessions.lock().await;
+                                    sessions.get(&session_id).and_then(|session| {
+                                        (session.negotiated_protocol_version == 2 && session.secure_match_capability)
+                                            .then_some((session.authenticated_team_id, session.current_view_epoch))
+                                    })
+                                };
+                                let mut request_id = 0;
+                                let mut input_tick = 0;
+                                let accepted = request.ok().and_then(|request| {
+                                    request_id = request.request_id;
+                                    input_tick = request.input_tick;
+                                    let (team_id, session_view_epoch) = binding?;
+                                    let team_id = team_id?;
+                                    if joined_player_id != Some(request.player_id) { return None; }
+                                    let actor = request.actor.as_ref()?;
+                                    let target = request.target.as_ref()?;
+                                    let to_reference = |value: &SecureReplicaTarget| Some(omoba_core::runtime::SecureTargetReference {
+                                        replica_id: value.replica_entity_id.as_ref()?.value,
+                                        view_epoch: value.view_epoch.as_ref()?.value,
+                                        disclosure_epoch: value.disclosure_epoch.as_ref()?.value,
+                                    });
+                                    let actor = to_reference(actor)?;
+                                    let target = to_reference(target)?;
+                                    if actor.view_epoch != session_view_epoch || target.view_epoch != session_view_epoch { return None; }
+                                    secure_input_validation.lock().ok()?.validate(
+                                        team_id, request.input_tick, actor, target,
+                                    ).ok()
+                                }).is_some();
+                                if !accepted {
+                                    let _within_invalid_reference_budget =
+                                        invalid_reference_limiter.admit(&session_id, input_tick);
+                                    let elapsed = started.elapsed();
+                                    if elapsed < omoba_core::runtime::INVALID_TARGET_TIMING_BUCKET {
+                                        tokio::time::sleep(omoba_core::runtime::INVALID_TARGET_TIMING_BUCKET - elapsed).await;
+                                    }
+                                }
+                                let result = SecureTargetInputResult {
+                                    request_id,
+                                    accepted,
+                                    rejection_class: if accepted { String::new() } else { "INVALID_TARGET".to_owned() },
+                                };
+                                write_framed(&mut writer, TAG_SECURE_TARGET_INPUT_RESULT_V2, &result.encode_to_vec()).await?;
+                            }
                             TAG_SUBSCRIBE_REQUEST => {
                                 if let Ok(sub) = SubscribeRequest::decode(payload.as_slice()) {
                                     info!("🔌 KCP client subscribed as '{}' (session_id={})", sub.player_name, session_id);

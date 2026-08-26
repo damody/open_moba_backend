@@ -465,6 +465,10 @@ pub struct TransportHandle {
     pub authority_mismatch_rx: Receiver<omoba_core::runtime::ClientHashMismatch>,
     #[cfg(feature = "kcp")]
     pub rebase_failure_rx: Receiver<omoba_core::runtime::RebaseFailureSignal>,
+    #[cfg(feature = "kcp")]
+    pub secure_input_validation: omoba_core::runtime::SharedSecureInputValidationSnapshot,
+    #[cfg(feature = "kcp")]
+    pub selective_security_metrics: Arc<omoba_core::runtime::SelectiveSecurityMetrics>,
 }
 
 #[cfg(test)]

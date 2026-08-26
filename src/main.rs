@@ -256,6 +256,11 @@ async fn main() -> std::result::Result<(), Error> {
     state.attach_authority_mismatch_rx(handle.authority_mismatch_rx);
     #[cfg(feature = "kcp")]
     state.attach_rebase_failure_rx(handle.rebase_failure_rx);
+    #[cfg(feature = "kcp")]
+    state.attach_secure_input_security(
+        handle.secure_input_validation,
+        handle.selective_security_metrics,
+    );
     // 階段 5.x 橋接器：與 TickBroadcaster 的 host_input_tx 配對的接收器
     // （連線如下）。 State::tick Drains 每個tick 排出的輸入批次，並且
     // 將它們鏡像到調度程式的 PendingPlayerInputs 中。
