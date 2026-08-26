@@ -21,6 +21,12 @@ fn default_step_fps() -> u32 {
 
 fn default_false() -> bool { false }
 
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum MatchLockstepMode { Legacy, SecureV2OptIn, SecureV2Required }
+
+impl Default for MatchLockstepMode { fn default() -> Self { Self::Legacy } }
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ServerSetting {
     pub SERVER_IP: String,
@@ -42,9 +48,14 @@ pub struct ServerSetting {
     /// Runtime 可由 stdin 指令 `:speed N` 動態切換（範圍 1..=16）。
     #[serde(default = "default_speed_mult")]
     pub SPEED_MULT: u32,
-    /// Enables the protocol-V2-only secure fog session boundary.
+    /// Match-level protocol mode. An active `secure_v2_required` match can
+    /// never be downgraded; rollback is a pre-match configuration action.
+    #[serde(default)]
+    pub MATCH_LOCKSTEP_MODE: MatchLockstepMode,
     #[serde(default = "default_false")]
-    pub SELECTIVE_LOCKSTEP_SECURE: bool,
+    pub SELECTIVE_LOCKSTEP_SHADOW: bool,
+    #[serde(default = "default_false")]
+    pub SELECTIVE_LOCKSTEP_DOGFOOD: bool,
     /// Server-owned authentication result: player ID -> team ID. This is
     /// configuration/bootstrap input and is never accepted from the wire.
     #[serde(default)]
@@ -225,12 +236,25 @@ pub fn read_hero_knowledge_setting() -> HeroKnowledgeSetting {
 
 impl ServerSetting {
     pub fn validate(&self) -> Result<(), String> {
-        LockstepTiming::new(self.STEP_FPS).map(|_| ())
+        LockstepTiming::new(self.STEP_FPS).map(|_| ())?;
+        if self.SELECTIVE_LOCKSTEP_DOGFOOD && self.AUTHENTICATED_TEAM_BINDINGS.is_empty() {
+            return Err("dogfood secure V2 requires authenticated team bindings".into());
+        }
+        Ok(())
     }
 
     pub fn lockstep_timing(&self) -> LockstepTiming {
         LockstepTiming::new(self.STEP_FPS)
             .expect("ServerSetting::validate should reject unsupported STEP_FPS")
+    }
+
+    pub fn secure_v2_required(&self) -> bool {
+        self.SELECTIVE_LOCKSTEP_DOGFOOD || self.MATCH_LOCKSTEP_MODE == MatchLockstepMode::SecureV2Required
+    }
+
+    pub fn selective_generation_enabled(&self) -> bool {
+        self.SELECTIVE_LOCKSTEP_SHADOW || self.SELECTIVE_LOCKSTEP_DOGFOOD
+            || self.MATCH_LOCKSTEP_MODE != MatchLockstepMode::Legacy
     }
 }
 /*

@@ -965,11 +965,17 @@ impl State {
                 );
             }
         }
-        omoba_core::runtime::run_team_projection_after_wave_b(
-            &mut self.ecs,
-            self.local_tick,
-        )
-        .map_err(|error| failure::err_msg(format!("team projection failed: {error:?}")))?;
+        if crate::config::server_config::CONFIG.selective_generation_enabled() {
+            omoba_core::runtime::run_team_projection_after_wave_b(
+                &mut self.ecs,
+                self.local_tick,
+            )
+            .map_err(|error| failure::err_msg(format!("team projection failed: {error:?}")))?;
+        } else {
+            let mut projection = self.ecs.write_resource::<omoba_core::runtime::TeamProjectionRuntime>();
+            projection.latest_frames.clear();
+            projection.latest_rebases.clear();
+        }
         #[cfg(feature = "kcp")]
         if let Some(shared) = &self.secure_input_validation {
             let visibility = self.ecs.read_resource::<omoba_core::runtime::TeamVisibilityRuntime>();

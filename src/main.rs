@@ -140,7 +140,7 @@ async fn main() -> std::result::Result<(), Error> {
         use std::sync::{Arc, Mutex as StdMutex};
         let master_seed = crate::comp::MasterSeed::default().0;
         let mut session_state = LockstepState::new(master_seed);
-        session_state.secure_fog_required = crate::config::server_config::CONFIG.SELECTIVE_LOCKSTEP_SECURE;
+        session_state.secure_fog_required = crate::config::server_config::CONFIG.secure_v2_required();
         for (player_id, team_id) in &crate::config::server_config::CONFIG.AUTHENTICATED_TEAM_BINDINGS {
             session_state.authorize_player_team(*player_id, *team_id)
                 .expect("validated authenticated team binding");
