@@ -866,6 +866,41 @@ impl State {
         self.ecs.maintain();
         process_outcomes_ns += t_outcomes.elapsed().as_nanos();
 
+        // Wave A：outcome 與 fact 已在同一 Specs tick 中完成並穩定 reduce。
+        // 只有 barrier 完成後，Wave B 才能讀取 committed State[T+1]；各 team
+        // visibility job 在 rayon 中彼此平行，且不再修改 gameplay state。
+        let ordered_facts = self
+            .ecs
+            .read_resource::<omoba_core::runtime::ObservableFactBuffer>()
+            .drain_ordered()
+            .map_err(|error| failure::err_msg(format!("observable fact reduce failed: {error:?}")))?;
+        let ordered_outcomes = {
+            let mut buffer = self
+                .ecs
+                .write_resource::<omoba_core::runtime::OrderedRuntimeEventBuffer>();
+            std::mem::take(&mut buffer.events)
+        };
+        let committed = omoba_core::runtime::commit_wave_a(
+            self.local_tick,
+            ordered_outcomes,
+            ordered_facts,
+        )
+        .map_err(|error| failure::err_msg(format!("Wave A commit failed: {error:?}")))?;
+        {
+            let mut batch = self
+                .ecs
+                .write_resource::<omoba_core::runtime::CommittedProjectionBatch>();
+            batch.tick = committed.tick;
+            batch.ordered_outcome_count = committed.ordered_outcomes.len();
+            batch.facts = committed.ordered_facts;
+            batch.barrier_reached = committed.barrier_reached;
+        }
+        self.system_dispatcher.run_post_commit_visibility(
+            &mut self.ecs,
+            self.local_tick,
+            1,
+        );
+
         {
             use crate::comp::{TickPhase, TickProfile};
             let mut profile = self.ecs.write_resource::<TickProfile>();

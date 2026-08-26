@@ -46,11 +46,16 @@ impl ResourceManager {
                 self.award_kp_on_game_end(&event.data);
             }
         }
+        let tick = world.try_fetch::<crate::comp::Tick>().map(|tick| tick.0).unwrap_or(0);
         let ordered = crate::runtime_events::order_processed_runtime_events(
-            0,
+            tick,
             omoba_core::runtime::FactPhase::PostStep,
             sink.events,
         );
+        world
+            .write_resource::<omoba_core::runtime::OrderedRuntimeEventBuffer>()
+            .events
+            .extend(ordered.iter().cloned());
         for msg in crate::runtime_events::ordered_runtime_events_to_outbound(ordered) {
             let _ = self.mqtx.try_send(msg);
         }
