@@ -905,6 +905,30 @@ impl State {
             self.local_tick,
         )
         .map_err(|error| failure::err_msg(format!("team projection failed: {error:?}")))?;
+        let team_frames: Vec<_> = self
+            .ecs
+            .read_resource::<omoba_core::runtime::TeamProjectionRuntime>()
+            .latest_frames
+            .iter()
+            .map(|(team_id, padded)| {
+                (
+                    *team_id,
+                    padded.frame.team_sequence,
+                    padded.frame.replica_tick,
+                    Arc::<[u8]>::from(padded.wire_bytes.clone()),
+                )
+            })
+            .collect();
+        for (team_id, sequence, replica_tick, encoded) in team_frames {
+            let _ = self.mqtx.try_send(OutboundMsg::lockstep_frame(
+                crate::lockstep::LockstepFrame::TeamTickFrameV2 {
+                    team_id,
+                    sequence,
+                    replica_tick,
+                    encoded,
+                },
+            ));
+        }
 
         {
             use crate::comp::{TickPhase, TickProfile};

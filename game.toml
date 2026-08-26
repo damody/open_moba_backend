@@ -15,6 +15,8 @@ STORY = "TD_1"
 # Runtime: 在 omb 的 stdin 輸入 `:speed 4` 切到 4×、`:speed 1` 還原。範圍 1..=16。
 # 注意：硬體跟不上 N× 模擬負擔時會 frame drop（變成 N 倍以下的有效速度）。
 SPEED_MULT = 1
+SELECTIVE_LOCKSTEP_SECURE = false
+AUTHENTICATED_TEAM_BINDINGS = { 1 = 1, 2 = 2 }
 
 [content]
 # Paths are resolved relative to this game.toml.

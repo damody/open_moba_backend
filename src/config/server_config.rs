@@ -19,6 +19,8 @@ fn default_step_fps() -> u32 {
     LOCKSTEP_TPS
 }
 
+fn default_false() -> bool { false }
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ServerSetting {
     pub SERVER_IP: String,
@@ -40,6 +42,13 @@ pub struct ServerSetting {
     /// Runtime 可由 stdin 指令 `:speed N` 動態切換（範圍 1..=16）。
     #[serde(default = "default_speed_mult")]
     pub SPEED_MULT: u32,
+    /// Enables the protocol-V2-only secure fog session boundary.
+    #[serde(default = "default_false")]
+    pub SELECTIVE_LOCKSTEP_SECURE: bool,
+    /// Server-owned authentication result: player ID -> team ID. This is
+    /// configuration/bootstrap input and is never accepted from the wire.
+    #[serde(default)]
+    pub AUTHENTICATED_TEAM_BINDINGS: BTreeMap<u32, u32>,
 }
 
 /// `[hero_knowledge]` section in `game.toml`.

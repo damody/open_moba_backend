@@ -40,6 +40,9 @@ const TAG_SNAPSHOT_REQ: u8 = 0x15;
 const TAG_SNAPSHOT_RESP: u8 = 0x16;
 const TAG_PING_REQ: u8 = 0x17;
 const TAG_PING_RESP: u8 = 0x18;
+const TAG_TEAM_TICK_FRAME_V2: u8 = 0x21;
+const TAG_TEAM_GAME_START_V2: u8 = 0x20;
+const TAG_TEAM_REPLAY_REQUEST_V2: u8 = 0x24;
 const LATE_INPUT_GRACE_MS: u32 = 64;
 
 /// 標籤的高位元 — 當幀有效負載經過 LZ4 壓縮時設定。
@@ -173,6 +176,10 @@ struct ClientSession {
     /// 具有此標誌的會話 - 舊 GameEvent 路徑上的用戶端
     /// （第 2 階段過渡期間的 omb-mcp、omfx）不會看到鎖步流量。
     lockstep_joined: bool,
+    negotiated_protocol_version: u32,
+    authenticated_team_id: Option<u32>,
+    current_view_epoch: u64,
+    secure_match_capability: bool,
 }
 
 /// 廣播線程和單元使用的純函數策略調度
@@ -544,6 +551,7 @@ pub async fn start(
     let (viewport_tx, viewport_rx): (Sender<ViewportMsg>, Receiver<ViewportMsg>) = bounded(1024);
 
     let sessions: Arc<Mutex<HashMap<String, ClientSession>>> = Arc::new(Mutex::new(HashMap::new()));
+    let team_stream_router = Arc::new(Mutex::new(omoba_core::runtime::TeamStreamRouter::new(2048)));
 
     // 每個事件位元組/訊息計數器。與廣播線程共享以便測試
     // 遊戲循環可以快照/重置觀察到的線量。
@@ -559,6 +567,7 @@ pub async fn start(
     let sessions_broadcast = sessions.clone();
     let counter_broadcast = counter.clone();
     let aoi_broadcast = aoi.clone();
+    let team_stream_router_broadcast = Arc::clone(&team_stream_router);
     thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -615,6 +624,42 @@ pub async fn start(
                     // GameStart / SnapshotResp → 單播到 client_session_id
                     if let Some(frame) = msg.lockstep_frame.clone() {
                         match frame {
+                            crate::lockstep::LockstepFrame::TeamGameStartV2 { client_session_id, msg } => {
+                                let frame_arc: Arc<[u8]> = Arc::from(
+                                    build_framed_bytes(TAG_TEAM_GAME_START_V2, &msg.encode_to_vec()).into_boxed_slice()
+                                );
+                                let sessions = sessions_broadcast.lock().await;
+                                if let Some(session) = sessions.get(&client_session_id) {
+                                    if session.negotiated_protocol_version == 2 && session.secure_match_capability {
+                                        let _ = session.event_tx.try_send(frame_arc);
+                                    }
+                                }
+                            }
+                            crate::lockstep::LockstepFrame::TeamTickFrameV2 { team_id, sequence, replica_tick, encoded } => {
+                                let targets = team_stream_router_broadcast.lock().await.route_frame(
+                                    omoba_core::runtime::EncodedTeamFrame {
+                                        team_id,
+                                        sequence,
+                                        replica_tick,
+                                        bytes: Arc::clone(&encoded),
+                                    },
+                                );
+                                let frame_bytes = build_framed_bytes(TAG_TEAM_TICK_FRAME_V2, &encoded);
+                                let frame_arc: Arc<[u8]> = Arc::from(frame_bytes.into_boxed_slice());
+                                let sessions = sessions_broadcast.lock().await;
+                                let mut to_remove = Vec::new();
+                                for sid in targets {
+                                    let Some(session) = sessions.get(&sid) else { continue; };
+                                    if session.event_tx.try_send(Arc::clone(&frame_arc)).is_err() {
+                                        to_remove.push(sid);
+                                    }
+                                }
+                                drop(sessions);
+                                if !to_remove.is_empty() {
+                                    let mut sessions = sessions_broadcast.lock().await;
+                                    for id in to_remove { sessions.remove(&id); }
+                                }
+                            }
                             crate::lockstep::LockstepFrame::TickBatch(batch_msg) => {
                                 let payload = batch_msg.encode_to_vec();
                                 let frame_bytes = build_framed_bytes(TAG_TICK_BATCH, &payload);
@@ -622,7 +667,7 @@ pub async fn start(
                                 let sessions = sessions_broadcast.lock().await;
                                 let mut to_remove = Vec::new();
                                 for (sid, session) in sessions.iter() {
-                                    if !session.lockstep_joined { continue; }
+                                    if !session.lockstep_joined || session.negotiated_protocol_version == 2 { continue; }
                                     if session.event_tx.try_send(frame_arc.clone()).is_err() {
                                         to_remove.push(sid.clone());
                                     }
@@ -643,7 +688,7 @@ pub async fn start(
                                 let sessions = sessions_broadcast.lock().await;
                                 let mut to_remove = Vec::new();
                                 for (sid, session) in sessions.iter() {
-                                    if !session.lockstep_joined { continue; }
+                                    if !session.lockstep_joined || session.negotiated_protocol_version == 2 { continue; }
                                     if session.event_tx.try_send(frame_arc.clone()).is_err() {
                                         to_remove.push(sid.clone());
                                     }
@@ -901,6 +946,7 @@ pub async fn start(
     let lockstep_input_buffer_accept = lockstep_input_buffer.clone();
     let lockstep_state_accept = lockstep_state.clone();
     let lockstep_snapshot_store_accept = lockstep_snapshot_store.clone();
+    let team_stream_router_accept = Arc::clone(&team_stream_router);
 
     // 同步綁定，因此如果連接埠被過時的實例佔用，啟動會快速失敗。
     let mut listener = KcpListener::bind(config, addr)
@@ -927,6 +973,7 @@ pub async fn start(
             let lockstep_input_buffer = lockstep_input_buffer_accept.clone();
             let lockstep_state = lockstep_state_accept.clone();
             let lockstep_snapshot_store = lockstep_snapshot_store_accept.clone();
+            let team_stream_router = Arc::clone(&team_stream_router_accept);
             let session_id = format!("kcp_{}", peer_addr);
 
             tokio::spawn(async move {
@@ -941,6 +988,7 @@ pub async fn start(
                     lockstep_input_buffer,
                     lockstep_state,
                     lockstep_snapshot_store,
+                    team_stream_router,
                 )
                 .await
                 {
@@ -972,6 +1020,7 @@ async fn handle_client(
     lockstep_input_buffer: Arc<std::sync::Mutex<crate::lockstep::InputBuffer>>,
     lockstep_state: Arc<std::sync::Mutex<crate::lockstep::LockstepState>>,
     lockstep_snapshot_store: Arc<std::sync::Mutex<crate::comp::SnapshotStore>>,
+    team_stream_router: Arc<Mutex<omoba_core::runtime::TeamStreamRouter>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let (mut reader, mut writer) = tokio::io::split(stream);
 
@@ -1016,6 +1065,10 @@ async fn handle_client(
                                             // 鎖步流直到發送
                                             // 加入請求 (0x13)。
                                             lockstep_joined: false,
+                                            negotiated_protocol_version: 1,
+                                            authenticated_team_id: None,
+                                            current_view_epoch: 0,
+                                            secure_match_capability: false,
                                         },
                                     );
                                 }
@@ -1206,14 +1259,33 @@ async fn handle_client(
                                         let declared_player_id = req.player_id;
                                         let registered = {
                                             let mut s = lockstep_state.lock().unwrap();
-                                            let result = s.register_player(
-                                                declared_player_id,
-                                                req.player_name.clone(),
-                                                role,
-                                            );
-                                            result.map(|pid| (pid, s.master_seed, s.current_tick))
+                                            let secure_requested = req.requested_protocol == 2;
+                                            let result = if secure_requested {
+                                                s.register_secure_player(
+                                                    declared_player_id,
+                                                    req.player_name.clone(),
+                                                    role,
+                                                    omoba_core::transport::MatchCapabilityNegotiation {
+                                                        requested_protocol: req.requested_protocol,
+                                                        supported_protocols: req.supported_protocols.clone(),
+                                                        secure_fog_required: true,
+                                                    },
+                                                    req.view_epoch,
+                                                ).map(|(pid, binding)| (pid, Some(binding)))
+                                            } else if s.secure_fog_required
+                                                || s.match_protocol == Some(omoba_core::transport::MatchProtocol::SelectiveV2)
+                                            {
+                                                Err("secure match requires protocol V2; runtime downgrade rejected".to_string())
+                                            } else {
+                                                s.register_player(
+                                                    declared_player_id,
+                                                    req.player_name.clone(),
+                                                    role,
+                                                ).map(|pid| (pid, None))
+                                            };
+                                            result.map(|(pid, binding)| (pid, s.master_seed, s.current_tick, binding))
                                         };
-                                        let (player_id, master_seed, start_tick) = match registered {
+                                        let (player_id, master_seed, start_tick, secure_binding) = match registered {
                                             Ok(v) => v,
                                             Err(reason) => {
                                                 warn!(
@@ -1235,6 +1307,12 @@ async fn handle_client(
                                             let mut sess = sessions.lock().await;
                                             if let Some(s) = sess.get_mut(&session_id) {
                                                 s.lockstep_joined = true;
+                                                if let Some(binding) = &secure_binding {
+                                                    s.negotiated_protocol_version = 2;
+                                                    s.authenticated_team_id = Some(binding.authenticated_team_id);
+                                                    s.current_view_epoch = binding.current_view_epoch;
+                                                    s.secure_match_capability = binding.secure_match_capability;
+                                                }
                                                 if s.player_name.is_empty() {
                                                     s.player_name = req.player_name.clone();
                                                 }
@@ -1256,9 +1334,17 @@ async fn handle_client(
                                                         viewport: None,
                                                         seq: Arc::new(AtomicU64::new(0)),
                                                         lockstep_joined: true,
+                                                        negotiated_protocol_version: secure_binding.as_ref().map_or(1, |_| 2),
+                                                        authenticated_team_id: secure_binding.as_ref().map(|binding| binding.authenticated_team_id),
+                                                        current_view_epoch: secure_binding.as_ref().map_or(0, |binding| binding.current_view_epoch),
+                                                        secure_match_capability: secure_binding.is_some(),
                                                     },
                                                 );
                                             }
+                                        }
+                                        if let Some(binding) = secure_binding.clone() {
+                                            team_stream_router.lock().await
+                                                .bind_session(session_id.clone(), binding);
                                         }
                                         info!(
                                             "🎮 KCP lockstep JoinRequest player='{}' role={:?} accepted player_id={} (session={})",
@@ -1268,23 +1354,71 @@ async fn handle_client(
                                         // 廣播線程（所以它通過
                                         // 相同的每會話 event_tx
                                         // 客戶正在閱讀）。
-                                        let game_start = GameStart {
-                                            player_id,
-                                            start_tick,
-                                            master_seed,
-                                            initial_state: Some(SimSnapshot {
-                                                world_bytes: vec![],
-                                                schema_version: 1,
-                                            }),
-                                            step_fps: crate::config::server_config::CONFIG.STEP_FPS,
-                                        };
-                                        let frame = crate::lockstep::LockstepFrame::GameStart {
-                                            client_session_id: session_id.clone(),
-                                            msg: game_start,
+                                        let frame = if let Some(binding) = secure_binding {
+                                            let snapshot_id = SnapshotId {
+                                                snapshot_schema_version: 1,
+                                                match_instance_id: vec![0; 16],
+                                                team_id: binding.authenticated_team_id,
+                                                view_epoch: Some(ViewEpoch { value: binding.current_view_epoch }),
+                                                authoritative_tick: u64::from(start_tick),
+                                                monotonic_snapshot_ordinal: 1,
+                                            };
+                                            let empty_hash = vec![
+                                                0xe3, 0xb0, 0xc4, 0x42, 0x98, 0xfc, 0x1c, 0x14,
+                                                0x9a, 0xfb, 0xf4, 0xc8, 0x99, 0x6f, 0xb9, 0x24,
+                                                0x27, 0xae, 0x41, 0xe4, 0x64, 0x9b, 0x93, 0x4c,
+                                                0xa4, 0x95, 0x99, 0x1b, 0x78, 0x52, 0xb8, 0x55,
+                                            ];
+                                            crate::lockstep::LockstepFrame::TeamGameStartV2 {
+                                                client_session_id: session_id.clone(),
+                                                msg: TeamGameStart {
+                                                    protocol_version: 2,
+                                                    snapshot_schema_version: 1,
+                                                    content_schema_version: 1,
+                                                    player_id,
+                                                    team_id: binding.authenticated_team_id,
+                                                    server_tick: u64::from(start_tick),
+                                                    replica_start_tick: u64::from(start_tick),
+                                                    tick_rate_hz: crate::config::server_config::CONFIG.STEP_FPS,
+                                                    visibility_commit_delay_ticks: 1,
+                                                    replica_buffer_ticks: 2,
+                                                    view_epoch: Some(ViewEpoch { value: binding.current_view_epoch }),
+                                                    next_team_sequence: 1,
+                                                    snapshot_id: Some(snapshot_id.clone()),
+                                                    snapshot_manifest_hash: empty_hash.clone(),
+                                                    filtered_snapshot: Some(FilteredTeamSnapshot {
+                                                        snapshot_schema_version: 1,
+                                                        snapshot_id: Some(snapshot_id),
+                                                        team_id: binding.authenticated_team_id,
+                                                        view_epoch: Some(ViewEpoch { value: binding.current_view_epoch }),
+                                                        authoritative_tick: u64::from(start_tick),
+                                                        disclosed_world: Vec::new(),
+                                                        public_metadata: Vec::new(),
+                                                        team_private_metadata: Vec::new(),
+                                                        filtered_snapshot_hash: empty_hash,
+                                                    }),
+                                                    public_metadata: Vec::new(),
+                                                    team_private_metadata: Vec::new(),
+                                                },
+                                            }
+                                        } else {
+                                            crate::lockstep::LockstepFrame::GameStart {
+                                                client_session_id: session_id.clone(),
+                                                msg: GameStart {
+                                                    player_id,
+                                                    start_tick,
+                                                    master_seed,
+                                                    initial_state: Some(SimSnapshot {
+                                                        world_bytes: vec![],
+                                                        schema_version: 1,
+                                                    }),
+                                                    step_fps: crate::config::server_config::CONFIG.STEP_FPS,
+                                                },
+                                            }
                                         };
                                         if let Err(e) = lockstep_tx.send(OutboundMsg::lockstep_frame(frame)) {
                                             warn!("Failed to enqueue GameStart: {}", e);
-                                        } else {
+                                        } else if req.requested_protocol != 2 {
                                             enqueue_bootstrap_snapshot(
                                                 &session_id,
                                                 &lockstep_tx,
@@ -1293,6 +1427,46 @@ async fn handle_client(
                                         }
                                     }
                                     Err(e) => warn!("Failed to decode JoinRequest: {}", e),
+                                }
+                            }
+                            TAG_TEAM_REPLAY_REQUEST_V2 => {
+                                match TeamReplayRequest::decode(payload.as_slice()) {
+                                    Ok(req) => {
+                                        let binding = {
+                                            let sessions = sessions.lock().await;
+                                            sessions.get(&session_id).and_then(|session| {
+                                                (session.negotiated_protocol_version == 2
+                                                    && session.secure_match_capability
+                                                    && req.view_epoch.as_ref().map_or(0, |epoch| epoch.value)
+                                                        == session.current_view_epoch)
+                                                    .then_some((session.authenticated_team_id, session.event_tx.clone()))
+                                            })
+                                        };
+                                        if let Some((Some(team_id), event_tx)) = binding {
+                                            match team_stream_router.lock().await.replay(
+                                                team_id,
+                                                req.request_id,
+                                                req.from_team_sequence,
+                                            ) {
+                                                omoba_core::runtime::ReplayLookup::Exact(frames) => {
+                                                    for encoded in frames {
+                                                        let framed: Arc<[u8]> = Arc::from(
+                                                            build_framed_bytes(TAG_TEAM_TICK_FRAME_V2, &encoded).into_boxed_slice()
+                                                        );
+                                                        let _ = event_tx.try_send(framed);
+                                                    }
+                                                }
+                                                omoba_core::runtime::ReplayLookup::FilteredRebaseRequired { oldest_retained_sequence } => {
+                                                    let resume = oldest_retained_sequence.unwrap_or(req.from_team_sequence);
+                                                    team_stream_router.lock().await
+                                                        .begin_filtered_rebase(&session_id, resume);
+                                                    warn!("team replay expired; filtered rebase required session={} team={} from_sequence={} oldest={:?}",
+                                                        session_id, team_id, req.from_team_sequence, oldest_retained_sequence);
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Err(error) => warn!("invalid TeamReplayRequest: {}", error),
                                 }
                             }
                             TAG_SNAPSHOT_REQ => {
@@ -1363,6 +1537,7 @@ async fn handle_client(
         let mut sess = sessions.lock().await;
         sess.remove(&session_id);
     }
+    team_stream_router.lock().await.unbind_session(&session_id);
     // 通知遊戲循環該玩家的視窗已消失
     if let Some(name) = player_name {
         let _ = viewport_tx.send(ViewportMsg::Remove { player_name: name });
@@ -1991,11 +2166,19 @@ mod tests {
             player_name: "alice".into(),
             role: JoinRole::RolePlayer as i32,
             player_id: 1,
+            requested_protocol: 1,
+            supported_protocols: vec![1],
+            secure_fog_capability: false,
+            view_epoch: 0,
         };
         let observer = JoinRequest {
             player_name: "bob".into(),
             role: JoinRole::RoleObserver as i32,
             player_id: 0,
+            requested_protocol: 1,
+            supported_protocols: vec![1],
+            secure_fog_capability: false,
+            view_epoch: 0,
         };
         let p_bytes = player.encode_to_vec();
         let o_bytes = observer.encode_to_vec();

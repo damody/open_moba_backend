@@ -139,7 +139,13 @@ async fn main() -> std::result::Result<(), Error> {
         use crate::lockstep::{InputBuffer, LockstepState};
         use std::sync::{Arc, Mutex as StdMutex};
         let master_seed = crate::comp::MasterSeed::default().0;
-        let lockstep_state = Arc::new(StdMutex::new(LockstepState::new(master_seed)));
+        let mut session_state = LockstepState::new(master_seed);
+        session_state.secure_fog_required = crate::config::server_config::CONFIG.SELECTIVE_LOCKSTEP_SECURE;
+        for (player_id, team_id) in &crate::config::server_config::CONFIG.AUTHENTICATED_TEAM_BINDINGS {
+            session_state.authorize_player_team(*player_id, *team_id)
+                .expect("validated authenticated team binding");
+        }
+        let lockstep_state = Arc::new(StdMutex::new(session_state));
         let input_buffer = Arc::new(StdMutex::new(InputBuffer::new()));
         let snapshot_store = Arc::new(StdMutex::new(crate::comp::SnapshotStore::default()));
         (lockstep_state, input_buffer, snapshot_store)

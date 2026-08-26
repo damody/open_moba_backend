@@ -56,6 +56,18 @@ pub use omoba_core::game_proto::server_event::Event as ServerEventEnum;
 /// `OutboundMsg`（類型化/JSON）流未更改。
 #[derive(Clone, Debug)]
 pub enum LockstepFrame {
+    TeamGameStartV2 {
+        client_session_id: String,
+        msg: omoba_core::game_proto::TeamGameStart,
+    },
+    /// Already canonical/padded V2 payload. KCP adds only its transport frame
+    /// header and routes it exclusively to sessions bound to `team_id`.
+    TeamTickFrameV2 {
+        team_id: u32,
+        sequence: u64,
+        replica_tick: u64,
+        encoded: std::sync::Arc<[u8]>,
+    },
     /// 120Hz 廣播到每個連接的鎖步客戶端。
     TickBatch(TickBatch),
     /// 定期不同步探測－向所有人廣播。

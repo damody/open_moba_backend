@@ -32,6 +32,9 @@ pub struct LockstepState {
     /// `SimRng::from_master_*` 建構子。必須匹配所有同行。
     pub master_seed: u64,
     pub players: BTreeMap<u32, PlayerSession>,
+    pub secure_fog_required: bool,
+    pub match_protocol: Option<omoba_core::transport::MatchProtocol>,
+    authenticated_team_bindings: BTreeMap<u32, u32>,
 }
 
 impl LockstepState {
@@ -40,7 +43,40 @@ impl LockstepState {
             current_tick: 0,
             master_seed,
             players: BTreeMap::new(),
+            secure_fog_required: false,
+            match_protocol: None,
+            authenticated_team_bindings: BTreeMap::new(),
         }
+    }
+
+    /// Populated only by the server authentication boundary, never from a
+    /// player wire field.
+    pub fn authorize_player_team(&mut self, player_id: u32, team_id: u32) -> Result<(), String> {
+        if player_id == 0 || team_id == 0 { return Err("invalid authenticated player/team binding".into()); }
+        self.authenticated_team_bindings.insert(player_id, team_id);
+        Ok(())
+    }
+
+    pub fn register_secure_player(
+        &mut self,
+        player_id: u32,
+        name: String,
+        role: JoinRoleEnum,
+        negotiation: omoba_core::transport::MatchCapabilityNegotiation,
+        view_epoch: u64,
+    ) -> Result<(u32, omoba_core::runtime::SecureSessionBinding), String> {
+        let team_id = *self.authenticated_team_bindings.get(&player_id)
+            .ok_or_else(|| format!("player_id {player_id} has no authenticated team binding"))?;
+        let binding = omoba_core::runtime::SecureSessionBinding::negotiate(
+            &negotiation,
+            self.match_protocol,
+            team_id,
+            view_epoch,
+            true,
+        ).map_err(|error| format!("secure negotiation rejected: {error:?}"))?;
+        let id = self.register_player(player_id, name, role)?;
+        self.match_protocol = Some(binding.protocol);
+        Ok((id, binding))
     }
 
     pub fn register_player(
