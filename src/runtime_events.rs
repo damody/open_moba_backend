@@ -1,5 +1,6 @@
 use omoba_core::runtime::{
-    FactKind, FactOrderingKey, FactPhase, OrderedOutput, RuntimeBroadcast, RuntimeEvent,
+    FactAudience, FactKind, FactOrderingKey, FactPhase, ObservableFact, OrderedFact,
+    OrderedOutput, RuntimeBroadcast, RuntimeEvent,
 };
 #[cfg(feature = "kcp")]
 use serde_json::Value;
@@ -128,6 +129,45 @@ fn runtime_event_fact_kind(event: &RuntimeEvent) -> FactKind {
         ("move", _) | ("movement", _) => FactKind::Movement,
         _ => FactKind::DirectCombat,
     }
+}
+
+/// Retained global UI events cross the selective-lockstep boundary only after
+/// being converted to a typed fact with an explicit audience.
+pub fn retained_event_to_fact(
+    ordered: &OrderedOutput<RuntimeEvent>,
+) -> Option<OrderedFact> {
+    let event = &ordered.value;
+    match (event.kind.as_str(), event.action.as_str()) {
+        ("game", "end") => Some(OrderedFact {
+            key: FactOrderingKey { fact_kind: FactKind::Terminal, ..ordered.key },
+            audience: FactAudience::AllPlayers,
+            fact: ObservableFact::Terminal {
+                result_code: stable_text_id(
+                    event.data.get("result").and_then(|value| value.as_str()).unwrap_or("unknown"),
+                ) as u32,
+                winning_team: event.data.get("winning_team").and_then(|value| value.as_u64()).map(|v| v as u32),
+            },
+        }),
+        ("game", _) => Some(OrderedFact {
+            key: FactOrderingKey { fact_kind: FactKind::Hud, ..ordered.key },
+            audience: event.data.get("team").and_then(|value| value.as_u64())
+                .map(|team| FactAudience::Team(team as u32))
+                .unwrap_or(FactAudience::AllPlayers),
+            fact: ObservableFact::Hud {
+                team: event.data.get("team").and_then(|value| value.as_u64()).unwrap_or(0) as u32,
+                metric_id: stable_text_id(&event.action),
+                value: event.data.get("value").or_else(|| event.data.get("lives"))
+                    .and_then(|value| value.as_i64()).unwrap_or(0),
+            },
+        }),
+        _ => None,
+    }
+}
+
+fn stable_text_id(text: &str) -> u64 {
+    text.bytes().fold(0xcbf29ce484222325, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
+    })
 }
 
 #[cfg(any(feature = "grpc", feature = "kcp"))]
