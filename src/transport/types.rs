@@ -461,6 +461,10 @@ pub struct TransportHandle {
     pub aoi: Arc<std::sync::Mutex<crate::aoi::AoiGrid>>,
     #[cfg(feature = "kcp")]
     pub observer_validation: omoba_core::runtime::ObserverValidationWorker,
+    #[cfg(feature = "kcp")]
+    pub authority_mismatch_rx: Receiver<omoba_core::runtime::ClientHashMismatch>,
+    #[cfg(feature = "kcp")]
+    pub rebase_failure_rx: Receiver<omoba_core::runtime::RebaseFailureSignal>,
 }
 
 #[cfg(test)]

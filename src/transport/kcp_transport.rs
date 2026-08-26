@@ -43,6 +43,10 @@ const TAG_PING_RESP: u8 = 0x18;
 const TAG_TEAM_TICK_FRAME_V2: u8 = 0x21;
 const TAG_TEAM_GAME_START_V2: u8 = 0x20;
 const TAG_TEAM_REPLAY_REQUEST_V2: u8 = 0x24;
+const TAG_CLIENT_TEAM_HASH_MISMATCH_V2: u8 = 0x25;
+const TAG_TEAM_REBASE_CHUNK_V2: u8 = 0x22;
+const TAG_TEAM_REBASE_MANIFEST_V2: u8 = 0x23;
+const TAG_TEAM_REBASE_ACK_V2: u8 = 0x26;
 const LATE_INPUT_GRACE_MS: u32 = 64;
 
 /// 標籤的高位元 — 當幀有效負載經過 LZ4 壓縮時設定。
@@ -533,6 +537,7 @@ pub async fn start(
     lockstep_input_buffer: Arc<std::sync::Mutex<crate::lockstep::InputBuffer>>,
     lockstep_state: Arc<std::sync::Mutex<crate::lockstep::LockstepState>>,
     lockstep_snapshot_store: Arc<std::sync::Mutex<crate::comp::SnapshotStore>>,
+    lockstep_team_bootstrap_store: Arc<std::sync::Mutex<std::collections::BTreeMap<u32, TeamGameStart>>>,
 ) -> Result<TransportHandle, Error> {
     // 階段 5.x 反壓修復：在 TD_STRESS 下，主機滴答系統仍然存在
     // 發出遺留的每個實體事件（creep.M / Creep.H /Entity.F / Projectile.C
@@ -549,6 +554,8 @@ pub async fn start(
     let (in_tx, in_rx): (Sender<InboundMsg>, Receiver<InboundMsg>) = bounded(10000);
     let (query_tx, query_rx): (Sender<QueryRequest>, Receiver<QueryRequest>) = bounded(100);
     let (viewport_tx, viewport_rx): (Sender<ViewportMsg>, Receiver<ViewportMsg>) = bounded(1024);
+    let (authority_mismatch_tx, authority_mismatch_rx) = bounded(1024);
+    let (rebase_failure_tx, rebase_failure_rx) = bounded(256);
 
     let sessions: Arc<Mutex<HashMap<String, ClientSession>>> = Arc::new(Mutex::new(HashMap::new()));
     let team_stream_router = Arc::new(Mutex::new(omoba_core::runtime::TeamStreamRouter::new(2048)));
@@ -671,6 +678,26 @@ pub async fn start(
                                     replica_tick,
                                     Arc::clone(&encoded),
                                 );
+                            }
+                            crate::lockstep::LockstepFrame::TeamRebaseChunkV2 { team_id, encoded } => {
+                                let targets = team_stream_router_broadcast.lock().await.session_ids_for_team(team_id);
+                                let framed: Arc<[u8]> = Arc::from(build_framed_bytes(TAG_TEAM_REBASE_CHUNK_V2, &encoded).into_boxed_slice());
+                                let sessions = sessions_broadcast.lock().await;
+                                for session_id in targets {
+                                    if let Some(session) = sessions.get(&session_id) {
+                                        let _ = session.event_tx.try_send(Arc::clone(&framed));
+                                    }
+                                }
+                            }
+                            crate::lockstep::LockstepFrame::TeamRebaseManifestV2 { team_id, encoded } => {
+                                let targets = team_stream_router_broadcast.lock().await.session_ids_for_team(team_id);
+                                let framed: Arc<[u8]> = Arc::from(build_framed_bytes(TAG_TEAM_REBASE_MANIFEST_V2, &encoded).into_boxed_slice());
+                                let sessions = sessions_broadcast.lock().await;
+                                for session_id in targets {
+                                    if let Some(session) = sessions.get(&session_id) {
+                                        let _ = session.event_tx.try_send(Arc::clone(&framed));
+                                    }
+                                }
                             }
                             crate::lockstep::LockstepFrame::TickBatch(batch_msg) => {
                                 let payload = batch_msg.encode_to_vec();
@@ -958,7 +985,10 @@ pub async fn start(
     let lockstep_input_buffer_accept = lockstep_input_buffer.clone();
     let lockstep_state_accept = lockstep_state.clone();
     let lockstep_snapshot_store_accept = lockstep_snapshot_store.clone();
+    let lockstep_team_bootstrap_store_accept = lockstep_team_bootstrap_store.clone();
     let team_stream_router_accept = Arc::clone(&team_stream_router);
+    let authority_mismatch_tx_accept = authority_mismatch_tx.clone();
+    let rebase_failure_tx_accept = rebase_failure_tx.clone();
 
     // 同步綁定，因此如果連接埠被過時的實例佔用，啟動會快速失敗。
     let mut listener = KcpListener::bind(config, addr)
@@ -985,7 +1015,10 @@ pub async fn start(
             let lockstep_input_buffer = lockstep_input_buffer_accept.clone();
             let lockstep_state = lockstep_state_accept.clone();
             let lockstep_snapshot_store = lockstep_snapshot_store_accept.clone();
+            let lockstep_team_bootstrap_store = lockstep_team_bootstrap_store_accept.clone();
             let team_stream_router = Arc::clone(&team_stream_router_accept);
+            let authority_mismatch_tx = authority_mismatch_tx_accept.clone();
+            let rebase_failure_tx = rebase_failure_tx_accept.clone();
             let session_id = format!("kcp_{}", peer_addr);
 
             tokio::spawn(async move {
@@ -1000,7 +1033,10 @@ pub async fn start(
                     lockstep_input_buffer,
                     lockstep_state,
                     lockstep_snapshot_store,
+                    lockstep_team_bootstrap_store,
                     team_stream_router,
+                    authority_mismatch_tx,
+                    rebase_failure_tx,
                 )
                 .await
                 {
@@ -1019,6 +1055,8 @@ pub async fn start(
         counter,
         aoi,
         observer_validation,
+        authority_mismatch_rx,
+        rebase_failure_rx,
     })
 }
 
@@ -1033,7 +1071,10 @@ async fn handle_client(
     lockstep_input_buffer: Arc<std::sync::Mutex<crate::lockstep::InputBuffer>>,
     lockstep_state: Arc<std::sync::Mutex<crate::lockstep::LockstepState>>,
     lockstep_snapshot_store: Arc<std::sync::Mutex<crate::comp::SnapshotStore>>,
+    lockstep_team_bootstrap_store: Arc<std::sync::Mutex<std::collections::BTreeMap<u32, TeamGameStart>>>,
     team_stream_router: Arc<Mutex<omoba_core::runtime::TeamStreamRouter>>,
+    authority_mismatch_tx: Sender<omoba_core::runtime::ClientHashMismatch>,
+    rebase_failure_tx: Sender<omoba_core::runtime::RebaseFailureSignal>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let (mut reader, mut writer) = tokio::io::split(stream);
 
@@ -1368,6 +1409,18 @@ async fn handle_client(
                                         // 相同的每會話 event_tx
                                         // 客戶正在閱讀）。
                                         let frame = if let Some(binding) = secure_binding {
+                                            if let Some(mut current) = lockstep_team_bootstrap_store
+                                                .lock()
+                                                .expect("team bootstrap store mutex poisoned")
+                                                .get(&binding.authenticated_team_id)
+                                                .cloned()
+                                            {
+                                                current.player_id = player_id;
+                                                crate::lockstep::LockstepFrame::TeamGameStartV2 {
+                                                    client_session_id: session_id.clone(),
+                                                    msg: current,
+                                                }
+                                            } else {
                                             let snapshot_id = SnapshotId {
                                                 snapshot_schema_version: 1,
                                                 match_instance_id: vec![0; 16],
@@ -1413,6 +1466,7 @@ async fn handle_client(
                                                     public_metadata: Vec::new(),
                                                     team_private_metadata: Vec::new(),
                                                 },
+                                            }
                                             }
                                         } else {
                                             crate::lockstep::LockstepFrame::GameStart {
@@ -1480,6 +1534,72 @@ async fn handle_client(
                                         }
                                     }
                                     Err(error) => warn!("invalid TeamReplayRequest: {}", error),
+                                }
+                            }
+                            TAG_CLIENT_TEAM_HASH_MISMATCH_V2 => {
+                                match ClientTeamHashMismatch::decode(payload.as_slice()) {
+                                    Ok(message) => {
+                                        let authorized = {
+                                            let sessions = sessions.lock().await;
+                                            sessions.get(&session_id).is_some_and(|session| {
+                                                session.negotiated_protocol_version == 2
+                                                    && session.secure_match_capability
+                                                    && session.authenticated_team_id == Some(message.team_id)
+                                                    && message.view_epoch.as_ref().map_or(0, |epoch| epoch.value)
+                                                        == session.current_view_epoch
+                                            })
+                                        };
+                                        if authorized {
+                                            if let Ok(received_hash) = <[u8; 32]>::try_from(message.received_hash.as_slice()) {
+                                                let _ = authority_mismatch_tx.try_send(
+                                                    omoba_core::runtime::ClientHashMismatch {
+                                                        team_id: message.team_id,
+                                                        frame_sequence: message.frame_sequence,
+                                                        replica_tick: message.replica_tick,
+                                                        received_hash,
+                                                    },
+                                                );
+                                            }
+                                        }
+                                    }
+                                    Err(error) => warn!("invalid ClientTeamHashMismatch: {}", error),
+                                }
+                            }
+                            TAG_TEAM_REBASE_ACK_V2 => {
+                                match TeamRebaseAck::decode(payload.as_slice()) {
+                                    Ok(ack) => {
+                                        let session = {
+                                            let sessions = sessions.lock().await;
+                                            sessions.get(&session_id).and_then(|session| {
+                                                (session.negotiated_protocol_version == 2
+                                                    && session.secure_match_capability
+                                                    && session.authenticated_team_id == Some(ack.team_id)
+                                                    && ack.view_epoch.as_ref().map_or(0, |epoch| epoch.value)
+                                                        == session.current_view_epoch)
+                                                    .then_some(session.event_tx.clone())
+                                            })
+                                        };
+                                        if let Some(event_tx) = session {
+                                            if ack.manifest_verified {
+                                                let frames = team_stream_router.lock().await
+                                                    .complete_filtered_rebase(&session_id);
+                                                for encoded in frames {
+                                                    let framed: Arc<[u8]> = Arc::from(
+                                                        build_framed_bytes(TAG_TEAM_TICK_FRAME_V2, &encoded).into_boxed_slice()
+                                                    );
+                                                    let _ = event_tx.try_send(framed);
+                                                }
+                                            } else {
+                                                let _ = rebase_failure_tx.try_send(
+                                                    omoba_core::runtime::RebaseFailureSignal {
+                                                        team_id: ack.team_id,
+                                                        last_safe_sequence: ack.resume_team_sequence.saturating_sub(1),
+                                                    },
+                                                );
+                                            }
+                                        }
+                                    }
+                                    Err(error) => warn!("invalid TeamRebaseAck: {}", error),
                                 }
                             }
                             TAG_SNAPSHOT_REQ => {

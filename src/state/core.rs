@@ -108,6 +108,14 @@ pub struct State {
     /// 非鎖步建置 - KCP 傳回落到空位元組）。
     #[cfg(feature = "kcp")]
     snapshot_store: Option<std::sync::Arc<std::sync::Mutex<crate::comp::SnapshotStore>>>,
+    #[cfg(feature = "kcp")]
+    team_bootstrap_store: Option<std::sync::Arc<std::sync::Mutex<std::collections::BTreeMap<u32, omoba_core::game_proto::TeamGameStart>>>>,
+    #[cfg(feature = "kcp")]
+    observer_validation: Option<omoba_core::runtime::ObserverValidationWorker>,
+    #[cfg(feature = "kcp")]
+    authority_mismatch_rx: Option<crossbeam_channel::Receiver<omoba_core::runtime::ClientHashMismatch>>,
+    #[cfg(feature = "kcp")]
+    rebase_failure_rx: Option<crossbeam_channel::Receiver<omoba_core::runtime::RebaseFailureSignal>>,
     /// 階段 5.x 橋接器：與 `TickBroadcaster::host_input_tx` 配對的接收器。
     /// 每個廣播公司都會從「InputBuffer」消耗輸入一段時間
     /// `TickBatch` 也會沿著這個通道發送一個副本； `State::tick` 排水溝
@@ -382,6 +390,14 @@ impl State {
             state_hash_tx: None,
             #[cfg(feature = "kcp")]
             snapshot_store: None,
+            #[cfg(feature = "kcp")]
+            team_bootstrap_store: None,
+            #[cfg(feature = "kcp")]
+            observer_validation: None,
+            #[cfg(feature = "kcp")]
+            authority_mismatch_rx: None,
+            #[cfg(feature = "kcp")]
+            rebase_failure_rx: None,
             #[cfg(feature = "kcp")]
             host_input_rx: None,
         };
@@ -717,6 +733,14 @@ impl State {
             #[cfg(feature = "kcp")]
             snapshot_store: None,
             #[cfg(feature = "kcp")]
+            team_bootstrap_store: None,
+            #[cfg(feature = "kcp")]
+            observer_validation: None,
+            #[cfg(feature = "kcp")]
+            authority_mismatch_rx: None,
+            #[cfg(feature = "kcp")]
+            rebase_failure_rx: None,
+            #[cfg(feature = "kcp")]
             host_input_rx: None,
         };
 
@@ -900,11 +924,71 @@ impl State {
             self.local_tick,
             1,
         );
+        #[cfg(feature = "kcp")]
+        if let Some(worker) = &self.observer_validation {
+            let mut coordinator = self
+                .ecs
+                .write_resource::<omoba_core::runtime::AuthorityRepairCoordinator>();
+            while let Some(mismatch) = worker.try_recv_mismatch() {
+                coordinator.report_observer_mismatch(mismatch);
+            }
+            for gap in worker.tap().take_coverage_gaps() {
+                coordinator.report_coverage_gap(gap.team_id, gap.first_unverified_sequence);
+            }
+        }
+        #[cfg(feature = "kcp")]
+        if let Some(rx) = &self.authority_mismatch_rx {
+            let mut coordinator = self
+                .ecs
+                .write_resource::<omoba_core::runtime::AuthorityRepairCoordinator>();
+            while let Ok(mismatch) = rx.try_recv() {
+                coordinator.report_client_mismatch(mismatch);
+            }
+        }
+        #[cfg(feature = "kcp")]
+        if let Some(rx) = &self.rebase_failure_rx {
+            let mut coordinator = self
+                .ecs
+                .write_resource::<omoba_core::runtime::AuthorityRepairCoordinator>();
+            while let Ok(failure) = rx.try_recv() {
+                let _ = coordinator.manifest_verification_failed(
+                    failure.team_id,
+                    failure.last_safe_sequence,
+                );
+            }
+        }
         omoba_core::runtime::run_team_projection_after_wave_b(
             &mut self.ecs,
             self.local_tick,
         )
         .map_err(|error| failure::err_msg(format!("team projection failed: {error:?}")))?;
+        if let Some(diagnostic) = self
+            .ecs
+            .read_resource::<omoba_core::runtime::TeamProjectionRuntime>()
+            .safe_terminations
+            .first()
+            .cloned()
+        {
+            return Err(failure::err_msg(format!(
+                "secure match terminated team={} last_safe_sequence={} reason={} safe_path={:?} protocol_fallback_allowed={}",
+                diagnostic.team_id,
+                diagnostic.last_safe_sequence,
+                diagnostic.reason_class,
+                diagnostic.safe_component_path,
+                diagnostic.protocol_fallback_allowed,
+            )));
+        }
+        #[cfg(feature = "kcp")]
+        if let Some(store) = &self.team_bootstrap_store {
+            let bootstraps = self
+                .ecs
+                .write_resource::<omoba_core::runtime::TeamProjectionRuntime>()
+                .build_team_bootstraps(
+                    self.local_tick,
+                    crate::config::server_config::CONFIG.STEP_FPS,
+                );
+            *store.lock().expect("team bootstrap store mutex poisoned") = bootstraps;
+        }
         let team_frames: Vec<_> = self
             .ecs
             .read_resource::<omoba_core::runtime::TeamProjectionRuntime>()
@@ -928,6 +1012,33 @@ impl State {
                     encoded,
                 },
             ));
+        }
+        #[cfg(feature = "kcp")]
+        {
+            use prost::Message as _;
+            let rebase_frames: Vec<_> = self
+                .ecs
+                .read_resource::<omoba_core::runtime::TeamProjectionRuntime>()
+                .latest_rebases
+                .iter()
+                .map(|(team_id, bundle)| {
+                    (
+                        *team_id,
+                        bundle.chunks.iter().map(|chunk| Arc::<[u8]>::from(chunk.encode_to_vec())).collect::<Vec<_>>(),
+                        Arc::<[u8]>::from(bundle.manifest.encode_to_vec()),
+                    )
+                })
+                .collect();
+            for (team_id, chunks, manifest) in rebase_frames {
+                for encoded in chunks {
+                    let _ = self.mqtx.try_send(OutboundMsg::lockstep_frame(
+                        crate::lockstep::LockstepFrame::TeamRebaseChunkV2 { team_id, encoded },
+                    ));
+                }
+                let _ = self.mqtx.try_send(OutboundMsg::lockstep_frame(
+                    crate::lockstep::LockstepFrame::TeamRebaseManifestV2 { team_id, encoded: manifest },
+                ));
+            }
         }
 
         {
@@ -1146,6 +1257,41 @@ impl State {
         store: std::sync::Arc<std::sync::Mutex<crate::comp::SnapshotStore>>,
     ) {
         self.snapshot_store = Some(store);
+    }
+
+    #[cfg(feature = "kcp")]
+    pub fn attach_team_bootstrap_store(
+        &mut self,
+        store: std::sync::Arc<std::sync::Mutex<std::collections::BTreeMap<
+            u32,
+            omoba_core::game_proto::TeamGameStart,
+        >>>,
+    ) {
+        self.team_bootstrap_store = Some(store);
+    }
+
+    #[cfg(feature = "kcp")]
+    pub fn attach_observer_validation(
+        &mut self,
+        worker: omoba_core::runtime::ObserverValidationWorker,
+    ) {
+        self.observer_validation = Some(worker);
+    }
+
+    #[cfg(feature = "kcp")]
+    pub fn attach_authority_mismatch_rx(
+        &mut self,
+        rx: crossbeam_channel::Receiver<omoba_core::runtime::ClientHashMismatch>,
+    ) {
+        self.authority_mismatch_rx = Some(rx);
+    }
+
+    #[cfg(feature = "kcp")]
+    pub fn attach_rebase_failure_rx(
+        &mut self,
+        rx: crossbeam_channel::Receiver<omoba_core::runtime::RebaseFailureSignal>,
+    ) {
+        self.rebase_failure_rx = Some(rx);
     }
 
     /// 階段 5.x 橋接器：註冊與配對的主機輸入接收器

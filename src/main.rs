@@ -135,7 +135,7 @@ async fn main() -> std::result::Result<(), Error> {
     // 調度程式每 30 秒循環一次並由 kcp 傳輸讀取
     // 0x16 SnapshotResp 處理程序。
     #[cfg(feature = "kcp")]
-    let (lockstep_state_handle, input_buffer_handle, snapshot_store_handle) = {
+    let (lockstep_state_handle, input_buffer_handle, snapshot_store_handle, team_bootstrap_store_handle) = {
         use crate::lockstep::{InputBuffer, LockstepState};
         use std::sync::{Arc, Mutex as StdMutex};
         let master_seed = crate::comp::MasterSeed::default().0;
@@ -148,7 +148,11 @@ async fn main() -> std::result::Result<(), Error> {
         let lockstep_state = Arc::new(StdMutex::new(session_state));
         let input_buffer = Arc::new(StdMutex::new(InputBuffer::new()));
         let snapshot_store = Arc::new(StdMutex::new(crate::comp::SnapshotStore::default()));
-        (lockstep_state, input_buffer, snapshot_store)
+        let team_bootstrap_store = Arc::new(StdMutex::new(std::collections::BTreeMap::<
+            u32,
+            omoba_core::game_proto::TeamGameStart,
+        >::new()));
+        (lockstep_state, input_buffer, snapshot_store, team_bootstrap_store)
     };
 
     #[cfg(feature = "kcp")]
@@ -158,6 +162,7 @@ async fn main() -> std::result::Result<(), Error> {
         input_buffer_handle.clone(),
         lockstep_state_handle.clone(),
         snapshot_store_handle.clone(),
+        team_bootstrap_store_handle.clone(),
     )
     .await?;
 
@@ -243,6 +248,14 @@ async fn main() -> std::result::Result<(), Error> {
     // 從提供 0x16 SnapshotResp 時讀取。
     #[cfg(feature = "kcp")]
     state.attach_snapshot_store(snapshot_store_handle.clone());
+    #[cfg(feature = "kcp")]
+    state.attach_team_bootstrap_store(team_bootstrap_store_handle.clone());
+    #[cfg(feature = "kcp")]
+    state.attach_observer_validation(handle.observer_validation);
+    #[cfg(feature = "kcp")]
+    state.attach_authority_mismatch_rx(handle.authority_mismatch_rx);
+    #[cfg(feature = "kcp")]
+    state.attach_rebase_failure_rx(handle.rebase_failure_rx);
     // 階段 5.x 橋接器：與 TickBroadcaster 的 host_input_tx 配對的接收器
     // （連線如下）。 State::tick Drains 每個tick 排出的輸入批次，並且
     // 將它們鏡像到調度程式的 PendingPlayerInputs 中。
