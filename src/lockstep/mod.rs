@@ -68,8 +68,14 @@ pub enum LockstepFrame {
         replica_tick: u64,
         encoded: std::sync::Arc<[u8]>,
     },
-    TeamRebaseChunkV2 { team_id: u32, encoded: std::sync::Arc<[u8]> },
-    TeamRebaseManifestV2 { team_id: u32, encoded: std::sync::Arc<[u8]> },
+    TeamRebaseChunkV2 {
+        team_id: u32,
+        encoded: std::sync::Arc<[u8]>,
+    },
+    TeamRebaseManifestV2 {
+        team_id: u32,
+        encoded: std::sync::Arc<[u8]>,
+    },
     /// 120Hz 廣播到每個連接的鎖步客戶端。
     TickBatch(TickBatch),
     /// 定期不同步探測－向所有人廣播。

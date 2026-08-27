@@ -104,17 +104,26 @@ pub struct State {
     #[cfg(feature = "kcp")]
     snapshot_store: Option<std::sync::Arc<std::sync::Mutex<crate::comp::SnapshotStore>>>,
     #[cfg(feature = "kcp")]
-    team_bootstrap_store: Option<std::sync::Arc<std::sync::Mutex<std::collections::BTreeMap<u32, omoba_core::game_proto::TeamGameStart>>>>,
+    team_bootstrap_store: Option<
+        std::sync::Arc<
+            std::sync::Mutex<
+                std::collections::BTreeMap<u32, omoba_core::game_proto::TeamGameStart>,
+            >,
+        >,
+    >,
     #[cfg(feature = "kcp")]
     observer_validation: Option<omoba_core::runtime::ObserverValidationWorker>,
     #[cfg(feature = "kcp")]
-    authority_mismatch_rx: Option<crossbeam_channel::Receiver<omoba_core::runtime::ClientHashMismatch>>,
+    authority_mismatch_rx:
+        Option<crossbeam_channel::Receiver<omoba_core::runtime::ClientHashMismatch>>,
     #[cfg(feature = "kcp")]
-    rebase_failure_rx: Option<crossbeam_channel::Receiver<omoba_core::runtime::RebaseFailureSignal>>,
+    rebase_failure_rx:
+        Option<crossbeam_channel::Receiver<omoba_core::runtime::RebaseFailureSignal>>,
     #[cfg(feature = "kcp")]
     secure_input_validation: Option<omoba_core::runtime::SharedSecureInputValidationSnapshot>,
     #[cfg(feature = "kcp")]
-    selective_security_metrics: Option<std::sync::Arc<omoba_core::runtime::SelectiveSecurityMetrics>>,
+    selective_security_metrics:
+        Option<std::sync::Arc<omoba_core::runtime::SelectiveSecurityMetrics>>,
     /// 階段 5.x 橋接器：與 `TickBroadcaster::host_input_tx` 配對的接收器。
     /// 每個廣播公司都會從「InputBuffer」消耗輸入一段時間
     /// `TickBatch` 也會沿著這個通道發送一個副本； `State::tick` 排水溝
@@ -885,19 +894,18 @@ impl State {
             .ecs
             .read_resource::<omoba_core::runtime::ObservableFactBuffer>()
             .drain_ordered()
-            .map_err(|error| failure::err_msg(format!("observable fact reduce failed: {error:?}")))?;
+            .map_err(|error| {
+                failure::err_msg(format!("observable fact reduce failed: {error:?}"))
+            })?;
         let ordered_outcomes = {
             let mut buffer = self
                 .ecs
                 .write_resource::<omoba_core::runtime::OrderedRuntimeEventBuffer>();
             std::mem::take(&mut buffer.events)
         };
-        let committed = omoba_core::runtime::commit_wave_a(
-            self.local_tick,
-            ordered_outcomes,
-            ordered_facts,
-        )
-        .map_err(|error| failure::err_msg(format!("Wave A commit failed: {error:?}")))?;
+        let committed =
+            omoba_core::runtime::commit_wave_a(self.local_tick, ordered_outcomes, ordered_facts)
+                .map_err(|error| failure::err_msg(format!("Wave A commit failed: {error:?}")))?;
         {
             let mut batch = self
                 .ecs
@@ -907,11 +915,8 @@ impl State {
             batch.facts = committed.ordered_facts;
             batch.barrier_reached = committed.barrier_reached;
         }
-        self.system_dispatcher.run_post_commit_visibility(
-            &mut self.ecs,
-            self.local_tick,
-            1,
-        );
+        self.system_dispatcher
+            .run_post_commit_visibility(&mut self.ecs, self.local_tick, 1);
         #[cfg(feature = "kcp")]
         if let Some(worker) = &self.observer_validation {
             let mut coordinator = self
@@ -939,63 +944,113 @@ impl State {
                 .ecs
                 .write_resource::<omoba_core::runtime::AuthorityRepairCoordinator>();
             while let Ok(failure) = rx.try_recv() {
-                let _ = coordinator.manifest_verification_failed(
-                    failure.team_id,
-                    failure.last_safe_sequence,
-                );
+                let _ = coordinator
+                    .manifest_verification_failed(failure.team_id, failure.last_safe_sequence);
             }
         }
         if crate::config::server_config::CONFIG.selective_generation_enabled() {
-            omoba_core::runtime::run_team_projection_after_wave_b(
-                &mut self.ecs,
-                self.local_tick,
-            )
-            .map_err(|error| failure::err_msg(format!("team projection failed: {error:?}")))?;
+            omoba_core::runtime::run_team_projection_after_wave_b(&mut self.ecs, self.local_tick)
+                .map_err(|error| failure::err_msg(format!("team projection failed: {error:?}")))?;
         } else {
-            let mut projection = self.ecs.write_resource::<omoba_core::runtime::TeamProjectionRuntime>();
+            let mut projection = self
+                .ecs
+                .write_resource::<omoba_core::runtime::TeamProjectionRuntime>();
             projection.latest_frames.clear();
             projection.latest_rebases.clear();
         }
         #[cfg(feature = "kcp")]
         if let Some(shared) = &self.secure_input_validation {
-            let visibility = self.ecs.read_resource::<omoba_core::runtime::TeamVisibilityRuntime>();
-            let projection = self.ecs.read_resource::<omoba_core::runtime::TeamProjectionRuntime>();
-            *shared.lock().expect("secure input validation snapshot mutex poisoned") =
+            let visibility = self
+                .ecs
+                .read_resource::<omoba_core::runtime::TeamVisibilityRuntime>();
+            let projection = self
+                .ecs
+                .read_resource::<omoba_core::runtime::TeamProjectionRuntime>();
+            *shared
+                .lock()
+                .expect("secure input validation snapshot mutex poisoned") =
                 projection.build_input_validation_snapshot(&visibility);
         }
         #[cfg(feature = "kcp")]
         if let Some(metrics) = &self.selective_security_metrics {
             use std::sync::atomic::Ordering;
-            let visibility = self.ecs.read_resource::<omoba_core::runtime::TeamVisibilityRuntime>();
-            let projection = self.ecs.read_resource::<omoba_core::runtime::TeamProjectionRuntime>();
+            let visibility = self
+                .ecs
+                .read_resource::<omoba_core::runtime::TeamVisibilityRuntime>();
+            let projection = self
+                .ecs
+                .read_resource::<omoba_core::runtime::TeamProjectionRuntime>();
             metrics.visibility_transition_count.fetch_add(
-                visibility.last_transitions.values().map(Vec::len).sum::<usize>() as u64,
+                visibility
+                    .last_transitions
+                    .values()
+                    .map(Vec::len)
+                    .sum::<usize>() as u64,
                 Ordering::Relaxed,
             );
             metrics.steady_state_padding_bytes.fetch_add(
-                projection.latest_frames.values().map(|frame| frame.padding_len as u64).sum::<u64>(),
+                projection
+                    .latest_frames
+                    .values()
+                    .map(|frame| frame.padding_len as u64)
+                    .sum::<u64>(),
                 Ordering::Relaxed,
             );
             metrics.encoded_frame_bytes.fetch_add(
-                projection.latest_frames.values().map(|frame| frame.wire_bytes.len() as u64).sum::<u64>(),
+                projection
+                    .latest_frames
+                    .values()
+                    .map(|frame| frame.wire_bytes.len() as u64)
+                    .sum::<u64>(),
                 Ordering::Relaxed,
             );
             metrics.reveal_burst_bytes.fetch_add(
-                projection.latest_frames.values().map(|frame| {
-                    frame.frame.pre_step.as_ref().map_or(0, |pre| pre.transitions.iter()
-                        .filter(|transition| matches!(transition.transition, Some(omoba_core::game_proto::transition::Transition::Reveal(_))))
-                        .map(prost::Message::encoded_len).sum::<usize>()) as u64
-                }).sum::<u64>(),
+                projection
+                    .latest_frames
+                    .values()
+                    .map(|frame| {
+                        frame.frame.pre_step.as_ref().map_or(0, |pre| {
+                            pre.transitions
+                                .iter()
+                                .filter(|transition| {
+                                    matches!(
+                                        transition.transition,
+                                        Some(
+                                            omoba_core::game_proto::transition::Transition::Reveal(
+                                                _
+                                            )
+                                        )
+                                    )
+                                })
+                                .map(prost::Message::encoded_len)
+                                .sum::<usize>()
+                        }) as u64
+                    })
+                    .sum::<u64>(),
                 Ordering::Relaxed,
             );
-            metrics.outbound_queue_depth.store(self.mqtx.len() as u64, Ordering::Relaxed);
-            let coordinator = self.ecs.read_resource::<omoba_core::runtime::AuthorityRepairCoordinator>();
-            metrics.authority_repair_count.store(coordinator.repair_count, Ordering::Relaxed);
-            metrics.authority_rebase_count.store(coordinator.rebase_count, Ordering::Relaxed);
+            metrics
+                .outbound_queue_depth
+                .store(self.mqtx.len() as u64, Ordering::Relaxed);
+            let coordinator = self
+                .ecs
+                .read_resource::<omoba_core::runtime::AuthorityRepairCoordinator>();
+            metrics
+                .authority_repair_count
+                .store(coordinator.repair_count, Ordering::Relaxed);
+            metrics
+                .authority_rebase_count
+                .store(coordinator.rebase_count, Ordering::Relaxed);
             if let Some(worker) = &self.observer_validation {
                 let observer = &worker.tap().metrics;
-                metrics.observer_audit_lag_ticks.store(observer.audit_lag_ticks.load(Ordering::Relaxed), Ordering::Relaxed);
-                metrics.coverage_gap_count.store(observer.coverage_gap_count.load(Ordering::Relaxed), Ordering::Relaxed);
+                metrics.observer_audit_lag_ticks.store(
+                    observer.audit_lag_ticks.load(Ordering::Relaxed),
+                    Ordering::Relaxed,
+                );
+                metrics.coverage_gap_count.store(
+                    observer.coverage_gap_count.load(Ordering::Relaxed),
+                    Ordering::Relaxed,
+                );
             }
         }
         if let Some(diagnostic) = self
@@ -1052,24 +1107,35 @@ impl State {
         #[cfg(feature = "kcp")]
         {
             use prost::Message as _;
-            let rebase_frames = self.ecs
+            let rebase_frames = self
+                .ecs
                 .write_resource::<omoba_core::runtime::TeamProjectionRuntime>()
                 .take_rate_limited_rebase_outbound();
             for (team_id, chunks, manifest) in rebase_frames {
                 for encoded in chunks {
                     if let Some(metrics) = &self.selective_security_metrics {
-                        metrics.rebase_burst_bytes.fetch_add(encoded.len() as u64, std::sync::atomic::Ordering::Relaxed);
+                        metrics
+                            .rebase_burst_bytes
+                            .fetch_add(encoded.len() as u64, std::sync::atomic::Ordering::Relaxed);
                     }
                     let _ = self.mqtx.try_send(OutboundMsg::lockstep_frame(
-                        crate::lockstep::LockstepFrame::TeamRebaseChunkV2 { team_id, encoded: Arc::from(encoded) },
+                        crate::lockstep::LockstepFrame::TeamRebaseChunkV2 {
+                            team_id,
+                            encoded: Arc::from(encoded),
+                        },
                     ));
                 }
                 if let Some(manifest) = manifest {
                     if let Some(metrics) = &self.selective_security_metrics {
-                        metrics.rebase_burst_bytes.fetch_add(manifest.len() as u64, std::sync::atomic::Ordering::Relaxed);
+                        metrics
+                            .rebase_burst_bytes
+                            .fetch_add(manifest.len() as u64, std::sync::atomic::Ordering::Relaxed);
                     }
                     let _ = self.mqtx.try_send(OutboundMsg::lockstep_frame(
-                        crate::lockstep::LockstepFrame::TeamRebaseManifestV2 { team_id, encoded: Arc::from(manifest) },
+                        crate::lockstep::LockstepFrame::TeamRebaseManifestV2 {
+                            team_id,
+                            encoded: Arc::from(manifest),
+                        },
                     ));
                 }
             }
@@ -1295,10 +1361,11 @@ impl State {
     #[cfg(feature = "kcp")]
     pub fn attach_team_bootstrap_store(
         &mut self,
-        store: std::sync::Arc<std::sync::Mutex<std::collections::BTreeMap<
-            u32,
-            omoba_core::game_proto::TeamGameStart,
-        >>>,
+        store: std::sync::Arc<
+            std::sync::Mutex<
+                std::collections::BTreeMap<u32, omoba_core::game_proto::TeamGameStart>,
+            >,
+        >,
     ) {
         self.team_bootstrap_store = Some(store);
     }

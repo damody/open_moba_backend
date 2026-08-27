@@ -19,13 +19,23 @@ fn default_step_fps() -> u32 {
     LOCKSTEP_TPS
 }
 
-fn default_false() -> bool { false }
+fn default_false() -> bool {
+    false
+}
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Eq, PartialEq)]
 #[serde(rename_all = "snake_case")]
-pub enum MatchLockstepMode { Legacy, SecureV2OptIn, SecureV2Required }
+pub enum MatchLockstepMode {
+    Legacy,
+    SecureV2OptIn,
+    SecureV2Required,
+}
 
-impl Default for MatchLockstepMode { fn default() -> Self { Self::SecureV2Required } }
+impl Default for MatchLockstepMode {
+    fn default() -> Self {
+        Self::SecureV2Required
+    }
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ServerSetting {
@@ -249,11 +259,13 @@ impl ServerSetting {
     }
 
     pub fn secure_v2_required(&self) -> bool {
-        self.SELECTIVE_LOCKSTEP_DOGFOOD || self.MATCH_LOCKSTEP_MODE == MatchLockstepMode::SecureV2Required
+        self.SELECTIVE_LOCKSTEP_DOGFOOD
+            || self.MATCH_LOCKSTEP_MODE == MatchLockstepMode::SecureV2Required
     }
 
     pub fn selective_generation_enabled(&self) -> bool {
-        self.SELECTIVE_LOCKSTEP_SHADOW || self.SELECTIVE_LOCKSTEP_DOGFOOD
+        self.SELECTIVE_LOCKSTEP_SHADOW
+            || self.SELECTIVE_LOCKSTEP_DOGFOOD
             || self.MATCH_LOCKSTEP_MODE != MatchLockstepMode::Legacy
     }
 }
@@ -344,7 +356,10 @@ RENDER_DELAY_MS = 100
     #[test]
     fn secure_v2_is_default_but_explicit_legacy_remains_pre_match_option() {
         let secure = parse_with_step_fps(120);
-        assert_eq!(secure.MATCH_LOCKSTEP_MODE, MatchLockstepMode::SecureV2Required);
+        assert_eq!(
+            secure.MATCH_LOCKSTEP_MODE,
+            MatchLockstepMode::SecureV2Required
+        );
         let raw = r#"
 [server]
 MAP="map.json"

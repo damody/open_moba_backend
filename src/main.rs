@@ -135,14 +135,23 @@ async fn main() -> std::result::Result<(), Error> {
     // 調度程式每 30 秒循環一次並由 kcp 傳輸讀取
     // 0x16 SnapshotResp 處理程序。
     #[cfg(feature = "kcp")]
-    let (lockstep_state_handle, input_buffer_handle, snapshot_store_handle, team_bootstrap_store_handle) = {
+    let (
+        lockstep_state_handle,
+        input_buffer_handle,
+        snapshot_store_handle,
+        team_bootstrap_store_handle,
+    ) = {
         use crate::lockstep::{InputBuffer, LockstepState};
         use std::sync::{Arc, Mutex as StdMutex};
         let master_seed = crate::comp::MasterSeed::default().0;
         let mut session_state = LockstepState::new(master_seed);
-        session_state.secure_fog_required = crate::config::server_config::CONFIG.secure_v2_required();
-        for (player_id, team_id) in &crate::config::server_config::CONFIG.AUTHENTICATED_TEAM_BINDINGS {
-            session_state.authorize_player_team(*player_id, *team_id)
+        session_state.secure_fog_required =
+            crate::config::server_config::CONFIG.secure_v2_required();
+        for (player_id, team_id) in
+            &crate::config::server_config::CONFIG.AUTHENTICATED_TEAM_BINDINGS
+        {
+            session_state
+                .authorize_player_team(*player_id, *team_id)
                 .expect("validated authenticated team binding");
         }
         let lockstep_state = Arc::new(StdMutex::new(session_state));
@@ -152,7 +161,12 @@ async fn main() -> std::result::Result<(), Error> {
             u32,
             omoba_core::game_proto::TeamGameStart,
         >::new()));
-        (lockstep_state, input_buffer, snapshot_store, team_bootstrap_store)
+        (
+            lockstep_state,
+            input_buffer,
+            snapshot_store,
+            team_bootstrap_store,
+        )
     };
 
     #[cfg(feature = "kcp")]

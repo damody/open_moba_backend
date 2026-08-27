@@ -52,7 +52,9 @@ impl LockstepState {
     /// Populated only by the server authentication boundary, never from a
     /// player wire field.
     pub fn authorize_player_team(&mut self, player_id: u32, team_id: u32) -> Result<(), String> {
-        if player_id == 0 || team_id == 0 { return Err("invalid authenticated player/team binding".into()); }
+        if player_id == 0 || team_id == 0 {
+            return Err("invalid authenticated player/team binding".into());
+        }
         self.authenticated_team_bindings.insert(player_id, team_id);
         Ok(())
     }
@@ -65,7 +67,9 @@ impl LockstepState {
         negotiation: omoba_core::transport::MatchCapabilityNegotiation,
         view_epoch: u64,
     ) -> Result<(u32, omoba_core::runtime::SecureSessionBinding), String> {
-        let team_id = *self.authenticated_team_bindings.get(&player_id)
+        let team_id = *self
+            .authenticated_team_bindings
+            .get(&player_id)
             .ok_or_else(|| format!("player_id {player_id} has no authenticated team binding"))?;
         let binding = omoba_core::runtime::SecureSessionBinding::negotiate(
             &negotiation,
@@ -73,7 +77,8 @@ impl LockstepState {
             team_id,
             view_epoch,
             true,
-        ).map_err(|error| format!("secure negotiation rejected: {error:?}"))?;
+        )
+        .map_err(|error| format!("secure negotiation rejected: {error:?}"))?;
         let id = self.register_player(player_id, name, role)?;
         self.match_protocol = Some(binding.protocol);
         Ok((id, binding))

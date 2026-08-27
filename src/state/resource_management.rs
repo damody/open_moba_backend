@@ -46,7 +46,10 @@ impl ResourceManager {
                 self.award_kp_on_game_end(&event.data);
             }
         }
-        let tick = world.try_fetch::<crate::comp::Tick>().map(|tick| tick.0).unwrap_or(0);
+        let tick = world
+            .try_fetch::<crate::comp::Tick>()
+            .map(|tick| tick.0)
+            .unwrap_or(0);
         let ordered = crate::runtime_events::order_processed_runtime_events(
             tick,
             omoba_core::runtime::FactPhase::PostStep,

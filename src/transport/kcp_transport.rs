@@ -65,6 +65,23 @@ fn late_input_grace_ticks(step_fps: u32) -> u32 {
         / 1000
 }
 
+/// Secure V2 仍需要接受不含 entity reference 的座標型玩家命令。
+/// Entity-targeting 命令必須走 SecureTargetInput，以 replica id、view epoch 與
+/// disclosure epoch 驗證；MoveTo/AttackMove 只有整數座標，不會成為探測隱藏
+/// canonical entity 的旁路。
+fn secure_coordinate_input_allowed(payload: &[u8], joined_player_id: Option<u32>) -> bool {
+    let Ok(request) = InputSubmit::decode(payload) else {
+        return false;
+    };
+    if joined_player_id != Some(request.player_id) {
+        return false;
+    }
+    matches!(
+        request.input.and_then(|input| input.action),
+        Some(player_input::Action::MoveTo(_)) | Some(player_input::Action::AttackMove(_))
+    )
+}
+
 /// 寫入幀訊息：[1 位元組標籤][4 位元組 len (big-endian)][N 位元組有效負載]
 /// 當有效負載≥LZ4_THRESHOLD並且LZ4縮小它時，有效負載被替換為
 /// 大小前置的 LZ4 區塊和 COMPRESSION_FLAG 與標籤進行「或」運算。
@@ -539,7 +556,9 @@ pub async fn start(
     lockstep_input_buffer: Arc<std::sync::Mutex<crate::lockstep::InputBuffer>>,
     lockstep_state: Arc<std::sync::Mutex<crate::lockstep::LockstepState>>,
     lockstep_snapshot_store: Arc<std::sync::Mutex<crate::comp::SnapshotStore>>,
-    lockstep_team_bootstrap_store: Arc<std::sync::Mutex<std::collections::BTreeMap<u32, TeamGameStart>>>,
+    lockstep_team_bootstrap_store: Arc<
+        std::sync::Mutex<std::collections::BTreeMap<u32, TeamGameStart>>,
+    >,
 ) -> Result<TransportHandle, Error> {
     // 階段 5.x 反壓修復：在 TD_STRESS 下，主機滴答系統仍然存在
     // 發出遺留的每個實體事件（creep.M / Creep.H /Entity.F / Projectile.C
@@ -561,7 +580,8 @@ pub async fn start(
     let secure_input_validation = Arc::new(std::sync::Mutex::new(
         omoba_core::runtime::SecureInputValidationSnapshot::default(),
     ));
-    let selective_security_metrics = Arc::new(omoba_core::runtime::SelectiveSecurityMetrics::default());
+    let selective_security_metrics =
+        Arc::new(omoba_core::runtime::SelectiveSecurityMetrics::default());
 
     let sessions: Arc<Mutex<HashMap<String, ClientSession>>> = Arc::new(Mutex::new(HashMap::new()));
     let team_stream_router = Arc::new(Mutex::new(omoba_core::runtime::TeamStreamRouter::new(2048)));
@@ -1087,7 +1107,9 @@ async fn handle_client(
     lockstep_input_buffer: Arc<std::sync::Mutex<crate::lockstep::InputBuffer>>,
     lockstep_state: Arc<std::sync::Mutex<crate::lockstep::LockstepState>>,
     lockstep_snapshot_store: Arc<std::sync::Mutex<crate::comp::SnapshotStore>>,
-    lockstep_team_bootstrap_store: Arc<std::sync::Mutex<std::collections::BTreeMap<u32, TeamGameStart>>>,
+    lockstep_team_bootstrap_store: Arc<
+        std::sync::Mutex<std::collections::BTreeMap<u32, TeamGameStart>>,
+    >,
     team_stream_router: Arc<Mutex<omoba_core::runtime::TeamStreamRouter>>,
     authority_mismatch_tx: Sender<omoba_core::runtime::ClientHashMismatch>,
     rebase_failure_tx: Sender<omoba_core::runtime::RebaseFailureSignal>,
@@ -1104,7 +1126,8 @@ async fn handle_client(
     // 追蹤訂閱的player_name，以便我們可以在斷開連接時發送刪除
     let mut player_name: Option<String> = None;
     let mut joined_player_id: Option<u32> = None;
-    let mut invalid_reference_limiter = omoba_core::runtime::InvalidReferenceRateLimiter::new(16, 120);
+    let mut invalid_reference_limiter =
+        omoba_core::runtime::InvalidReferenceRateLimiter::new(16, 120);
 
     // 主循環：從客戶端讀取，可選擇寫入出站事件
     loop {
@@ -1119,10 +1142,12 @@ async fn handle_client(
                                     && session.secure_match_capability
                             })
                         };
+                        let secure_coordinate_input = tag == TAG_INPUT_SUBMIT
+                            && secure_coordinate_input_allowed(&payload, joined_player_id);
                         if secure_v2_session && matches!(tag,
                             TAG_PLAYER_COMMAND | TAG_GAME_STATE_REQUEST | TAG_VIEWPORT_UPDATE
                                 | TAG_INPUT_SUBMIT | TAG_SNAPSHOT_REQ
-                        ) {
+                        ) && !secure_coordinate_input {
                             warn!("secure V2 session denied legacy/global tag 0x{:02x}", tag);
                             continue;
                         }
@@ -2351,13 +2376,60 @@ mod tests {
     }
 
     #[test]
-    fn secure_v2_transport_denies_every_legacy_global_player_path() {
+    fn secure_v2_transport_denies_legacy_global_paths_except_safe_coordinate_input() {
         let source = include_str!("kcp_transport.rs");
         assert!(source.contains("secure_v2_session && matches!(tag"));
-        assert!(source.contains("TAG_PLAYER_COMMAND | TAG_GAME_STATE_REQUEST | TAG_VIEWPORT_UPDATE"));
+        assert!(
+            source.contains("TAG_PLAYER_COMMAND | TAG_GAME_STATE_REQUEST | TAG_VIEWPORT_UPDATE")
+        );
         assert!(source.contains("TAG_INPUT_SUBMIT | TAG_SNAPSHOT_REQ"));
+        assert!(source.contains("&& !secure_coordinate_input"));
         assert!(source.contains("session.negotiated_protocol_version != 2"));
         assert!(source.contains("targets.retain"));
+    }
+
+    fn encoded_input(player_id: u32, action: player_input::Action) -> Vec<u8> {
+        InputSubmit {
+            player_id,
+            target_tick: 10,
+            input: Some(PlayerInput { action: Some(action) }),
+            input_id: 1,
+        }
+        .encode_to_vec()
+    }
+
+    #[test]
+    fn secure_coordinate_input_accepts_only_joined_players_move_commands() {
+        let move_to = encoded_input(
+            7,
+            player_input::Action::MoveTo(MoveTo {
+                target: Some(Vec2I { x: 100, y: -50 }),
+                queued: false,
+            }),
+        );
+        let attack_move = encoded_input(
+            7,
+            player_input::Action::AttackMove(AttackMove {
+                target: Some(Vec2I { x: 100, y: -50 }),
+                queued: false,
+            }),
+        );
+        assert!(secure_coordinate_input_allowed(&move_to, Some(7)));
+        assert!(secure_coordinate_input_allowed(&attack_move, Some(7)));
+        assert!(!secure_coordinate_input_allowed(&move_to, Some(8)));
+    }
+
+    #[test]
+    fn secure_coordinate_input_rejects_entity_targeting_and_malformed_payloads() {
+        let attack_target = encoded_input(
+            7,
+            player_input::Action::AttackTarget(AttackTarget {
+                target_id: 99,
+                queued: false,
+            }),
+        );
+        assert!(!secure_coordinate_input_allowed(&attack_target, Some(7)));
+        assert!(!secure_coordinate_input_allowed(&[0xff, 0x00], Some(7)));
     }
 
     #[test]

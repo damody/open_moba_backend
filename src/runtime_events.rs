@@ -1,6 +1,6 @@
 use omoba_core::runtime::{
-    FactAudience, FactKind, FactOrderingKey, FactPhase, ObservableFact, OrderedFact,
-    OrderedOutput, RuntimeBroadcast, RuntimeEvent,
+    FactAudience, FactKind, FactOrderingKey, FactPhase, ObservableFact, OrderedFact, OrderedOutput,
+    RuntimeBroadcast, RuntimeEvent,
 };
 #[cfg(feature = "kcp")]
 use serde_json::Value;
@@ -88,7 +88,10 @@ pub fn ordered_runtime_events_to_outbound(
     let mut events: Vec<_> = events.into_iter().collect();
     events.retain(|event| event.key.validate().is_ok());
     events.sort_by_key(|event| event.key);
-    events.into_iter().map(|event| runtime_event_to_outbound(event.value)).collect()
+    events
+        .into_iter()
+        .map(|event| runtime_event_to_outbound(event.value))
+        .collect()
 }
 
 /// Transitional adapter for legacy Outcome producers. The caller supplies the
@@ -133,31 +136,54 @@ fn runtime_event_fact_kind(event: &RuntimeEvent) -> FactKind {
 
 /// Retained global UI events cross the selective-lockstep boundary only after
 /// being converted to a typed fact with an explicit audience.
-pub fn retained_event_to_fact(
-    ordered: &OrderedOutput<RuntimeEvent>,
-) -> Option<OrderedFact> {
+pub fn retained_event_to_fact(ordered: &OrderedOutput<RuntimeEvent>) -> Option<OrderedFact> {
     let event = &ordered.value;
     match (event.kind.as_str(), event.action.as_str()) {
         ("game", "end") => Some(OrderedFact {
-            key: FactOrderingKey { fact_kind: FactKind::Terminal, ..ordered.key },
+            key: FactOrderingKey {
+                fact_kind: FactKind::Terminal,
+                ..ordered.key
+            },
             audience: FactAudience::AllPlayers,
             fact: ObservableFact::Terminal {
                 result_code: stable_text_id(
-                    event.data.get("result").and_then(|value| value.as_str()).unwrap_or("unknown"),
+                    event
+                        .data
+                        .get("result")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("unknown"),
                 ) as u32,
-                winning_team: event.data.get("winning_team").and_then(|value| value.as_u64()).map(|v| v as u32),
+                winning_team: event
+                    .data
+                    .get("winning_team")
+                    .and_then(|value| value.as_u64())
+                    .map(|v| v as u32),
             },
         }),
         ("game", _) => Some(OrderedFact {
-            key: FactOrderingKey { fact_kind: FactKind::Hud, ..ordered.key },
-            audience: event.data.get("team").and_then(|value| value.as_u64())
+            key: FactOrderingKey {
+                fact_kind: FactKind::Hud,
+                ..ordered.key
+            },
+            audience: event
+                .data
+                .get("team")
+                .and_then(|value| value.as_u64())
                 .map(|team| FactAudience::Team(team as u32))
                 .unwrap_or(FactAudience::AllPlayers),
             fact: ObservableFact::Hud {
-                team: event.data.get("team").and_then(|value| value.as_u64()).unwrap_or(0) as u32,
+                team: event
+                    .data
+                    .get("team")
+                    .and_then(|value| value.as_u64())
+                    .unwrap_or(0) as u32,
                 metric_id: stable_text_id(&event.action),
-                value: event.data.get("value").or_else(|| event.data.get("lives"))
-                    .and_then(|value| value.as_i64()).unwrap_or(0),
+                value: event
+                    .data
+                    .get("value")
+                    .or_else(|| event.data.get("lives"))
+                    .and_then(|value| value.as_i64())
+                    .unwrap_or(0),
             },
         }),
         _ => None,
