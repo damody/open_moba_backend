@@ -74,6 +74,7 @@ async fn main() -> std::result::Result<(), Error> {
     log4rs::init_file("log4rs.yml", Default::default()).unwrap();
 
     crate::config::server_config::apply_runtime_env_from_game_toml();
+    initialize_fog_evidence_sentinels()?;
     if omoba_template_ids::ensure_runtime_lua_content().map_err(err_msg)? {
         log::info!("Runtime Lua content mode enabled");
     }
@@ -267,7 +268,11 @@ async fn main() -> std::result::Result<(), Error> {
     #[cfg(feature = "kcp")]
     state.attach_observer_validation(handle.observer_validation);
     #[cfg(feature = "kcp")]
+    state.attach_reliable_team_sender(handle.lockstep_tx.clone());
+    #[cfg(feature = "kcp")]
     state.attach_authority_mismatch_rx(handle.authority_mismatch_rx);
+    #[cfg(feature = "kcp")]
+    state.attach_client_checkpoint_rx(handle.client_checkpoint_rx);
     #[cfg(feature = "kcp")]
     state.attach_rebase_failure_rx(handle.rebase_failure_rx);
     #[cfg(feature = "kcp")]
@@ -382,6 +387,50 @@ async fn main() -> std::result::Result<(), Error> {
         // 等待下一個滴答聲。
         clock.tick();
     }
+    Ok(())
+}
+
+fn initialize_fog_evidence_sentinels() -> std::result::Result<(), Error> {
+    let Ok(root) = std::env::var("OMOBA_FOG_EVIDENCE_DIR") else {
+        return Ok(());
+    };
+    let team_1 = Uuid::new_v4();
+    let team_2 = Uuid::new_v4();
+    let hex = |uuid: &Uuid| {
+        uuid.as_bytes()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>()
+    };
+    let team_1_hex = hex(&team_1);
+    let team_2_hex = hex(&team_2);
+    std::env::set_var("OMOBA_TEAM_1_SENTINEL_HEX", &team_1_hex);
+    std::env::set_var("OMOBA_TEAM_2_SENTINEL_HEX", &team_2_hex);
+    let secret_dir = std::path::Path::new(&root).join("server");
+    std::fs::create_dir_all(&secret_dir).map_err(|error| err_msg(error.to_string()))?;
+    let value = serde_json::json!({
+        "run_only_secret": true,
+        "team_1_hex": team_1_hex,
+        "team_2_hex": team_2_hex,
+    });
+    std::fs::write(
+        secret_dir.join("sentinels.secret.json"),
+        serde_json::to_vec_pretty(&value).map_err(|error| err_msg(error.to_string()))?,
+    )
+    .map_err(|error| err_msg(error.to_string()))?;
+    use sha2::{Digest, Sha256};
+    let public = serde_json::json!({
+        "schema_version": 1,
+        "team_1_sentinel_sha256": format!("{:x}", Sha256::digest(team_1.as_bytes())),
+        "team_2_sentinel_sha256": format!("{:x}", Sha256::digest(team_2.as_bytes())),
+        "raw_sentinels_are_server_only": true,
+    });
+    std::fs::write(
+        secret_dir.join("sentinel-manifest.json"),
+        serde_json::to_vec_pretty(&public).map_err(|error| err_msg(error.to_string()))?,
+    )
+    .map_err(|error| err_msg(error.to_string()))?;
+    log::info!("fog evidence sentinels initialized run_dir={}", root);
     Ok(())
 }
 

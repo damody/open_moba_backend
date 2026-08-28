@@ -49,6 +49,7 @@ const TAG_TEAM_REBASE_MANIFEST_V2: u8 = 0x23;
 const TAG_TEAM_REBASE_ACK_V2: u8 = 0x26;
 const TAG_SECURE_TARGET_INPUT_V2: u8 = 0x27;
 const TAG_SECURE_TARGET_INPUT_RESULT_V2: u8 = 0x28;
+const TAG_CLIENT_REPLICA_CHECKPOINT_V2: u8 = 0x29;
 const LATE_INPUT_GRACE_MS: u32 = 64;
 
 /// 標籤的高位元 — 當幀有效負載經過 LZ4 壓縮時設定。
@@ -80,6 +81,18 @@ fn secure_coordinate_input_allowed(payload: &[u8], joined_player_id: Option<u32>
         request.input.and_then(|input| input.action),
         Some(player_input::Action::MoveTo(_)) | Some(player_input::Action::AttackMove(_))
     )
+}
+
+fn rewrite_secure_target(input: &mut PlayerInput, canonical_target: u64) -> Option<()> {
+    let canonical_target = u32::try_from(canonical_target).ok()?;
+    match input.action.as_mut()? {
+        player_input::Action::CastAbility(value) => value.target_entity = Some(canonical_target),
+        player_input::Action::ItemUse(value) => value.target_entity = Some(canonical_target),
+        player_input::Action::TowerUpgrade(value) => value.tower_entity_id = canonical_target,
+        player_input::Action::TowerSell(value) => value.tower_entity_id = canonical_target,
+        _ => return None,
+    }
+    Some(())
 }
 
 /// 寫入幀訊息：[1 位元組標籤][4 位元組 len (big-endian)][N 位元組有效負載]
@@ -576,6 +589,7 @@ pub async fn start(
     let (query_tx, query_rx): (Sender<QueryRequest>, Receiver<QueryRequest>) = bounded(100);
     let (viewport_tx, viewport_rx): (Sender<ViewportMsg>, Receiver<ViewportMsg>) = bounded(1024);
     let (authority_mismatch_tx, authority_mismatch_rx) = bounded(1024);
+    let (client_checkpoint_tx, client_checkpoint_rx) = bounded(4096);
     let (rebase_failure_tx, rebase_failure_rx) = bounded(256);
     let secure_input_validation = Arc::new(std::sync::Mutex::new(
         omoba_core::runtime::SecureInputValidationSnapshot::default(),
@@ -668,9 +682,7 @@ pub async fn start(
                                 let sessions = sessions_broadcast.lock().await;
                                 if let Some(session) = sessions.get(&client_session_id) {
                                     if session.negotiated_protocol_version == 2 && session.secure_match_capability {
-                                        if session.event_tx.try_send(frame_arc).is_ok() {
-                                            observer_tap_broadcast.try_bootstrap(encoded);
-                                        }
+                                        let _ = session.event_tx.try_send(frame_arc);
                                     }
                                 }
                             }
@@ -1050,6 +1062,7 @@ pub async fn start(
             let lockstep_team_bootstrap_store = lockstep_team_bootstrap_store_accept.clone();
             let team_stream_router = Arc::clone(&team_stream_router_accept);
             let authority_mismatch_tx = authority_mismatch_tx_accept.clone();
+            let client_checkpoint_tx = client_checkpoint_tx.clone();
             let rebase_failure_tx = rebase_failure_tx_accept.clone();
             let secure_input_validation = Arc::clone(&secure_input_validation_accept);
             let session_id = format!("kcp_{}", peer_addr);
@@ -1069,6 +1082,7 @@ pub async fn start(
                     lockstep_team_bootstrap_store,
                     team_stream_router,
                     authority_mismatch_tx,
+                    client_checkpoint_tx,
                     rebase_failure_tx,
                     secure_input_validation,
                 )
@@ -1090,6 +1104,7 @@ pub async fn start(
         aoi,
         observer_validation,
         authority_mismatch_rx,
+        client_checkpoint_rx,
         rebase_failure_rx,
         secure_input_validation,
         selective_security_metrics,
@@ -1112,6 +1127,7 @@ async fn handle_client(
     >,
     team_stream_router: Arc<Mutex<omoba_core::runtime::TeamStreamRouter>>,
     authority_mismatch_tx: Sender<omoba_core::runtime::ClientHashMismatch>,
+    client_checkpoint_tx: Sender<omoba_core::runtime::ClientCheckpointReport>,
     rebase_failure_tx: Sender<omoba_core::runtime::RebaseFailureSignal>,
     secure_input_validation: omoba_core::runtime::SharedSecureInputValidationSnapshot,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -1180,9 +1196,22 @@ async fn handle_client(
                                     let actor = to_reference(actor)?;
                                     let target = to_reference(target)?;
                                     if actor.view_epoch != session_view_epoch || target.view_epoch != session_view_epoch { return None; }
-                                    secure_input_validation.lock().ok()?.validate(
+                                    let (_actor_id, target_id) = secure_input_validation.lock().ok()?.validate_and_resolve(
                                         team_id, request.input_tick, actor, target,
-                                    ).ok()
+                                    ).ok()?;
+                                    let mut input = PlayerInput::decode(request.sanitized_payload.as_slice()).ok()?;
+                                    rewrite_secure_target(&mut input, target_id)?;
+                                    let current_tick = lockstep_state.lock().ok()?.current_tick;
+                                    let input_id = u32::try_from(request.request_id).ok()?;
+                                    lockstep_input_buffer.lock().ok()?.submit_with_late_grace(
+                                        current_tick,
+                                        request.player_id,
+                                        u32::try_from(request.input_tick).ok()?,
+                                        input,
+                                        input_id,
+                                        late_input_grace_ticks(crate::config::server_config::CONFIG.STEP_FPS),
+                                    );
+                                    Some(())
                                 }).is_some();
                                 if !accepted {
                                     let _within_invalid_reference_budget =
@@ -1569,6 +1598,7 @@ async fn handle_client(
                                                     }),
                                                     public_metadata: Vec::new(),
                                                     team_private_metadata: Vec::new(),
+                                                    global_seed: master_seed,
                                                 },
                                             }
                                             }
@@ -1667,6 +1697,39 @@ async fn handle_client(
                                         }
                                     }
                                     Err(error) => warn!("invalid ClientTeamHashMismatch: {}", error),
+                                }
+                            }
+                            TAG_CLIENT_REPLICA_CHECKPOINT_V2 => {
+                                match ClientReplicaCheckpointReport::decode(payload.as_slice()) {
+                                    Ok(message) => {
+                                        let authorized = {
+                                            let sessions = sessions.lock().await;
+                                            sessions.get(&session_id).is_some_and(|session| {
+                                                session.negotiated_protocol_version == 2
+                                                    && session.secure_match_capability
+                                                    && session.authenticated_team_id == Some(message.team_id)
+                                                    && message.view_epoch.as_ref().map_or(0, |epoch| epoch.value) == session.current_view_epoch
+                                            })
+                                        };
+                                        if authorized {
+                                            if let (Ok(pre_repair_hash), Ok(post_repair_hash)) = (
+                                                <[u8; 32]>::try_from(message.pre_repair_hash.as_slice()),
+                                                <[u8; 32]>::try_from(message.post_repair_hash.as_slice()),
+                                            ) {
+                                                let _ = client_checkpoint_tx.try_send(omoba_core::runtime::ClientCheckpointReport {
+                                                    key: omoba_core::runtime::ReplicaCheckpointKey {
+                                                        team_id: message.team_id,
+                                                        replica_tick: message.replica_tick,
+                                                        team_sequence: message.frame_sequence,
+                                                        authority_revision: message.authority_revision.as_ref().map_or(0, |value| value.value),
+                                                    },
+                                                    pre_repair_hash,
+                                                    post_repair_hash,
+                                                });
+                                            }
+                                        }
+                                    }
+                                    Err(error) => warn!("invalid ClientReplicaCheckpointReport: {}", error),
                                 }
                             }
                             TAG_TEAM_REBASE_ACK_V2 => {
@@ -2392,7 +2455,9 @@ mod tests {
         InputSubmit {
             player_id,
             target_tick: 10,
-            input: Some(PlayerInput { action: Some(action) }),
+            input: Some(PlayerInput {
+                action: Some(action),
+            }),
             input_id: 1,
         }
         .encode_to_vec()

@@ -66,14 +66,13 @@ impl CombatEventHandler {
         let miss_roll = 1.0 - (1.0 - miss_chance) * (1.0 - evasion);
         let miss_triggered = if miss_roll > 0.0 {
             let master_seed: u64 = world.read_resource::<MasterSeed>().0;
-            let tick: u32 = world.read_resource::<Tick>().0 as u32;
-            let mut rng = omoba_sim::SimRng::from_master_entity(
+            let tick = world.read_resource::<Tick>().0;
+            let roll = omoba_core::runtime::tick_random_u64(
                 master_seed,
                 tick,
-                target.id(),
-                OP_COMBAT_MISS_ROLL,
-            );
-            let roll = rng.gen_fixed64_unit().to_f32_for_render();
+                (u64::from(target.id()) << 16) | u64::from(OP_COMBAT_MISS_ROLL),
+            ) % omoba_sim::fixed::SCALE as u64;
+            let roll = roll as f32 / omoba_sim::fixed::SCALE as f32;
             roll < miss_roll
         } else {
             false

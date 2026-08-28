@@ -55,6 +55,8 @@ instant = { version = "0.1.12", features = [] }
 instant-distance = "0.6.0"
 rand = "0.9"
 uuid = { version = "1.6.1", features = ["v4", "serde"] }
+sha2 = "0.10"
+hex = "0.4"
 parking_lot = "0.12.1"
 omoba-core = { path = "../omoba-core", default-features = false }
 hashbrown = "0.15"

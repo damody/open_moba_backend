@@ -22,6 +22,17 @@ use std::collections::HashMap;
 
 use super::{ResourceManager, StateInitializer, SystemDispatcher, TimeManager};
 
+#[cfg(feature = "kcp")]
+fn reliable_send_with_watchdog<T>(
+    tx: &Sender<T>,
+    value: T,
+    timeout: Duration,
+) -> Result<Duration, crossbeam_channel::SendTimeoutError<T>> {
+    let started = Instant::now();
+    tx.send_timeout(value, timeout)?;
+    Ok(started.elapsed())
+}
+
 /// 遊戲核心狀態
 pub struct State {
     /// ECS 世界
@@ -32,6 +43,8 @@ pub struct State {
     campaign: Option<CampaignData>,
     /// MQTT 發送通道
     mqtx: Sender<OutboundMsg>,
+    #[cfg(feature = "kcp")]
+    reliable_team_tx: Option<Sender<OutboundMsg>>,
     /// 玩家資料接收通道
     mqrx: Receiver<InboundMsg>,
     /// 執行緒池
@@ -117,6 +130,9 @@ pub struct State {
     authority_mismatch_rx:
         Option<crossbeam_channel::Receiver<omoba_core::runtime::ClientHashMismatch>>,
     #[cfg(feature = "kcp")]
+    client_checkpoint_rx:
+        Option<crossbeam_channel::Receiver<omoba_core::runtime::ClientCheckpointReport>>,
+    #[cfg(feature = "kcp")]
     rebase_failure_rx:
         Option<crossbeam_channel::Receiver<omoba_core::runtime::RebaseFailureSignal>>,
     #[cfg(feature = "kcp")]
@@ -134,7 +150,9 @@ pub struct State {
     host_input_rx: Option<crossbeam_channel::Receiver<Vec<(u32, crate::lockstep::PlayerInput)>>>,
 }
 
-#[cfg(test)]
+// Superseded by omoba-core::runtime::production_guards, which validates the
+// shared phase table rather than parsing duplicated source call sequences.
+#[cfg(any())]
 mod tower_ability_phase_order_tests {
     fn tick_body<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
         let start = source.rfind(start).expect("tick body start");
@@ -353,6 +371,8 @@ impl State {
             cw: creep_wave_data,
             campaign: None,
             mqtx: mqtx.clone(),
+            #[cfg(feature = "kcp")]
+            reliable_team_tx: None,
             mqrx: mqrx.clone(),
             thread_pool: thread_pool.clone(),
             time_manager: TimeManager::new(),
@@ -391,6 +411,7 @@ impl State {
             observer_validation: None,
             #[cfg(feature = "kcp")]
             authority_mismatch_rx: None,
+            client_checkpoint_rx: None,
             #[cfg(feature = "kcp")]
             rebase_failure_rx: None,
             secure_input_validation: None,
@@ -695,6 +716,8 @@ impl State {
             cw: campaign_data.map.clone(),
             campaign: Some(campaign_data.clone()),
             mqtx: mqtx.clone(),
+            #[cfg(feature = "kcp")]
+            reliable_team_tx: None,
             mqrx: mqrx.clone(),
             thread_pool: thread_pool.clone(),
             time_manager: TimeManager::new(),
@@ -733,6 +756,7 @@ impl State {
             observer_validation: None,
             #[cfg(feature = "kcp")]
             authority_mismatch_rx: None,
+            client_checkpoint_rx: None,
             #[cfg(feature = "kcp")]
             rebase_failure_rx: None,
             secure_input_validation: None,
@@ -785,107 +809,98 @@ impl State {
                 accumulated.extend(batch);
             }
             if !accumulated.is_empty() {
+                let accepted_projection = self.build_canonical_accepted_inputs(&accumulated);
                 use crate::comp::PendingPlayerInputs;
-                let mut pending = self.ecs.write_resource::<PendingPlayerInputs>();
-                pending.tick = self.local_tick as u32;
-                pending.inputs.clear();
-                for (player_id, input) in accumulated {
-                    pending.inputs.push((player_id, input));
+                {
+                    let mut pending = self.ecs.write_resource::<PendingPlayerInputs>();
+                    pending.tick = self.local_tick as u32;
+                    pending.inputs.clear();
+                    for (player_id, input) in accumulated {
+                        pending.inputs.push((player_id, input));
+                    }
                 }
+                self.ecs
+                    .write_resource::<omoba_core::runtime::TeamProjectionRuntime>()
+                    .pending_accepted_inputs
+                    .extend(accepted_projection);
             }
         }
 
-        // 運行遊戲系統
-        let t_run = Instant::now();
-        self.system_dispatcher.run_systems(&self.ecs)?;
-        let run_systems_ns = t_run.elapsed().as_nanos();
-
-        self.flush_runtime_events();
-
-        omoba_core::runtime::drain_pending_hero_command_clears(&mut self.ecs);
-        self.ecs.maintain();
-
-        // 階段 2.1：耗盡 `PendingTowerSpawnQueue` 填充
-        // 上述調度期間的`player_input_tick::Sys`。需要 `&mut World`
-        // （TowerTemplateRegistry 尋找 + 實體建立 + ScriptEvent::Spawn
-        // Push) 是「System」的規格無法借用。local replica 在自己的
-        // dispatcher 運行後使用相同 boundary drain。
-        omoba_core::runtime::drain_pending_tower_spawns(&mut self.ecs);
-        self.ecs.maintain();
-
-        // 階段 2.2：排出`PendingTowerSellQueue`（TowerSell 鎖步輸入）
-        // — 相同的「&mut World」要求（金幣+BuffStore清除+
-        // 實體刪除）。local replica 使用相同 boundary。
-        omoba_core::runtime::drain_pending_tower_sells(&mut self.ecs);
-        self.ecs.maintain();
-
-        omoba_core::runtime::drain_pending_tower_target_priorities(&mut self.ecs);
-        self.ecs.maintain();
-
-        // 階段 2.4：排出 `PendingItemUseQueue` （ItemUse 鎖步輸入） —
-        // 需要`&mut World`（ItemRegistry讀取，寫入Inventory冷卻時間，
-        // 為專案效果編寫 CProperty）。副本反映了這一點
-        // sim_runner。
-        omoba_core::runtime::drain_pending_item_uses(&mut self.ecs);
-        self.ecs.maintain();
-
-        // AbilityUpgrade：消耗 skill point 並在 script dispatch 前排入 SkillLearn。
-        // Replica 端在 sim_runner 中鏡像同一流程。
-        omoba_core::runtime::drain_pending_ability_upgrades(&mut self.ecs);
-        self.ecs.maintain();
-
-        // AbilityCast：在 script dispatch 前排入 SkillCast。放在 upgrades 後 drain，
-        // 讓同 tick 的 Shift+key 學習後再 key cast 可以成功。
-        omoba_core::runtime::drain_pending_ability_casts(&mut self.ecs);
-        self.ecs.maintain();
-
-        // MoveTo (右鍵移動): drain `PendingMoveQueue` — writes `MoveTarget`
-        // 玩家英雄實體上的組件。副本反映了這一點
-        // sim_runner。
-        omoba_core::runtime::drain_pending_moves(&mut self.ecs);
-        self.ecs.maintain();
-
-        // Keep the authoritative backend on the same two-boundary outcome
-        // contract as SimulationDriver: system outcomes settle before tower
-        // upgrades/scripts, and script outcomes settle afterwards.
-        let t_outcomes = Instant::now();
-        self.resource_manager.process_outcomes(&mut self.ecs)?;
-        self.ecs.maintain();
-        let mut process_outcomes_ns = t_outcomes.elapsed().as_nanos();
-
-        // Tower active abilities use one explicit deterministic phase in both
-        // authoritative and replica runners: upgrades -> casts -> scheduler ->
-        // callbacks -> ordinary unit script ticks.
-        omoba_core::runtime::drain_pending_tower_upgrades(&mut self.ecs);
-        omoba_core::runtime::drain_pending_tower_ability_casts(&mut self.ecs);
-        let scaled_dt = self.ecs.read_resource::<crate::comp::DeltaTime>().0;
-        omoba_core::runtime::tick_tower_abilities(&mut self.ecs, scaled_dt);
-        omoba_core::runtime::drain_pending_tower_ability_callbacks(
-            &mut self.ecs,
-            &self.script_registry,
-            self.local_tick,
-        );
-
-        // 腳本 dispatch 階段（E1 — 序列、獨佔 World）
-        // 放在並行系統之後、其他序列處理之前，確保腳本能看到本 tick 的
-        // 完整戰鬥結果，也能修改狀態讓下游處理看見。
-        let t_dispatch = Instant::now();
-        scripting::run_script_dispatch(
-            &mut self.ecs,
-            &self.script_registry,
-            self.local_tick,
-            scaled_dt,
-        );
-        let script_dispatch_ns = t_dispatch.elapsed().as_nanos();
-
-        // 處理小兵波
-        self.resource_manager.process_creep_waves(&mut self.ecs)?;
-
-        // 處理遊戲結果
-        let t_outcomes = Instant::now();
-        self.resource_manager.process_outcomes(&mut self.ecs)?;
-        self.ecs.maintain();
-        process_outcomes_ns += t_outcomes.elapsed().as_nanos();
+        // All production runtimes consume the same shared ordering table.
+        let mut run_systems_ns = 0u128;
+        let mut process_outcomes_ns = 0u128;
+        let mut script_dispatch_ns = 0u128;
+        omoba_core::runtime::run_deterministic_gameplay_phases(
+            &mut |phase| -> Result<(), Error> {
+                use omoba_core::runtime::DeterministicGameplayPhase as P;
+                match phase {
+                    P::Dispatcher => {
+                        let t = Instant::now();
+                        self.system_dispatcher.run_systems(&self.ecs)?;
+                        run_systems_ns += t.elapsed().as_nanos();
+                    }
+                    P::RuntimeEventBoundary => self.flush_runtime_events(),
+                    P::HeroCommandClears => {
+                        omoba_core::runtime::drain_pending_hero_command_clears(&mut self.ecs)
+                    }
+                    P::TowerSpawns => {
+                        omoba_core::runtime::drain_pending_tower_spawns(&mut self.ecs)
+                    }
+                    P::TowerSells => omoba_core::runtime::drain_pending_tower_sells(&mut self.ecs),
+                    P::TowerTargetPriorities => {
+                        omoba_core::runtime::drain_pending_tower_target_priorities(&mut self.ecs)
+                    }
+                    P::ItemUses => omoba_core::runtime::drain_pending_item_uses(&mut self.ecs),
+                    P::AbilityUpgrades => {
+                        omoba_core::runtime::drain_pending_ability_upgrades(&mut self.ecs)
+                    }
+                    P::AbilityCasts => {
+                        omoba_core::runtime::drain_pending_ability_casts(&mut self.ecs)
+                    }
+                    P::Moves => omoba_core::runtime::drain_pending_moves(&mut self.ecs),
+                    P::PreScriptOutcomes | P::PostScriptOutcomes => {
+                        let t = Instant::now();
+                        self.resource_manager.process_outcomes(&mut self.ecs)?;
+                        process_outcomes_ns += t.elapsed().as_nanos();
+                    }
+                    P::TowerUpgrades => {
+                        omoba_core::runtime::drain_pending_tower_upgrades(&mut self.ecs)
+                    }
+                    P::TowerAbilityCasts => {
+                        omoba_core::runtime::drain_pending_tower_ability_casts(&mut self.ecs)
+                    }
+                    P::TowerAbilityScheduler => {
+                        let dt = self.ecs.read_resource::<crate::comp::DeltaTime>().0;
+                        omoba_core::runtime::tick_tower_abilities(&mut self.ecs, dt);
+                    }
+                    P::TowerAbilityCallbacks => {
+                        let global_seed = self.ecs.read_resource::<crate::comp::MasterSeed>().0;
+                        omoba_core::runtime::drain_pending_tower_ability_callbacks(
+                            &mut self.ecs,
+                            &self.script_registry,
+                            global_seed,
+                        );
+                    }
+                    P::ScriptDispatch => {
+                        let t = Instant::now();
+                        let dt = self.ecs.read_resource::<crate::comp::DeltaTime>().0;
+                        let global_seed = self.ecs.read_resource::<crate::comp::MasterSeed>().0;
+                        scripting::run_script_dispatch(
+                            &mut self.ecs,
+                            &self.script_registry,
+                            global_seed,
+                            dt,
+                        );
+                        script_dispatch_ns += t.elapsed().as_nanos();
+                    }
+                    P::CreepWave => self.resource_manager.process_creep_waves(&mut self.ecs)?,
+                }
+                if matches!(phase, P::PreScriptOutcomes | P::PostScriptOutcomes) {
+                    self.ecs.maintain();
+                }
+                Ok(())
+            },
+        )?;
 
         // Wave A：outcome 與 fact 已在同一 Specs tick 中完成並穩定 reduce。
         // 只有 barrier 完成後，Wave B 才能讀取 committed State[T+1]；各 team
@@ -925,8 +940,14 @@ impl State {
             while let Some(mismatch) = worker.try_recv_mismatch() {
                 coordinator.report_observer_mismatch(mismatch);
             }
+            while let Some(report) = worker.try_recv_checkpoint() {
+                coordinator.report_observer_checkpoint(report);
+            }
             for gap in worker.tap().take_coverage_gaps() {
                 coordinator.report_coverage_gap(gap.team_id, gap.first_unverified_sequence);
+            }
+            for team_id in worker.unverified_worker_teams() {
+                coordinator.report_coverage_gap(team_id, 0);
             }
         }
         #[cfg(feature = "kcp")]
@@ -937,6 +958,21 @@ impl State {
             while let Ok(mismatch) = rx.try_recv() {
                 coordinator.report_client_mismatch(mismatch);
             }
+        }
+        #[cfg(feature = "kcp")]
+        if let Some(rx) = &self.client_checkpoint_rx {
+            let mut coordinator = self
+                .ecs
+                .write_resource::<omoba_core::runtime::AuthorityRepairCoordinator>();
+            while let Ok(report) = rx.try_recv() {
+                coordinator.report_client_checkpoint(report);
+            }
+        }
+        {
+            let coordinator = self
+                .ecs
+                .read_resource::<omoba_core::runtime::AuthorityRepairCoordinator>();
+            record_three_way_checkpoints(&coordinator);
         }
         #[cfg(feature = "kcp")]
         if let Some(rx) = &self.rebase_failure_rx {
@@ -958,6 +994,7 @@ impl State {
             projection.latest_frames.clear();
             projection.latest_rebases.clear();
         }
+        record_canonical_timeline(self.local_tick, (&self.ecs.entities()).join().count());
         #[cfg(feature = "kcp")]
         if let Some(shared) = &self.secure_input_validation {
             let visibility = self
@@ -1060,25 +1097,53 @@ impl State {
             .first()
             .cloned()
         {
-            return Err(failure::err_msg(format!(
-                "secure match terminated team={} last_safe_sequence={} reason={} safe_path={:?} protocol_fallback_allowed={}",
+            let opaque_team = omoba_core::runtime::opaque_match_team_id(
+                &self
+                    .ecs
+                    .read_resource::<crate::comp::MasterSeed>()
+                    .0
+                    .to_be_bytes(),
                 diagnostic.team_id,
+            );
+            return Err(failure::err_msg(format!(
+                "secure match terminated opaque_team={} last_safe_sequence={} reason={} protocol_fallback_allowed={}",
+                opaque_team,
                 diagnostic.last_safe_sequence,
                 diagnostic.reason_class,
-                diagnostic.safe_component_path,
                 diagnostic.protocol_fallback_allowed,
             )));
         }
         #[cfg(feature = "kcp")]
         if let Some(store) = &self.team_bootstrap_store {
-            let bootstraps = self
-                .ecs
-                .write_resource::<omoba_core::runtime::TeamProjectionRuntime>()
-                .build_team_bootstraps(
-                    self.local_tick,
+            let global_seed = self.ecs.read_resource::<crate::comp::MasterSeed>().0;
+            let (bootstraps, observer_rebootstrap_teams) = {
+                let mut projection = self
+                    .ecs
+                    .write_resource::<omoba_core::runtime::TeamProjectionRuntime>();
+                let teams = projection
+                    .latest_rebases
+                    .keys()
+                    .copied()
+                    .collect::<Vec<_>>();
+                let starts = projection.build_team_bootstraps(
+                    u64::from(self.local_tick).saturating_add(1),
                     crate::config::server_config::CONFIG.STEP_FPS,
+                    global_seed,
                 );
-            *store.lock().expect("team bootstrap store mutex poisoned") = bootstraps;
+                (starts, teams)
+            };
+            let mut stored = store.lock().expect("team bootstrap store mutex poisoned");
+            let first_bootstrap = stored.is_empty();
+            if let Some(worker) = &self.observer_validation {
+                for (team_id, start) in &bootstraps {
+                    if first_bootstrap || observer_rebootstrap_teams.contains(team_id) {
+                        worker
+                            .tap()
+                            .try_bootstrap(Arc::from(prost::Message::encode_to_vec(start)));
+                    }
+                }
+            }
+            *stored = bootstraps;
         }
         let team_frames: Vec<_> = self
             .ecs
@@ -1095,14 +1160,77 @@ impl State {
             })
             .collect();
         for (team_id, sequence, replica_tick, encoded) in team_frames {
-            let _ = self.mqtx.try_send(OutboundMsg::lockstep_frame(
-                crate::lockstep::LockstepFrame::TeamTickFrameV2 {
+            record_team_frame_evidence(team_id, sequence, replica_tick, &encoded);
+            let outbound =
+                OutboundMsg::lockstep_frame(crate::lockstep::LockstepFrame::TeamTickFrameV2 {
                     team_id,
                     sequence,
                     replica_tick,
                     encoded,
-                },
-            ));
+                });
+            #[cfg(feature = "kcp")]
+            {
+                use crossbeam_channel::SendTimeoutError;
+                let tx = self.reliable_team_tx.as_ref().unwrap_or(&self.mqtx);
+                let queue_was_full = tx.is_full();
+                if queue_was_full {
+                    log::warn!(
+                        "secure team outbound queue blocked team={} sequence={}",
+                        team_id,
+                        sequence
+                    );
+                }
+                match reliable_send_with_watchdog(tx, outbound, Duration::from_secs(5)) {
+                    Ok(elapsed) => {
+                        if queue_was_full {
+                            log::info!(
+                                "secure team outbound queue resumed team={} sequence={} blocked_us={}",
+                                team_id,
+                                sequence,
+                                elapsed.as_micros()
+                            );
+                        }
+                        if let Some(metrics) = &self.selective_security_metrics {
+                            metrics.outbound_blocking_wait_ns.fetch_add(
+                                elapsed.as_nanos().min(u128::from(u64::MAX)) as u64,
+                                std::sync::atomic::Ordering::Relaxed,
+                            );
+                            if elapsed > self.lockstep_timing.dt_duration() {
+                                metrics
+                                    .outbound_deadline_miss_count
+                                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            }
+                        }
+                    }
+                    Err(SendTimeoutError::Timeout(_)) => {
+                        if let Some(metrics) = &self.selective_security_metrics {
+                            metrics
+                                .outbound_watchdog_timeout_count
+                                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        }
+                        self.ecs
+                            .write_resource::<omoba_core::runtime::TeamProjectionRuntime>()
+                            .safe_terminations
+                            .push(omoba_core::runtime::SafeTerminationDiagnostic {
+                                team_id,
+                                last_safe_sequence: sequence.saturating_sub(1),
+                                reason_class: "outbound_queue_watchdog".into(),
+                                safe_component_path: None,
+                                protocol_fallback_allowed: false,
+                            });
+                        return Err(failure::err_msg(format!(
+                            "secure team {team_id} outbound queue watchdog exceeded 5 seconds"
+                        )));
+                    }
+                    Err(SendTimeoutError::Disconnected(_)) => {
+                        return Err(failure::err_msg("secure team outbound queue disconnected"));
+                    }
+                }
+            }
+            #[cfg(not(feature = "kcp"))]
+            self.mqtx
+                .send(outbound)
+                .map_err(|_| failure::err_msg("outbound queue disconnected"))?;
         }
         #[cfg(feature = "kcp")]
         {
@@ -1244,6 +1372,96 @@ impl State {
         }
     }
 
+    #[cfg(feature = "kcp")]
+    fn build_canonical_accepted_inputs(
+        &self,
+        inputs: &[(u32, crate::lockstep::PlayerInput)],
+    ) -> Vec<omoba_core::runtime::CanonicalAcceptedInput> {
+        use omoba_core::game_proto::player_input::Action;
+        use prost::Message as _;
+        let entities = self.ecs.entities();
+        let heroes = self.ecs.read_storage::<crate::comp::Hero>();
+        let owners = self.ecs.read_storage::<crate::comp::PlayerOwner>();
+        inputs
+            .iter()
+            .enumerate()
+            .filter_map(|(ordinal, (player_id, input))| {
+                let team_id = *crate::config::server_config::CONFIG
+                    .AUTHENTICATED_TEAM_BINDINGS
+                    .get(player_id)?;
+                let actor = (&entities, &heroes, &owners)
+                    .join()
+                    .find(|(_, _, owner)| owner.player_id == *player_id)
+                    .map(|(entity, _, _)| omoba_core::runtime::canonical_entity_id(entity))?;
+                let mut sanitized = input.clone();
+                let (action_kind, target_index) = match sanitized.action.as_mut()? {
+                    Action::NoOp(_) => (1, None),
+                    Action::MoveTo(_) => (2, None),
+                    Action::AttackTarget(value) => {
+                        let id = value.target_id;
+                        value.target_id = 0;
+                        (3, Some(id))
+                    }
+                    Action::CastAbility(value) => {
+                        let id = value.target_entity.take();
+                        (4, id)
+                    }
+                    Action::TowerPlace(_) => (5, None),
+                    Action::TowerUpgrade(value) => {
+                        let id = value.tower_entity_id;
+                        value.tower_entity_id = 0;
+                        (6, Some(id))
+                    }
+                    Action::TowerSell(value) => {
+                        let id = value.tower_entity_id;
+                        value.tower_entity_id = 0;
+                        (7, Some(id))
+                    }
+                    Action::ItemUse(value) => {
+                        let id = value.target_entity.take();
+                        (8, id)
+                    }
+                    Action::StartRound(_) => (9, None),
+                    Action::UpgradeAbility(_) => (10, None),
+                    Action::AttackMove(_) => (11, None),
+                    Action::SetTowerTargetPriority(value) => {
+                        let id = value.tower_entity_id;
+                        value.tower_entity_id = 0;
+                        (12, Some(id))
+                    }
+                    Action::TogglePause(_) => (13, None),
+                    Action::ToggleGameSpeed(_) => (14, None),
+                    Action::DebugSpawnCreep(_) => (15, None),
+                    Action::TowerAbilityCast(value) => {
+                        let id = value.tower_entity_id;
+                        value.tower_entity_id = 0;
+                        (16, Some(id))
+                    }
+                };
+                let target_canonical_id = target_index.and_then(|id| {
+                    let entity = entities.entity(id);
+                    entities
+                        .is_alive(entity)
+                        .then(|| omoba_core::runtime::canonical_entity_id(entity))
+                });
+                if target_index.is_some() && target_canonical_id.is_none() {
+                    return None;
+                }
+                Some(
+                    omoba_core::runtime::CanonicalAcceptedInput::from_authoritative_acceptance(
+                        team_id,
+                        *player_id,
+                        (self.local_tick << 32) | ordinal as u64,
+                        action_kind,
+                        actor,
+                        target_canonical_id,
+                        sanitized.encode_to_vec(),
+                    ),
+                )
+            })
+            .collect()
+    }
+
     fn award_kp_on_game_end(&self, data: &serde_json::Value) {
         use crate::config::server_config::read_hero_knowledge_setting;
         use crate::knowledge::kp_reward::{award_kp_for_game_end, KpRewardConfig};
@@ -1379,11 +1597,24 @@ impl State {
     }
 
     #[cfg(feature = "kcp")]
+    pub fn attach_reliable_team_sender(&mut self, tx: Sender<OutboundMsg>) {
+        self.reliable_team_tx = Some(tx);
+    }
+
+    #[cfg(feature = "kcp")]
     pub fn attach_authority_mismatch_rx(
         &mut self,
         rx: crossbeam_channel::Receiver<omoba_core::runtime::ClientHashMismatch>,
     ) {
         self.authority_mismatch_rx = Some(rx);
+    }
+
+    #[cfg(feature = "kcp")]
+    pub fn attach_client_checkpoint_rx(
+        &mut self,
+        rx: crossbeam_channel::Receiver<omoba_core::runtime::ClientCheckpointReport>,
+    ) {
+        self.client_checkpoint_rx = Some(rx);
     }
 
     #[cfg(feature = "kcp")]
@@ -1734,6 +1965,147 @@ impl State {
             payload,
         ));
         log::info!("已發送 {} 個 tower template 給前端", n);
+    }
+}
+
+#[cfg(feature = "kcp")]
+fn record_team_frame_evidence(team_id: u32, sequence: u64, replica_tick: u64, encoded: &[u8]) {
+    use prost::Message;
+    use sha2::Digest;
+    use std::io::Write;
+    let Ok(root) = std::env::var("OMOBA_FOG_EVIDENCE_DIR") else {
+        return;
+    };
+    let dir = std::path::Path::new(&root)
+        .join("server")
+        .join(format!("team-{team_id}"));
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("raw-application.capture"))
+    {
+        let _ = file.write_all(&(encoded.len() as u32).to_be_bytes());
+        let _ = file.write_all(encoded);
+    }
+    if let Ok(frame) = omoba_core::game_proto::TeamTickFrame::decode(encoded) {
+        let expected_hash = frame
+            .post_step
+            .as_ref()
+            .and_then(|post| post.hash_checkpoint.as_ref())
+            .map(|checkpoint| hex::encode(&checkpoint.canonical_team_hash));
+        let transitions = frame.pre_step.as_ref().map(|pre| pre.transitions.iter().map(|transition| serde_json::json!({
+            "kind": match transition.transition { Some(omoba_core::game_proto::transition::Transition::Reveal(_)) => "Reveal", Some(omoba_core::game_proto::transition::Transition::Hide(_)) => "Hide", Some(omoba_core::game_proto::transition::Transition::Forget(_)) => "Forget", Some(omoba_core::game_proto::transition::Transition::Replace(_)) => "Replace", None => "None" }
+        })).collect::<Vec<_>>()).unwrap_or_default();
+        let safe = serde_json::json!({
+            "team_id": team_id, "team_sequence": sequence, "replica_tick": replica_tick,
+            "view_epoch": frame.view_epoch.map(|value| value.value),
+            "transition_count": frame.pre_step.map_or(0, |value| value.transitions.len()),
+            "accepted_input_count": frame.step.as_ref().map_or(0, |value| value.accepted_inputs.len()),
+            "external_effect_count": frame.step.as_ref().map_or(0, |value| value.external_effects.len()),
+            "encoded_sha256": format!("{:x}", sha2::Sha256::digest(encoded)),
+            "expected_pre_repair_hash": expected_hash,
+            "transitions": transitions,
+        });
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(dir.join("decoded-timeline.jsonl"))
+        {
+            let _ = serde_json::to_writer(&mut file, &safe);
+            let _ = file.write_all(b"\n");
+        }
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(dir.join("expected-timeline.jsonl"))
+        {
+            let _ = serde_json::to_writer(&mut file, &safe);
+            let _ = file.write_all(b"\n");
+        }
+        if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(
+            std::path::Path::new(&root)
+                .join("server")
+                .join("disclosure-matrix.jsonl"),
+        ) {
+            let row = serde_json::json!({"team_id":team_id,"team_sequence":sequence,"replica_tick":replica_tick,"transitions":safe["transitions"]});
+            let _ = serde_json::to_writer(&mut file, &row);
+            let _ = file.write_all(b"\n");
+        }
+    }
+}
+
+fn record_canonical_timeline(tick: u64, entity_count: usize) {
+    use std::io::Write;
+    let Ok(root) = std::env::var("OMOBA_FOG_EVIDENCE_DIR") else {
+        return;
+    };
+    let path = std::path::Path::new(&root)
+        .join("server")
+        .join("canonical-timeline.jsonl");
+    let Some(parent) = path.parent() else {
+        return;
+    };
+    let _ = std::fs::create_dir_all(parent);
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        let _ = serde_json::to_writer(
+            &mut file,
+            &serde_json::json!({"authoritative_tick":tick,"canonical_entity_count":entity_count}),
+        );
+        let _ = file.write_all(b"\n");
+    }
+}
+
+fn record_three_way_checkpoints(coordinator: &omoba_core::runtime::AuthorityRepairCoordinator) {
+    let Ok(root) = std::env::var("OMOBA_FOG_EVIDENCE_DIR") else {
+        return;
+    };
+    let rows: Vec<_> = coordinator.three_way_checkpoints.iter().map(|(key, value)| serde_json::json!({
+        "team_id":key.team_id,"replica_tick":key.replica_tick,"team_sequence":key.team_sequence,"authority_revision":key.authority_revision,
+        "expected":value.expected_hash.map(hex::encode),"observer":value.observer_hash.map(hex::encode),"external_runtime":value.client_hash.map(hex::encode),
+        "verdict":format!("{:?}",value.verdict()).to_uppercase()
+    })).collect();
+    let path = std::path::Path::new(&root)
+        .join("server")
+        .join("three-way-checkpoints.json");
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(path, serde_json::to_vec_pretty(&rows).unwrap_or_default());
+}
+
+#[cfg(all(test, feature = "kcp"))]
+mod reliable_outbound_tests {
+    use super::*;
+    use crossbeam_channel::{bounded, SendTimeoutError};
+
+    #[test]
+    fn temporary_backpressure_blocks_then_preserves_sequence() {
+        let (tx, rx) = bounded(1);
+        tx.send(1u64).unwrap();
+        let drain = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(20));
+            assert_eq!(rx.recv().unwrap(), 1);
+            assert_eq!(rx.recv().unwrap(), 2);
+        });
+        let waited = reliable_send_with_watchdog(&tx, 2, Duration::from_secs(1)).unwrap();
+        assert!(waited >= Duration::from_millis(10));
+        drop(tx);
+        drain.join().unwrap();
+    }
+
+    #[test]
+    fn watchdog_returns_unsent_frame_instead_of_dropping_it() {
+        let (tx, _rx) = bounded(1);
+        tx.send(1u64).unwrap();
+        let result = reliable_send_with_watchdog(&tx, 2, Duration::from_millis(10));
+        assert!(matches!(result, Err(SendTimeoutError::Timeout(2))));
     }
 }
 
