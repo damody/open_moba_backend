@@ -1145,6 +1145,11 @@ impl State {
             }
             *stored = bootstraps;
         }
+        #[cfg(feature = "kcp")]
+        let mut rebase_frames = self
+            .ecs
+            .write_resource::<omoba_core::runtime::TeamProjectionRuntime>()
+            .take_rate_limited_rebase_outbound();
         let team_frames: Vec<_> = self
             .ecs
             .read_resource::<omoba_core::runtime::TeamProjectionRuntime>()
@@ -1160,6 +1165,51 @@ impl State {
             })
             .collect();
         for (team_id, sequence, replica_tick, encoded) in team_frames {
+            #[cfg(feature = "kcp")]
+            if let Some(index) = rebase_frames
+                .iter()
+                .position(|(team, _, _)| *team == team_id)
+            {
+                use prost::Message as _;
+                let (_, chunks, manifest) = rebase_frames.remove(index);
+                let tx = self.reliable_team_tx.as_ref().unwrap_or(&self.mqtx);
+                for encoded in chunks {
+                    if let Some(metrics) = &self.selective_security_metrics {
+                        metrics
+                            .rebase_burst_bytes
+                            .fetch_add(encoded.len() as u64, std::sync::atomic::Ordering::Relaxed);
+                    }
+                    reliable_send_with_watchdog(
+                        tx,
+                        OutboundMsg::lockstep_frame(
+                            crate::lockstep::LockstepFrame::TeamRebaseChunkV2 {
+                                team_id,
+                                encoded: Arc::from(encoded),
+                            },
+                        ),
+                        Duration::from_secs(5),
+                    )
+                    .map_err(|_| failure::err_msg("rebase chunk outbound watchdog"))?;
+                }
+                if let Some(manifest) = manifest {
+                    if let Some(metrics) = &self.selective_security_metrics {
+                        metrics
+                            .rebase_burst_bytes
+                            .fetch_add(manifest.len() as u64, std::sync::atomic::Ordering::Relaxed);
+                    }
+                    reliable_send_with_watchdog(
+                        tx,
+                        OutboundMsg::lockstep_frame(
+                            crate::lockstep::LockstepFrame::TeamRebaseManifestV2 {
+                                team_id,
+                                encoded: Arc::from(manifest),
+                            },
+                        ),
+                        Duration::from_secs(5),
+                    )
+                    .map_err(|_| failure::err_msg("rebase manifest outbound watchdog"))?;
+                }
+            }
             record_team_frame_evidence(team_id, sequence, replica_tick, &encoded);
             let outbound =
                 OutboundMsg::lockstep_frame(crate::lockstep::LockstepFrame::TeamTickFrameV2 {
@@ -1232,43 +1282,6 @@ impl State {
                 .send(outbound)
                 .map_err(|_| failure::err_msg("outbound queue disconnected"))?;
         }
-        #[cfg(feature = "kcp")]
-        {
-            use prost::Message as _;
-            let rebase_frames = self
-                .ecs
-                .write_resource::<omoba_core::runtime::TeamProjectionRuntime>()
-                .take_rate_limited_rebase_outbound();
-            for (team_id, chunks, manifest) in rebase_frames {
-                for encoded in chunks {
-                    if let Some(metrics) = &self.selective_security_metrics {
-                        metrics
-                            .rebase_burst_bytes
-                            .fetch_add(encoded.len() as u64, std::sync::atomic::Ordering::Relaxed);
-                    }
-                    let _ = self.mqtx.try_send(OutboundMsg::lockstep_frame(
-                        crate::lockstep::LockstepFrame::TeamRebaseChunkV2 {
-                            team_id,
-                            encoded: Arc::from(encoded),
-                        },
-                    ));
-                }
-                if let Some(manifest) = manifest {
-                    if let Some(metrics) = &self.selective_security_metrics {
-                        metrics
-                            .rebase_burst_bytes
-                            .fetch_add(manifest.len() as u64, std::sync::atomic::Ordering::Relaxed);
-                    }
-                    let _ = self.mqtx.try_send(OutboundMsg::lockstep_frame(
-                        crate::lockstep::LockstepFrame::TeamRebaseManifestV2 {
-                            team_id,
-                            encoded: Arc::from(manifest),
-                        },
-                    ));
-                }
-            }
-        }
-
         {
             use crate::comp::{TickPhase, TickProfile};
             let mut profile = self.ecs.write_resource::<TickProfile>();

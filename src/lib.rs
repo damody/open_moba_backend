@@ -22,6 +22,8 @@ pub mod comp;
 pub mod config;
 pub mod item;
 pub mod json_preprocessor;
+#[cfg(feature = "erps-game-server")]
+pub mod erps;
 pub mod knowledge;
 #[cfg(feature = "kcp")]
 pub mod lockstep;
