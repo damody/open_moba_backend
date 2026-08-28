@@ -7,7 +7,7 @@ CLIENT_ID = "omobab"
 PLAYER_NAME = "player1"
 RENDER_DELAY_MS = 100
 STEP_FPS = 120
-# 壓力測試場景（由 scripts/gen_stress_map.py 依下方 [stress] 生成）
+# 壓力測試場景（由 scripts/gen_stress_map.lua 依下方 [stress] 生成）
 STORY = "TD_STRESS"
 
 [content]
