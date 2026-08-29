@@ -2,4 +2,6 @@
 mod client;
 mod instance_adapter;
 pub use client::{ErpsGameServerClient, ErpsServerConfig};
-pub use instance_adapter::{GameInstanceAdapter, InstanceReport, LaunchAssignment, LaunchReady};
+pub use instance_adapter::{
+    GameInstanceAdapter, InstanceReport, LaunchAssignment, LaunchReady, MatchCompletion,
+};
