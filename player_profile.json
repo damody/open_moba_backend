@@ -1,5 +1,9 @@
 {
+  "games_played": 1,
+  "highest_wave": 0,
   "spent_kp": 0,
+  "total_kills": 0,
   "total_kp": 20,
-  "unlocked_nodes": []
+  "unlocked_nodes": [],
+  "wins": 0
 }
