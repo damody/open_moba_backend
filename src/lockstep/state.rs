@@ -153,4 +153,44 @@ mod tests {
             .is_err());
         assert_eq!(state.players.len(), 1);
     }
+
+    #[test]
+    fn secure_registration_accepts_multiple_players_on_the_same_team() {
+        let mut state = LockstepState::new(0x1234);
+        state.authorize_player_team(1, 1).unwrap();
+        state.authorize_player_team(3, 1).unwrap();
+        state.authorize_player_team(2, 2).unwrap();
+        let negotiation = omoba_core::transport::MatchCapabilityNegotiation {
+            requested_protocol: 2,
+            supported_protocols: vec![2],
+            secure_fog_required: true,
+        };
+
+        let (_, first) = state
+            .register_secure_player(
+                1,
+                "team-1-a".into(),
+                JoinRoleEnum::Player,
+                negotiation.clone(),
+                1,
+            )
+            .unwrap();
+        let (_, second) = state
+            .register_secure_player(
+                3,
+                "team-1-b".into(),
+                JoinRoleEnum::Player,
+                negotiation.clone(),
+                1,
+            )
+            .unwrap();
+        let (_, opponent) = state
+            .register_secure_player(2, "team-2".into(), JoinRoleEnum::Player, negotiation, 1)
+            .unwrap();
+
+        assert_eq!(first.authenticated_team_id, 1);
+        assert_eq!(second.authenticated_team_id, 1);
+        assert_eq!(opponent.authenticated_team_id, 2);
+        assert_eq!(state.players.len(), 3);
+    }
 }

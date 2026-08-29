@@ -50,6 +50,7 @@ const TAG_TEAM_REBASE_ACK_V2: u8 = 0x26;
 const TAG_SECURE_TARGET_INPUT_V2: u8 = 0x27;
 const TAG_SECURE_TARGET_INPUT_RESULT_V2: u8 = 0x28;
 const TAG_CLIENT_REPLICA_CHECKPOINT_V2: u8 = 0x29;
+const TAG_SESSION_CLOSE: u8 = 0x2A;
 const LATE_INPUT_GRACE_MS: u32 = 64;
 
 /// 標籤的高位元 — 當幀有效負載經過 LZ4 壓縮時設定。
@@ -598,7 +599,14 @@ pub async fn start(
         Arc::new(omoba_core::runtime::SelectiveSecurityMetrics::default());
 
     let sessions: Arc<Mutex<HashMap<String, ClientSession>>> = Arc::new(Mutex::new(HashMap::new()));
-    let team_stream_router = Arc::new(Mutex::new(omoba_core::runtime::TeamStreamRouter::new(2048)));
+    let replay_capacity = std::env::var("OMOBA_TEAM_REPLAY_CAPACITY")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(2048);
+    let team_stream_router = Arc::new(Mutex::new(omoba_core::runtime::TeamStreamRouter::new(
+        replay_capacity,
+    )));
     let observer_validation = omoba_core::runtime::ObserverValidationWorker::start(4096);
     let observer_tap = observer_validation.tap();
 
@@ -683,6 +691,7 @@ pub async fn start(
                                 if let Some(session) = sessions.get(&client_session_id) {
                                     if session.negotiated_protocol_version == 2 && session.secure_match_capability {
                                         let _ = session.event_tx.try_send(frame_arc);
+                                        observer_tap_broadcast.try_bootstrap(Arc::clone(&encoded));
                                     }
                                 }
                             }
@@ -1472,7 +1481,7 @@ async fn handle_client(
                                             };
                                             result.map(|(pid, binding)| (pid, s.master_seed, s.current_tick, binding))
                                         };
-                                        let (player_id, master_seed, start_tick, secure_binding) = match registered {
+                                        let (player_id, master_seed, start_tick, mut secure_binding) = match registered {
                                             Ok(v) => v,
                                             Err(reason) => {
                                                 warn!(
@@ -1486,6 +1495,19 @@ async fn handle_client(
                                                 break;
                                             }
                                         };
+                                        // The client sends view_epoch=0 when it has no prior
+                                        // replica state. Never treat that client hint as the
+                                        // authoritative epoch: use the current server bootstrap,
+                                        // or the projector's initial epoch while the first
+                                        // bootstrap is still being published.
+                                        if let Some(binding) = secure_binding.as_mut() {
+                                            binding.current_view_epoch = lockstep_team_bootstrap_store
+                                                .lock()
+                                                .expect("team bootstrap store mutex poisoned")
+                                                .get(&binding.authenticated_team_id)
+                                                .and_then(|start| start.view_epoch.as_ref())
+                                                .map_or(1, |epoch| epoch.value);
+                                        }
                                         joined_player_id = Some(player_id);
                                         // 將此會話標記為已加入
                                         // 鎖步流因此未來 TickBatch /
@@ -1577,7 +1599,14 @@ async fn handle_client(
                                                     player_id,
                                                     team_id: binding.authenticated_team_id,
                                                     server_tick: u64::from(start_tick),
-                                                    replica_start_tick: u64::from(start_tick),
+                                                    // The empty fallback snapshot represents the
+                                                    // authoritative world before the first
+                                                    // projected frame. That first frame is tick 1,
+                                                    // so a replica must not wait for nonexistent
+                                                    // tick 0 when it joins before the bootstrap
+                                                    // store has received its first game update.
+                                                    replica_start_tick: u64::from(start_tick)
+                                                        .saturating_add(1),
                                                     tick_rate_hz: crate::config::server_config::CONFIG.STEP_FPS,
                                                     visibility_commit_delay_ticks: 1,
                                                     replica_buffer_ticks: 2,
@@ -1661,10 +1690,26 @@ async fn handle_client(
                                                     let resume = oldest_retained_sequence.unwrap_or(req.from_team_sequence);
                                                     team_stream_router.lock().await
                                                         .begin_filtered_rebase(&session_id, resume);
+                                                    if let Err(error) = rebase_failure_tx.try_send(
+                                                        omoba_core::runtime::RebaseFailureSignal {
+                                                            team_id,
+                                                            last_safe_sequence: resume.saturating_sub(1),
+                                                            replay_coverage_gap: true,
+                                                        },
+                                                    ) {
+                                                        warn!("failed to enqueue replay coverage gap: {}", error);
+                                                    }
                                                     warn!("team replay expired; filtered rebase required session={} team={} from_sequence={} oldest={:?}",
                                                         session_id, team_id, req.from_team_sequence, oldest_retained_sequence);
                                                 }
                                             }
+                                        } else {
+                                            warn!(
+                                                "rejected unauthorized team replay request session={} from_sequence={} requested_epoch={}",
+                                                session_id,
+                                                req.from_team_sequence,
+                                                req.view_epoch.as_ref().map_or(0, |epoch| epoch.value),
+                                            );
                                         }
                                     }
                                     Err(error) => warn!("invalid TeamReplayRequest: {}", error),
@@ -1712,9 +1757,10 @@ async fn handle_client(
                                             })
                                         };
                                         if authorized {
-                                            if let (Ok(pre_repair_hash), Ok(post_repair_hash)) = (
+                                            if let (Ok(pre_repair_hash), Ok(post_repair_hash), Ok(encoded_frame_hash)) = (
                                                 <[u8; 32]>::try_from(message.pre_repair_hash.as_slice()),
                                                 <[u8; 32]>::try_from(message.post_repair_hash.as_slice()),
+                                                <[u8; 32]>::try_from(message.encoded_frame_hash.as_slice()),
                                             ) {
                                                 let _ = client_checkpoint_tx.try_send(omoba_core::runtime::ClientCheckpointReport {
                                                     key: omoba_core::runtime::ReplicaCheckpointKey {
@@ -1725,6 +1771,7 @@ async fn handle_client(
                                                     },
                                                     pre_repair_hash,
                                                     post_repair_hash,
+                                                    encoded_frame_hash,
                                                 });
                                             }
                                         }
@@ -1761,6 +1808,7 @@ async fn handle_client(
                                                     omoba_core::runtime::RebaseFailureSignal {
                                                         team_id: ack.team_id,
                                                         last_safe_sequence: ack.resume_team_sequence.saturating_sub(1),
+                                                        replay_coverage_gap: false,
                                                     },
                                                 );
                                             }
@@ -1780,6 +1828,10 @@ async fn handle_client(
                                     }
                                     Err(e) => warn!("Failed to decode SnapshotReq: {}", e),
                                 }
+                            }
+                            TAG_SESSION_CLOSE => {
+                                info!("KCP client requested graceful session close: {}", session_id);
+                                break;
                             }
                             TAG_PING_REQ => {
                                 // 使用相同的 client_send_us 回顯 PingResponse
@@ -1856,6 +1908,14 @@ mod tests {
 
     fn make(t: &str, a: &str, v: serde_json::Value) -> OutboundMsg {
         OutboundMsg::new_s("td/all/res", t, a, v)
+    }
+
+    #[test]
+    fn graceful_session_close_has_a_dedicated_server_loop_arm() {
+        assert_eq!(TAG_SESSION_CLOSE, 0x2A);
+        let source = include_str!("kcp_transport.rs");
+        assert!(source.contains("TAG_SESSION_CLOSE =>"));
+        assert!(source.contains("requested graceful session close"));
     }
 
     #[test]

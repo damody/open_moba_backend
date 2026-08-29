@@ -147,7 +147,8 @@ pub struct State {
     /// `player_input_tick::Sys` 也能看到它們。主機與 broadcaster 現在同為
     /// 120Hz，但仍排空所有可用批次以便短暫 stall 後追上。
     #[cfg(feature = "kcp")]
-    host_input_rx: Option<crossbeam_channel::Receiver<Vec<(u32, crate::lockstep::PlayerInput)>>>,
+    host_input_rx:
+        Option<crossbeam_channel::Receiver<Vec<(u32, crate::lockstep::PlayerInput, u32)>>>,
 }
 
 // Superseded by omoba-core::runtime::production_guards, which validates the
@@ -804,7 +805,7 @@ impl State {
         // 如果主機短暫落後於 broadcaster，則可以趕上。
         #[cfg(feature = "kcp")]
         if let Some(rx) = self.host_input_rx.as_ref() {
-            let mut accumulated: Vec<(u32, crate::lockstep::PlayerInput)> = Vec::new();
+            let mut accumulated: Vec<(u32, crate::lockstep::PlayerInput, u32)> = Vec::new();
             while let Ok(batch) = rx.try_recv() {
                 accumulated.extend(batch);
             }
@@ -815,7 +816,7 @@ impl State {
                     let mut pending = self.ecs.write_resource::<PendingPlayerInputs>();
                     pending.tick = self.local_tick as u32;
                     pending.inputs.clear();
-                    for (player_id, input) in accumulated {
+                    for (player_id, input, _) in accumulated {
                         pending.inputs.push((player_id, input));
                     }
                 }
@@ -980,8 +981,15 @@ impl State {
                 .ecs
                 .write_resource::<omoba_core::runtime::AuthorityRepairCoordinator>();
             while let Ok(failure) = rx.try_recv() {
-                let _ = coordinator
-                    .manifest_verification_failed(failure.team_id, failure.last_safe_sequence);
+                if failure.replay_coverage_gap {
+                    coordinator.report_coverage_gap(
+                        failure.team_id,
+                        failure.last_safe_sequence.saturating_add(1),
+                    );
+                } else {
+                    let _ = coordinator
+                        .manifest_verification_failed(failure.team_id, failure.last_safe_sequence);
+                }
             }
         }
         if crate::config::server_config::CONFIG.selective_generation_enabled() {
@@ -1125,18 +1133,39 @@ impl State {
                     .keys()
                     .copied()
                     .collect::<Vec<_>>();
-                let starts = projection.build_team_bootstraps(
+                let mut starts = projection.build_team_bootstraps(
                     u64::from(self.local_tick).saturating_add(1),
                     crate::config::server_config::CONFIG.STEP_FPS,
                     global_seed,
                 );
+                drop(projection);
+                let blocked = self.ecs.read_resource::<crate::comp::BlockedRegions>();
+                let encoded = omoba_core::runtime::encode_public_blocked_regions(&blocked);
+                for start in starts.values_mut() {
+                    start
+                        .public_metadata
+                        .push(omoba_core::game_proto::DeterministicMetadata {
+                            namespace: omoba_core::runtime::PUBLIC_BLOCKED_REGIONS_NAMESPACE.into(),
+                            key: omoba_core::runtime::PUBLIC_BLOCKED_REGIONS_KEY.into(),
+                            schema_version: 1,
+                            value: encoded.clone(),
+                        });
+                }
                 (starts, teams)
             };
             let mut stored = store.lock().expect("team bootstrap store mutex poisoned");
-            let first_bootstrap = stored.is_empty();
             if let Some(worker) = &self.observer_validation {
                 for (team_id, start) in &bootstraps {
-                    if first_bootstrap || observer_rebootstrap_teams.contains(team_id) {
+                    // Initial bootstrap must be observed only after the KCP
+                    // broadcaster has actually enqueued that exact
+                    // TeamGameStart for a secure player session. Tapping it
+                    // here as well races the session bootstrap and can reset
+                    // the observer to a different start tick before frame 1.
+                    // A projector-requested rebase is different: it replaces
+                    // the already-running team view, so reset the observer to
+                    // the equivalent freshly built filtered baseline before
+                    // the queued rebase frames are consumed by the player.
+                    if observer_rebootstrap_teams.contains(team_id) {
                         worker
                             .tap()
                             .try_bootstrap(Arc::from(prost::Message::encode_to_vec(start)));
@@ -1388,7 +1417,7 @@ impl State {
     #[cfg(feature = "kcp")]
     fn build_canonical_accepted_inputs(
         &self,
-        inputs: &[(u32, crate::lockstep::PlayerInput)],
+        inputs: &[(u32, crate::lockstep::PlayerInput, u32)],
     ) -> Vec<omoba_core::runtime::CanonicalAcceptedInput> {
         use omoba_core::game_proto::player_input::Action;
         use prost::Message as _;
@@ -1397,8 +1426,7 @@ impl State {
         let owners = self.ecs.read_storage::<crate::comp::PlayerOwner>();
         inputs
             .iter()
-            .enumerate()
-            .filter_map(|(ordinal, (player_id, input))| {
+            .filter_map(|(player_id, input, acceptance_correlation)| {
                 let team_id = *crate::config::server_config::CONFIG
                     .AUTHENTICATED_TEAM_BINDINGS
                     .get(player_id)?;
@@ -1464,7 +1492,7 @@ impl State {
                     omoba_core::runtime::CanonicalAcceptedInput::from_authoritative_acceptance(
                         team_id,
                         *player_id,
-                        (self.local_tick << 32) | ordinal as u64,
+                        u64::from(*acceptance_correlation),
                         action_kind,
                         actor,
                         target_canonical_id,
@@ -1656,7 +1684,7 @@ impl State {
     #[cfg(feature = "kcp")]
     pub fn attach_host_input_rx(
         &mut self,
-        rx: crossbeam_channel::Receiver<Vec<(u32, crate::lockstep::PlayerInput)>>,
+        rx: crossbeam_channel::Receiver<Vec<(u32, crate::lockstep::PlayerInput, u32)>>,
     ) {
         self.host_input_rx = Some(rx);
     }
@@ -2081,7 +2109,15 @@ fn record_three_way_checkpoints(coordinator: &omoba_core::runtime::AuthorityRepa
     };
     let rows: Vec<_> = coordinator.three_way_checkpoints.iter().map(|(key, value)| serde_json::json!({
         "team_id":key.team_id,"replica_tick":key.replica_tick,"team_sequence":key.team_sequence,"authority_revision":key.authority_revision,
-        "expected":value.expected_hash.map(hex::encode),"observer":value.observer_hash.map(hex::encode),"external_runtime":value.client_hash.map(hex::encode),
+        "expected":value.expected_hash.map(hex::encode),
+        "observer_pre_repair":value.observer_pre_repair_hash.map(hex::encode),
+        "observer_post_repair":value.observer_post_repair_hash.map(hex::encode),
+        "external_runtime_pre_repair":value.client_pre_repair_hash.map(hex::encode),
+        "external_runtime_post_repair":value.client_post_repair_hash.map(hex::encode),
+        "pre_repair_parity":value.pre_repair_parity,
+        "post_repair_parity":value.parity,
+        "observer_frame_hash":value.observer_frame_hash.map(hex::encode),
+        "external_runtime_frame_hash":value.client_frame_hash.map(hex::encode),
         "verdict":format!("{:?}",value.verdict()).to_uppercase()
     })).collect();
     let path = std::path::Path::new(&root)

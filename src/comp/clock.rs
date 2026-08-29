@@ -1,6 +1,7 @@
 use crate::comp::span;
 use log::info;
 use ordered_float::NotNan;
+use spin_sleep::{SpinSleeper, SpinStrategy};
 use std::{
     collections::VecDeque,
     time::{Duration, Instant},
@@ -22,6 +23,10 @@ pub struct Clock {
     target_dt: Duration,
     /// 上次調用“tick”的時間
     last_sys_time: Instant,
+    /// 絕對的下一個 authoritative deadline。不得用實際醒來時間重設，
+    /// 否則 Windows scheduler 的 oversleep 會逐 tick 累積成永久降頻。
+    next_deadline: Instant,
+    sleeper: SpinSleeper,
     /// 將在 `tick` 中計算傳回下次迭代使用的 dt
     /// 主循環的
     last_dt: Duration,
@@ -60,9 +65,14 @@ const NUMBER_OF_DELTAS_COMPARED: usize = 5;
 
 impl Clock {
     pub fn new(target_dt: Duration) -> Self {
+        let now = Instant::now();
         Self {
             target_dt,
-            last_sys_time: Instant::now(),
+            last_sys_time: now,
+            next_deadline: now + target_dt,
+            // 提前 1ms 從 native wait 醒來，再 spin 到 absolute deadline。
+            // 120Hz server 每 tick 的 deadline 精度比省下這 1ms CPU 更重要。
+            sleeper: SpinSleeper::new(1_000_000).with_spin_strategy(SpinStrategy::SpinLoopHint),
             last_dt: target_dt,
             target_total_tick_time: Duration::default(),
             total_tick_time: Duration::default(),
@@ -75,6 +85,7 @@ impl Clock {
 
     pub fn set_target_dt(&mut self, target_dt: Duration) {
         self.target_dt = target_dt;
+        self.next_deadline = Instant::now() + target_dt;
     }
 
     pub fn stats(&self) -> &ClockStats {
@@ -106,7 +117,6 @@ impl Clock {
         span!(_guard, "tick", "Clock::tick");
         span!(guard, "clock work");
         let current_sys_time = Instant::now();
-        let estimated_time = self.last_sys_time.checked_add(self.target_dt).unwrap();
         let mut busy_delta = current_sys_time.duration_since(self.last_sys_time);
         let busy_delta2 = self
             .total_tick_time
@@ -119,11 +129,9 @@ impl Clock {
         self.last_dts_sorted.sort_unstable();
         self.stats = ClockStats::new(&self.last_dts_sorted, &self.last_busy_dts);
         drop(guard);
-        // 嘗試睡覺來填補空白。
-        if let Some(sleep_dur) = self.target_dt.checked_sub(busy_delta) {
-            //log::info!("busy_delta {:?}", busy_delta);
-            spin_sleep::sleep(sleep_dur);
-        }
+        // 依 absolute deadline 等待；小幅 oversleep 由下一個 deadline 自動補回，
+        // 不把 scheduler 誤差累積進整場遊戲速度。
+        self.sleeper.sleep_until(self.next_deadline);
 
         let after_sleep_sys_time = Instant::now();
         self.last_dt = after_sleep_sys_time.duration_since(self.last_sys_time);
@@ -143,6 +151,12 @@ impl Clock {
         self.total_tick_time += self.last_dt;
         self.target_total_tick_time += self.target_dt;
         self.last_sys_time = after_sleep_sys_time;
+        self.next_deadline += self.target_dt;
+        // 真正過載超過一整 tick 時不做無上限 burst；重新錨定下一格，
+        // 但一般的亞毫秒 oversleep 仍會由 absolute cadence 修正。
+        if after_sleep_sys_time > self.next_deadline + self.target_dt {
+            self.next_deadline = after_sleep_sys_time + self.target_dt;
+        }
     }
 }
 

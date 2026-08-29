@@ -92,7 +92,8 @@ pub struct TickBroadcaster {
     /// 客戶端透過 TickBatch 但絕不是主機的“PendingPlayerInputs”，
     /// 所以主機端遊戲狀態（例如 `CurrentCreepWave.is_running`）永遠不會
     /// 翻轉開始回合。
-    host_input_tx: Option<crossbeam_channel::Sender<Vec<(u32, crate::lockstep::PlayerInput)>>>,
+    host_input_tx:
+        Option<crossbeam_channel::Sender<Vec<(u32, crate::lockstep::PlayerInput, u32)>>>,
 }
 
 impl TickBroadcaster {
@@ -124,7 +125,7 @@ impl TickBroadcaster {
     /// 接收器並將它們鏡像到其“PendingPlayerInputs”資源中。
     pub fn with_host_input_tx(
         mut self,
-        tx: crossbeam_channel::Sender<Vec<(u32, crate::lockstep::PlayerInput)>>,
+        tx: crossbeam_channel::Sender<Vec<(u32, crate::lockstep::PlayerInput, u32)>>,
     ) -> Self {
         self.host_input_tx = Some(tx);
         self
@@ -184,7 +185,9 @@ impl TickBroadcaster {
             if let Some(tx) = self.host_input_tx.as_ref() {
                 let host_inputs: Vec<_> = inputs
                     .iter()
-                    .map(|(player_id, buffered)| (*player_id, buffered.input.clone()))
+                    .map(|(player_id, buffered)| {
+                        (*player_id, buffered.input.clone(), buffered.input_id)
+                    })
                     .collect();
                 if let Err(e) = tx.send(host_inputs) {
                     log::warn!("TickBroadcaster: host_input_tx send failed: {e}");
