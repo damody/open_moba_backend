@@ -51,7 +51,7 @@ const TAG_SECURE_TARGET_INPUT_V2: u8 = 0x27;
 const TAG_SECURE_TARGET_INPUT_RESULT_V2: u8 = 0x28;
 const TAG_CLIENT_REPLICA_CHECKPOINT_V2: u8 = 0x29;
 const TAG_SESSION_CLOSE: u8 = 0x2A;
-const LATE_INPUT_GRACE_MS: u32 = 64;
+const LATE_INPUT_GRACE_MS: u32 = 1_000;
 
 /// 標籤的高位元 — 當幀有效負載經過 LZ4 壓縮時設定。
 /// 基本標籤 0x01~0x07 從不使用該位，因此它始終可以作為標誌自由使用。
@@ -65,6 +65,49 @@ fn late_input_grace_ticks(step_fps: u32) -> u32 {
         .saturating_mul(LATE_INPUT_GRACE_MS)
         .saturating_add(999)
         / 1000
+}
+
+fn log_input_submit_result(
+    player_id: u32,
+    input_id: u32,
+    current_tick: u32,
+    grace_ticks: u32,
+    result: crate::lockstep::InputSubmitResult,
+) {
+    match result {
+        crate::lockstep::InputSubmitResult::Accepted { .. } => {}
+        crate::lockstep::InputSubmitResult::Retargeted {
+            original_tick,
+            effective_tick,
+        } => {
+            let late_by_ticks = current_tick.saturating_sub(original_tick).saturating_add(1);
+            info!(
+                "retargeted late InputSubmit player={} input_id={} original_tick={} effective_tick={} current_tick={} late_by_ticks={} grace_ticks={}",
+                player_id,
+                input_id,
+                original_tick,
+                effective_tick,
+                current_tick,
+                late_by_ticks,
+                grace_ticks,
+            );
+        }
+        crate::lockstep::InputSubmitResult::RejectedLate {
+            original_tick,
+            current_tick,
+        } => {
+            let late_by_ticks = current_tick.saturating_sub(original_tick).saturating_add(1);
+            warn!(
+                "rejected late InputSubmit player={} input_id={} original_tick={} current_tick={} late_by_ticks={} grace_ticks={}",
+                player_id,
+                input_id,
+                original_tick,
+                current_tick,
+                late_by_ticks,
+                grace_ticks,
+            );
+        }
+    }
 }
 
 /// Secure V2 仍需要接受不含 entity reference 的座標型玩家命令。
@@ -1189,7 +1232,7 @@ async fn handle_client(
                                 };
                                 let mut request_id = 0;
                                 let mut input_tick = 0;
-                                let accepted = request.ok().and_then(|request| {
+                                let outcome = request.ok().and_then(|request| {
                                     request_id = request.request_id;
                                     input_tick = request.input_tick;
                                     let (team_id, session_view_epoch) = binding?;
@@ -1212,16 +1255,32 @@ async fn handle_client(
                                     rewrite_secure_target(&mut input, target_id)?;
                                     let current_tick = lockstep_state.lock().ok()?.current_tick;
                                     let input_id = u32::try_from(request.request_id).ok()?;
-                                    lockstep_input_buffer.lock().ok()?.submit_with_late_grace(
+                                    let grace_ticks = late_input_grace_ticks(
+                                        crate::config::server_config::CONFIG.STEP_FPS,
+                                    );
+                                    let result = lockstep_input_buffer.lock().ok()?.submit_with_late_grace(
                                         current_tick,
                                         request.player_id,
                                         u32::try_from(request.input_tick).ok()?,
                                         input,
                                         input_id,
-                                        late_input_grace_ticks(crate::config::server_config::CONFIG.STEP_FPS),
+                                        grace_ticks,
                                     );
-                                    Some(())
-                                }).is_some();
+                                    log_input_submit_result(
+                                        request.player_id,
+                                        input_id,
+                                        current_tick,
+                                        grace_ticks,
+                                        result,
+                                    );
+                                    Some(result)
+                                });
+                                let accepted = outcome.is_some_and(|result| {
+                                    !matches!(
+                                        result,
+                                        crate::lockstep::InputSubmitResult::RejectedLate { .. }
+                                    )
+                                });
                                 if !accepted {
                                     let _within_invalid_reference_budget =
                                         invalid_reference_limiter.admit(&session_id, input_tick);
@@ -1233,7 +1292,16 @@ async fn handle_client(
                                 let result = SecureTargetInputResult {
                                     request_id,
                                     accepted,
-                                    rejection_class: if accepted { String::new() } else { "INVALID_TARGET".to_owned() },
+                                    rejection_class: if accepted {
+                                        String::new()
+                                    } else if matches!(
+                                        outcome,
+                                        Some(crate::lockstep::InputSubmitResult::RejectedLate { .. })
+                                    ) {
+                                        "LATE_INPUT".to_owned()
+                                    } else {
+                                        "INVALID_TARGET".to_owned()
+                                    },
                                 };
                                 write_framed(&mut writer, TAG_SECURE_TARGET_INPUT_RESULT_V2, &result.encode_to_vec()).await?;
                             }
@@ -1402,6 +1470,7 @@ async fn handle_client(
                                         let input = req.input.unwrap_or_default();
                                         let step_fps =
                                             crate::config::server_config::CONFIG.STEP_FPS;
+                                        let grace_ticks = late_input_grace_ticks(step_fps);
                                         let result = lockstep_input_buffer
                                             .lock()
                                             .unwrap()
@@ -1411,36 +1480,15 @@ async fn handle_client(
                                                 target_tick,
                                                 input,
                                                 input_id,
-                                                late_input_grace_ticks(step_fps),
+                                                grace_ticks,
                                             );
-                                        match result {
-                                            crate::lockstep::InputSubmitResult::Accepted { .. } => {}
-                                            crate::lockstep::InputSubmitResult::Retargeted {
-                                                original_tick,
-                                                effective_tick,
-                                            } => {
-                                                debug!(
-                                                    "retargeted late InputSubmit from player {} input_id={} target_tick={} effective_tick={} current_tick={} step_fps={}",
-                                                    player_id,
-                                                    input_id,
-                                                    original_tick,
-                                                    effective_tick,
-                                                    current_tick,
-                                                    step_fps
-                                                );
-                                            }
-                                            crate::lockstep::InputSubmitResult::RejectedLate {
-                                                original_tick,
-                                                current_tick,
-                                            } => warn!(
-                                                "late InputSubmit from player {} input_id={} target_tick={} current_tick={} step_fps={}",
-                                                player_id,
-                                                input_id,
-                                                original_tick,
-                                                current_tick,
-                                                step_fps
-                                            ),
-                                        }
+                                        log_input_submit_result(
+                                            player_id,
+                                            input_id,
+                                            current_tick,
+                                            grace_ticks,
+                                            result,
+                                        );
                                     }
                                     Err(e) => warn!("Failed to decode InputSubmit: {}", e),
                                 }
@@ -2436,6 +2484,13 @@ mod tests {
         let tail = &source[start_idx..];
         let end_idx = tail.find(end).expect("end marker exists");
         &tail[..end_idx]
+    }
+
+    #[test]
+    fn one_second_late_grace_tracks_server_tick_rate() {
+        assert_eq!(late_input_grace_ticks(60), 60);
+        assert_eq!(late_input_grace_ticks(90), 90);
+        assert_eq!(late_input_grace_ticks(120), 120);
     }
 
     #[test]

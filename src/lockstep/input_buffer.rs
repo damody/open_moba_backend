@@ -35,6 +35,13 @@ pub struct BufferedPlayerInput {
     pub server_receive_instant: Instant,
 }
 
+impl BufferedPlayerInput {
+    /// Wire correlation stays outside gameplay resources and scripts.
+    pub fn acceptance_correlation(&self) -> u32 {
+        self.input_id
+    }
+}
+
 #[derive(Default)]
 pub struct InputBuffer {
     /// target_tick→player_id→inputs plus wire metadata.
