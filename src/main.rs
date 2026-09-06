@@ -280,15 +280,11 @@ async fn main() -> std::result::Result<(), Error> {
         handle.secure_input_validation,
         handle.selective_security_metrics,
     );
-    // 階段 5.x 橋接器：與 TickBroadcaster 的 host_input_tx 配對的接收器
-    // （連線如下）。 State::tick Drains 每個tick 排出的輸入批次，並且
-    // 將它們鏡像到調度程式的 PendingPlayerInputs 中。
     #[cfg(feature = "kcp")]
-    let host_input_tx = {
-        let (host_input_tx, host_input_rx) = crossbeam_channel::unbounded();
-        state.attach_host_input_rx(host_input_rx);
-        host_input_tx
-    };
+    state.attach_authoritative_input_clock(
+        input_buffer_handle.clone(),
+        lockstep_state_handle.clone(),
+    );
 
     // 階段 2 鎖定步：產生 configured-cadence TickBroadcaster，與 authoritative dispatcher
     // 使用相同 cadence。廣播者每消耗一次InputBuffer
@@ -315,7 +311,7 @@ async fn main() -> std::result::Result<(), Error> {
             handle.lockstep_tx.clone(),
         )
         .with_state_hash_rx(state_hash_rx)
-        .with_host_input_tx(host_input_tx.clone());
+        .with_authoritative_input_owner();
         tokio::spawn(broadcaster.run());
         log::info!(
             "Lockstep TickBroadcaster spawned at {}Hz (period {}us, state_hash every {} ticks)",

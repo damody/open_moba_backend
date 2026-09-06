@@ -29,6 +29,7 @@
 //! 回退到“placeholder_state_hash”，以便現有測試繼續通過。
 
 use crossbeam_channel::{Receiver, Sender};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::time::{interval, Duration, MissedTickBehavior};
 
@@ -80,6 +81,8 @@ pub struct TickBroadcaster {
     config: TickBroadcasterConfig,
     input_buffer: Arc<Mutex<InputBuffer>>,
     state: Arc<Mutex<LockstepState>>,
+    broadcast_tick: AtomicU32,
+    authoritative_input_owner: bool,
     out_tx: Sender<OutboundMsg>,
     /// 階段 3.4：調度程序計算的狀態雜湊值的可選來源。什麼時候
     /// “Some”，廣播者“try_recv”在每個狀態哈希標記上並轉發
@@ -92,8 +95,7 @@ pub struct TickBroadcaster {
     /// 客戶端透過 TickBatch 但絕不是主機的“PendingPlayerInputs”，
     /// 所以主機端遊戲狀態（例如 `CurrentCreepWave.is_running`）永遠不會
     /// 翻轉開始回合。
-    host_input_tx:
-        Option<crossbeam_channel::Sender<Vec<(u32, crate::lockstep::PlayerInput, u32)>>>,
+    host_input_tx: Option<crossbeam_channel::Sender<Vec<(u32, crate::lockstep::PlayerInput, u32)>>>,
 }
 
 impl TickBroadcaster {
@@ -107,6 +109,8 @@ impl TickBroadcaster {
             config,
             input_buffer,
             state,
+            broadcast_tick: AtomicU32::new(0),
+            authoritative_input_owner: false,
             out_tx,
             state_hash_rx: None,
             host_input_tx: None,
@@ -128,6 +132,13 @@ impl TickBroadcaster {
         tx: crossbeam_channel::Sender<Vec<(u32, crate::lockstep::PlayerInput, u32)>>,
     ) -> Self {
         self.host_input_tx = Some(tx);
+        self
+    }
+
+    /// Production secure lockstep由authoritative Specs tick直接消耗InputBuffer。
+    /// Broadcaster只保留legacy TickBatch cadence，不可再搶先drain同一份input。
+    pub fn with_authoritative_input_owner(mut self) -> Self {
+        self.authoritative_input_owner = true;
         self
     }
 
@@ -168,15 +179,19 @@ impl TickBroadcaster {
     /// 激發一滴。如果出站通道關閉則回傳 false
     /// （表示傳輸已關閉 - 呼叫者退出循環）。
     fn fire_one_tick(&self) -> bool {
-        // 提前刻度計數器。
-        let tick = {
-            let mut s = self.state.lock().unwrap();
-            s.current_tick = s.current_tick.wrapping_add(1);
-            s.current_tick
-        };
+        // 這是legacy TickBatch自己的wire cadence。LockstepState.current_tick
+        // 由authoritative Specs State::tick維護，兩者不可互相覆寫。
+        let tick = self
+            .broadcast_tick
+            .fetch_add(1, Ordering::Relaxed)
+            .wrapping_add(1);
 
         // 針對此刻度的漏極輸入。
-        let inputs = self.input_buffer.lock().unwrap().drain_for_tick(tick);
+        let inputs = if self.authoritative_input_owner {
+            Vec::new()
+        } else {
+            self.input_buffer.lock().unwrap().drain_for_tick(tick)
+        };
 
         // 階段 5.x：將耗盡的輸入鏡像到主機調度程式（State::tick
         // 透過橫樑接收器讀取）。在使用“輸入”之前發送
@@ -251,7 +266,7 @@ impl TickBroadcaster {
         // 定期清理過時的未來輸入（例如提交的內容）
         // 引用了我們已經通過的勾號，因為玩家是
         // 斷開連接並重新連接）。
-        if tick % self.config.input_evict_interval == 0 {
+        if !self.authoritative_input_owner && tick % self.config.input_evict_interval == 0 {
             self.input_buffer
                 .lock()
                 .unwrap()
@@ -467,6 +482,25 @@ mod tests {
         drop(rx); // close the channel
                   // 第一次傳送失敗 → fire_one_tick 回傳 false。
         assert!(!bc.fire_one_tick());
+    }
+
+    #[test]
+    fn legacy_broadcaster_does_not_advance_authoritative_tick() {
+        let cfg = TickBroadcasterConfig::default();
+        let (bc, _buf, state, _rx) = make_broadcaster(cfg);
+        state.lock().unwrap().current_tick = 77;
+        assert!(bc.fire_one_tick());
+        assert_eq!(state.lock().unwrap().current_tick, 77);
+    }
+
+    #[test]
+    fn authoritative_owner_prevents_legacy_input_drain() {
+        let cfg = TickBroadcasterConfig::default();
+        let (bc, buf, _state, _rx) = make_broadcaster(cfg);
+        assert!(buf.lock().unwrap().submit(0, 1, 1, noop_input(), 9));
+        let bc = bc.with_authoritative_input_owner();
+        assert!(bc.fire_one_tick());
+        assert_eq!(buf.lock().unwrap().pending_count(), 1);
     }
 
     #[test]
