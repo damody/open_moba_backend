@@ -76,6 +76,12 @@ fn log_input_submit_result(
 ) {
     match result {
         crate::lockstep::InputSubmitResult::Accepted { .. } => {}
+        crate::lockstep::InputSubmitResult::DuplicateShop { effective_tick } => {
+            info!("duplicate shop input not requeued player={} input_id={} original_effective_tick={}", player_id, input_id, effective_tick);
+        }
+        crate::lockstep::InputSubmitResult::RejectedShopReplay => {
+            warn!("shop input replay/conflict rejected player={} input_id={}", player_id, input_id);
+        }
         crate::lockstep::InputSubmitResult::Retargeted {
             original_tick,
             effective_tick,
@@ -114,29 +120,78 @@ fn log_input_submit_result(
 /// Entity-targeting 命令必須走 SecureTargetInput，以 replica id、view epoch 與
 /// disclosure epoch 驗證；MoveTo/AttackMove 只有整數座標，不會成為探測隱藏
 /// canonical entity 的旁路。
+#[cfg(test)]
 fn secure_coordinate_input_allowed(payload: &[u8], joined_player_id: Option<u32>) -> bool {
+    secure_coordinate_input_with_shop(payload, joined_player_id, false)
+}
+
+#[cfg(test)]
+fn secure_coordinate_input_with_shop(payload: &[u8], joined_player_id: Option<u32>, shop: bool) -> bool {
+    secure_coordinate_input_with_capabilities(payload, joined_player_id, shop, false)
+}
+
+fn secure_coordinate_input_with_capabilities(payload: &[u8], joined_player_id: Option<u32>, shop: bool, recall: bool) -> bool {
     let Ok(request) = InputSubmit::decode(payload) else {
         return false;
     };
     if joined_player_id != Some(request.player_id) {
         return false;
     }
-    matches!(
-        request.input.and_then(|input| input.action),
+    match request.input.and_then(|input| input.action) {
         Some(player_input::Action::MoveTo(_)) | Some(player_input::Action::AttackMove(_))
-    )
+        | Some(player_input::Action::NoOp(_)) | Some(player_input::Action::UpgradeAbility(_)) => true,
+        Some(player_input::Action::CastAbility(value)) => value.target_entity.is_none(),
+        Some(player_input::Action::ItemUse(value)) => value.target_entity.is_none(),
+        Some(player_input::Action::ItemBuy(value)) => shop && request.input_id != 0
+            && !value.item_id.is_empty() && value.item_id.len() <= 64,
+        Some(player_input::Action::ItemSell(value)) => shop && request.input_id != 0 && value.item_slot < 6,
+        Some(player_input::Action::Recall(_)) => recall && request.input_id != 0,
+        _ => false,
+    }
 }
 
 fn rewrite_secure_target(input: &mut PlayerInput, canonical_target: u64) -> Option<()> {
-    let canonical_target = u32::try_from(canonical_target).ok()?;
+	// validate_and_resolve returns the packed authoritative identity (generation
+	// in high 32 bits, ECS index in low 32 bits), not an oversized ECS index.
+	// Its mapping/epoch/visibility checks MUST run before this internal rewrite.
+	let canonical_target = (canonical_target & u64::from(u32::MAX)) as u32;
     match input.action.as_mut()? {
         player_input::Action::CastAbility(value) => value.target_entity = Some(canonical_target),
+        player_input::Action::AttackTarget(value) => value.target_id = canonical_target,
         player_input::Action::ItemUse(value) => value.target_entity = Some(canonical_target),
         player_input::Action::TowerUpgrade(value) => value.tower_entity_id = canonical_target,
         player_input::Action::TowerSell(value) => value.tower_entity_id = canonical_target,
         _ => return None,
     }
     Some(())
+}
+
+fn validate_shop_join_request(request: &JoinRequest) -> Result<bool, &'static str> {
+    let agreed = omoba_core::runtime::shop_transport::negotiate_shop_catalog(
+        request.shop_catalog_version, &request.shop_catalog_hash)?;
+    if agreed && (request.requested_protocol != 2 || !request.supported_protocols.contains(&2)
+        || !request.secure_fog_capability || request.role != JoinRole::RolePlayer as i32 || request.player_id == 0) {
+        return Err("SHOP_CATALOG_REQUIRES_SECURE_PLAYER");
+    }
+    Ok(agreed)
+}
+
+fn validate_recall_join_request(request: &JoinRequest) -> Result<bool, &'static str> {
+    let agreed = omoba_core::runtime::recall_transport::negotiate_recall_protocol(
+        request.recall_protocol_version, &request.recall_rules_hash)?;
+    if agreed && (request.requested_protocol != 2 || !request.supported_protocols.contains(&2)
+        || !request.secure_fog_capability || request.role != JoinRole::RolePlayer as i32 || request.player_id == 0) {
+        return Err("RECALL_REQUIRES_SECURE_PLAYER");
+    }
+    Ok(agreed)
+}
+
+fn secure_gameplay_input_allowed(
+    input: &PlayerInput,
+    mode: crate::config::server_config::MatchGameplayMode,
+) -> bool {
+    mode == crate::config::server_config::MatchGameplayMode::Story
+        || omoba_core::runtime::single_lane_input_action_allowed(input)
 }
 
 /// 寫入幀訊息：[1 位元組標籤][4 位元組 len (big-endian)][N 位元組有效負載]
@@ -669,6 +724,7 @@ pub async fn start(
     let aoi_broadcast = aoi.clone();
     let team_stream_router_broadcast = Arc::clone(&team_stream_router);
     let observer_tap_broadcast = observer_tap.clone();
+    let shop_journal_broadcast = Arc::clone(&lockstep_input_buffer);
     thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -739,6 +795,21 @@ pub async fn start(
                                 }
                             }
                             crate::lockstep::LockstepFrame::TeamTickFrameV2 { team_id, sequence, replica_tick, encoded } => {
+                                let pending_shop = shop_journal_broadcast.lock().expect("input buffer mutex poisoned").has_pending_shop_receipts();
+                                if let Some(frame) = pending_shop.then(|| TeamTickFrame::decode(encoded.as_ref())).and_then(Result::ok) {
+                                    if let Some(step) = &frame.step {
+                                        let mut journal = shop_journal_broadcast.lock().expect("input buffer mutex poisoned");
+                                        for event in &step.public_events {
+                                            if event.event_kind == omoba_core::runtime::FactKind::ShopReceipt as u32 && event.subject.is_none() {
+                                                if let Some(receipt) = omoba_core::runtime::shop_receipt::ShopReceipt::decode(&event.sanitized_payload) {
+                                                    if receipt.tick == replica_tick && !journal.remember_shop_receipt(receipt) {
+                                                        warn!("authority shop receipt could not finalize admission journal");
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                                 let targets = team_stream_router_broadcast.lock().await.route_frame(
                                     omoba_core::runtime::EncodedTeamFrame {
                                         team_id,
@@ -1194,6 +1265,10 @@ async fn handle_client(
     // 追蹤訂閱的player_name，以便我們可以在斷開連接時發送刪除
     let mut player_name: Option<String> = None;
     let mut joined_player_id: Option<u32> = None;
+    let mut shop_protocol_agreed = false;
+    let mut recall_protocol_agreed = false;
+    let shop_query_clock = std::time::Instant::now();
+    let mut shop_query_budget = omoba_core::runtime::shop_transport::ShopQueryBudget::default();
     let mut invalid_reference_limiter =
         omoba_core::runtime::InvalidReferenceRateLimiter::new(16, 120);
 
@@ -1211,7 +1286,7 @@ async fn handle_client(
                             })
                         };
                         let secure_coordinate_input = tag == TAG_INPUT_SUBMIT
-                            && secure_coordinate_input_allowed(&payload, joined_player_id);
+                            && secure_coordinate_input_with_capabilities(&payload, joined_player_id, shop_protocol_agreed, recall_protocol_agreed);
                         if secure_v2_session && matches!(tag,
                             TAG_PLAYER_COMMAND | TAG_GAME_STATE_REQUEST | TAG_VIEWPORT_UPDATE
                                 | TAG_INPUT_SUBMIT | TAG_SNAPSHOT_REQ
@@ -1220,6 +1295,16 @@ async fn handle_client(
                             continue;
                         }
                         match tag {
+                            omoba_core::kcp::framing::TAG_SHOP_RECEIPT_QUERY => {
+                                if !secure_v2_session || !shop_protocol_agreed || payload.len() > 32 { continue; }
+                                let Some(player) = joined_player_id.filter(|player| *player != 0) else { continue; };
+                                let Ok(query) = ShopReceiptQuery::decode(payload.as_slice()) else { continue; };
+                                if query.request_id == 0 || query.input_id == 0 { continue; }
+                                if !shop_query_budget.allow(shop_query_clock.elapsed().as_millis().min(u128::from(u64::MAX)) as u64) { continue; }
+                                let reply = lockstep_input_buffer.lock().expect("input buffer mutex poisoned")
+                                    .shop_receipt_replay(player, query.request_id, query.input_id);
+                                write_framed(&mut writer, omoba_core::kcp::framing::TAG_SHOP_RECEIPT_REPLAY, &reply.encode_to_vec()).await?;
+                            }
                             TAG_SECURE_TARGET_INPUT_V2 => {
                                 let started = tokio::time::Instant::now();
                                 let request = SecureTargetInput::decode(payload.as_slice());
@@ -1252,6 +1337,7 @@ async fn handle_client(
                                         team_id, request.input_tick, actor, target,
                                     ).ok()?;
                                     let mut input = PlayerInput::decode(request.sanitized_payload.as_slice()).ok()?;
+                                    if !secure_gameplay_input_allowed(&input, crate::config::server_config::CONFIG.MATCH_GAMEPLAY_MODE) { return None; }
                                     rewrite_secure_target(&mut input, target_id)?;
                                     let current_tick = lockstep_state.lock().ok()?.current_tick;
                                     let input_id = u32::try_from(request.request_id).ok()?;
@@ -1279,6 +1365,7 @@ async fn handle_client(
                                     !matches!(
                                         result,
                                         crate::lockstep::InputSubmitResult::RejectedLate { .. }
+                                        | crate::lockstep::InputSubmitResult::RejectedShopReplay
                                     )
                                 });
                                 if !accepted {
@@ -1468,6 +1555,10 @@ async fn handle_client(
                                         let target_tick = req.target_tick;
                                         let input_id = req.input_id;
                                         let input = req.input.unwrap_or_default();
+                                        if !secure_gameplay_input_allowed(&input, crate::config::server_config::CONFIG.MATCH_GAMEPLAY_MODE) {
+                                            warn!("InputSubmit denied by gameplay mode player_id={}", player_id);
+                                            continue;
+                                        }
                                         let step_fps =
                                             crate::config::server_config::CONFIG.STEP_FPS;
                                         let grace_ticks = late_input_grace_ticks(step_fps);
@@ -1501,7 +1592,21 @@ async fn handle_client(
                                             _ => crate::lockstep::JoinRoleEnum::Player,
                                         };
                                         let declared_player_id = req.player_id;
+                                        let shop_catalog_agreed = match validate_shop_join_request(&req) {
+                                            Ok(agreed) => agreed,
+                                            Err(reason) => { warn!("JoinRequest shop catalog rejected: {}", reason); break; }
+                                        };
+                                        let negotiated_shop = match omoba_core::runtime::shop_transport::negotiate_shop_protocol(
+                                            req.shop_protocol_version, &req.shop_rules_hash, shop_catalog_agreed) {
+                                            Ok(agreed) => agreed,
+                                            Err(reason) => { warn!("JoinRequest shop protocol rejected: {}", reason); break; }
+                                        };
                                         let registered = {
+                                            // Recall requires the same authenticated selective-player boundary,
+                                            // but does not require a shop catalog or transaction capability.
+                                            if let Err(reason) = validate_recall_join_request(&req) {
+                                                warn!("JoinRequest recall protocol rejected: {}", reason); break;
+                                            }
                                             let mut s = lockstep_state.lock().unwrap();
                                             let secure_requested = req.requested_protocol == 2;
                                             let result = if secure_requested {
@@ -1543,6 +1648,13 @@ async fn handle_client(
                                                 break;
                                             }
                                         };
+                                        shop_protocol_agreed = negotiated_shop && secure_binding.is_some()
+                                            && matches!(crate::config::server_config::CONFIG.MATCH_GAMEPLAY_MODE,
+                                                crate::config::server_config::MatchGameplayMode::SingleLane | crate::config::server_config::MatchGameplayMode::ThreeLane);
+                                        recall_protocol_agreed = validate_recall_join_request(&req) == Ok(true)
+                                            && secure_binding.is_some()
+                                            && matches!(crate::config::server_config::CONFIG.MATCH_GAMEPLAY_MODE,
+                                                crate::config::server_config::MatchGameplayMode::SingleLane | crate::config::server_config::MatchGameplayMode::ThreeLane);
                                         // The client sends view_epoch=0 when it has no prior
                                         // replica state. Never treat that client hint as the
                                         // authoritative epoch: use the current server bootstrap,
@@ -1619,6 +1731,18 @@ async fn handle_client(
                                                 .cloned()
                                             {
                                                 current.player_id = player_id;
+                                                current.shop_protocol_version = if shop_protocol_agreed { omoba_core::runtime::shop_transport::SHOP_PROTOCOL_VERSION } else { 0 };
+                                                current.shop_rules_hash = if shop_protocol_agreed { omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned() } else { String::new() };
+                                                current.recall_protocol_version = if recall_protocol_agreed { omoba_core::runtime::recall_transport::RECALL_PROTOCOL_VERSION } else { 0 };
+                                                current.recall_rules_hash = if recall_protocol_agreed { omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned() } else { String::new() };
+                                                current.input_allocator_version = 1;
+                                                current.last_seen_input_id = lockstep_input_buffer
+                                                    .lock().expect("input buffer mutex poisoned")
+                                                    .last_seen_input_id(player_id);
+                                                if shop_catalog_agreed {
+                                                    current.shop_catalog_version = omoba_core::runtime::shop_transport::SHOP_CATALOG_VERSION;
+                                                    current.shop_catalog_hash = omoba_template_ids::MOBA_ITEM_CATALOG_HASH.to_owned();
+                                                }
                                                 crate::lockstep::LockstepFrame::TeamGameStartV2 {
                                                     client_session_id: session_id.clone(),
                                                     msg: current,
@@ -1676,6 +1800,15 @@ async fn handle_client(
                                                     public_metadata: Vec::new(),
                                                     team_private_metadata: Vec::new(),
                                                     global_seed: master_seed,
+                                                    input_allocator_version: 1,
+                                                    last_seen_input_id: lockstep_input_buffer.lock()
+                                                        .expect("input buffer mutex poisoned").last_seen_input_id(player_id),
+                                                    shop_catalog_version: if shop_catalog_agreed { omoba_core::runtime::shop_transport::SHOP_CATALOG_VERSION } else { 0 },
+                                                    shop_catalog_hash: if shop_catalog_agreed { omoba_template_ids::MOBA_ITEM_CATALOG_HASH.to_owned() } else { String::new() },
+                                                    shop_protocol_version: if shop_protocol_agreed { omoba_core::runtime::shop_transport::SHOP_PROTOCOL_VERSION } else { 0 },
+                                                    shop_rules_hash: if shop_protocol_agreed { omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned() } else { String::new() },
+                                                    recall_protocol_version: if recall_protocol_agreed { omoba_core::runtime::recall_transport::RECALL_PROTOCOL_VERSION } else { 0 },
+                                                    recall_rules_hash: if recall_protocol_agreed { omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned() } else { String::new() },
                                                 },
                                             }
                                             }
@@ -1952,6 +2085,21 @@ async fn handle_client(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn input_allocator_bootstrap_wire_preserves_player_floor_and_exhaustion() {
+        let mut buffer = crate::lockstep::InputBuffer::new();
+        let input = crate::lockstep::PlayerInput { action: Some(crate::lockstep::PlayerInputEnum::NoOp(crate::lockstep::NoOp {})) };
+        assert!(buffer.submit(0, 7, 1, input.clone(), u32::MAX));
+        assert!(buffer.submit(0, 2, 1, input, 42));
+        for (player, floor) in [(7, u32::MAX), (2, 42), (1, 0)] {
+            let start = TeamGameStart { player_id: player, input_allocator_version: 1,
+                last_seen_input_id: buffer.last_seen_input_id(player), ..Default::default() };
+            let decoded = TeamGameStart::decode(start.encode_to_vec().as_slice()).unwrap();
+            assert_eq!(decoded.player_id, player);
+            assert_eq!(decoded.input_allocator_version, 1);
+            assert_eq!(decoded.last_seen_input_id, floor);
+        }
+    }
     use serde_json::json;
 
     fn make(t: &str, a: &str, v: serde_json::Value) -> OutboundMsg {
@@ -2579,7 +2727,7 @@ mod tests {
     }
 
     #[test]
-    fn secure_coordinate_input_accepts_only_joined_players_move_commands() {
+    fn secure_coordinate_input_accepts_joined_players_move_commands() {
         let move_to = encoded_input(
             7,
             player_input::Action::MoveTo(MoveTo {
@@ -2597,6 +2745,63 @@ mod tests {
         assert!(secure_coordinate_input_allowed(&move_to, Some(7)));
         assert!(secure_coordinate_input_allowed(&attack_move, Some(7)));
         assert!(!secure_coordinate_input_allowed(&move_to, Some(8)));
+    }
+
+    #[test]
+    fn secure_shop_inputs_fail_closed_until_economy_projection_is_negotiated() {
+        use omoba_core::game_proto::{ItemBuy, ItemSell};
+        for action in [
+            player_input::Action::ItemBuy(ItemBuy { item_id: "sword".into() }),
+            player_input::Action::ItemSell(ItemSell { item_slot: 0 }),
+        ] {
+            let input = PlayerInput { action: Some(action.clone()) };
+            assert!(omoba_core::runtime::single_lane_input_action_allowed(&input));
+            assert!(!secure_coordinate_input_allowed(&encoded_input(7, action), Some(7)));
+            assert!(rewrite_secure_target(&mut input.clone(), 42).is_none());
+        }
+    }
+
+    #[test]
+    fn secure_coordinate_input_allows_reference_free_skills_not_canonical_targets() {
+        for ability_index in 0..4 {
+            let input = encoded_input(7, player_input::Action::CastAbility(CastAbility {
+                ability_index, target_pos: Some(Vec2I { x: 100, y: -50 }), target_entity: None,
+            }));
+            assert!(secure_coordinate_input_allowed(&input, Some(7)));
+            assert!(!secure_coordinate_input_allowed(&input, Some(8)));
+        }
+        let targeting = encoded_input(7, player_input::Action::CastAbility(CastAbility {
+            ability_index: 0, target_pos: None, target_entity: Some(999),
+        }));
+        assert!(!secure_coordinate_input_allowed(&targeting, Some(7)));
+        let td = PlayerInput { action: Some(player_input::Action::TowerSell(TowerSell { tower_entity_id: 5 })) };
+        use crate::config::server_config::MatchGameplayMode;
+        assert!(!secure_gameplay_input_allowed(&td, MatchGameplayMode::SingleLane));
+        assert!(secure_gameplay_input_allowed(&td, MatchGameplayMode::Story));
+        let mut attack = PlayerInput { action: Some(player_input::Action::AttackTarget(AttackTarget {
+            target_id: 0, queued: false,
+        })) };
+        assert!(rewrite_secure_target(&mut attack, 42).is_some());
+        assert!(matches!(attack.action, Some(player_input::Action::AttackTarget(value)) if value.target_id == 42));
+    }
+
+    #[test]
+    fn secure_target_rewrite_extracts_index_from_validated_generation_identity() {
+        let canonical = (7_u64 << 32) | 42;
+        let mut cast = PlayerInput { action: Some(player_input::Action::CastAbility(CastAbility {
+            ability_index: 2, target_pos: None, target_entity: None,
+        })) };
+        assert!(rewrite_secure_target(&mut cast, canonical).is_some());
+        assert!(matches!(cast.action, Some(player_input::Action::CastAbility(value)) if value.target_entity == Some(42)));
+        let mut attack = PlayerInput { action: Some(player_input::Action::AttackTarget(AttackTarget {
+            target_id: 0, queued: false,
+        })) };
+        assert!(rewrite_secure_target(&mut attack, canonical).is_some());
+        assert!(matches!(attack.action, Some(player_input::Action::AttackTarget(value)) if value.target_id == 42));
+        let mut move_input = PlayerInput { action: Some(player_input::Action::MoveTo(MoveTo {
+            target: Some(Vec2I { x: 1, y: 2 }), queued: false,
+        })) };
+        assert!(rewrite_secure_target(&mut move_input, canonical).is_none());
     }
 
     #[test]
@@ -2633,6 +2838,61 @@ mod tests {
     }
 
     #[test]
+    fn shop_catalog_join_requires_exact_version_hash_and_secure_player_binding() {
+        let valid = JoinRequest {player_id: 7, role: JoinRole::RolePlayer as i32,
+            requested_protocol: 2, supported_protocols: vec![2], secure_fog_capability: true,
+            shop_catalog_version: omoba_core::runtime::shop_transport::SHOP_CATALOG_VERSION,
+            shop_catalog_hash: omoba_template_ids::MOBA_ITEM_CATALOG_HASH.to_owned(), ..Default::default()};
+        assert_eq!(validate_shop_join_request(&valid), Ok(true));
+        assert_eq!(validate_shop_join_request(&JoinRequest::default()), Ok(false));
+        for index in 0..8 {
+            let mut invalid = valid.clone();
+            match index {0 => invalid.player_id = 0, 1 => invalid.role = JoinRole::RoleObserver as i32,
+                2 => invalid.role = 999, 3 => invalid.requested_protocol = 1,
+                4 => invalid.supported_protocols.clear(), 5 => invalid.secure_fog_capability = false,
+                6 => invalid.shop_catalog_hash = "old".into(), _ => invalid.shop_catalog_version = 2}
+            assert!(validate_shop_join_request(&invalid).is_err());
+        }
+        let decoded = JoinRequest::decode(valid.encode_to_vec().as_slice()).unwrap();
+        assert_eq!(validate_shop_join_request(&decoded), Ok(true));
+        // Catalog agreement does not accidentally unlock the purchase path.
+        assert!(!secure_coordinate_input_allowed(&InputSubmit {player_id: 7, input_id: 1,
+            input: Some(PlayerInput {action: Some(player_input::Action::ItemBuy(omoba_core::game_proto::ItemBuy {
+                item_id: "moba_sword".into()}))}), ..Default::default()}.encode_to_vec(), Some(7)));
+    }
+
+    #[test]
+    fn secure_shop_gate_requires_explicit_session_agreement_and_bound_owner() {
+        let buy = encoded_input(7, player_input::Action::ItemBuy(ItemBuy { item_id: "moba_sword".into() }));
+        assert!(!secure_coordinate_input_with_shop(&buy, Some(7), false));
+        assert!(secure_coordinate_input_with_shop(&buy, Some(7), true));
+        assert!(!secure_coordinate_input_with_shop(&buy, Some(8), true));
+        assert!(!secure_coordinate_input_with_shop(&buy, None, true));
+        let invalid = encoded_input(7, player_input::Action::ItemSell(ItemSell { item_slot: 6 }));
+        assert!(!secure_coordinate_input_with_shop(&invalid, Some(7), true));
+    }
+
+    #[test]
+    fn recall_requires_independent_secure_player_agreement_and_nonzero_input_id() {
+        let recall = encoded_input(7, player_input::Action::Recall(omoba_core::game_proto::Recall {}));
+        assert!(!secure_coordinate_input_with_capabilities(&recall, Some(7), true, false));
+        assert!(secure_coordinate_input_with_capabilities(&recall, Some(7), false, true));
+        assert!(!secure_coordinate_input_with_capabilities(&recall, Some(8), true, true));
+        assert!(!secure_coordinate_input_with_capabilities(&recall, None, true, true));
+        let mut zero = InputSubmit::decode(recall.as_slice()).unwrap(); zero.input_id = 0;
+        assert!(!secure_coordinate_input_with_capabilities(&zero.encode_to_vec(), Some(7), true, true));
+        let mut req = JoinRequest { player_id: 7, role: JoinRole::RolePlayer as i32,
+            requested_protocol: 2, supported_protocols: vec![2], secure_fog_capability: true,
+            recall_protocol_version: omoba_core::runtime::recall_transport::RECALL_PROTOCOL_VERSION, recall_rules_hash: omoba_template_ids::CONTENT_CATALOG_DATA_HASH.into(),
+            ..Default::default() };
+        assert_eq!(validate_recall_join_request(&req), Ok(true));
+        req.role = JoinRole::RoleObserver as i32;
+        assert_eq!(validate_recall_join_request(&req), Err("RECALL_REQUIRES_SECURE_PLAYER"));
+        req.recall_protocol_version = 0; req.recall_rules_hash.clear();
+        assert_eq!(validate_recall_join_request(&req), Ok(false));
+    }
+
+    #[test]
     fn lockstep_join_request_role_mapping() {
         // ROLE_PLAYER (1) 和 ROLE_OBSERVER (2) 都應該往返；這
         // 伺服器的比賽臂（在handle_client中）將未知的整數視為玩家。
@@ -2644,6 +2904,12 @@ mod tests {
             supported_protocols: vec![1],
             secure_fog_capability: false,
             view_epoch: 0,
+            shop_catalog_version: 0,
+            shop_catalog_hash: String::new(),
+            shop_protocol_version: 0,
+            shop_rules_hash: String::new(),
+            recall_protocol_version: 0,
+            recall_rules_hash: String::new(),
         };
         let observer = JoinRequest {
             player_name: "bob".into(),
@@ -2653,6 +2919,12 @@ mod tests {
             supported_protocols: vec![1],
             secure_fog_capability: false,
             view_epoch: 0,
+            shop_catalog_version: 0,
+            shop_catalog_hash: String::new(),
+            shop_protocol_version: 0,
+            shop_rules_hash: String::new(),
+            recall_protocol_version: 0,
+            recall_rules_hash: String::new(),
         };
         let p_bytes = player.encode_to_vec();
         let o_bytes = observer.encode_to_vec();
