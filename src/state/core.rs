@@ -1239,7 +1239,12 @@ impl State {
                 drop(projection);
                 let blocked = self.ecs.read_resource::<crate::comp::BlockedRegions>();
                 let encoded = omoba_core::runtime::encode_public_blocked_regions(&blocked);
+                let map_metadata = self.ecs.try_fetch::<omoba_core::runtime::MobaMatch>()
+                    .and_then(|state| state.config.map_id.as_deref()
+                        .and_then(omoba_template_ids::moba_map_by_name)
+                        .map(omoba_core::runtime::moba_map_layout::encode));
                 for start in starts.values_mut() {
+                    if let Some(metadata) = &map_metadata { start.public_metadata.push(metadata.clone()); }
                     start
                         .public_metadata
                         .push(omoba_core::game_proto::DeterministicMetadata {

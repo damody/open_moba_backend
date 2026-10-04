@@ -1762,6 +1762,12 @@ async fn handle_client(
                                                 0x27, 0xae, 0x41, 0xe4, 0x64, 0x9b, 0x93, 0x4c,
                                                 0xa4, 0x95, 0x99, 0x1b, 0x78, 0x52, 0xb8, 0x55,
                                             ];
+                                            let public_metadata = crate::config::server_config::CONFIG.single_lane_config()
+                                                .expect("validated server MOBA config")
+                                                .and_then(|config| config.map_id.as_deref()
+                                                    .and_then(omoba_template_ids::moba_map_by_name)
+                                                    .map(omoba_core::runtime::moba_map_layout::bootstrap_metadata))
+                                                .unwrap_or_default();
                                             crate::lockstep::LockstepFrame::TeamGameStartV2 {
                                                 client_session_id: session_id.clone(),
                                                 msg: TeamGameStart {
@@ -1793,11 +1799,11 @@ async fn handle_client(
                                                         view_epoch: Some(ViewEpoch { value: binding.current_view_epoch }),
                                                         authoritative_tick: u64::from(start_tick),
                                                         disclosed_world: Vec::new(),
-                                                        public_metadata: Vec::new(),
+                                                        public_metadata: public_metadata.clone(),
                                                         team_private_metadata: Vec::new(),
                                                         filtered_snapshot_hash: empty_hash,
                                                     }),
-                                                    public_metadata: Vec::new(),
+                                                    public_metadata,
                                                     team_private_metadata: Vec::new(),
                                                     global_seed: master_seed,
                                                     input_allocator_version: 1,
