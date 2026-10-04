@@ -37,6 +37,17 @@ impl Default for MatchLockstepMode {
     }
 }
 
+/// Explicit opt-in; Story preserves the existing TD/campaign bootstrap.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum MatchGameplayMode {
+    #[default]
+    Story,
+    SingleLane,
+    /// Compiled Lua training map; same secure MOBA input boundary.
+    ThreeLane,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ServerSetting {
     pub SERVER_IP: String,
@@ -53,6 +64,8 @@ pub struct ServerSetting {
     /// TD 模式設為 "TD_1" 以載入塔防關卡。
     #[serde(default = "default_story")]
     pub STORY: String,
+    #[serde(default)]
+    pub MATCH_GAMEPLAY_MODE: MatchGameplayMode,
     /// Game speed multiplier (debug only)。1 = real-time，2/4/8 = 快轉。
     /// 每個 real frame 跑 N 個 sub-tick，sim 推進 N × 固定 lockstep tick dt。
     /// Runtime 可由 stdin 指令 `:speed N` 動態切換（範圍 1..=16）。
@@ -70,6 +83,9 @@ pub struct ServerSetting {
     /// configuration/bootstrap input and is never accepted from the wire.
     #[serde(default)]
     pub AUTHENTICATED_TEAM_BINDINGS: BTreeMap<u32, u32>,
+    /// Server-owned pre-match selection; omitted players retain the legacy hero.
+    #[serde(default)]
+    pub AUTHENTICATED_HERO_BINDINGS: BTreeMap<u32, String>,
 }
 
 /// `[hero_knowledge]` section in `game.toml`.
@@ -250,7 +266,57 @@ impl ServerSetting {
         if self.SELECTIVE_LOCKSTEP_DOGFOOD && self.AUTHENTICATED_TEAM_BINDINGS.is_empty() {
             return Err("dogfood secure V2 requires authenticated team bindings".into());
         }
+        self.single_lane_config()?;
         Ok(())
+    }
+
+    pub fn single_lane_config(&self) -> Result<Option<omoba_core::runtime::SingleLaneConfig>, String> {
+        if self.MATCH_GAMEPLAY_MODE == MatchGameplayMode::Story {
+            return Ok(None);
+        }
+        if self.MATCH_LOCKSTEP_MODE != MatchLockstepMode::SecureV2Required {
+            return Err("single_lane requires secure_v2_required (no legacy gameplay input)".into());
+        }
+        for (player, hero) in &self.AUTHENTICATED_HERO_BINDINGS {
+            if !self.AUTHENTICATED_TEAM_BINDINGS.contains_key(player)
+                || omoba_template_ids::hero_by_name(hero).and_then(omoba_template_ids::hero_stats).is_none() {
+                return Err("single_lane hero binding requires a roster player and active compiled hero".into());
+            }
+        }
+        let selected = |player| self.AUTHENTICATED_HERO_BINDINGS.get(&player)
+            .cloned().unwrap_or_else(|| "training_luminary".into());
+        let mut players = [0; 2];
+        let mut additional_players = Vec::new();
+        let mut counts = [0; 2];
+        for (player, team) in &self.AUTHENTICATED_TEAM_BINDINGS {
+            let side = match *team {
+                1 => 0,
+                2 => 1,
+                _ => return Err("single_lane requires authenticated teams 1 and 2".into()),
+            };
+            if *player == 0 || counts[side] >= 5 {
+                return Err("single_lane requires one to five nonzero players per team".into());
+            }
+            counts[side] += 1;
+            if players[side] == 0 { players[side] = *player; }
+            else {
+                additional_players.push(omoba_core::runtime::SingleLanePlayerConfig {
+                    player_id: *player, team_id: *team, hero: selected(*player),
+                });
+            }
+        }
+        if players.contains(&0) {
+            return Err("single_lane requires one to five nonzero players per team".into());
+        }
+        Ok(Some(omoba_core::runtime::SingleLaneConfig {
+            map_id: (self.MATCH_GAMEPLAY_MODE == MatchGameplayMode::ThreeLane)
+                .then(|| "three_lane_training".into()),
+            players,
+            heroes: players.map(selected),
+            additional_players,
+            seed: omoba_core::runtime::MasterSeed::default().0,
+            ..Default::default()
+        }))
     }
 
     pub fn lockstep_timing(&self) -> LockstepTiming {
@@ -318,6 +384,84 @@ STEP_FPS = {step_fps}
 "#
         );
         toml::from_str::<Setting>(&raw).unwrap().server
+    }
+
+    #[test]
+    fn single_lane_hero_selection_is_server_owned_validated_and_player_scoped() {
+        let mut setting = parse_with_step_fps(60);
+        setting.MATCH_GAMEPLAY_MODE = MatchGameplayMode::SingleLane;
+        setting.AUTHENTICATED_TEAM_BINDINGS = BTreeMap::from([(1,1),(2,2),(3,1)]);
+        setting.AUTHENTICATED_HERO_BINDINGS = BTreeMap::from([(1,"training_apprentice".into()),(3,"date_masamune".into())]);
+        let config = setting.single_lane_config().unwrap().unwrap();
+        assert_eq!(config.heroes,["training_apprentice","training_luminary"]);
+        assert_eq!(config.additional_players[0].hero,"date_masamune");
+        for (player,hero) in [(4,"training_apprentice"),(2,"missing_hero")] {
+            setting.AUTHENTICATED_HERO_BINDINGS.insert(player,hero.into());
+            assert!(setting.single_lane_config().is_err());
+            setting.AUTHENTICATED_HERO_BINDINGS.remove(&player);
+        }
+    }
+
+    #[test]
+    fn story_is_default_and_single_lane_uses_authenticated_roster_and_shared_seed() {
+        let mut setting = parse_with_step_fps(120);
+        assert_eq!(setting.MATCH_GAMEPLAY_MODE, MatchGameplayMode::Story);
+        assert!(setting.single_lane_config().unwrap().is_none());
+        setting.MATCH_GAMEPLAY_MODE = MatchGameplayMode::SingleLane;
+        setting.AUTHENTICATED_TEAM_BINDINGS = BTreeMap::from([(21, 2), (35, 1)]);
+        let lane = setting.single_lane_config().unwrap().unwrap();
+        assert_eq!(lane.players, [35, 21]);
+        assert_eq!(lane.teams, [1, 2]);
+        assert_eq!(lane.seed, omoba_core::runtime::MasterSeed::default().0);
+        assert!(setting.validate().is_ok());
+    }
+
+    #[test]
+    fn single_lane_rejects_legacy_and_ambiguous_rosters() {
+        let mut setting = parse_with_step_fps(120);
+        setting.MATCH_GAMEPLAY_MODE = MatchGameplayMode::SingleLane;
+        for roster in [BTreeMap::new(), BTreeMap::from([(0, 1), (2, 2)]),
+            BTreeMap::from([(1, 1), (2, 1)]), BTreeMap::from([(1, 1), (2, 3)]),
+            BTreeMap::from([(1, 1), (2, 2), (3, 2), (4, 2), (5, 2), (6, 2), (7, 2)])] {
+            setting.AUTHENTICATED_TEAM_BINDINGS = roster;
+            assert!(setting.validate().is_err());
+        }
+        setting.AUTHENTICATED_TEAM_BINDINGS = BTreeMap::from([(1, 1), (2, 2)]);
+        for mode in [MatchLockstepMode::Legacy, MatchLockstepMode::SecureV2OptIn] {
+            setting.MATCH_LOCKSTEP_MODE = mode;
+            assert!(setting.validate().unwrap_err().contains("secure_v2_required"));
+        }
+    }
+
+    #[test]
+    fn single_lane_supports_deterministic_five_player_teams() {
+        let mut setting = parse_with_step_fps(60);
+        setting.MATCH_GAMEPLAY_MODE = MatchGameplayMode::SingleLane;
+        setting.AUTHENTICATED_TEAM_BINDINGS = (1..=10).map(|player| (player, if player % 2 == 1 { 1 } else { 2 })).collect();
+        assert!(setting.validate().is_ok());
+        let lane = setting.single_lane_config().unwrap().unwrap();
+        assert_eq!(lane.players, [1, 2]);
+        assert_eq!(lane.additional_players.iter().map(|p| (p.player_id, p.team_id)).collect::<Vec<_>>(),
+            vec![(3,1),(4,2),(5,1),(6,2),(7,1),(8,2),(9,1),(10,2)]);
+    }
+
+    #[test]
+    fn three_lane_is_explicit_and_retains_secure_roster_requirements() {
+        let mut setting = parse_with_step_fps(60);
+        setting.MATCH_GAMEPLAY_MODE = MatchGameplayMode::ThreeLane;
+        setting.AUTHENTICATED_TEAM_BINDINGS = BTreeMap::from([(1,1),(2,2)]);
+        assert!(setting.validate().is_ok());
+        let config = setting.single_lane_config().unwrap().unwrap();
+        assert_eq!(config.map_id.as_deref(),Some("three_lane_training"));
+        assert_eq!(config.players,[1,2]);
+        setting.MATCH_LOCKSTEP_MODE = MatchLockstepMode::Legacy;
+        assert!(setting.validate().unwrap_err().contains("secure_v2_required"));
+        setting.MATCH_LOCKSTEP_MODE = MatchLockstepMode::SecureV2Required;
+        setting.AUTHENTICATED_TEAM_BINDINGS = BTreeMap::from([(1,1)]);
+        assert!(setting.validate().is_err());
+        setting.MATCH_GAMEPLAY_MODE = MatchGameplayMode::SingleLane;
+        setting.AUTHENTICATED_TEAM_BINDINGS = BTreeMap::from([(1,1),(2,2)]);
+        assert!(setting.single_lane_config().unwrap().unwrap().map_id.is_none());
     }
 
     #[test]

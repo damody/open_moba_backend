@@ -117,6 +117,9 @@ impl ResourceManager {
 
     /// 處理塔相關請求
     pub fn handle_tower_request(&self, world: &mut World, pd: InboundMsg) -> Result<(), Error> {
+        if world.try_fetch::<omoba_core::runtime::MobaMatch>().is_some() {
+            return Err(failure::err_msg("MOBA rejects legacy tower gameplay requests"));
+        }
         use serde_json::json;
 
         match pd.a.as_str() {
@@ -151,6 +154,9 @@ impl ResourceManager {
 
     /// 處理玩家相關請求
     pub fn handle_player_request(&self, world: &mut World, pd: InboundMsg) -> Result<(), Error> {
+        if world.try_fetch::<omoba_core::runtime::MobaMatch>().is_some() {
+            return Err(failure::err_msg("MOBA requires authenticated lockstep PlayerInput"));
+        }
         use serde_json::json;
 
         match pd.a.as_str() {

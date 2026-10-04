@@ -247,7 +247,7 @@ async fn main() -> std::result::Result<(), Error> {
     // 施工完成後可以插回狀態。
     #[cfg(feature = "kcp")]
     let aoi_grid = handle.aoi.clone();
-    let mut state = State::new_with_campaign(
+    let mut state = State::new_with_campaign_and_match(
         campaign_data,
         handle.tx.clone(),
         handle.rx,
@@ -255,7 +255,8 @@ async fn main() -> std::result::Result<(), Error> {
         handle.query_rx,
         #[cfg(any(feature = "grpc", feature = "kcp"))]
         handle.viewport_rx,
-    );
+        CONFIG.single_lane_config().map_err(err_msg)?,
+    )?;
     #[cfg(feature = "kcp")]
     state.attach_aoi_grid(aoi_grid);
     // 階段 5.3：對共享 SnapshotStore 進行執行緒化，以便調度程式循環

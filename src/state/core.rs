@@ -714,6 +714,23 @@ impl State {
         #[cfg(any(feature = "grpc", feature = "kcp"))] query_rx: Receiver<QueryRequest>,
         #[cfg(any(feature = "grpc", feature = "kcp"))] viewport_rx: Receiver<ViewportMsg>,
     ) -> Self {
+        Self::new_with_campaign_and_match(
+            campaign_data, mqtx, mqrx,
+            #[cfg(any(feature = "grpc", feature = "kcp"))] query_rx,
+            #[cfg(any(feature = "grpc", feature = "kcp"))] viewport_rx,
+            None,
+        ).expect("story bootstrap")
+    }
+
+    /// One authoritative world, never a Story world plus a second MOBA world.
+    pub fn new_with_campaign_and_match(
+        campaign_data: CampaignData,
+        mqtx: Sender<OutboundMsg>,
+        mqrx: Receiver<InboundMsg>,
+        #[cfg(any(feature = "grpc", feature = "kcp"))] query_rx: Receiver<QueryRequest>,
+        #[cfg(any(feature = "grpc", feature = "kcp"))] viewport_rx: Receiver<ViewportMsg>,
+        single_lane: Option<omoba_core::runtime::SingleLaneConfig>,
+    ) -> Result<Self, Error> {
         let thread_pool = StateInitializer::create_thread_pool();
         let mut ecs = StateInitializer::setup_campaign_ecs_world(&thread_pool);
 
@@ -789,18 +806,28 @@ impl State {
         state.load_item_registry();
         // 先載 scripts，才能讓 initialize_campaign_game 內的 send_tower_templates 拿到 registry
         state.load_scripts();
-        state.initialize_campaign_game(&campaign_data);
+        if let Some(config) = single_lane {
+            omoba_core::runtime::validate_single_lane_scripts(&config, &state.script_registry)?;
+            omoba_core::runtime::setup_single_lane_match(&mut state.ecs, config)?;
+            state.campaign = None;
+            log::info!("Single-lane MOBA authority ready; Story entities were not spawned");
+        } else {
+            state.initialize_campaign_game(&campaign_data);
+        }
         #[cfg(feature = "runtime-lua-content")]
         state.initialize_dev_lua_hot_reload();
 
         // 階段 5.2：遺留 0x02 GameEvent 廣播剪輯。
 
-        state
+        Ok(state)
     }
 
     /// 遊戲主循環 tick
     pub fn tick(&mut self, dt: Duration) -> Result<(), Error> {
         self.local_tick = self.local_tick.wrapping_add(1);
+        // RNG, observable facts and scripts read the ECS Tick resource. The
+        // transport counter alone is not the authoritative gameplay clock.
+        self.ecs.write_resource::<crate::comp::Tick>().0 = self.local_tick;
         #[cfg(feature = "kcp")]
         if let Some(state) = self.authoritative_lockstep_state.as_ref() {
             state
@@ -854,6 +881,9 @@ impl State {
                 }
             }
             if !accumulated.is_empty() {
+                if let Some(lane) = self.ecs.try_fetch::<omoba_core::runtime::MobaMatch>() {
+                    accumulated.retain(|(player, input, _)| lane.allows_player_input(*player, input));
+                }
                 let accepted_projection = self.build_canonical_accepted_inputs(&accumulated);
                 use crate::comp::PendingPlayerInputs;
                 {
@@ -886,9 +916,19 @@ impl State {
         let mut run_systems_ns = 0u128;
         let mut process_outcomes_ns = 0u128;
         let mut script_dispatch_ns = 0u128;
+        let gameplay_active = omoba_core::runtime::begin_moba_match_tick(&mut self.ecs);
+        #[cfg(feature = "kcp")]
+        if !gameplay_active {
+            self.ecs.write_resource::<crate::comp::PendingPlayerInputs>().inputs.clear();
+            self.ecs.write_resource::<omoba_core::runtime::TeamProjectionRuntime>()
+                .pending_accepted_inputs.retain(|input| matches!(input.action_kind, 17 | 18));
+        }
         omoba_core::runtime::run_deterministic_gameplay_phases(
             &mut |phase| -> Result<(), Error> {
                 use omoba_core::runtime::DeterministicGameplayPhase as P;
+                if !gameplay_active && phase != P::RuntimeEventBoundary {
+                    return Ok(());
+                }
                 match phase {
                     P::Dispatcher => {
                         let t = Instant::now();
@@ -957,6 +997,8 @@ impl State {
                 Ok(())
             },
         )?;
+        omoba_core::runtime::finish_moba_match_tick(&mut self.ecs);
+        self.flush_runtime_events();
 
         // Wave A：outcome 與 fact 已在同一 Specs tick 中完成並穩定 reduce。
         // 只有 barrier 完成後，Wave B 才能讀取 committed State[T+1]；各 team
@@ -1384,7 +1426,9 @@ impl State {
         self.resource_manager
             .process_player_data(&mut self.ecs, &self.mqrx)?;
 
-        self.poll_hero_knowledge_profile_reload();
+        if self.ecs.try_fetch::<omoba_core::runtime::MobaMatch>().is_none() {
+            self.poll_hero_knowledge_profile_reload();
+        }
 
         // 處理 MCP 查詢請求
         #[cfg(any(feature = "grpc", feature = "kcp"))]
@@ -1493,9 +1537,11 @@ impl State {
                 let actor = (&entities, &heroes, &owners)
                     .join()
                     .find(|(_, _, owner)| owner.player_id == *player_id)
-                    .map(|(entity, _, _)| omoba_core::runtime::canonical_entity_id(entity))?;
+                    .map(|(entity, _, _)| omoba_core::runtime::canonical_entity_id(entity))
+                    .or_else(|| matches!(input.action, Some(Action::ItemBuy(_) | Action::ItemSell(_))).then_some(0))?;
                 let mut sanitized = input.clone();
                 let (action_kind, target_index) = match sanitized.action.as_mut()? {
+                    Action::Recall(_) => (19, None),
                     Action::NoOp(_) => (1, None),
                     Action::MoveTo(_) => (2, None),
                     Action::AttackTarget(value) => {
@@ -1523,6 +1569,8 @@ impl State {
                         (8, id)
                     }
                     Action::StartRound(_) => (9, None),
+                    Action::ItemBuy(_) => (17, None),
+                    Action::ItemSell(_) => (18, None),
                     Action::UpgradeAbility(_) => (10, None),
                     Action::AttackMove(_) => (11, None),
                     Action::SetTowerTargetPriority(value) => {

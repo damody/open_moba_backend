@@ -17,6 +17,11 @@ name = "gen-docs"
 path = "src/bin/gen_docs.rs"
 required-features = ["gen-docs"]
 
+[[bin]]
+name = "moba-headless"
+path = "src/bin/moba_headless.rs"
+required-features = ["kcp"]
+
 
 # 隱藏所有編譯器警告
 [lints.rust]
