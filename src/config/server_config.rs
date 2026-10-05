@@ -389,6 +389,9 @@ impl ServerSetting {
         if self.MATCH_MAP_ID.as_deref().is_some_and(|id|id!=plan.map_id) {
             return Err("role plan map conflicts with MATCH_MAP_ID".into());
         }
+        if plan.mana_enabled != self.MATCH_MANA_ENABLED {
+            return Err("role plan mana_enabled conflicts with MATCH_MANA_ENABLED".into());
+        }
         let human_teams:BTreeMap<_,_>=plan.players.iter().filter(|p|!p.bot)
             .map(|p|(p.player_id,p.team_id)).collect();
         if human_teams!=self.AUTHENTICATED_TEAM_BINDINGS {
@@ -490,7 +493,7 @@ STEP_FPS = {step_fps}
                 players.push(RoleBotPlayerPlan {player_id,team_id:team,hero:"training_luminary".into(),role,lane:lane.into(),bot:player_id!=1});
             }
         }
-        let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:5,players,
+        let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:5,mana_enabled:false,players,
             ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new()};
         let mut setting=parse_with_step_fps(60);
         setting.MATCH_GAMEPLAY_MODE=MatchGameplayMode::ThreeLane;
@@ -528,6 +531,28 @@ STEP_FPS = {step_fps}
         assert_eq!(setting.role_bot_config().unwrap().unwrap().think_interval_ticks,18);
         setting.MATCH_ROLE_PLAN_JSON=Some("{".into());assert!(setting.validate().is_err());
         setting.MATCH_ROLE_PLAN_JSON=Some(" ".repeat(64*1024+1));assert!(setting.validate().is_err());
+    }
+
+    #[test]
+    #[cfg(feature = "kcp")]
+    fn mana_sustain_server_requires_recipe_and_rule_flag_agreement() {
+        let mut setting=parse_with_step_fps(60);
+        setting.MATCH_GAMEPLAY_MODE=MatchGameplayMode::ThreeLane;
+        setting.AUTHENTICATED_TEAM_BINDINGS=BTreeMap::from([(1,1),(2,2)]);
+        let mut plan=serde_json::json!({"schema_version":1,"map_id":"three_lane_training","think_hz":5,"mana_enabled":true,
+            "players":[{"player_id":1,"team_id":1,"hero":"training_ranger","role":"carry","lane":"bottom","bot":false},
+                {"player_id":2,"team_id":2,"hero":"training_luminary","role":"mid","lane":"mid","bot":false}],
+            "sustain":{"recall_below_hp_per_mille":350,"leave_base_at_hp_per_mille":850,"threat_radius":1000,
+                "mana":{"recall_below_per_mille":200,"leave_base_at_per_mille":850}}});
+        setting.MATCH_ROLE_PLAN_JSON=Some(plan.to_string());
+        assert!(setting.role_bot_config().unwrap_err().contains("mana_enabled conflicts"));
+        setting.MATCH_MANA_ENABLED=true;
+        setting.validate().unwrap();
+        let config=setting.single_lane_config().unwrap().unwrap();
+        assert!(config.mana_enabled && config.base_recovery_enabled);
+        plan["mana_enabled"]=serde_json::json!(false);
+        setting.MATCH_ROLE_PLAN_JSON=Some(plan.to_string());
+        assert!(setting.role_bot_config().unwrap_err().contains("mana_enabled conflicts"));
     }
 
     #[test]

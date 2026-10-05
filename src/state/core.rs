@@ -2332,7 +2332,7 @@ mod role_server_tests {
                 players.push(RoleBotPlayerPlan {player_id,team_id:team,hero:"training_luminary".into(),role,lane:lane.into(),bot:player_id!=1});
             }
         }
-        RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,players,
+        RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:false,players,
             ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new()}
     }
     fn movement(x:i32) -> PlayerInput {PlayerInput {action:Some(PlayerInputEnum::MoveTo(MoveTo {
