@@ -22,6 +22,11 @@ name = "moba-headless"
 path = "src/bin/moba_headless.rs"
 required-features = ["kcp"]
 
+[[bin]]
+name = "moba-config"
+path = "src/bin/moba_config.rs"
+required-features = ["kcp"]
+
 
 # 隱藏所有編譯器警告
 [lints.rust]

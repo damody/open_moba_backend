@@ -66,6 +66,15 @@ pub struct ServerSetting {
     pub STORY: String,
     #[serde(default)]
     pub MATCH_GAMEPLAY_MODE: MatchGameplayMode,
+    /// Match-scoped opt-in. Every player must agree before registration.
+    #[serde(default)]
+    pub MATCH_MANA_ENABLED: bool,
+    /// Compiled Lua map selection for three-lane matches; absent keeps the legacy training map.
+    #[serde(default)]
+    pub MATCH_MAP_ID: Option<String>,
+    /// Server-owned JSON exported from a Lua recipe, never a wire request.
+    #[serde(default)]
+    pub MATCH_ROLE_PLAN_JSON: Option<String>,
     /// Game speed multiplier (debug only)。1 = real-time，2/4/8 = 快轉。
     /// 每個 real frame 跑 N 個 sub-tick，sim 推進 N × 固定 lockstep tick dt。
     /// Runtime 可由 stdin 指令 `:speed N` 動態切換（範圍 1..=16）。
@@ -182,6 +191,25 @@ fn read_setting() -> Result<Setting, String> {
     toml::from_str(&str_val).map_err(|e| format!("Error Parsing ApplicationConfig: {}", e))
 }
 
+/// Read-only launch preflight, using exactly the production config decoder.
+#[cfg(feature = "kcp")]
+pub fn validate_moba_launch_configuration(text:&str) -> Result<serde_json::Value,String> {
+    let setting:Setting=toml::from_str(text).map_err(|error|format!("invalid launch TOML: {error}"))?;
+    let server=setting.server;
+    server.validate()?;
+    let config=server.single_lane_config()?.ok_or("launch configuration must be MOBA")?;
+    let bots=server.role_bot_config()?.ok_or("launch configuration requires a role plan")?;
+    Ok(serde_json::json!({"schema_version":1,"scope":"configuration-only",
+        "tick_rate_hz":server.STEP_FPS,"story":server.STORY,"map_id":config.map_id,
+        "base_recovery_enabled":config.base_recovery_enabled,
+        "mana_enabled":config.mana_enabled,
+        "player_count":config.additional_players.len()+2,
+        "humans":server.AUTHENTICATED_TEAM_BINDINGS.iter().map(|(&player_id,&team_id)|
+            serde_json::json!({"player_id":player_id,"team_id":team_id})).collect::<Vec<_>>(),
+        "bot_player_ids":bots.assignments.iter().map(|bot|bot.player_id).collect::<Vec<_>>()
+    }))
+}
+
 fn resolve_config_path(base_file: &Path, value: &str) -> String {
     let path = PathBuf::from(value);
     if path.is_absolute() {
@@ -271,6 +299,19 @@ impl ServerSetting {
     }
 
     pub fn single_lane_config(&self) -> Result<Option<omoba_core::runtime::SingleLaneConfig>, String> {
+        if self.MATCH_MANA_ENABLED && (self.MATCH_GAMEPLAY_MODE == MatchGameplayMode::Story
+            || self.MATCH_LOCKSTEP_MODE != MatchLockstepMode::SecureV2Required) {
+            return Err("MATCH_MANA_ENABLED requires secure_v2_required MOBA gameplay".into());
+        }
+        if self.MATCH_ROLE_PLAN_JSON.is_some() {
+            #[cfg(feature = "kcp")]
+            return self.compiled_role_match().map(|value|value.map(|(config,_)|config));
+            #[cfg(not(feature = "kcp"))]
+            return Err("role bots require KCP secure MOBA gameplay".into());
+        }
+        if self.MATCH_MAP_ID.is_some() && self.MATCH_GAMEPLAY_MODE != MatchGameplayMode::ThreeLane {
+            return Err("MATCH_MAP_ID requires three_lane gameplay".into());
+        }
         if self.MATCH_GAMEPLAY_MODE == MatchGameplayMode::Story {
             return Ok(None);
         }
@@ -308,9 +349,15 @@ impl ServerSetting {
         if players.contains(&0) {
             return Err("single_lane requires one to five nonzero players per team".into());
         }
+        let map = if self.MATCH_GAMEPLAY_MODE == MatchGameplayMode::ThreeLane {
+            let id = self.MATCH_MAP_ID.as_deref().unwrap_or("three_lane_training");
+            Some(omoba_template_ids::moba_map_by_name(id)
+                .ok_or_else(|| format!("unknown compiled MOBA map '{id}'"))?)
+        } else { None };
         Ok(Some(omoba_core::runtime::SingleLaneConfig {
-            map_id: (self.MATCH_GAMEPLAY_MODE == MatchGameplayMode::ThreeLane)
-                .then(|| "three_lane_training".into()),
+            mana_enabled: self.MATCH_MANA_ENABLED,
+            map_id: map.map(|map| map.id.to_owned()),
+            lane_length: map.map_or(omoba_sim::Fixed64::from_i32(2400), |map| omoba_sim::Fixed64::from_i32(map.lane_length)),
             players,
             heroes: players.map(selected),
             additional_players,
@@ -322,6 +369,38 @@ impl ServerSetting {
     pub fn lockstep_timing(&self) -> LockstepTiming {
         LockstepTiming::new(self.STEP_FPS)
             .expect("ServerSetting::validate should reject unsupported STEP_FPS")
+    }
+
+    #[cfg(feature = "kcp")]
+    fn compiled_role_match(&self) -> Result<Option<(omoba_core::runtime::SingleLaneConfig,
+        omoba_core::runtime::native::moba_match::bots::RoleBotConfig)>,String> {
+        let Some(json)=self.MATCH_ROLE_PLAN_JSON.as_deref() else {return Ok(None);};
+        LockstepTiming::new(self.STEP_FPS)?;
+        if self.MATCH_GAMEPLAY_MODE!=MatchGameplayMode::ThreeLane
+            || self.MATCH_LOCKSTEP_MODE!=MatchLockstepMode::SecureV2Required {
+            return Err("role plan requires three_lane and secure_v2_required".into());
+        }
+        if json.len()>64*1024 {return Err("role plan JSON exceeds 64 KiB".into());}
+        if !self.AUTHENTICATED_HERO_BINDINGS.is_empty() {
+            return Err("role plan owns hero selection; do not mix hero bindings".into());
+        }
+        let plan:omoba_core::runtime::native::moba_match::bots::RoleBotMatchPlan=
+            serde_json::from_str(json).map_err(|error|format!("invalid role plan JSON: {error}"))?;
+        if self.MATCH_MAP_ID.as_deref().is_some_and(|id|id!=plan.map_id) {
+            return Err("role plan map conflicts with MATCH_MAP_ID".into());
+        }
+        let human_teams:BTreeMap<_,_>=plan.players.iter().filter(|p|!p.bot)
+            .map(|p|(p.player_id,p.team_id)).collect();
+        if human_teams!=self.AUTHENTICATED_TEAM_BINDINGS {
+            return Err("authenticated teams must match exactly the role plan's human controllers (never bots)".into());
+        }
+        plan.compile_with_tick_rate(omoba_core::runtime::MasterSeed::default().0,self.STEP_FPS)
+            .map(|(mut config, bots)| { config.mana_enabled = self.MATCH_MANA_ENABLED; Some((config,bots)) })
+    }
+
+    #[cfg(feature = "kcp")]
+    pub fn role_bot_config(&self) -> Result<Option<omoba_core::runtime::native::moba_match::bots::RoleBotConfig>,String> {
+        self.compiled_role_match().map(|value|value.map(|(_,bots)|bots))
     }
 
     pub fn secure_v2_required(&self) -> bool {
@@ -369,6 +448,19 @@ lazy_static! {
 mod tests {
     use super::*;
 
+    #[test]
+    fn mana_agreement_configuration_is_explicit_and_requires_secure_moba() {
+        let mut setting = parse_with_step_fps(60);
+        assert!(!setting.MATCH_MANA_ENABLED);
+        setting.MATCH_MANA_ENABLED = true;
+        assert!(setting.single_lane_config().is_err());
+        setting.MATCH_GAMEPLAY_MODE = MatchGameplayMode::SingleLane;
+        setting.AUTHENTICATED_TEAM_BINDINGS = BTreeMap::from([(1,1),(2,2)]);
+        assert!(setting.single_lane_config().unwrap().unwrap().mana_enabled);
+        setting.MATCH_LOCKSTEP_MODE = MatchLockstepMode::Legacy;
+        assert!(setting.single_lane_config().is_err());
+    }
+
     fn parse_with_step_fps(step_fps: u32) -> ServerSetting {
         let raw = format!(
             r#"
@@ -384,6 +476,83 @@ STEP_FPS = {step_fps}
 "#
         );
         toml::from_str::<Setting>(&raw).unwrap().server
+    }
+
+    #[test]
+    #[cfg(feature = "kcp")]
+    fn role_server_plan_keeps_nine_bots_out_of_human_authorization() {
+        use omoba_core::runtime::native::moba_match::bots::*;
+        let mut players=Vec::new();
+        for team in 1..=2 {
+            for (index,(role,lane)) in [(BotRole::Top,"top"),(BotRole::Mid,"mid"),(BotRole::Carry,"bottom"),
+                (BotRole::Support,"bottom"),(BotRole::Jungle,"mid")].into_iter().enumerate() {
+                let player_id=(team-1)*5+index as u32+1;
+                players.push(RoleBotPlayerPlan {player_id,team_id:team,hero:"training_luminary".into(),role,lane:lane.into(),bot:player_id!=1});
+            }
+        }
+        let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:5,players,
+            ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new()};
+        let mut setting=parse_with_step_fps(60);
+        setting.MATCH_GAMEPLAY_MODE=MatchGameplayMode::ThreeLane;
+        setting.MATCH_ROLE_PLAN_JSON=Some(serde_json::to_string(&plan).unwrap());
+        setting.AUTHENTICATED_TEAM_BINDINGS=BTreeMap::from([(1,1)]);
+        setting.validate().unwrap();
+        let lane=setting.single_lane_config().unwrap().unwrap();
+        assert_eq!(lane.players,[1,6]);assert_eq!(lane.additional_players.len(),8);
+        assert_eq!(setting.role_bot_config().unwrap().unwrap().assignments.len(),9);
+        let mut auth=crate::lockstep::LockstepState::new(lane.seed);
+        for (&player,&team) in &setting.AUTHENTICATED_TEAM_BINDINGS {auth.authorize_player_team(player,team).unwrap();}
+        let negotiation=omoba_core::transport::MatchCapabilityNegotiation {
+            requested_protocol:2,supported_protocols:vec![2],secure_fog_required:true,
+        };
+        assert!(auth.register_secure_player(1,"human".into(),crate::lockstep::JoinRoleEnum::Player,negotiation.clone(),1).is_ok());
+        for player in 2..=10 {
+            assert!(auth.register_secure_player(player,"bot spoof".into(),crate::lockstep::JoinRoleEnum::Player,negotiation.clone(),1)
+                .unwrap_err().contains("no authenticated team binding"));
+        }
+        assert_eq!(setting.AUTHENTICATED_TEAM_BINDINGS.len(),1);
+        for change in 0..7 {
+            let mut bad=setting.clone();
+            match change {
+                0=>{bad.AUTHENTICATED_TEAM_BINDINGS.insert(2,1);},
+                1=>{bad.AUTHENTICATED_TEAM_BINDINGS.insert(1,2);},
+                2=>{bad.AUTHENTICATED_TEAM_BINDINGS.clear();},
+                3=>{bad.MATCH_GAMEPLAY_MODE=MatchGameplayMode::Story;},
+                4=>{bad.MATCH_LOCKSTEP_MODE=MatchLockstepMode::SecureV2OptIn;},
+                5=>{bad.AUTHENTICATED_HERO_BINDINGS.insert(1,"training_luminary".into());},
+                _=>{bad.MATCH_MAP_ID=Some("three_lane_layered_training".into());},
+            }
+            assert!(bad.validate().is_err());
+        }
+        setting.STEP_FPS=90;
+        assert_eq!(setting.role_bot_config().unwrap().unwrap().think_interval_ticks,18);
+        setting.MATCH_ROLE_PLAN_JSON=Some("{".into());assert!(setting.validate().is_err());
+        setting.MATCH_ROLE_PLAN_JSON=Some(" ".repeat(64*1024+1));assert!(setting.validate().is_err());
+    }
+
+    #[test]
+    #[cfg(feature = "kcp")]
+    fn role_server_lua_fragment_round_trips_through_real_toml_configuration() {
+        let root=Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        for (recipe,bots,humans) in [("moba_role_match.lua",10,BTreeMap::new()),
+            ("moba_single_player.lua",9,BTreeMap::from([(1,1)]))] {
+        let output=root.join("omb/target").join(format!("role-server-{}.toml",uuid::Uuid::new_v4()));
+        let status=std::process::Command::new(root.join("tools/lua/lua.exe"))
+            .arg(root.join("scripts/export_moba_role_plan.lua"))
+            .arg(root.join("scripts/lua_data").join(recipe))
+            .arg(&output).arg("--server-fragment").status().unwrap();
+        assert!(status.success());
+        let fragment=std::fs::read_to_string(&output).unwrap();
+        std::fs::remove_file(&output).unwrap();
+        let mut server=toml::Value::try_from(parse_with_step_fps(60)).unwrap();
+        let fields:toml::Value=toml::from_str(&fragment).unwrap();
+        server.as_table_mut().unwrap().extend(fields.as_table().unwrap().clone());
+        let setting:ServerSetting=toml::from_str(&toml::to_string(&server).unwrap()).unwrap();
+        setting.validate().unwrap();
+        assert_eq!(setting.AUTHENTICATED_TEAM_BINDINGS,humans);
+        assert_eq!(setting.role_bot_config().unwrap().unwrap().assignments.len(),bots);
+        assert_eq!(setting.role_bot_config().unwrap().unwrap().ability_learning.len(),16);
+        }
     }
 
     #[test]
@@ -462,6 +631,27 @@ STEP_FPS = {step_fps}
         setting.MATCH_GAMEPLAY_MODE = MatchGameplayMode::SingleLane;
         setting.AUTHENTICATED_TEAM_BINDINGS = BTreeMap::from([(1,1),(2,2)]);
         assert!(setting.single_lane_config().unwrap().unwrap().map_id.is_none());
+    }
+
+    #[test]
+    fn three_lane_compiled_map_selection_is_validated_not_name_branched() {
+        let mut setting = parse_with_step_fps(60);
+        setting.MATCH_GAMEPLAY_MODE = MatchGameplayMode::ThreeLane;
+        setting.AUTHENTICATED_TEAM_BINDINGS = BTreeMap::from([(1,1),(2,2)]);
+        setting.MATCH_MAP_ID = Some("three_lane_layered_training".into());
+        assert!(setting.validate().is_ok());
+        let config = setting.single_lane_config().unwrap().unwrap();
+        assert_eq!(config.map_id.as_deref(),Some("three_lane_layered_training"));
+        assert_eq!(config.lane_length,omoba_sim::Fixed64::from_i32(2400));
+        for id in ["", "unknown_map", "three_lane_training "] {
+            setting.MATCH_MAP_ID = Some(id.into());
+            assert!(setting.validate().unwrap_err().contains("unknown compiled MOBA map"));
+        }
+        setting.MATCH_MAP_ID = Some("three_lane_layered_training".into());
+        for mode in [MatchGameplayMode::Story,MatchGameplayMode::SingleLane] {
+            setting.MATCH_GAMEPLAY_MODE = mode;
+            assert!(setting.validate().unwrap_err().contains("requires three_lane"));
+        }
     }
 
     #[test]

@@ -5,6 +5,7 @@ use failure::{err_msg, Error};
 use omoba_core::runtime::*;
 use serde_json::json;
 use specs::WorldExt;
+use omoba_core::runtime::native::moba_match::bots::{role_bot_inputs, RoleBotMatchPlan};
 
 fn make_world(config: SingleLaneConfig, scripts_dir: &Path) -> Result<specs::World, Error> {
     let scripts = omoba_core::scripting::loader::load_scripts_dir(scripts_dir);
@@ -17,6 +18,9 @@ fn run() -> Result<(), Error> {
     let mut config = SingleLaneConfig::default();
     let mut profile = SimulationTickProfile::Production60Hz;
     let mut withdraw_defender = false;
+    let mut role_plan_path = None;
+    let mut plan_only = false;
+    let mut fixture_options = false;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         let value = args
@@ -25,18 +29,24 @@ fn run() -> Result<(), Error> {
         match arg.as_str() {
             "--scripts-dir" => scripts_dir = PathBuf::from(value),
             "--report" => report_path = PathBuf::from(value),
+            "--role-plan" => {
+                if role_plan_path.is_some() { return Err(err_msg("duplicate role-plan option")); }
+                role_plan_path = Some(PathBuf::from(value));
+            },
+            "--plan-only" => plan_only = value.parse().map_err(|_| err_msg("plan-only must be true or false"))?,
             "--seed" => config.seed = value.parse().map_err(|_| err_msg("invalid seed"))?,
             "--map" => {
+                fixture_options = true;
                 let map = omoba_template_ids::moba_map_by_name(&value)
                     .ok_or_else(|| err_msg(format!("unknown compiled MOBA map: {value}")))?;
                 config.lane_length = omoba_sim::Fixed64::from_i32(map.lane_length);
                 config.map_id = Some(value);
             }
-            "--defender" => withdraw_defender = match value.as_str() {
+            "--defender" => { fixture_options = true; withdraw_defender = match value.as_str() {
                 "guard" => false,
                 "withdraw" => true,
                 _ => return Err(err_msg("defender must be guard or withdraw")),
-            },
+            }; },
             "--profile" => {
                 profile = match value.as_str() {
                     "15" => SimulationTickProfile::Coarse15Hz,
@@ -48,7 +58,31 @@ fn run() -> Result<(), Error> {
             _ => return Err(err_msg(format!("unknown argument: {arg}"))),
         }
     }
+    if role_plan_path.is_some() && fixture_options {
+        return Err(err_msg("role-plan cannot be combined with fixture map/defender options"));
+    }
+    let role_plan = role_plan_path.as_ref().map(|path| -> Result<RoleBotMatchPlan, Error> {
+        Ok(serde_json::from_slice(&std::fs::read(path)?)?)
+    }).transpose()?;
+    let bots = if let Some(plan) = &role_plan {
+        let (planned, bots) = plan.compile(config.seed, profile).map_err(err_msg)?;
+        config = planned;
+        Some(bots)
+    } else { None };
+    if plan_only {
+        let plan = role_plan.as_ref().ok_or_else(|| err_msg("plan-only requires role-plan"))?;
+        let bots = bots.as_ref().expect("compiled plan");
+        let report = json!({"success":true,"scope":"configuration only; no simulation or match acceptance",
+            "profile_hz":profile.ticks_per_game_second(),"plan":plan,
+            "bot_player_ids":bots.assignments.iter().map(|a|a.player_id).collect::<Vec<_>>(),
+            "think_interval_ticks":bots.think_interval_ticks});
+        if let Some(parent) = report_path.parent() { std::fs::create_dir_all(parent)?; }
+        std::fs::write(&report_path,serde_json::to_vec_pretty(&report)?)?;
+        println!("MOBA role plan valid: {} players, {} bots",plan.players.len(),bots.assignments.len());
+        return Ok(());
+    }
     let mut world = make_world(config.clone(), &scripts_dir)?;
+    if let Some(bots) = &bots { bots.validate(&world.read_resource::<MobaMatch>()).map_err(err_msg)?; }
     let mut driver = SimulationDriver::from_world(&mut world, profile)?;
     let max_ticks = u64::from(profile.ticks_per_game_second()) * 600;
     let mut inputs_recorded = Vec::new();
@@ -57,10 +91,10 @@ fn run() -> Result<(), Error> {
     let mut end_events = 0;
     let mut combat_facts = 0;
     for _ in 0..max_ticks {
-        let mut inputs = single_lane_bot_inputs(
+        let mut inputs = if let Some(bots) = &bots { role_bot_inputs(&world,bots).map_err(err_msg)? } else { single_lane_bot_inputs(
             &world,
             [SingleLaneBotPolicy::Push, SingleLaneBotPolicy::Guard],
-        );
+        ) };
         if withdraw_defender && world.read_resource::<MobaMatch>().phase == MobaMatchPhase::Playing {
             // A noncompetitive completion fixture using only ordinary inputs.
             // No health, tower, progression or phase injection.
@@ -77,6 +111,7 @@ fn run() -> Result<(), Error> {
             }
         }
         let result = driver.step(&mut world, inputs.clone())?;
+        if bots.is_some() { run_committed_visibility_wave_b(&mut world,result.tick,0); }
         combat_facts += result
             .facts
             .iter()
@@ -105,7 +140,7 @@ fn run() -> Result<(), Error> {
             )))
         }
     };
-    if end_events != 1 || casts.contains(&0) || combat_facts == 0 {
+    if end_events != 1 || (bots.is_none() && casts.contains(&0)) || combat_facts == 0 {
         return Err(err_msg(format!(
             "incomplete acceptance: end_events={end_events}, casts={casts:?}"
         )));
@@ -124,6 +159,9 @@ fn run() -> Result<(), Error> {
     }
     let report = json!({
         "success": true, "profile_hz": profile.ticks_per_game_second(), "seed": config.seed,
+        "role_plan":role_plan,
+        "bot_mode":if bots.is_some() {"committed_role_plan"} else {"legacy_fixture"},
+        "skill_coverage_checked":bots.is_none(),
         "map_id": config.map_id, "lane_count": state.lane_towers.len(),
         "defender_policy": if withdraw_defender { "withdraw" } else { "guard" },
         "remaining_lane_towers": state.lane_towers.iter().map(|lane|

@@ -880,6 +880,9 @@ impl State {
                     accumulated.extend(batch);
                 }
             }
+            if let Some(controllers)=self.ecs.try_fetch::<super::role_bots::ServerRoleBotControllers>() {
+                accumulated=controllers.merge_inputs(&self.ecs,accumulated).map_err(failure::err_msg)?;
+            }
             if !accumulated.is_empty() {
                 if let Some(lane) = self.ecs.try_fetch::<omoba_core::runtime::MobaMatch>() {
                     accumulated.retain(|(player, input, _)| lane.allows_player_input(*player, input));
@@ -1536,9 +1539,11 @@ impl State {
         inputs
             .iter()
             .filter_map(|(player_id, input, acceptance_correlation)| {
-                let team_id = *crate::config::server_config::CONFIG
-                    .AUTHENTICATED_TEAM_BINDINGS
-                    .get(player_id)?;
+                let team_id = if let Some(controllers)=self.ecs.try_fetch::<super::role_bots::ServerRoleBotControllers>() {
+                    controllers.team(*player_id)?
+                } else {
+                    *crate::config::server_config::CONFIG.AUTHENTICATED_TEAM_BINDINGS.get(player_id)?
+                };
                 let actor = (&entities, &heroes, &owners)
                     .join()
                     .find(|(_, _, owner)| owner.player_id == *player_id)
@@ -1800,6 +1805,19 @@ impl State {
         rx: crossbeam_channel::Receiver<Vec<(u32, crate::lockstep::PlayerInput, u32)>>,
     ) {
         self.host_input_rx = Some(rx);
+    }
+
+    /// Pre-match only. Bot IDs remain absent from KCP session authorization.
+    #[cfg(feature = "kcp")]
+    pub fn attach_role_bots(&mut self,config:omoba_core::runtime::native::moba_match::bots::RoleBotConfig,
+        human_teams:BTreeMap<u32,u32>) -> Result<(),Error> {
+        if self.local_tick!=0 || self.ecs.try_fetch::<super::role_bots::ServerRoleBotControllers>().is_some() {
+            return Err(failure::err_msg("role controllers must be installed once before ticking"));
+        }
+        let controllers=super::role_bots::ServerRoleBotControllers::new(&self.ecs,config,human_teams)
+            .map_err(failure::err_msg)?;
+        self.ecs.insert(controllers);
+        Ok(())
     }
 
     #[cfg(feature = "kcp")]
@@ -2270,6 +2288,105 @@ fn record_three_way_checkpoints(
         });
         let _ = serde_json::to_writer(&mut file, &row);
         let _ = file.write_all(b"\n");
+    }
+}
+
+#[cfg(all(test, feature = "kcp"))]
+mod role_server_tests {
+    use super::*;
+    use omoba_core::runtime::native::moba_match::bots::*;
+    use omoba_core::runtime::{MobaMatch,SingleLaneConfig,Tick,PlayerInput,PlayerInputEnum,MoveTo,Vec2I};
+
+    // In-memory fixtures install the same ECS, phase dispatcher and State::tick,
+    // without loading a staged DLL or mutating global CONFIG/environment.
+    fn state(config:SingleLaneConfig) -> (State,Receiver<OutboundMsg>) {
+        let pool=StateInitializer::create_thread_pool();
+        let mut ecs=StateInitializer::setup_campaign_ecs_world(&pool);
+        omoba_core::runtime::setup_single_lane_match(&mut ecs,config).unwrap();
+        let (tx,rx)=crossbeam_channel::unbounded();
+        ecs.insert(vec![tx.clone()]);
+        let campaign=crate::ue4::import_campaign::load_generated("MVP_1").unwrap();
+        (State {
+            ecs,cw:campaign.map,campaign:None,mqtx:tx.clone(),mqrx:crossbeam_channel::unbounded().1,
+            reliable_team_tx:None,thread_pool:pool.clone(),time_manager:TimeManager::new(),
+            resource_manager:ResourceManager::new(tx),system_dispatcher:SystemDispatcher::new(pool),
+            last_heartbeat_time:0.0,heartbeat_interval:0.5,last_hero_stats_time:0.0,hero_stats_interval:0.3,
+            query_rx:crossbeam_channel::unbounded().1,viewport_rx:crossbeam_channel::unbounded().1,
+            client_viewports:HashMap::new(),hb_last_hp_sent:HashMap::new(),hb_last_full_send:HashMap::new(),
+            local_tick:0,lockstep_timing:LockstepTiming::new(60).unwrap(),hero_knowledge_profile_modified:None,
+            script_registry:ScriptRegistry::new(),
+            #[cfg(feature = "runtime-lua-content")]
+            dev_lua_hot_reload:None,
+            aoi_grid:None,state_hash_tx:None,snapshot_store:None,team_bootstrap_store:None,observer_validation:None,
+            observer_bootstrapped_teams:BTreeSet::new(),authority_mismatch_rx:None,client_checkpoint_rx:None,
+            rebase_failure_rx:None,secure_input_validation:None,selective_security_metrics:None,
+            host_input_rx:None,authoritative_input_buffer:None,authoritative_lockstep_state:None,
+        },rx)
+    }
+    fn plan() -> RoleBotMatchPlan {
+        let mut players=Vec::new();
+        for team in 1..=2 {
+            for (index,(role,lane)) in [(BotRole::Top,"top"),(BotRole::Mid,"mid"),(BotRole::Carry,"bottom"),
+                (BotRole::Support,"bottom"),(BotRole::Jungle,"mid")].into_iter().enumerate() {
+                let player_id=(team-1)*5+index as u32+1;
+                players.push(RoleBotPlayerPlan {player_id,team_id:team,hero:"training_luminary".into(),role,lane:lane.into(),bot:player_id!=1});
+            }
+        }
+        RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,players,
+            ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new()}
+    }
+    fn movement(x:i32) -> PlayerInput {PlayerInput {action:Some(PlayerInputEnum::MoveTo(MoveTo {
+        target:Some(Vec2I {x,y:0}),queued:false,
+    }))}}
+
+    #[test]
+    fn role_server_real_tick_merges_nine_bots_projects_and_rejects_external_bot_control() {
+        let (mut config,bots)=plan().compile_with_tick_rate(42,60).unwrap();
+        config.warmup=omoba_sim::Fixed64::ZERO;
+        let (mut state,_outbound)=state(config);
+        let auth=BTreeMap::from([(1,1)]);
+        assert!(state.attach_role_bots(bots.clone(),BTreeMap::from([(1,1),(2,1)])).is_err());
+        state.attach_role_bots(bots.clone(),auth.clone()).unwrap();
+        assert!(state.attach_role_bots(bots,auth).is_err());
+        let dt=Duration::from_secs_f64(1.0/60.0);
+        state.tick(dt).unwrap();
+        state.tick(dt).unwrap(); // production Wave B admits disclosure after its one-tick delay
+        let start:Vec<_>=state.ecs.read_resource::<MobaMatch>().heroes.iter().map(|slot| {
+            let entity=slot.entity.unwrap();(slot.player_id,entity,state.ecs.read_storage::<Pos>().get(entity).unwrap().0)
+        }).collect();
+        let external=vec![(2,movement(999_000*1024),999),(1,movement(600*1024),77),(1,movement(700*1024),78),
+            (99,movement(999_000*1024),999)];
+        let merged=state.ecs.read_resource::<super::super::role_bots::ServerRoleBotControllers>()
+            .merge_inputs(&state.ecs,external.clone()).unwrap();
+        assert_eq!(merged.iter().map(|(player,_,_)|*player).collect::<Vec<_>>(),[1,1,2,3,5,6,7,8,10]);
+        // Both Supports are initially within the escort radius: their legal
+        // decision is to hold, not emit artificial movement every think.
+        assert_eq!(merged.iter().filter(|(player,_,_)|*player==1).map(|(_,_,id)|*id).collect::<Vec<_>>(),[77,78]);
+        assert!(merged.iter().filter(|(player,_,_)|*player!=1).all(|(_,_,id)|*id==0));
+        assert!(!merged.iter().any(|(player,_,_)|*player==99));
+        let accepted=state.build_canonical_accepted_inputs(&merged);
+        assert_eq!(accepted.len(),merged.len());
+        for input in &accepted {
+            assert_eq!(input.team_id,if input.player_id<=5 {1} else {2});
+        }
+        let (tx,rx)=crossbeam_channel::unbounded();state.attach_host_input_rx(rx);
+        tx.send(external).unwrap();
+        for tick in 0..60 {
+            state.tick(dt).unwrap();
+            if tick==0 {
+                let projection=state.ecs.read_resource::<omoba_core::runtime::TeamProjectionRuntime>();
+                for (team,expected) in [(1,vec![1,1,2,3,5]),(2,vec![6,7,8,10])] {
+                    let step=projection.latest_frames.get(&team).unwrap().frame.step.as_ref().unwrap();
+                    assert_eq!(step.accepted_inputs.iter().map(|input|input.player_id).collect::<Vec<_>>(),expected);
+                }
+            }
+        }
+        assert_eq!(state.ecs.read_resource::<Tick>().0,62);
+        for (player,entity,pos) in start {
+            let current=state.ecs.read_storage::<Pos>().get(entity).unwrap().0;
+            assert_ne!(current,pos,"controller {player} never moved");
+            assert!(current.x<omoba_sim::Fixed64::from_i32(10_000),"spoofed bot command was executed");
+        }
     }
 }
 

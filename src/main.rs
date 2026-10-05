@@ -258,6 +258,10 @@ async fn main() -> std::result::Result<(), Error> {
         CONFIG.single_lane_config().map_err(err_msg)?,
     )?;
     #[cfg(feature = "kcp")]
+    if let Some(bots)=CONFIG.role_bot_config().map_err(err_msg)? {
+        state.attach_role_bots(bots,CONFIG.AUTHENTICATED_TEAM_BINDINGS.clone())?;
+    }
+    #[cfg(feature = "kcp")]
     state.attach_aoi_grid(aoi_grid);
     // 階段 5.3：對共享 SnapshotStore 進行執行緒化，以便調度程式循環
     // 將其週期性快照位元組鏡像到相同的 Arc kcp 傳輸中
