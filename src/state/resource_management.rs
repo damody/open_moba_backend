@@ -11,6 +11,107 @@ fn td_tower_placement_radius(tpl: &crate::comp::tower_registry::TowerTemplate) -
     tpl.placement_radius
 }
 
+#[cfg(test)]
+mod item_adapter_tests {
+    use super::*;
+    use specs::Builder;
+    use omoba_core::runtime::{BuffStore, ScriptEventQueue};
+    use omoba_core::runtime::item::{ActiveEffect, ItemBonus, ItemConfig, ItemRegistry};
+    use omoba_sim::Fixed64;
+
+    fn fixture(active: ActiveEffect) -> (World, Entity, ResourceManager, Receiver<OutboundMsg>) {
+        let mut w = World::new();
+        w.register::<Hero>(); w.register::<PlayerOwner>(); w.register::<CProperty>();
+        w.register::<Inventory>(); w.register::<HeroCommandQueue>(); w.register::<MoveTarget>();
+        w.register::<TAttack>();
+        w.insert(BuffStore::default()); w.insert(ScriptEventQueue::default());
+        w.insert(ItemRegistry::from_configs(vec![ItemConfig { id: "fixture".into(), name: "Fixture".into(),
+            cost: 100, bonus: ItemBonus::default(), active: Some(active), cooldown: 5.0, recipe: vec![] }]));
+        let mut inventory = Inventory::default();
+        inventory.slots[0] = Some(ItemInstance { item_id: "fixture".into(), cooldown_remaining: 0.0 });
+        let mut hero = Hero::new("fixture".into(), "Alice".into(), "".into());
+        hero.mana_pool = Some(omoba_core::runtime::ability_runtime::ManaPool::new(Fixed64::from_i32(10), Fixed64::from_i32(100)).unwrap());
+        let e = w.create_entity().with(hero).with(PlayerOwner { player_id: 42 })
+            .with(CProperty { hp: Fixed64::from_i32(50), mhp: Fixed64::from_i32(100),
+                msd: Fixed64::from_i32(300), def_physic: Fixed64::ZERO, def_magic: Fixed64::ZERO })
+            .with(inventory).with(TAttack::new(Fixed64::from_i32(10), Fixed64::ONE,
+                Fixed64::from_i32(100), Fixed64::from_i32(900))).build();
+        let (tx, rx) = crossbeam_channel::unbounded();
+        (w, e, ResourceManager::new(tx), rx)
+    }
+
+    fn request(name: &str, slot: serde_json::Value) -> InboundMsg {
+        InboundMsg { name: name.into(), t: "player".into(), a: "use_item".into(), d: serde_json::json!({ "slot": slot }) }
+    }
+
+    #[test]
+    fn legacy_item_adapter_delegates_all_five_effects_and_rejects_cooldown() {
+        use omoba_template_ids::MobaItemActiveConst as Generated;
+        for (index, active) in [Generated::Shield { amount: Fixed64::from_i32(20), duration: Fixed64::ONE },
+            Generated::SprintBuff { ms_bonus: Fixed64::from_i32(60), duration: Fixed64::ONE },
+            Generated::RestoreMana { amount: Fixed64::from_i32(20) },
+            Generated::DamageReduce { percent: Fixed64::from_raw(512), duration: Fixed64::ONE },
+            Generated::HeadshotNext { bonus_damage: Fixed64::from_i32(60) }].into_iter().enumerate() {
+            let (mut w, e, manager, responses) = fixture(active.into());
+            manager.handle_player_request(&mut w, request("Alice", serde_json::json!(0))).unwrap();
+            assert!(responses.try_recv().is_ok());
+            assert_eq!(w.read_storage::<CProperty>().get(e).unwrap().hp, Fixed64::from_i32(50));
+            assert_eq!(w.read_storage::<CProperty>().get(e).unwrap().msd, Fixed64::from_i32(300));
+            match index {
+                0 => assert_eq!(w.read_resource::<BuffStore>().shield_remaining(e), Fixed64::from_i32(20)),
+                1 => assert_eq!(w.read_resource::<BuffStore>().sum_add(e, omb_script_abi::stat_keys::StatKey::MoveSpeedBonusBuff), Fixed64::from_i32(60)),
+                2 => assert_eq!(w.read_storage::<Hero>().get(e).unwrap().mana_pool.as_ref().unwrap().current(), Fixed64::from_i32(30)),
+                3 => assert_eq!(w.read_resource::<BuffStore>().sum_add(e, omb_script_abi::stat_keys::StatKey::DamageTakenBonus), Fixed64::from_raw(-512)),
+                _ => assert_eq!(w.read_resource::<BuffStore>().next_attack_bonus(e), Fixed64::from_i32(60)),
+            }
+            assert!(manager.handle_player_request(&mut w, request("Alice", serde_json::json!(0))).is_err());
+            assert!(responses.try_recv().is_err(), "no completed reply on rejection");
+            assert_eq!(w.read_storage::<Inventory>().get(e).unwrap().slots[0].as_ref().unwrap().cooldown_remaining, 5.0);
+        }
+    }
+
+    #[test]
+    fn legacy_item_adapter_rejects_formal_moba_at_both_entry_points() {
+        let pool = omoba_core::runtime::StateInitializer::create_thread_pool();
+        let mut match_world = omoba_core::runtime::StateInitializer::setup_campaign_ecs_world(&pool);
+        omoba_core::runtime::setup_single_lane_match(
+            &mut match_world, omoba_core::runtime::SingleLaneConfig::default(),
+        ).unwrap();
+        let (mut w, e, manager, responses) = fixture(ActiveEffect::Shield { amount: 20.0, duration: 1.0 });
+        // Install the real match resource, while keeping a usable legacy hero.
+        // Rejection must depend on mode, not an absent hero or malformed request.
+        w.insert(match_world.remove::<omoba_core::runtime::MobaMatch>().unwrap());
+        let public_error = manager.handle_player_request(&mut w, request("Alice", serde_json::json!(0))).unwrap_err();
+        let direct_error = manager.use_item(&mut w, &request("Alice", serde_json::json!(0))).unwrap_err();
+        for error in [public_error, direct_error] {
+            assert!(error.to_string().contains("authenticated lockstep PlayerInput"));
+        }
+        assert_eq!(w.read_resource::<BuffStore>().shield_remaining(e), Fixed64::ZERO);
+        assert_eq!(w.read_storage::<CProperty>().get(e).unwrap().hp, Fixed64::from_i32(50));
+        assert_eq!(w.read_storage::<Inventory>().get(e).unwrap().slots[0].as_ref().unwrap().cooldown_remaining, 0.0);
+        assert!(responses.try_recv().is_err(), "formal mode must not emit a completed legacy reply");
+    }
+
+    #[test]
+    fn legacy_item_adapter_has_no_name_fallback_or_slot_truncation() {
+        let (mut w, e, manager, responses) = fixture(ActiveEffect::Shield { amount: 20.0, duration: 1.0 });
+        for (name, slot) in [("", serde_json::json!(0)), ("Unknown", serde_json::json!(0)),
+            ("Alice", serde_json::json!(-1)), ("Alice", serde_json::json!(6)),
+            ("Alice", serde_json::json!(u64::MAX)), ("Alice", serde_json::json!(0.5)),
+            ("Alice", serde_json::json!("0"))] {
+            assert!(manager.handle_player_request(&mut w, request(name, slot)).is_err());
+        }
+        let duplicate = w.create_entity().with(Hero::new("other".into(), "Alice".into(), "".into())).build();
+        assert!(manager.handle_player_request(&mut w, request("Alice", serde_json::json!(0))).is_err());
+        w.write_storage::<Hero>().get_mut(duplicate).unwrap().name = "Other".into();
+        w.write_storage::<PlayerOwner>().insert(duplicate, PlayerOwner { player_id: 42 }).unwrap();
+        assert!(manager.handle_player_request(&mut w, request("Alice", serde_json::json!(0))).is_err());
+        assert_eq!(w.read_resource::<BuffStore>().shield_remaining(e), Fixed64::ZERO);
+        assert_eq!(w.read_storage::<Inventory>().get(e).unwrap().slots[0].as_ref().unwrap().cooldown_remaining, 0.0);
+        assert!(responses.try_recv().is_err());
+    }
+}
+
 /// 資源管理器
 pub struct ResourceManager {
     /// MQTT 發送通道
@@ -1178,98 +1279,34 @@ impl ResourceManager {
     }
 
     fn use_item(&self, world: &mut World, pd: &InboundMsg) -> Result<(), Error> {
-        let slot_i = pd.d.get("slot").and_then(|v| v.as_u64()).unwrap_or(99) as usize;
-        if slot_i >= INVENTORY_SLOTS {
-            return Ok(());
+        // Defense in depth: even a future direct caller must not bypass lockstep.
+        if world.try_fetch::<omoba_core::runtime::MobaMatch>().is_some() {
+            return Err(failure::err_msg("MOBA requires authenticated lockstep PlayerInput"));
         }
-        let hero_e = match self.find_hero_entity(world, &pd.name) {
-            Some(e) => e,
-            None => return Ok(()),
-        };
-
-        // 取出裝備 config（需要 active）
-        let (item_cfg, can_use) = {
-            let invs = world.read_storage::<Inventory>();
-            let reg = world.read_resource::<crate::item::ItemRegistry>();
-            if let Some(inv) = invs.get(hero_e) {
-                if let Some(Some(inst)) = inv.slots.get(slot_i) {
-                    let cfg = reg.get(&inst.item_id);
-                    let ready = inst.cooldown_remaining <= 0.0;
-                    (cfg, ready)
-                } else {
-                    (None, false)
-                }
-            } else {
-                (None, false)
+        let slot = pd.d.get("slot").and_then(|v| v.as_u64())
+            .filter(|slot| *slot < INVENTORY_SLOTS as u64)
+            .ok_or_else(|| failure::err_msg("use_item: invalid inventory slot"))? as u32;
+        if pd.name.is_empty() { return Err(failure::err_msg("use_item: hero name required")); }
+        let owner = {
+            let entities = world.entities();
+            let heroes = world.read_storage::<Hero>();
+            let owners = world.read_storage::<PlayerOwner>();
+            let properties = world.read_storage::<CProperty>();
+            let mut matches = (&entities, &heroes).join().filter(|(_, hero)| hero.name == pd.name);
+            let (entity, _) = matches.next().ok_or_else(|| failure::err_msg("use_item: unknown hero name"))?;
+            if matches.next().is_some() { return Err(failure::err_msg("use_item: ambiguous hero name")); }
+            let owner = owners.get(entity).map(|owner| owner.player_id)
+                .filter(|owner| *owner != 0)
+                .ok_or_else(|| failure::err_msg("use_item: hero owner unavailable"))?;
+            if !properties.get(entity).is_some_and(|p| p.hp > omoba_sim::Fixed64::ZERO)
+                || (&entities, &heroes, &owners).join().filter(|(_, _, value)| value.player_id == owner).count() != 1 {
+                return Err(failure::err_msg("use_item: hero unavailable or ambiguous owner"));
             }
+            owner
         };
-        let cfg = match item_cfg {
-            Some(c) => c,
-            None => return Ok(()),
-        };
-        if !can_use {
-            log::info!("use_item: slot {} CD 中", slot_i);
-            return Ok(());
-        }
-        let active = match &cfg.active {
-            Some(a) => a.clone(),
-            None => {
-                log::info!("use_item: slot {} 裝備無主動效果", slot_i);
-                return Ok(());
-            }
-        };
-
-        // 套用效果（MVP 直接操作屬性）
-        {
-            let mut props = world.write_storage::<CProperty>();
-            if let Some(p) = props.get_mut(hero_e) {
-                match &active {
-                    crate::item::ActiveEffect::Shield { amount, .. } => {
-                        let amt_fx = omoba_sim::Fixed64::from_raw((*amount * 1024.0) as i64);
-                        let summed = p.hp + amt_fx;
-                        p.hp = if summed > p.mhp { p.mhp } else { summed };
-                        log::info!("🛡️ 護盾主動 +{} HP", amount);
-                    }
-                    crate::item::ActiveEffect::RestoreMana { amount } => {
-                        // mp 非 CProperty 欄位，改為記錄（未實作 mp tick 的話以 HP 代回簡化）
-                        log::info!("💙 回魔主動 +{} MP (MVP 暫未串接 mp)", amount);
-                    }
-                    crate::item::ActiveEffect::SprintBuff { ms_bonus, duration } => {
-                        let bonus_fx = omoba_sim::Fixed64::from_raw((*ms_bonus * 1024.0) as i64);
-                        p.msd += bonus_fx;
-                        log::info!(
-                            "💨 疾跑 +{} ms，持續 {}s (MVP 無 buff 結束回收)",
-                            ms_bonus,
-                            duration
-                        );
-                    }
-                    crate::item::ActiveEffect::DamageReduce { percent, duration } => {
-                        log::info!(
-                            "🛡️ 減傷 {}% {}s (MVP buff 管道尚未接)",
-                            percent * 100.0,
-                            duration
-                        );
-                    }
-                    crate::item::ActiveEffect::HeadshotNext { bonus_damage } => {
-                        log::info!(
-                            "🎯 下次攻擊 +{} 傷害 (MVP 尚未 hook 到 projectile)",
-                            bonus_damage
-                        );
-                    }
-                }
-            }
-        }
-
-        // 啟動 CD
-        {
-            let mut invs = world.write_storage::<Inventory>();
-            if let Some(inv) = invs.get_mut(hero_e) {
-                if let Some(Some(inst)) = inv.slots.get_mut(slot_i) {
-                    inst.cooldown_remaining = cfg.cooldown;
-                }
-            }
-        }
-        Ok(())
+        // Legacy names are not authentication. This adapter is only for non-MOBA
+        // compatibility; all actual effects, admission and cooldown live in core.
+        omoba_core::runtime::handle_item_use_from_input(world, slot, None, None, owner)
     }
 
     fn get_screen_area_data(
