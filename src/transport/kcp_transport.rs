@@ -67,6 +67,17 @@ fn late_input_grace_ticks(step_fps: u32) -> u32 {
         / 1000
 }
 
+fn validate_join_wire_protocol(request: &JoinRequest) -> Result<bool, &'static str> {
+    let negotiation = omoba_core::transport::MatchCapabilityNegotiation {
+        requested_protocol: request.requested_protocol,
+        supported_protocols: request.supported_protocols.clone(),
+        secure_fog_required: false,
+    };
+    negotiation.resolve(None)
+        .map(|mode| mode == omoba_core::transport::MatchProtocol::SelectiveV2)
+        .map_err(|_| "UNSUPPORTED_WIRE_PROTOCOL")
+}
+
 fn log_input_submit_result(
     player_id: u32,
     input_id: u32,
@@ -130,7 +141,12 @@ fn secure_coordinate_input_with_shop(payload: &[u8], joined_player_id: Option<u3
     secure_coordinate_input_with_capabilities(payload, joined_player_id, shop, false)
 }
 
+#[cfg(test)]
 fn secure_coordinate_input_with_capabilities(payload: &[u8], joined_player_id: Option<u32>, shop: bool, recall: bool) -> bool {
+    secure_coordinate_input_with_commands(payload, joined_player_id, shop, recall, false)
+}
+
+fn secure_coordinate_input_with_commands(payload: &[u8], joined_player_id: Option<u32>, shop: bool, recall: bool, commands: bool) -> bool {
     let Ok(request) = InputSubmit::decode(payload) else {
         return false;
     };
@@ -146,6 +162,7 @@ fn secure_coordinate_input_with_capabilities(payload: &[u8], joined_player_id: O
             && !value.item_id.is_empty() && value.item_id.len() <= 64,
         Some(player_input::Action::ItemSell(value)) => shop && request.input_id != 0 && value.item_slot < 6,
         Some(player_input::Action::Recall(_)) => recall && request.input_id != 0,
+        Some(player_input::Action::HoldPosition(_)) => commands && request.input_id != 0,
         _ => false,
     }
 }
@@ -169,7 +186,7 @@ fn rewrite_secure_target(input: &mut PlayerInput, canonical_target: u64) -> Opti
 fn validate_shop_join_request(request: &JoinRequest) -> Result<bool, &'static str> {
     let agreed = omoba_core::runtime::shop_transport::negotiate_shop_catalog(
         request.shop_catalog_version, &request.shop_catalog_hash)?;
-    if agreed && (request.requested_protocol != 2 || !request.supported_protocols.contains(&2)
+    if agreed && (request.requested_protocol != omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION || !request.supported_protocols.contains(&omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION)
         || !request.secure_fog_capability || request.role != JoinRole::RolePlayer as i32 || request.player_id == 0) {
         return Err("SHOP_CATALOG_REQUIRES_SECURE_PLAYER");
     }
@@ -179,9 +196,19 @@ fn validate_shop_join_request(request: &JoinRequest) -> Result<bool, &'static st
 fn validate_recall_join_request(request: &JoinRequest) -> Result<bool, &'static str> {
     let agreed = omoba_core::runtime::recall_transport::negotiate_recall_protocol(
         request.recall_protocol_version, &request.recall_rules_hash)?;
-    if agreed && (request.requested_protocol != 2 || !request.supported_protocols.contains(&2)
+    if agreed && (request.requested_protocol != omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION || !request.supported_protocols.contains(&omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION)
         || !request.secure_fog_capability || request.role != JoinRole::RolePlayer as i32 || request.player_id == 0) {
         return Err("RECALL_REQUIRES_SECURE_PLAYER");
+    }
+    Ok(agreed)
+}
+
+fn validate_command_join_request(request: &JoinRequest) -> Result<bool, &'static str> {
+    let agreed = omoba_core::runtime::command_transport::negotiate_command_protocol(
+        request.command_protocol_version, &request.command_rules_hash)?;
+    if agreed && (request.requested_protocol != omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION || !request.supported_protocols.contains(&omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION)
+        || !request.secure_fog_capability || request.role != JoinRole::RolePlayer as i32 || request.player_id == 0) {
+        return Err("COMMAND_REQUIRES_AUTHENTICATED_SELECTIVE_PLAYER");
     }
     Ok(agreed)
 }
@@ -190,7 +217,7 @@ fn validate_mana_join_request(request: &JoinRequest, required: bool) -> Result<b
     let agreed = omoba_core::runtime::mana_transport::negotiate_mana_protocol(
         request.mana_protocol_version, &request.mana_rules_hash)?;
     if required && !agreed { return Err("MANA_CAPABILITY_REQUIRED"); }
-    if agreed && (request.requested_protocol != 2 || !request.supported_protocols.contains(&2)
+    if agreed && (request.requested_protocol != omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION || !request.supported_protocols.contains(&omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION)
         || !request.secure_fog_capability || request.role != JoinRole::RolePlayer as i32 || request.player_id == 0) {
         return Err("MANA_REQUIRES_AUTHENTICATED_SELECTIVE_PLAYER");
     }
@@ -206,7 +233,7 @@ fn mana_agreement_requires_compatible_authenticated_player_before_registration()
     request.mana_protocol_version = omoba_core::runtime::mana_transport::MANA_PROTOCOL_VERSION;
     request.mana_rules_hash = omoba_template_ids::CONTENT_CATALOG_DATA_HASH.into();
     assert!(validate_mana_join_request(&request, true).is_err());
-    request.requested_protocol = 2; request.supported_protocols = vec![2];
+    request.requested_protocol = omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION; request.supported_protocols = vec![omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION];
     request.secure_fog_capability = true; request.role = JoinRole::RolePlayer as i32; request.player_id = 7;
     assert_eq!(validate_mana_join_request(&request, true), Ok(true));
     for change in 0..5 {
@@ -820,7 +847,7 @@ pub async fn start(
                                 );
                                 let sessions = sessions_broadcast.lock().await;
                                 if let Some(session) = sessions.get(&client_session_id) {
-                                    if session.negotiated_protocol_version == 2 && session.secure_match_capability {
+                                    if session.negotiated_protocol_version == omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION && session.secure_match_capability {
                                         let _ = session.event_tx.try_send(frame_arc);
                                         observer_tap_broadcast.try_bootstrap(Arc::clone(&encoded));
                                     }
@@ -899,7 +926,7 @@ pub async fn start(
                                 let sessions = sessions_broadcast.lock().await;
                                 let mut to_remove = Vec::new();
                                 for (sid, session) in sessions.iter() {
-                                    if !session.lockstep_joined || session.negotiated_protocol_version == 2 { continue; }
+                                    if !session.lockstep_joined || session.negotiated_protocol_version == omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION { continue; }
                                     if session.event_tx.try_send(frame_arc.clone()).is_err() {
                                         to_remove.push(sid.clone());
                                     }
@@ -920,7 +947,7 @@ pub async fn start(
                                 let sessions = sessions_broadcast.lock().await;
                                 let mut to_remove = Vec::new();
                                 for (sid, session) in sessions.iter() {
-                                    if !session.lockstep_joined || session.negotiated_protocol_version == 2 { continue; }
+                                    if !session.lockstep_joined || session.negotiated_protocol_version == omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION { continue; }
                                     if session.event_tx.try_send(frame_arc.clone()).is_err() {
                                         to_remove.push(sid.clone());
                                     }
@@ -939,7 +966,7 @@ pub async fn start(
                                 let frame_bytes = build_framed_bytes(TAG_GAME_START, &payload);
                                 let frame_arc: Arc<[u8]> = Arc::from(frame_bytes.into_boxed_slice());
                                 let sessions = sessions_broadcast.lock().await;
-                                if let Some(session) = sessions.get(&client_session_id).filter(|session| session.negotiated_protocol_version != 2) {
+                                if let Some(session) = sessions.get(&client_session_id).filter(|session| session.negotiated_protocol_version != omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION) {
                                     let _ = session.event_tx.try_send(frame_arc);
                                 } else {
                                     warn!("GameStart unicast: session '{}' not found", client_session_id);
@@ -950,7 +977,7 @@ pub async fn start(
                                 let frame_bytes = build_framed_bytes(TAG_SNAPSHOT_RESP, &payload);
                                 let frame_arc: Arc<[u8]> = Arc::from(frame_bytes.into_boxed_slice());
                                 let sessions = sessions_broadcast.lock().await;
-                                if let Some(session) = sessions.get(&client_session_id).filter(|session| session.negotiated_protocol_version != 2) {
+                                if let Some(session) = sessions.get(&client_session_id).filter(|session| session.negotiated_protocol_version != omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION) {
                                     let _ = session.event_tx.try_send(frame_arc);
                                 } else {
                                     warn!("SnapshotResp unicast: session '{}' not found", client_session_id);
@@ -1080,7 +1107,7 @@ pub async fn start(
                         // Secure V2 players receive only the team-scoped stream.
                         // Legacy GameEvent payloads may contain global/raw IDs.
                         targets.retain(|id| sessions.get(id).is_some_and(|session| {
-                            session.negotiated_protocol_version != 2
+                            session.negotiated_protocol_version != omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION
                         }));
 
                         let is_per_player_topic = !msg.topic.contains("/all/") && msg.topic.starts_with("td/") && msg.topic.ends_with("/res");
@@ -1299,6 +1326,7 @@ async fn handle_client(
     let mut joined_player_id: Option<u32> = None;
     let mut shop_protocol_agreed = false;
     let mut recall_protocol_agreed = false;
+    let mut command_protocol_agreed = false;
     let shop_query_clock = std::time::Instant::now();
     let mut shop_query_budget = omoba_core::runtime::shop_transport::ShopQueryBudget::default();
     let mut invalid_reference_limiter =
@@ -1313,12 +1341,12 @@ async fn handle_client(
                         let secure_v2_session = {
                             let sessions = sessions.lock().await;
                             sessions.get(&session_id).is_some_and(|session| {
-                                session.negotiated_protocol_version == 2
+                                session.negotiated_protocol_version == omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION
                                     && session.secure_match_capability
                             })
                         };
                         let secure_coordinate_input = tag == TAG_INPUT_SUBMIT
-                            && secure_coordinate_input_with_capabilities(&payload, joined_player_id, shop_protocol_agreed, recall_protocol_agreed);
+                            && secure_coordinate_input_with_commands(&payload, joined_player_id, shop_protocol_agreed, recall_protocol_agreed, command_protocol_agreed);
                         if secure_v2_session && matches!(tag,
                             TAG_PLAYER_COMMAND | TAG_GAME_STATE_REQUEST | TAG_VIEWPORT_UPDATE
                                 | TAG_INPUT_SUBMIT | TAG_SNAPSHOT_REQ
@@ -1343,7 +1371,7 @@ async fn handle_client(
                                 let binding = {
                                     let sessions = sessions.lock().await;
                                     sessions.get(&session_id).and_then(|session| {
-                                        (session.negotiated_protocol_version == 2 && session.secure_match_capability)
+                                        (session.negotiated_protocol_version == omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION && session.secure_match_capability)
                                             .then_some((session.authenticated_team_id, session.current_view_epoch))
                                     })
                                 };
@@ -1643,8 +1671,14 @@ async fn handle_client(
                                             if let Err(reason) = validate_recall_join_request(&req) {
                                                 warn!("JoinRequest recall protocol rejected: {}", reason); break;
                                             }
+                                            if let Err(reason) = validate_command_join_request(&req) {
+                                                warn!("JoinRequest command protocol rejected: {}", reason); break;
+                                            }
                                             let mut s = lockstep_state.lock().unwrap();
-                                            let secure_requested = req.requested_protocol == 2;
+                                            let secure_requested = match validate_join_wire_protocol(&req) {
+                                                Ok(secure) => secure,
+                                                Err(reason) => { warn!("JoinRequest wire protocol rejected: {}", reason); break; }
+                                            };
                                             let result = if secure_requested {
                                                 s.register_secure_player(
                                                     declared_player_id,
@@ -1660,7 +1694,7 @@ async fn handle_client(
                                             } else if s.secure_fog_required
                                                 || s.match_protocol == Some(omoba_core::transport::MatchProtocol::SelectiveV2)
                                             {
-                                                Err("secure match requires protocol V2; runtime downgrade rejected".to_string())
+                                                Err("secure match requires current selective protocol; runtime downgrade rejected".to_string())
                                             } else {
                                                 s.register_player(
                                                     declared_player_id,
@@ -1693,6 +1727,10 @@ async fn handle_client(
                                             && secure_binding.is_some()
                                             && matches!(crate::config::server_config::CONFIG.MATCH_GAMEPLAY_MODE,
                                                 crate::config::server_config::MatchGameplayMode::SingleLane | crate::config::server_config::MatchGameplayMode::ThreeLane);
+                                        command_protocol_agreed = validate_command_join_request(&req) == Ok(true)
+                                            && secure_binding.is_some()
+                                            && matches!(crate::config::server_config::CONFIG.MATCH_GAMEPLAY_MODE,
+                                                crate::config::server_config::MatchGameplayMode::SingleLane | crate::config::server_config::MatchGameplayMode::ThreeLane);
                                         // The client sends view_epoch=0 when it has no prior
                                         // replica state. Never treat that client hint as the
                                         // authoritative epoch: use the current server bootstrap,
@@ -1715,7 +1753,7 @@ async fn handle_client(
                                             if let Some(s) = sess.get_mut(&session_id) {
                                                 s.lockstep_joined = true;
                                                 if let Some(binding) = &secure_binding {
-                                                    s.negotiated_protocol_version = 2;
+                                                    s.negotiated_protocol_version = omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION;
                                                     s.authenticated_team_id = Some(binding.authenticated_team_id);
                                                     s.current_view_epoch = binding.current_view_epoch;
                                                     s.secure_match_capability = binding.secure_match_capability;
@@ -1741,7 +1779,7 @@ async fn handle_client(
                                                         viewport: None,
                                                         seq: Arc::new(AtomicU64::new(0)),
                                                         lockstep_joined: true,
-                                                        negotiated_protocol_version: secure_binding.as_ref().map_or(1, |_| 2),
+                                                        negotiated_protocol_version: secure_binding.as_ref().map_or(1, |_| omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION),
                                                         authenticated_team_id: secure_binding.as_ref().map(|binding| binding.authenticated_team_id),
                                                         current_view_epoch: secure_binding.as_ref().map_or(0, |binding| binding.current_view_epoch),
                                                         secure_match_capability: secure_binding.is_some(),
@@ -1775,6 +1813,8 @@ async fn handle_client(
                                                 current.recall_rules_hash = if recall_protocol_agreed { omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned() } else { String::new() };
                                                 current.mana_protocol_version = if mana_protocol_agreed { omoba_core::runtime::mana_transport::MANA_PROTOCOL_VERSION } else { 0 };
                                                 current.mana_rules_hash = if mana_protocol_agreed { omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned() } else { String::new() };
+                                                current.command_protocol_version = if command_protocol_agreed { omoba_core::runtime::command_transport::COMMAND_PROTOCOL_VERSION } else { 0 };
+                                                current.command_rules_hash = if command_protocol_agreed { omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned() } else { String::new() };
                                                 current.input_allocator_version = 1;
                                                 current.last_seen_input_id = lockstep_input_buffer
                                                     .lock().expect("input buffer mutex poisoned")
@@ -1811,7 +1851,7 @@ async fn handle_client(
                                             crate::lockstep::LockstepFrame::TeamGameStartV2 {
                                                 client_session_id: session_id.clone(),
                                                 msg: TeamGameStart {
-                                                    protocol_version: 2,
+                                                    protocol_version: omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION,
                                                     snapshot_schema_version: 1,
                                                     content_schema_version: 1,
                                                     player_id,
@@ -1857,6 +1897,8 @@ async fn handle_client(
                                                     recall_rules_hash: if recall_protocol_agreed { omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned() } else { String::new() },
                                                     mana_protocol_version: if mana_protocol_agreed { omoba_core::runtime::mana_transport::MANA_PROTOCOL_VERSION } else { 0 },
                                                     mana_rules_hash: if mana_protocol_agreed { omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned() } else { String::new() },
+                                                    command_protocol_version: if command_protocol_agreed { omoba_core::runtime::command_transport::COMMAND_PROTOCOL_VERSION } else { 0 },
+                                                    command_rules_hash: if command_protocol_agreed { omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned() } else { String::new() },
                                                 },
                                             }
                                             }
@@ -1877,7 +1919,7 @@ async fn handle_client(
                                         };
                                         if let Err(e) = lockstep_tx.send(OutboundMsg::lockstep_frame(frame)) {
                                             warn!("Failed to enqueue GameStart: {}", e);
-                                        } else if req.requested_protocol != 2 {
+                                        } else if req.requested_protocol != omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION {
                                             enqueue_bootstrap_snapshot(
                                                 &session_id,
                                                 &lockstep_tx,
@@ -1894,7 +1936,7 @@ async fn handle_client(
                                         let binding = {
                                             let sessions = sessions.lock().await;
                                             sessions.get(&session_id).and_then(|session| {
-                                                (session.negotiated_protocol_version == 2
+                                                (session.negotiated_protocol_version == omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION
                                                     && session.secure_match_capability
                                                     && req.view_epoch.as_ref().map_or(0, |epoch| epoch.value)
                                                         == session.current_view_epoch)
@@ -1950,7 +1992,7 @@ async fn handle_client(
                                         let authorized = {
                                             let sessions = sessions.lock().await;
                                             sessions.get(&session_id).is_some_and(|session| {
-                                                session.negotiated_protocol_version == 2
+                                                session.negotiated_protocol_version == omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION
                                                     && session.secure_match_capability
                                                     && session.authenticated_team_id == Some(message.team_id)
                                                     && message.view_epoch.as_ref().map_or(0, |epoch| epoch.value)
@@ -1979,7 +2021,7 @@ async fn handle_client(
                                         let authorized = {
                                             let sessions = sessions.lock().await;
                                             sessions.get(&session_id).is_some_and(|session| {
-                                                session.negotiated_protocol_version == 2
+                                                session.negotiated_protocol_version == omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION
                                                     && session.secure_match_capability
                                                     && session.authenticated_team_id == Some(message.team_id)
                                                     && message.view_epoch.as_ref().map_or(0, |epoch| epoch.value) == session.current_view_epoch
@@ -2014,7 +2056,7 @@ async fn handle_client(
                                         let session = {
                                             let sessions = sessions.lock().await;
                                             sessions.get(&session_id).and_then(|session| {
-                                                (session.negotiated_protocol_version == 2
+                                                (session.negotiated_protocol_version == omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION
                                                     && session.secure_match_capability
                                                     && session.authenticated_team_id == Some(ack.team_id)
                                                     && ack.view_epoch.as_ref().map_or(0, |epoch| epoch.value)
@@ -2758,7 +2800,7 @@ mod tests {
         );
         assert!(source.contains("TAG_INPUT_SUBMIT | TAG_SNAPSHOT_REQ"));
         assert!(source.contains("&& !secure_coordinate_input"));
-        assert!(source.contains("session.negotiated_protocol_version != 2"));
+        assert!(source.contains("session.negotiated_protocol_version != omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION"));
         assert!(source.contains("targets.retain"));
     }
 
@@ -2886,9 +2928,53 @@ mod tests {
     }
 
     #[test]
+    fn command_capability_requires_secure_join_and_bound_nonzero_hold_input() {
+        let valid = JoinRequest { player_id: 7, role: JoinRole::RolePlayer as i32,
+            requested_protocol: omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION, supported_protocols: vec![omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION], secure_fog_capability: true,
+            command_protocol_version: omoba_core::runtime::command_transport::COMMAND_PROTOCOL_VERSION,
+            command_rules_hash: omoba_template_ids::CONTENT_CATALOG_DATA_HASH.into(), ..Default::default() };
+        assert_eq!(validate_command_join_request(&JoinRequest::default()), Ok(false));
+        assert_eq!(validate_command_join_request(&JoinRequest::decode(valid.encode_to_vec().as_slice()).unwrap()), Ok(true));
+        for index in 0..8 {
+            let mut invalid = valid.clone();
+            match index { 0 => invalid.player_id = 0, 1 => invalid.role = JoinRole::RoleObserver as i32,
+                2 => invalid.role = 999, 3 => invalid.requested_protocol = 1,
+                4 => invalid.supported_protocols.clear(), 5 => invalid.secure_fog_capability = false,
+                6 => invalid.command_rules_hash = "old".into(), _ => invalid.command_protocol_version = 2 }
+            assert!(validate_command_join_request(&invalid).is_err());
+        }
+        let start = TeamGameStart { command_protocol_version: valid.command_protocol_version,
+            command_rules_hash: valid.command_rules_hash, ..Default::default() };
+        let decoded = TeamGameStart::decode(start.encode_to_vec().as_slice()).unwrap();
+        assert_eq!(decoded.command_protocol_version, start.command_protocol_version);
+        assert_eq!(decoded.command_rules_hash, start.command_rules_hash);
+        let hold = encoded_input(7, player_input::Action::HoldPosition(omoba_core::game_proto::HoldPosition { queued: true }));
+        assert!(!secure_coordinate_input_with_commands(&hold, Some(7), true, true, false));
+        assert!(secure_coordinate_input_with_commands(&hold, Some(7), false, false, true));
+        assert!(!secure_coordinate_input_with_commands(&hold, Some(8), true, true, true));
+        assert!(!secure_coordinate_input_with_commands(&hold, None, true, true, true));
+        let mut zero = InputSubmit::decode(hold.as_slice()).unwrap(); zero.input_id = 0;
+        assert!(!secure_coordinate_input_with_commands(&zero.encode_to_vec(), Some(7), true, true, true));
+    }
+
+    #[test]
+    fn buff_visual_state_join_wire_rejects_old_version_without_legacy_downgrade() {
+        let version = omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION;
+        let mut request = JoinRequest { requested_protocol: version,
+            supported_protocols: vec![version], ..Default::default() };
+        assert_eq!(validate_join_wire_protocol(&request), Ok(true));
+        request.requested_protocol = 2; request.supported_protocols = vec![2];
+        assert_eq!(validate_join_wire_protocol(&request), Err("UNSUPPORTED_WIRE_PROTOCOL"));
+        request.requested_protocol = version;
+        assert!(validate_join_wire_protocol(&request).is_err());
+        request.requested_protocol = 1; request.supported_protocols = vec![1];
+        assert_eq!(validate_join_wire_protocol(&request), Ok(false));
+    }
+
+    #[test]
     fn shop_catalog_join_requires_exact_version_hash_and_secure_player_binding() {
         let valid = JoinRequest {player_id: 7, role: JoinRole::RolePlayer as i32,
-            requested_protocol: 2, supported_protocols: vec![2], secure_fog_capability: true,
+            requested_protocol: omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION, supported_protocols: vec![omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION], secure_fog_capability: true,
             shop_catalog_version: omoba_core::runtime::shop_transport::SHOP_CATALOG_VERSION,
             shop_catalog_hash: omoba_template_ids::MOBA_ITEM_CATALOG_HASH.to_owned(), ..Default::default()};
         assert_eq!(validate_shop_join_request(&valid), Ok(true));
@@ -2930,7 +3016,7 @@ mod tests {
         let mut zero = InputSubmit::decode(recall.as_slice()).unwrap(); zero.input_id = 0;
         assert!(!secure_coordinate_input_with_capabilities(&zero.encode_to_vec(), Some(7), true, true));
         let mut req = JoinRequest { player_id: 7, role: JoinRole::RolePlayer as i32,
-            requested_protocol: 2, supported_protocols: vec![2], secure_fog_capability: true,
+            requested_protocol: omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION, supported_protocols: vec![omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION], secure_fog_capability: true,
             recall_protocol_version: omoba_core::runtime::recall_transport::RECALL_PROTOCOL_VERSION, recall_rules_hash: omoba_template_ids::CONTENT_CATALOG_DATA_HASH.into(),
             ..Default::default() };
         assert_eq!(validate_recall_join_request(&req), Ok(true));
@@ -2960,6 +3046,8 @@ mod tests {
             recall_rules_hash: String::new(),
             mana_protocol_version: 0,
             mana_rules_hash: String::new(),
+            command_protocol_version: 0,
+            command_rules_hash: String::new(),
         };
         let observer = JoinRequest {
             player_name: "bob".into(),
@@ -2977,6 +3065,8 @@ mod tests {
             recall_rules_hash: String::new(),
             mana_protocol_version: 0,
             mana_rules_hash: String::new(),
+            command_protocol_version: 0,
+            command_rules_hash: String::new(),
         };
         let p_bytes = player.encode_to_vec();
         let o_bytes = observer.encode_to_vec();

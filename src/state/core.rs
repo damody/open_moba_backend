@@ -1551,6 +1551,7 @@ impl State {
                     .or_else(|| matches!(input.action, Some(Action::ItemBuy(_) | Action::ItemSell(_))).then_some(0))?;
                 let mut sanitized = input.clone();
                 let (action_kind, target_index) = match sanitized.action.as_mut()? {
+                    Action::HoldPosition(_) => (20, None),
                     Action::Recall(_) => (19, None),
                     Action::NoOp(_) => (1, None),
                     Action::MoveTo(_) => (2, None),
