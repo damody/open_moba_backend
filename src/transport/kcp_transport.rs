@@ -186,6 +186,38 @@ fn validate_recall_join_request(request: &JoinRequest) -> Result<bool, &'static 
     Ok(agreed)
 }
 
+fn validate_mana_join_request(request: &JoinRequest, required: bool) -> Result<bool, &'static str> {
+    let agreed = omoba_core::runtime::mana_transport::negotiate_mana_protocol(
+        request.mana_protocol_version, &request.mana_rules_hash)?;
+    if required && !agreed { return Err("MANA_CAPABILITY_REQUIRED"); }
+    if agreed && (request.requested_protocol != 2 || !request.supported_protocols.contains(&2)
+        || !request.secure_fog_capability || request.role != JoinRole::RolePlayer as i32 || request.player_id == 0) {
+        return Err("MANA_REQUIRES_AUTHENTICATED_SELECTIVE_PLAYER");
+    }
+    Ok(agreed)
+}
+
+#[cfg(test)]
+#[test]
+fn mana_agreement_requires_compatible_authenticated_player_before_registration() {
+    let mut request = JoinRequest::default();
+    assert_eq!(validate_mana_join_request(&request, false), Ok(false));
+    assert_eq!(validate_mana_join_request(&request, true), Err("MANA_CAPABILITY_REQUIRED"));
+    request.mana_protocol_version = omoba_core::runtime::mana_transport::MANA_PROTOCOL_VERSION;
+    request.mana_rules_hash = omoba_template_ids::CONTENT_CATALOG_DATA_HASH.into();
+    assert!(validate_mana_join_request(&request, true).is_err());
+    request.requested_protocol = 2; request.supported_protocols = vec![2];
+    request.secure_fog_capability = true; request.role = JoinRole::RolePlayer as i32; request.player_id = 7;
+    assert_eq!(validate_mana_join_request(&request, true), Ok(true));
+    for change in 0..5 {
+        let mut invalid = request.clone();
+        match change { 0 => invalid.player_id = 0, 1 => invalid.role = JoinRole::RoleObserver as i32,
+            2 => invalid.secure_fog_capability = false, 3 => invalid.supported_protocols.clear(),
+            _ => invalid.mana_rules_hash = "stale".into() }
+        assert!(validate_mana_join_request(&invalid, true).is_err());
+    }
+}
+
 fn secure_gameplay_input_allowed(
     input: &PlayerInput,
     mode: crate::config::server_config::MatchGameplayMode,
@@ -1602,6 +1634,10 @@ async fn handle_client(
                                             Err(reason) => { warn!("JoinRequest shop protocol rejected: {}", reason); break; }
                                         };
                                         let registered = {
+                                            if let Err(reason) = validate_mana_join_request(&req,
+                                                crate::config::server_config::CONFIG.MATCH_MANA_ENABLED) {
+                                                warn!("JoinRequest mana protocol rejected: {}", reason); break;
+                                            }
                                             // Recall requires the same authenticated selective-player boundary,
                                             // but does not require a shop catalog or transaction capability.
                                             if let Err(reason) = validate_recall_join_request(&req) {
@@ -1651,6 +1687,8 @@ async fn handle_client(
                                         shop_protocol_agreed = negotiated_shop && secure_binding.is_some()
                                             && matches!(crate::config::server_config::CONFIG.MATCH_GAMEPLAY_MODE,
                                                 crate::config::server_config::MatchGameplayMode::SingleLane | crate::config::server_config::MatchGameplayMode::ThreeLane);
+                                        let mana_protocol_agreed = crate::config::server_config::CONFIG.MATCH_MANA_ENABLED
+                                            && secure_binding.is_some() && validate_mana_join_request(&req, true) == Ok(true);
                                         recall_protocol_agreed = validate_recall_join_request(&req) == Ok(true)
                                             && secure_binding.is_some()
                                             && matches!(crate::config::server_config::CONFIG.MATCH_GAMEPLAY_MODE,
@@ -1735,6 +1773,8 @@ async fn handle_client(
                                                 current.shop_rules_hash = if shop_protocol_agreed { omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned() } else { String::new() };
                                                 current.recall_protocol_version = if recall_protocol_agreed { omoba_core::runtime::recall_transport::RECALL_PROTOCOL_VERSION } else { 0 };
                                                 current.recall_rules_hash = if recall_protocol_agreed { omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned() } else { String::new() };
+                                                current.mana_protocol_version = if mana_protocol_agreed { omoba_core::runtime::mana_transport::MANA_PROTOCOL_VERSION } else { 0 };
+                                                current.mana_rules_hash = if mana_protocol_agreed { omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned() } else { String::new() };
                                                 current.input_allocator_version = 1;
                                                 current.last_seen_input_id = lockstep_input_buffer
                                                     .lock().expect("input buffer mutex poisoned")
@@ -1815,6 +1855,8 @@ async fn handle_client(
                                                     shop_rules_hash: if shop_protocol_agreed { omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned() } else { String::new() },
                                                     recall_protocol_version: if recall_protocol_agreed { omoba_core::runtime::recall_transport::RECALL_PROTOCOL_VERSION } else { 0 },
                                                     recall_rules_hash: if recall_protocol_agreed { omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned() } else { String::new() },
+                                                    mana_protocol_version: if mana_protocol_agreed { omoba_core::runtime::mana_transport::MANA_PROTOCOL_VERSION } else { 0 },
+                                                    mana_rules_hash: if mana_protocol_agreed { omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned() } else { String::new() },
                                                 },
                                             }
                                             }
@@ -2916,6 +2958,8 @@ mod tests {
             shop_rules_hash: String::new(),
             recall_protocol_version: 0,
             recall_rules_hash: String::new(),
+            mana_protocol_version: 0,
+            mana_rules_hash: String::new(),
         };
         let observer = JoinRequest {
             player_name: "bob".into(),
@@ -2931,6 +2975,8 @@ mod tests {
             shop_rules_hash: String::new(),
             recall_protocol_version: 0,
             recall_rules_hash: String::new(),
+            mana_protocol_version: 0,
+            mana_rules_hash: String::new(),
         };
         let p_bytes = player.encode_to_vec();
         let o_bytes = observer.encode_to_vec();
