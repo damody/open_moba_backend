@@ -161,8 +161,8 @@ mod tests {
         state.authorize_player_team(3, 1).unwrap();
         state.authorize_player_team(2, 2).unwrap();
         let negotiation = omoba_core::transport::MatchCapabilityNegotiation {
-            requested_protocol: 2,
-            supported_protocols: vec![2],
+            requested_protocol: omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION,
+            supported_protocols: vec![omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION],
             secure_fog_required: true,
         };
 

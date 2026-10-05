@@ -506,7 +506,7 @@ STEP_FPS = {step_fps}
         let mut auth=crate::lockstep::LockstepState::new(lane.seed);
         for (&player,&team) in &setting.AUTHENTICATED_TEAM_BINDINGS {auth.authorize_player_team(player,team).unwrap();}
         let negotiation=omoba_core::transport::MatchCapabilityNegotiation {
-            requested_protocol:2,supported_protocols:vec![2],secure_fog_required:true,
+            requested_protocol:omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION,supported_protocols:vec![omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION],secure_fog_required:true,
         };
         assert!(auth.register_secure_player(1,"human".into(),crate::lockstep::JoinRoleEnum::Player,negotiation.clone(),1).is_ok());
         for player in 2..=10 {
