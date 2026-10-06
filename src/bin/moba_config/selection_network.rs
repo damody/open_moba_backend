@@ -358,6 +358,156 @@ fn record_error(
 mod tests {
     use super::*;
 
+    // Exercise the production worker, not a second implementation of its
+    // admission/framing rules. Drop closes the peer before joining even when
+    // an assertion unwinds, so a failed test cannot leave a waiting worker.
+    struct NetworkPeer {
+        input: BufReader<TcpStream>,
+        worker: Option<thread::JoinHandle<io::Result<()>>>,
+    }
+    impl NetworkPeer {
+        fn new(
+            room: SelectionRoom,
+            tokens: Arc<BTreeMap<u32, String>>,
+            active: ActiveSeats,
+            player: u32,
+            token: &str,
+        ) -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let mut socket = TcpStream::connect_timeout(&address, Duration::from_secs(2)).unwrap();
+            socket
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            socket
+                .set_write_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let input = BufReader::new(socket.try_clone().unwrap());
+            let (server, _) = listener.accept().unwrap();
+            let worker = thread::spawn(move || connection(room, tokens, active, server));
+            let invitation = Invitation {
+                schema_version: 1,
+                scope: INVITE_SCOPE.into(),
+                address,
+                admitted_player_id: player,
+                catalog_data_hash: omoba_template_ids::CONTENT_CATALOG_DATA_HASH.into(),
+                token: token.into(),
+            };
+            // Establish RAII ownership before any fallible handshake operation.
+            let mut peer = Self {
+                input,
+                worker: Some(worker),
+            };
+            serde_json::to_writer(&mut socket, &invitation).unwrap();
+            socket.write_all(b"\n").unwrap();
+            peer.input.get_mut().flush().unwrap();
+            peer
+        }
+        fn reply(&mut self) -> serde_json::Value {
+            let bytes = frame(&mut self.input, MAX_REPLY_BYTES)
+                .unwrap()
+                .expect("selection reply");
+            serde_json::from_slice(&bytes).unwrap()
+        }
+        fn command(&mut self, revision: u64, kind: &str) -> serde_json::Value {
+            let command = serde_json::json!({
+                "protocol_version":1,
+                "catalog_data_hash":omoba_template_ids::CONTENT_CATALOG_DATA_HASH,
+                "request_id":revision+1,"expected_revision":revision,"action":{"kind":kind}
+            });
+            serde_json::to_writer(self.input.get_mut(), &command).unwrap();
+            self.input.get_mut().write_all(b"\n").unwrap();
+            self.input.get_mut().flush().unwrap();
+            self.reply()
+        }
+        fn finish(mut self) -> io::Result<()> {
+            self.input.get_ref().shutdown(Shutdown::Both).unwrap();
+            self.worker
+                .take()
+                .unwrap()
+                .join()
+                .expect("selection worker panicked")
+        }
+    }
+    impl Drop for NetworkPeer {
+        fn drop(&mut self) {
+            let _ = self.input.get_ref().shutdown(Shutdown::Both);
+            if let Some(worker) = self.worker.take() {
+                let _ = worker.join();
+            }
+        }
+    }
+
+    #[test]
+    fn selection_network_authenticated_final_recipe_is_shared_without_new_handoff() {
+        let plan: RoleBotMatchPlan = serde_json::from_value(serde_json::json!({
+            "schema_version":1,"map_id":"three_lane_training","think_hz":5,
+            "mana_enabled":false,"ability_policies":[],"ability_learning":[],
+            "sustain":null,"item_builds":[],"players":[
+                {"player_id":7,"team_id":1,"hero":"training_luminary","role":"top","lane":"top","bot":false},
+                {"player_id":8,"team_id":2,"hero":"training_luminary","role":"top","lane":"top","bot":false},
+                {"player_id":9,"team_id":2,"hero":"training_luminary","role":"mid","lane":"mid","bot":true}
+            ]
+        })).unwrap();
+        let room = SelectionRoom::new(HeroSelectionSession::new(plan, 0, 60).unwrap());
+        let token = "a".repeat(64);
+        let tokens = Arc::new(BTreeMap::from([(7, token.clone()), (8, token.clone())]));
+        let active: ActiveSeats = Arc::new(Mutex::new(BTreeMap::new()));
+        let mut rejected = NetworkPeer::new(
+            room.clone(),
+            tokens.clone(),
+            active.clone(),
+            7,
+            &"b".repeat(64),
+        );
+        match frame(&mut rejected.input, MAX_REPLY_BYTES) {
+            Ok(None) => {}
+            Err(error) if error.kind() == io::ErrorKind::ConnectionReset => {}
+            _ => panic!("rejected admission must close without a selection reply"),
+        }
+        assert_eq!(
+            rejected.finish().unwrap_err().kind(),
+            io::ErrorKind::PermissionDenied
+        );
+        assert!(active.lock().unwrap().is_empty());
+        assert_eq!(room.snapshot().unwrap().revision, 0);
+        let mut first = NetworkPeer::new(room.clone(), tokens.clone(), active.clone(), 7, &token);
+        let first_initial = first.reply();
+        assert_eq!(first_initial["admitted_player_id"], 7);
+        assert!(first_initial["plan"].is_null());
+        let mut second = NetworkPeer::new(room.clone(), tokens.clone(), active.clone(), 8, &token);
+        let second_initial = second.reply();
+        assert_eq!(second_initial["admitted_player_id"], 8);
+        assert!(second_initial["plan"].is_null());
+        assert!(first.command(0, "lock")["error"].is_null());
+        let ready = second.command(1, "lock");
+        assert!(ready["selection"]["ready"].as_bool().unwrap());
+        assert!(ready["plan"].is_null());
+        let finalized = first.command(2, "finalize");
+        assert!(finalized["error"].is_null());
+        assert_eq!(finalized["selection"]["revision"], 3);
+        assert!(finalized["selection"]["finalized"].as_bool().unwrap());
+        assert!(finalized["plan"].is_object());
+        let handed_off =
+            serde_json::to_value(room.take_finalized_plan().unwrap().unwrap()).unwrap();
+        assert_eq!(finalized["plan"], handed_off);
+        let follower = second.command(3, "read");
+        assert!(follower["error"].is_null());
+        assert_eq!(follower["plan"], handed_off);
+        assert_eq!(follower["selection"], finalized["selection"]);
+        assert!(room.take_finalized_plan().unwrap().is_none());
+        second.finish().unwrap();
+        // Re-admission uses the same authority after the prior seat lease ends.
+        let mut rejoined = NetworkPeer::new(room.clone(), tokens, active.clone(), 8, &token);
+        let initial = rejoined.reply();
+        assert_eq!(initial["plan"], handed_off);
+        assert_eq!(initial["selection"], finalized["selection"]);
+        assert!(room.take_finalized_plan().unwrap().is_none());
+        rejoined.finish().unwrap();
+        first.finish().unwrap();
+        assert!(active.lock().unwrap().is_empty());
+    }
+
     #[test]
     fn selection_network_frames_are_bounded_and_complete() {
         assert!(frame(&mut io::Cursor::new(vec![b'x'; 17]), 16).is_err());
