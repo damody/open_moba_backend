@@ -2379,7 +2379,7 @@ mod role_server_tests {
         let auth=BTreeMap::from([(1,1)]);
         assert!(state.attach_role_bots(bots.clone(),BTreeMap::from([(1,1),(2,1)])).is_err());
         state.attach_role_bots(bots.clone(),auth.clone()).unwrap();
-        assert!(state.attach_role_bots(bots,auth).is_err());
+        assert!(state.attach_role_bots(bots.clone(),auth).is_err());
         let dt=Duration::from_secs_f64(1.0/60.0);
         state.tick(dt).unwrap();
         state.tick(dt).unwrap(); // production Wave B admits disclosure after its one-tick delay
@@ -2388,11 +2388,16 @@ mod role_server_tests {
         }).collect();
         let external=vec![(2,movement(999_000*1024),999),(1,movement(600*1024),77),(1,movement(700*1024),78),
             (99,movement(999_000*1024),999)];
+        // Test merging against the formal controller output, not an old
+        // assumption that Supports will always suppress their first input.
+        let expected_bots=role_bot_inputs(&state.ecs,&bots).unwrap();
+        assert!(expected_bots.iter().all(|(player,_)|(2..=10).contains(player)));
+        let mut expected=vec![(1,movement(600*1024),77),(1,movement(700*1024),78)];
+        expected.extend(expected_bots.into_iter().map(|(player,input)|(player,input,0)));
+        expected.sort_by_key(|(player,_,_)|*player);
         let merged=state.ecs.read_resource::<super::super::role_bots::ServerRoleBotControllers>()
             .merge_inputs(&state.ecs,external.clone()).unwrap();
-        assert_eq!(merged.iter().map(|(player,_,_)|*player).collect::<Vec<_>>(),[1,1,2,3,5,6,7,8,10]);
-        // Both Supports are initially within the escort radius: their legal
-        // decision is to hold, not emit artificial movement every think.
+        assert_eq!(merged,expected);
         assert_eq!(merged.iter().filter(|(player,_,_)|*player==1).map(|(_,_,id)|*id).collect::<Vec<_>>(),[77,78]);
         assert!(merged.iter().filter(|(player,_,_)|*player!=1).all(|(_,_,id)|*id==0));
         assert!(!merged.iter().any(|(player,_,_)|*player==99));
@@ -2407,9 +2412,11 @@ mod role_server_tests {
             state.tick(dt).unwrap();
             if tick==0 {
                 let projection=state.ecs.read_resource::<omoba_core::runtime::TeamProjectionRuntime>();
-                for (team,expected) in [(1,vec![1,1,2,3,5]),(2,vec![6,7,8,10])] {
+                for team in [1,2] {
+                    let expected_players:Vec<_>=expected.iter().filter(|(player,_,_)|
+                        if team==1 {*player<=5} else {*player>5}).map(|(player,_,_)|*player).collect();
                     let step=projection.latest_frames.get(&team).unwrap().frame.step.as_ref().unwrap();
-                    assert_eq!(step.accepted_inputs.iter().map(|input|input.player_id).collect::<Vec<_>>(),expected);
+                    assert_eq!(step.accepted_inputs.iter().map(|input|input.player_id).collect::<Vec<_>>(),expected_players);
                 }
             }
         }
