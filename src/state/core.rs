@@ -824,6 +824,12 @@ impl State {
 
     /// 遊戲主循環 tick
     pub fn tick(&mut self, dt: Duration) -> Result<(), Error> {
+        // Scheduler sleep lives in Clock::tick, outside this function. Transport
+        // send_timeout elapsed is subtracted below so a blocked outbound queue is
+        // not reported as simulation compute. The sample is not a hash input.
+        let tick_started = Instant::now();
+        #[cfg_attr(not(feature = "kcp"), allow(unused_mut))]
+        let mut transport_wait = Duration::ZERO;
         self.local_tick = self.local_tick.wrapping_add(1);
         // RNG, observable facts and scripts read the ECS Tick resource. The
         // transport counter alone is not the authoritative gameplay clock.
@@ -919,7 +925,12 @@ impl State {
         let mut run_systems_ns = 0u128;
         let mut process_outcomes_ns = 0u128;
         let mut script_dispatch_ns = 0u128;
+        let formal_moba = self
+            .ecs
+            .try_fetch::<omoba_core::runtime::MobaMatch>()
+            .is_some();
         let gameplay_active = omoba_core::runtime::begin_moba_match_tick(&mut self.ecs);
+        let sample_formal_tick = formal_moba && gameplay_active;
         #[cfg(feature = "kcp")]
         if !gameplay_active {
             self.ecs.write_resource::<crate::comp::PendingPlayerInputs>().inputs.clear();
@@ -1318,7 +1329,7 @@ impl State {
                             .rebase_burst_bytes
                             .fetch_add(encoded.len() as u64, std::sync::atomic::Ordering::Relaxed);
                     }
-                    reliable_send_with_watchdog(
+                    let elapsed = reliable_send_with_watchdog(
                         tx,
                         OutboundMsg::lockstep_frame(
                             crate::lockstep::LockstepFrame::TeamRebaseChunkV2 {
@@ -1329,6 +1340,7 @@ impl State {
                         Duration::from_secs(5),
                     )
                     .map_err(|_| failure::err_msg("rebase chunk outbound watchdog"))?;
+                    transport_wait += elapsed;
                 }
                 if let Some(manifest) = manifest {
                     if let Some(metrics) = &self.selective_security_metrics {
@@ -1336,7 +1348,7 @@ impl State {
                             .rebase_burst_bytes
                             .fetch_add(manifest.len() as u64, std::sync::atomic::Ordering::Relaxed);
                     }
-                    reliable_send_with_watchdog(
+                    let elapsed = reliable_send_with_watchdog(
                         tx,
                         OutboundMsg::lockstep_frame(
                             crate::lockstep::LockstepFrame::TeamRebaseManifestV2 {
@@ -1347,6 +1359,7 @@ impl State {
                         Duration::from_secs(5),
                     )
                     .map_err(|_| failure::err_msg("rebase manifest outbound watchdog"))?;
+                    transport_wait += elapsed;
                 }
             }
             record_team_frame_evidence(team_id, sequence, replica_tick, &encoded);
@@ -1371,6 +1384,7 @@ impl State {
                 }
                 match reliable_send_with_watchdog(tx, outbound, Duration::from_secs(5)) {
                     Ok(elapsed) => {
+                        transport_wait += elapsed;
                         if queue_was_full {
                             log::info!(
                                 "secure team outbound queue resumed team={} sequence={} blocked_us={}",
@@ -1497,6 +1511,23 @@ impl State {
                 guard.bytes = bytes;
             }
             log::info!("[snapshot] saved tick={} bytes={}", tick_u32, byte_len);
+        }
+
+        if sample_formal_tick {
+            let compute_ns = tick_started
+                .elapsed()
+                .saturating_sub(transport_wait)
+                .as_nanos();
+            let emit = self
+                .ecs
+                .write_resource::<crate::comp::TickProfile>()
+                .record_formal_tick_compute(compute_ns);
+            if let Some(line) = emit.enable {
+                log::info!("{line}");
+            }
+            if let Some(line) = emit.summary {
+                log::info!("{line}");
+            }
         }
 
         Ok(())
