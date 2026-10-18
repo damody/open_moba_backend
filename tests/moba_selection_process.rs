@@ -24,6 +24,7 @@ fn selection_binary_live_stdio_flush_and_explicit_finalization() {
         ability_learning: vec![],
         sustain: None,
         item_builds: vec![],
+        summoner_loadouts: std::collections::BTreeMap::new(),
         players: vec![
             RoleBotPlayerPlan {
                 player_id: 7,

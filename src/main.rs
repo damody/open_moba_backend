@@ -160,7 +160,7 @@ async fn main() -> std::result::Result<(), Error> {
         let snapshot_store = Arc::new(StdMutex::new(crate::comp::SnapshotStore::default()));
         let team_bootstrap_store = Arc::new(StdMutex::new(std::collections::BTreeMap::<
             u32,
-            omoba_core::game_proto::TeamGameStart,
+            crate::state::StoredTeamBootstrap,
         >::new()));
         (
             lockstep_state,
@@ -284,6 +284,13 @@ async fn main() -> std::result::Result<(), Error> {
     state.attach_secure_input_security(
         handle.secure_input_validation,
         handle.selective_security_metrics,
+    );
+    #[cfg(feature = "kcp")]
+    state.attach_communication(
+        handle.communication_request_rx,
+        handle.communication_delivery_tx,
+        handle.communication_scope,
+        handle.communication_registry,
     );
     #[cfg(feature = "kcp")]
     state.attach_authoritative_input_clock(

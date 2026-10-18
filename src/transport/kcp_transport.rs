@@ -93,6 +93,12 @@ fn log_input_submit_result(
         crate::lockstep::InputSubmitResult::RejectedShopReplay => {
             warn!("shop input replay/conflict rejected player={} input_id={}", player_id, input_id);
         }
+        crate::lockstep::InputSubmitResult::DuplicateWard { effective_tick } => {
+            info!("duplicate ward input not requeued player={} input_id={} original_effective_tick={}", player_id, input_id, effective_tick);
+        }
+        crate::lockstep::InputSubmitResult::RejectedWardReplay => {
+            warn!("ward input replay/conflict rejected player={} input_id={}", player_id, input_id);
+        }
         crate::lockstep::InputSubmitResult::Retargeted {
             original_tick,
             effective_tick,
@@ -147,6 +153,14 @@ fn secure_coordinate_input_with_capabilities(payload: &[u8], joined_player_id: O
 }
 
 fn secure_coordinate_input_with_commands(payload: &[u8], joined_player_id: Option<u32>, shop: bool, recall: bool, commands: bool) -> bool {
+    secure_coordinate_input_with_summoner(payload, joined_player_id, shop, recall, commands, false, false)
+}
+
+fn secure_coordinate_input_with_summoner(payload: &[u8], joined_player_id: Option<u32>, shop: bool, recall: bool, commands: bool, summoner: bool, undo: bool) -> bool {
+    secure_coordinate_input_with_ward(payload, joined_player_id, shop, recall, commands, summoner, undo, false)
+}
+
+fn secure_coordinate_input_with_ward(payload: &[u8], joined_player_id: Option<u32>, shop: bool, recall: bool, commands: bool, summoner: bool, undo: bool, ward: bool) -> bool {
     let Ok(request) = InputSubmit::decode(payload) else {
         return false;
     };
@@ -161,23 +175,48 @@ fn secure_coordinate_input_with_commands(payload: &[u8], joined_player_id: Optio
         Some(player_input::Action::ItemBuy(value)) => shop && request.input_id != 0
             && !value.item_id.is_empty() && value.item_id.len() <= 64,
         Some(player_input::Action::ItemSell(value)) => shop && request.input_id != 0 && value.item_slot < 6,
+        Some(player_input::Action::ShopUndo(value)) => undo && request.input_id != 0 && (
+            (value.mode == omoba_core::runtime::shop_undo_wire::SHOP_UNDO_MODE_NEWEST && value.sequence == 0)
+            || (value.mode == omoba_core::runtime::shop_undo_wire::SHOP_UNDO_MODE_SEQUENCE && value.sequence != 0)
+        ),
         Some(player_input::Action::Recall(_)) => recall && request.input_id != 0,
-        Some(player_input::Action::HoldPosition(_)) => commands && request.input_id != 0,
+        Some(player_input::Action::HoldPosition(_)) | Some(player_input::Action::Stop(_)) =>
+            commands && request.input_id != 0,
+        Some(player_input::Action::SummonerCast(value)) => summoner && request.input_id != 0
+            && omoba_core::runtime::summoner_transport::admit_summoner_cast(value.slot, value.x_raw, value.y_raw).is_ok(),
+        Some(player_input::Action::WardPlacement(value)) => ward && request.input_id != 0
+            && omoba_core::runtime::ward_transport::admit_ward_placement(value.slot, value.x_raw, value.y_raw).is_ok(),
+        Some(player_input::Action::CombatPreferences(value)) => request.input_id != 0
+            && omoba_core::runtime::combat_transport::validate_update(&value).is_ok(),
+        Some(player_input::Action::InputScheme(value)) => request.input_id != 0
+            && omoba_core::runtime::input_scheme_transport::validate_update(&value).is_ok(),
+        Some(player_input::Action::Direction(value)) => request.input_id!=0
+            && omoba_core::runtime::direction_transport::validate_client(&value).is_ok(),
         _ => false,
     }
 }
 
-fn rewrite_secure_target(input: &mut PlayerInput, canonical_target: u64) -> Option<()> {
-	// validate_and_resolve returns the packed authoritative identity (generation
-	// in high 32 bits, ECS index in low 32 bits), not an oversized ECS index.
-	// Its mapping/epoch/visibility checks MUST run before this internal rewrite.
-	let canonical_target = (canonical_target & u64::from(u32::MAX)) as u32;
+fn rewrite_secure_target(input: &mut PlayerInput, canonical_actor: u64, canonical_target: u64) -> Option<()> {
+    // validate_and_resolve returns packed identities (generation in the high 32
+    // bits, ECS index in the low 32 bits). Its checks run before this rewrite.
+    // ItemUse keeps the verified actor and the verified target. Client owner
+    // fields are overwritten. Actor generation 0 is not a life and fails the
+    // rewrite. Other combat actions still store only the target index.
+    let index = (canonical_target & u64::from(u32::MAX)) as u32;
+    let generation = (canonical_target >> 32) as u32;
     match input.action.as_mut()? {
-        player_input::Action::CastAbility(value) => value.target_entity = Some(canonical_target),
-        player_input::Action::AttackTarget(value) => value.target_id = canonical_target,
-        player_input::Action::ItemUse(value) => value.target_entity = Some(canonical_target),
-        player_input::Action::TowerUpgrade(value) => value.tower_entity_id = canonical_target,
-        player_input::Action::TowerSell(value) => value.tower_entity_id = canonical_target,
+        player_input::Action::CastAbility(value) => value.target_entity = Some(index),
+        player_input::Action::AttackTarget(value) => value.target_id = index,
+        player_input::Action::ItemUse(value) => {
+            if (canonical_actor >> 32) as u32 == 0 {
+                return None;
+            }
+            omoba_core::runtime::overwrite_item_owner_canonical(value, canonical_actor);
+            value.target_entity = Some(index);
+            value.target_generation = (generation != 0).then_some(generation);
+        }
+        player_input::Action::TowerUpgrade(value) => value.tower_entity_id = index,
+        player_input::Action::TowerSell(value) => value.tower_entity_id = index,
         _ => return None,
     }
     Some(())
@@ -199,6 +238,26 @@ fn validate_recall_join_request(request: &JoinRequest) -> Result<bool, &'static 
     if agreed && (request.requested_protocol != omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION || !request.supported_protocols.contains(&omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION)
         || !request.secure_fog_capability || request.role != JoinRole::RolePlayer as i32 || request.player_id == 0) {
         return Err("RECALL_REQUIRES_SECURE_PLAYER");
+    }
+    Ok(agreed)
+}
+
+fn validate_ward_join_request(request: &JoinRequest) -> Result<bool, &'static str> {
+    let agreed = omoba_core::runtime::ward_transport::negotiate_ward_protocol(
+        request.ward_protocol_version, &request.ward_rules_hash)?;
+    if agreed && (request.requested_protocol != omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION || !request.supported_protocols.contains(&omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION)
+        || !request.secure_fog_capability || request.role != JoinRole::RolePlayer as i32 || request.player_id == 0) {
+        return Err("WARD_REQUIRES_AUTHENTICATED_SELECTIVE_PLAYER");
+    }
+    Ok(agreed)
+}
+
+fn validate_summoner_join_request(request: &JoinRequest) -> Result<bool, &'static str> {
+    let agreed = omoba_core::runtime::summoner_transport::negotiate_summoner_protocol(
+        request.summoner_protocol_version, &request.summoner_rules_hash)?;
+    if agreed && (request.requested_protocol != omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION || !request.supported_protocols.contains(&omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION)
+        || !request.secure_fog_capability || request.role != JoinRole::RolePlayer as i32 || request.player_id == 0) {
+        return Err("SUMMONER_REQUIRES_AUTHENTICATED_SELECTIVE_PLAYER");
     }
     Ok(agreed)
 }
@@ -299,23 +358,8 @@ async fn write_framed<W: AsyncWriteExt + Unpin>(
 async fn read_framed<R: AsyncReadExt + Unpin>(
     reader: &mut R,
 ) -> std::io::Result<Option<(u8, Vec<u8>, usize)>> {
-    let tag_raw = match reader.read_u8().await {
-        Ok(t) => t,
-        Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
-        Err(e) => return Err(e),
-    };
-    let len = reader.read_u32().await? as usize;
-    let mut buf = vec![0u8; len];
-    reader.read_exact(&mut buf).await?;
-    let wire_bytes = 1 + 4 + len;
-    if tag_raw & COMPRESSION_FLAG != 0 {
-        let base_tag = tag_raw & 0x7F;
-        let decompressed = lz4_flex::block::decompress_size_prepended(&buf)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        Ok(Some((base_tag, decompressed, wire_bytes)))
-    } else {
-        Ok(Some((tag_raw, buf, wire_bytes)))
-    }
+    // Same preallocation bounds as the client reader. Snapshot tags stay uncapped.
+    omoba_core::kcp::framing::read_framed(reader).await
 }
 
 /// 建立一個與 write_framed 的線上佈局相符的線框位元組緩衝區
@@ -374,6 +418,94 @@ struct ClientSession {
     authenticated_team_id: Option<u32>,
     current_view_epoch: u64,
     secure_match_capability: bool,
+    authenticated_player_id: Option<u32>,
+    ward_protocol_agreed: bool,
+    ward_session: u64,
+    last_owner_ward_projection: Vec<u8>,
+    /// Tick of the last owner envelope this session successfully sent, or the
+    /// bootstrap tick stamped at join. Recovery reseals at this tick so a
+    /// paused client can restore the same order without trusting a query field.
+    last_owner_ward_tick: u64,
+    /// Communication channel agreement. Independent of lockstep protocol version.
+    communication_agreed: bool,
+    communication_room_id: u64,
+    communication_run_id: u64,
+    communication_generation: u64,
+    observer: bool,
+    /// Set only after an authorized replay batch is written to this session.
+    communication_replay_consumed: bool,
+    communication_replay_outstanding: bool,
+}
+
+struct OwnerWardDispatchRow {
+    team_id: u32,
+    view_epoch: u64,
+    owner_wards: std::collections::BTreeMap<u32, Vec<u8>>,
+}
+
+fn owner_ward_dispatch_rows(
+    store: &std::collections::BTreeMap<u32, crate::state::StoredTeamBootstrap>,
+    only_team: Option<u32>,
+) -> Vec<OwnerWardDispatchRow> {
+    store
+        .iter()
+        .filter(|(team, _)| only_team.is_none_or(|team_id| **team == team_id))
+        .map(|(team, stored)| OwnerWardDispatchRow {
+            team_id: *team,
+            view_epoch: stored.start.view_epoch.as_ref().map_or(0, |epoch| epoch.value),
+            owner_wards: stored.owner_wards.clone(),
+        })
+        .collect()
+}
+
+fn dispatch_owner_ward_envelopes(
+    sessions: &mut HashMap<String, ClientSession>,
+    rows: &[OwnerWardDispatchRow],
+    authoritative_tick: u64,
+    force: bool,
+) {
+    for session in sessions.values_mut() {
+        if !session.lockstep_joined
+            || !session.secure_match_capability
+            || !session.ward_protocol_agreed
+            || session.negotiated_protocol_version != omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION
+            || session.ward_session == 0
+        {
+            continue;
+        }
+        let Some(player_id) = session.authenticated_player_id.filter(|player| *player != 0) else {
+            continue;
+        };
+        let Some(team_id) = session.authenticated_team_id else {
+            continue;
+        };
+        let Some(row) = rows.iter().find(|row| row.team_id == team_id) else {
+            continue;
+        };
+        let view_epoch = row.view_epoch;
+        let projection = row.owner_wards.get(&player_id).cloned().unwrap_or_default();
+        if !force && projection == session.last_owner_ward_projection {
+            continue;
+        }
+        let envelope = omoba_core::runtime::ward_transport::seal_owner_ward_envelope(
+            player_id,
+            session.ward_session,
+            view_epoch,
+            authoritative_tick,
+            &projection,
+        );
+        let framed: Arc<[u8]> = Arc::from(
+            build_framed_bytes(
+                omoba_core::kcp::framing::TAG_OWNER_WARD_ENVELOPE,
+                &envelope.encode_to_vec(),
+            )
+            .into_boxed_slice(),
+        );
+        if session.event_tx.try_send(framed).is_ok() {
+            session.last_owner_ward_projection = projection;
+            session.last_owner_ward_tick = authoritative_tick;
+        }
+    }
 }
 
 /// 廣播線程和單元使用的純函數策略調度
@@ -728,7 +860,7 @@ pub async fn start(
     lockstep_state: Arc<std::sync::Mutex<crate::lockstep::LockstepState>>,
     lockstep_snapshot_store: Arc<std::sync::Mutex<crate::comp::SnapshotStore>>,
     lockstep_team_bootstrap_store: Arc<
-        std::sync::Mutex<std::collections::BTreeMap<u32, TeamGameStart>>,
+        std::sync::Mutex<std::collections::BTreeMap<u32, crate::state::StoredTeamBootstrap>>,
     >,
 ) -> Result<TransportHandle, Error> {
     // 階段 5.x 反壓修復：在 TD_STRESS 下，主機滴答系統仍然存在
@@ -749,6 +881,18 @@ pub async fn start(
     let (authority_mismatch_tx, authority_mismatch_rx) = bounded(1024);
     let (client_checkpoint_tx, client_checkpoint_rx) = bounded(4096);
     let (rebase_failure_tx, rebase_failure_rx) = bounded(256);
+    let (communication_request_tx, communication_request_rx) = bounded(
+        omoba_core::runtime::communication_transport::COMMUNICATION_AUTHORITY_QUEUE,
+    );
+    let (communication_delivery_tx, communication_delivery_rx) = bounded(
+        omoba_core::runtime::communication_transport::COMMUNICATION_AUTHORITY_QUEUE,
+    );
+    let communication_scope: Arc<
+        std::sync::Mutex<Option<omoba_core::runtime::communication_transport::CommunicationScope>>,
+    > = Arc::new(std::sync::Mutex::new(None));
+    let communication_registry = Arc::new(std::sync::Mutex::new(
+        omoba_core::runtime::communication_transport::CommunicationSessionRegistry::default(),
+    ));
     let secure_input_validation = Arc::new(std::sync::Mutex::new(
         omoba_core::runtime::SecureInputValidationSnapshot::default(),
     ));
@@ -756,6 +900,7 @@ pub async fn start(
         Arc::new(omoba_core::runtime::SelectiveSecurityMetrics::default());
 
     let sessions: Arc<Mutex<HashMap<String, ClientSession>>> = Arc::new(Mutex::new(HashMap::new()));
+    spawn_communication_delivery(communication_delivery_rx, sessions.clone(), Arc::clone(&communication_registry));
     let replay_capacity = std::env::var("OMOBA_TEAM_REPLAY_CAPACITY")
         .ok()
         .and_then(|value| value.parse::<usize>().ok())
@@ -784,6 +929,8 @@ pub async fn start(
     let team_stream_router_broadcast = Arc::clone(&team_stream_router);
     let observer_tap_broadcast = observer_tap.clone();
     let shop_journal_broadcast = Arc::clone(&lockstep_input_buffer);
+    let owner_ward_bootstrap_broadcast = Arc::clone(&lockstep_team_bootstrap_store);
+    let communication_registry_broadcast = Arc::clone(&communication_registry);
     thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -890,7 +1037,9 @@ pub async fn start(
                                 drop(sessions);
                                 if !to_remove.is_empty() {
                                     let mut sessions = sessions_broadcast.lock().await;
-                                    for id in to_remove { sessions.remove(&id); }
+                                    for id in &to_remove { sessions.remove(id); }
+                                    drop(sessions);
+                                    close_communication_sessions(&communication_registry_broadcast, &to_remove);
                                 }
                                 observer_tap_broadcast.try_frame(
                                     team_id,
@@ -898,6 +1047,14 @@ pub async fn start(
                                     replica_tick,
                                     Arc::clone(&encoded),
                                 );
+                                let rows = {
+                                    let stored = owner_ward_bootstrap_broadcast
+                                        .lock()
+                                        .expect("team bootstrap store mutex poisoned");
+                                    owner_ward_dispatch_rows(&stored, Some(team_id))
+                                };
+                                let mut sessions = sessions_broadcast.lock().await;
+                                dispatch_owner_ward_envelopes(&mut sessions, &rows, replica_tick, false);
                             }
                             crate::lockstep::LockstepFrame::TeamRebaseChunkV2 { team_id, encoded } => {
                                 let targets = team_stream_router_broadcast.lock().await.session_ids_for_team(team_id);
@@ -910,6 +1067,9 @@ pub async fn start(
                                 }
                             }
                             crate::lockstep::LockstepFrame::TeamRebaseManifestV2 { team_id, encoded } => {
+                                let recovery_tick = TeamViewRebase::decode(encoded.as_ref())
+                                    .ok()
+                                    .map(|manifest| manifest.authoritative_tick);
                                 let targets = team_stream_router_broadcast.lock().await.session_ids_for_team(team_id);
                                 let framed: Arc<[u8]> = Arc::from(build_framed_bytes(TAG_TEAM_REBASE_MANIFEST_V2, &encoded).into_boxed_slice());
                                 let sessions = sessions_broadcast.lock().await;
@@ -917,6 +1077,17 @@ pub async fn start(
                                     if let Some(session) = sessions.get(&session_id) {
                                         let _ = session.event_tx.try_send(Arc::clone(&framed));
                                     }
+                                }
+                                drop(sessions);
+                                if let Some(tick) = recovery_tick {
+                                    let rows = {
+                                        let stored = owner_ward_bootstrap_broadcast
+                                            .lock()
+                                            .expect("team bootstrap store mutex poisoned");
+                                        owner_ward_dispatch_rows(&stored, Some(team_id))
+                                    };
+                                    let mut sessions = sessions_broadcast.lock().await;
+                                    dispatch_owner_ward_envelopes(&mut sessions, &rows, tick, true);
                                 }
                             }
                             crate::lockstep::LockstepFrame::TickBatch(batch_msg) => {
@@ -934,10 +1105,12 @@ pub async fn start(
                                 drop(sessions);
                                 if !to_remove.is_empty() {
                                     let mut sessions = sessions_broadcast.lock().await;
-                                    for id in to_remove {
-                                        sessions.remove(&id);
+                                    for id in &to_remove {
+                                        sessions.remove(id);
                                         info!("Removed disconnected KCP session: {}", id);
                                     }
+                                    drop(sessions);
+                                    close_communication_sessions(&communication_registry_broadcast, &to_remove);
                                 }
                             }
                             crate::lockstep::LockstepFrame::StateHash(sh) => {
@@ -955,10 +1128,12 @@ pub async fn start(
                                 drop(sessions);
                                 if !to_remove.is_empty() {
                                     let mut sessions = sessions_broadcast.lock().await;
-                                    for id in to_remove {
-                                        sessions.remove(&id);
+                                    for id in &to_remove {
+                                        sessions.remove(id);
                                         info!("Removed disconnected KCP session: {}", id);
                                     }
+                                    drop(sessions);
+                                    close_communication_sessions(&communication_registry_broadcast, &to_remove);
                                 }
                             }
                             crate::lockstep::LockstepFrame::GameStart { client_session_id, msg: gs } => {
@@ -1176,10 +1351,12 @@ pub async fn start(
 
                         if !to_remove.is_empty() {
                             let mut sessions = sessions_broadcast.lock().await;
-                            for id in to_remove {
-                                sessions.remove(&id);
+                            for id in &to_remove {
+                                sessions.remove(id);
                                 info!("Removed disconnected KCP session: {}", id);
                             }
+                            drop(sessions);
+                            close_communication_sessions(&communication_registry_broadcast, &to_remove);
                         }
                     }
                 }
@@ -1215,6 +1392,9 @@ pub async fn start(
     let team_stream_router_accept = Arc::clone(&team_stream_router);
     let authority_mismatch_tx_accept = authority_mismatch_tx.clone();
     let rebase_failure_tx_accept = rebase_failure_tx.clone();
+    let communication_request_tx_accept = communication_request_tx.clone();
+    let communication_scope_accept = communication_scope.clone();
+    let communication_registry_accept = Arc::clone(&communication_registry);
 
     // 同步綁定，因此如果連接埠被過時的實例佔用，啟動會快速失敗。
     let mut listener = KcpListener::bind(config, addr)
@@ -1246,6 +1426,9 @@ pub async fn start(
             let authority_mismatch_tx = authority_mismatch_tx_accept.clone();
             let client_checkpoint_tx = client_checkpoint_tx.clone();
             let rebase_failure_tx = rebase_failure_tx_accept.clone();
+            let communication_request_tx = communication_request_tx_accept.clone();
+            let communication_scope = communication_scope_accept.clone();
+            let communication_registry = Arc::clone(&communication_registry_accept);
             let secure_input_validation = Arc::clone(&secure_input_validation_accept);
             let session_id = format!("kcp_{}", peer_addr);
 
@@ -1267,6 +1450,9 @@ pub async fn start(
                     client_checkpoint_tx,
                     rebase_failure_tx,
                     secure_input_validation,
+                    communication_request_tx,
+                    communication_scope,
+                    communication_registry,
                 )
                 .await
                 {
@@ -1290,7 +1476,203 @@ pub async fn start(
         rebase_failure_rx,
         secure_input_validation,
         selective_security_metrics,
+        communication_request_rx,
+        communication_delivery_tx,
+        communication_scope,
+        communication_registry,
     })
+}
+
+fn bound_fallback() -> omoba_core::runtime::communication_transport::BoundCommunicationSession {
+    omoba_core::runtime::communication_transport::BoundCommunicationSession {
+        secure_joined: false,
+        negotiated: false,
+        observer: false,
+        room_id: 0,
+        run_id: 0,
+        player_id: 0,
+        team_id: 0,
+        view_epoch: 0,
+    }
+}
+
+fn communication_bound(
+    session: &ClientSession,
+) -> omoba_core::runtime::communication_transport::BoundCommunicationSession {
+    omoba_core::runtime::communication_transport::BoundCommunicationSession {
+        secure_joined: session.lockstep_joined && session.secure_match_capability,
+        negotiated: session.communication_agreed,
+        observer: session.observer,
+        room_id: session.communication_room_id,
+        run_id: session.communication_run_id,
+        player_id: session.authenticated_player_id.unwrap_or(0),
+        team_id: session.authenticated_team_id.unwrap_or(0),
+        view_epoch: session.current_view_epoch,
+    }
+}
+
+fn refresh_communication_view(
+    session: &mut ClientSession,
+    store: &std::sync::Mutex<std::collections::BTreeMap<u32, crate::state::StoredTeamBootstrap>>,
+) {
+    let Some(team_id) = session.authenticated_team_id else { return };
+    let Ok(store) = store.lock() else { return };
+    let Some(stored) = store.get(&team_id) else { return };
+    let epoch = stored.start.view_epoch.as_ref().map_or(0, |epoch| epoch.value);
+    if epoch != 0 {
+        session.current_view_epoch = epoch;
+    }
+}
+
+fn communication_receipt_bytes(
+    request_id: u64,
+    refusal: u32,
+    bound: &omoba_core::runtime::communication_transport::BoundCommunicationSession,
+) -> Vec<u8> {
+    use omoba_core::runtime::communication_transport::{
+        COMMUNICATION_SCHEMA_VERSION, OUTCOME_REFUSED,
+    };
+    omoba_core::game_proto::CommunicationReceipt {
+        schema_version: COMMUNICATION_SCHEMA_VERSION,
+        request_id,
+        refusal,
+        room_id: bound.room_id,
+        run_id: bound.run_id,
+        sender_id: bound.player_id,
+        sequence: 0,
+        view_epoch: bound.view_epoch,
+        outcome_kind: OUTCOME_REFUSED,
+    }
+    .encode_to_vec()
+}
+
+fn spawn_communication_delivery(
+    rx: Receiver<omoba_core::runtime::communication_transport::CommunicationDelivery>,
+    sessions: Arc<Mutex<HashMap<String, ClientSession>>>,
+    registry: Arc<std::sync::Mutex<omoba_core::runtime::communication_transport::CommunicationSessionRegistry>>,
+) {
+    thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("communication delivery runtime");
+        runtime.block_on(async move {
+            use omoba_core::runtime::communication_transport::{
+                authorize_queued_delivery, CommunicationRouteSession,
+            };
+            while let Ok(delivery) = rx.recv() {
+                // Session table first. The std registry lock is never held across
+                // this wait. Authorization is computed only after the wait, under
+                // try_lock, so a scope retire or rebind during the wait is visible.
+                for _attempt in 0..2 {
+                    let mut sessions = sessions.lock().await;
+                    let Ok(mut registry) = registry.try_lock() else {
+                        drop(sessions);
+                        if registry.lock().is_err() {
+                            break;
+                        }
+                        continue;
+                    };
+                    let rows: Vec<(String, u32, u32, u64, u64, u64, u64, bool, bool, bool)> = sessions.iter().map(|(id, session)| {
+                        (
+                            id.clone(),
+                            session.authenticated_player_id.unwrap_or(0),
+                            session.authenticated_team_id.unwrap_or(0),
+                            session.current_view_epoch,
+                            session.communication_room_id,
+                            session.communication_run_id,
+                            session.communication_generation,
+                            session.communication_agreed,
+                            session.lockstep_joined && session.secure_match_capability,
+                            session.observer,
+                        )
+                    }).collect();
+                    let routed: Vec<CommunicationRouteSession<'_>> = rows.iter().map(|row| CommunicationRouteSession {
+                        session_id: row.0.as_str(),
+                        player_id: row.1,
+                        team_id: row.2,
+                        view_epoch: row.3,
+                        room_id: row.4,
+                        run_id: row.5,
+                        generation: row.6,
+                        negotiated: row.7,
+                        secure_joined: row.8,
+                        observer: row.9,
+                    }).collect();
+                    let grant = authorize_queued_delivery(&registry, &delivery, &routed);
+                    if grant.deliver_receipt || grant.deliver_replay {
+                        if let Some(session) = sessions.get_mut(&delivery.origin_session) {
+                            if grant.deliver_receipt {
+                                let receipt = Arc::from(
+                                    build_framed_bytes(
+                                        omoba_core::kcp::framing::TAG_COMMUNICATION_RECEIPT,
+                                        &delivery.receipt,
+                                    )
+                                    .into_boxed_slice(),
+                                );
+                                let _ = session.event_tx.try_send(receipt);
+                            }
+                            if grant.deliver_replay {
+                                if let Some(replay) = &delivery.replay {
+                                    let framed = Arc::from(
+                                        build_framed_bytes(omoba_core::kcp::framing::TAG_COMMUNICATION_REPLAY, replay)
+                                            .into_boxed_slice(),
+                                    );
+                                    if session.event_tx.try_send(framed).is_ok() && grant.mark_replay_consumed {
+                                        let _ = registry.set_replay_consumed(&delivery.origin_session, delivery.origin_lifetime);
+                                        session.communication_replay_consumed = true;
+                                    }
+                                }
+                            }
+                            if delivery.replay.is_none() || grant.mark_replay_consumed || !delivery.consume_replay {
+                                session.communication_replay_outstanding = false;
+                            }
+                        }
+                    }
+                    for id in &grant.event_sessions {
+                        let Some(frame) = delivery.recipient_frames.iter().find(|frame| {
+                            routed.iter().any(|session| session.session_id == id && session.player_id == frame.player_id)
+                        }) else { continue };
+                        let framed = Arc::from(
+                            build_framed_bytes(omoba_core::kcp::framing::TAG_COMMUNICATION_EVENT, &frame.bytes)
+                                .into_boxed_slice(),
+                        );
+                        if let Some(session) = sessions.get(id) {
+                            let _ = session.event_tx.try_send(framed);
+                        }
+                    }
+                    break;
+                }
+            }
+        });
+    });
+}
+
+fn suspend_communication_agreement(
+    session: &mut ClientSession,
+    scope: Option<omoba_core::runtime::communication_transport::CommunicationScope>,
+) {
+    if !session.communication_agreed {
+        return;
+    }
+    let current = omoba_core::runtime::communication_transport::CommunicationScope {
+        room_id: session.communication_room_id,
+        run_id: session.communication_run_id,
+    };
+    if scope != Some(current) {
+        session.communication_agreed = false;
+    }
+}
+
+fn close_communication_sessions(
+    registry: &std::sync::Mutex<omoba_core::runtime::communication_transport::CommunicationSessionRegistry>,
+    ids: &[String],
+) {
+    if let Ok(mut registry) = registry.lock() {
+        for id in ids {
+            registry.close_session(id);
+        }
+    }
 }
 
 async fn handle_client(
@@ -1305,13 +1687,16 @@ async fn handle_client(
     lockstep_state: Arc<std::sync::Mutex<crate::lockstep::LockstepState>>,
     lockstep_snapshot_store: Arc<std::sync::Mutex<crate::comp::SnapshotStore>>,
     lockstep_team_bootstrap_store: Arc<
-        std::sync::Mutex<std::collections::BTreeMap<u32, TeamGameStart>>,
+        std::sync::Mutex<std::collections::BTreeMap<u32, crate::state::StoredTeamBootstrap>>,
     >,
     team_stream_router: Arc<Mutex<omoba_core::runtime::TeamStreamRouter>>,
     authority_mismatch_tx: Sender<omoba_core::runtime::ClientHashMismatch>,
     client_checkpoint_tx: Sender<omoba_core::runtime::ClientCheckpointReport>,
     rebase_failure_tx: Sender<omoba_core::runtime::RebaseFailureSignal>,
     secure_input_validation: omoba_core::runtime::SharedSecureInputValidationSnapshot,
+    communication_request_tx: Sender<omoba_core::runtime::communication_transport::CommunicationRequestMsg>,
+    communication_scope: Arc<std::sync::Mutex<Option<omoba_core::runtime::communication_transport::CommunicationScope>>>,
+    communication_registry: Arc<std::sync::Mutex<omoba_core::runtime::communication_transport::CommunicationSessionRegistry>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let (mut reader, mut writer) = tokio::io::split(stream);
 
@@ -1325,8 +1710,11 @@ async fn handle_client(
     let mut player_name: Option<String> = None;
     let mut joined_player_id: Option<u32> = None;
     let mut shop_protocol_agreed = false;
+    let mut shop_undo_agreed = false;
     let mut recall_protocol_agreed = false;
     let mut command_protocol_agreed = false;
+    let mut summoner_protocol_agreed = false;
+    let mut ward_protocol_agreed = false;
     let shop_query_clock = std::time::Instant::now();
     let mut shop_query_budget = omoba_core::runtime::shop_transport::ShopQueryBudget::default();
     let mut invalid_reference_limiter =
@@ -1346,7 +1734,7 @@ async fn handle_client(
                             })
                         };
                         let secure_coordinate_input = tag == TAG_INPUT_SUBMIT
-                            && secure_coordinate_input_with_commands(&payload, joined_player_id, shop_protocol_agreed, recall_protocol_agreed, command_protocol_agreed);
+                            && secure_coordinate_input_with_ward(&payload, joined_player_id, shop_protocol_agreed, recall_protocol_agreed, command_protocol_agreed, summoner_protocol_agreed, shop_undo_agreed, ward_protocol_agreed);
                         if secure_v2_session && matches!(tag,
                             TAG_PLAYER_COMMAND | TAG_GAME_STATE_REQUEST | TAG_VIEWPORT_UPDATE
                                 | TAG_INPUT_SUBMIT | TAG_SNAPSHOT_REQ
@@ -1362,8 +1750,42 @@ async fn handle_client(
                                 if query.request_id == 0 || query.input_id == 0 { continue; }
                                 if !shop_query_budget.allow(shop_query_clock.elapsed().as_millis().min(u128::from(u64::MAX)) as u64) { continue; }
                                 let reply = lockstep_input_buffer.lock().expect("input buffer mutex poisoned")
-                                    .shop_receipt_replay(player, query.request_id, query.input_id);
+                                    .shop_command_replay(player, query.request_id, query.input_id, shop_undo_agreed);
                                 write_framed(&mut writer, omoba_core::kcp::framing::TAG_SHOP_RECEIPT_REPLAY, &reply.encode_to_vec()).await?;
+                            }
+                            omoba_core::kcp::framing::TAG_OWNER_WARD_RECOVERY_QUERY => {
+                                if !secure_v2_session || !ward_protocol_agreed || payload.len() > 64 { continue; }
+                                let Some(player) = joined_player_id.filter(|player| *player != 0) else { continue; };
+                                let Ok(query) = OwnerWardRecoveryQuery::decode(payload.as_slice()) else { continue; };
+                                if query.request_id == 0 { continue; }
+                                let (team_id, ward_session, sealed_tick) = {
+                                    let sessions = sessions.lock().await;
+                                    let Some(session) = sessions.get(&session_id) else { continue; };
+                                    if !session.ward_protocol_agreed
+                                        || session.authenticated_player_id != Some(player)
+                                        || session.ward_session == 0
+                                    {
+                                        continue;
+                                    }
+                                    (session.authenticated_team_id, session.ward_session, session.last_owner_ward_tick)
+                                };
+                                let Some(team_id) = team_id else { continue; };
+                                let prepared = {
+                                    let store = lockstep_team_bootstrap_store.lock().expect("team bootstrap store mutex poisoned");
+                                    let Some(stored) = store.get(&team_id) else { continue; };
+                                    let view_epoch = stored.start.view_epoch.as_ref().map_or(0, |epoch| epoch.value);
+                                    if query.view_epoch != view_epoch { continue; }
+                                    let projection = stored.owner_wards.get(&player).cloned().unwrap_or_default();
+                                    let tick = omoba_core::runtime::ward_transport::owner_ward_bootstrap_tick(&stored.start).max(sealed_tick);
+                                    let envelope = omoba_core::runtime::ward_transport::seal_owner_ward_envelope(
+                                        player, ward_session, view_epoch, tick, &projection,
+                                    );
+                                    (envelope, projection)
+                                };
+                                write_framed(&mut writer, omoba_core::kcp::framing::TAG_OWNER_WARD_ENVELOPE, &prepared.0.encode_to_vec()).await?;
+                                if let Some(session) = sessions.lock().await.get_mut(&session_id) {
+                                    session.last_owner_ward_projection = prepared.1;
+                                }
                             }
                             TAG_SECURE_TARGET_INPUT_V2 => {
                                 let started = tokio::time::Instant::now();
@@ -1393,12 +1815,12 @@ async fn handle_client(
                                     let actor = to_reference(actor)?;
                                     let target = to_reference(target)?;
                                     if actor.view_epoch != session_view_epoch || target.view_epoch != session_view_epoch { return None; }
-                                    let (_actor_id, target_id) = secure_input_validation.lock().ok()?.validate_and_resolve(
+                                    let (actor_id, target_id) = secure_input_validation.lock().ok()?.validate_and_resolve(
                                         team_id, request.input_tick, actor, target,
                                     ).ok()?;
                                     let mut input = PlayerInput::decode(request.sanitized_payload.as_slice()).ok()?;
                                     if !secure_gameplay_input_allowed(&input, crate::config::server_config::CONFIG.MATCH_GAMEPLAY_MODE) { return None; }
-                                    rewrite_secure_target(&mut input, target_id)?;
+                                    rewrite_secure_target(&mut input, actor_id, target_id)?;
                                     let current_tick = lockstep_state.lock().ok()?.current_tick;
                                     let input_id = u32::try_from(request.request_id).ok()?;
                                     let grace_ticks = late_input_grace_ticks(
@@ -1426,6 +1848,7 @@ async fn handle_client(
                                         result,
                                         crate::lockstep::InputSubmitResult::RejectedLate { .. }
                                         | crate::lockstep::InputSubmitResult::RejectedShopReplay
+                                        | crate::lockstep::InputSubmitResult::RejectedWardReplay
                                     )
                                 });
                                 if !accepted {
@@ -1459,6 +1882,7 @@ async fn handle_client(
                                     event_rx = Some(rx);
                                     subscribed = true;
                                     player_name = Some(sub.player_name.clone());
+                                    let communication_generation = communication_registry.lock().ok().and_then(|mut registry| registry.open_session(&session_id)).map(|life| life.generation).unwrap_or(0);
                                     let mut sess = sessions.lock().await;
                                     sess.insert(
                                         session_id.clone(),
@@ -1480,6 +1904,18 @@ async fn handle_client(
                                             authenticated_team_id: None,
                                             current_view_epoch: 0,
                                             secure_match_capability: false,
+                                            authenticated_player_id: None,
+                                            ward_protocol_agreed: false,
+                                            ward_session: 0,
+                                            last_owner_ward_projection: Vec::new(),
+                                            last_owner_ward_tick: 0,
+                                            communication_agreed: false,
+                                            communication_room_id: 0,
+                                            communication_run_id: 0,
+                                            communication_generation,
+                                            observer: false,
+                                            communication_replay_consumed: false,
+                                            communication_replay_outstanding: false,
                                         },
                                     );
                                 }
@@ -1614,7 +2050,23 @@ async fn handle_client(
                                         }
                                         let target_tick = req.target_tick;
                                         let input_id = req.input_id;
-                                        let input = req.input.unwrap_or_default();
+                                        let mut input = req.input.unwrap_or_default();
+                                        if let Some(player_input::Action::Direction(value))=input.action.as_mut() {
+                                            if !secure_v2_session || joined_player_id!=Some(player_id) || input_id==0
+                                                || omoba_core::runtime::direction_transport::validate_client(value).is_err() {continue;}
+                                            let binding={let sessions=sessions.lock().await;
+                                                sessions.get(&session_id).and_then(|session| {
+                                                    (session.authenticated_player_id==Some(player_id))
+                                                        .then_some((session.authenticated_team_id,session.current_view_epoch))
+                                                })};
+                                            let Some((Some(team),epoch))=binding else {continue;};
+                                            let resolved=secure_input_validation.lock().ok().and_then(|snapshot|
+                                                omoba_core::runtime::direction_transport::seal_client(value,&snapshot,team,epoch,u64::from(target_tick)).ok());
+                                            let Some(())=resolved else {
+                                                invalid_reference_limiter.admit(&session_id,u64::from(current_tick));continue;
+                                            };
+                                        }
+                                        omoba_core::runtime::clear_untrusted_item_life(&mut input);
                                         if !secure_gameplay_input_allowed(&input, crate::config::server_config::CONFIG.MATCH_GAMEPLAY_MODE) {
                                             warn!("InputSubmit denied by gameplay mode player_id={}", player_id);
                                             continue;
@@ -1661,6 +2113,11 @@ async fn handle_client(
                                             Ok(agreed) => agreed,
                                             Err(reason) => { warn!("JoinRequest shop protocol rejected: {}", reason); break; }
                                         };
+                                        let negotiated_undo = match omoba_core::runtime::shop_transport::negotiate_shop_undo_protocol(
+                                            req.shop_protocol_version, &req.shop_rules_hash, shop_catalog_agreed) {
+                                            Ok(agreed) => agreed,
+                                            Err(reason) => { warn!("JoinRequest shop undo protocol rejected: {}", reason); break; }
+                                        };
                                         let registered = {
                                             if let Err(reason) = validate_mana_join_request(&req,
                                                 crate::config::server_config::CONFIG.MATCH_MANA_ENABLED) {
@@ -1673,6 +2130,12 @@ async fn handle_client(
                                             }
                                             if let Err(reason) = validate_command_join_request(&req) {
                                                 warn!("JoinRequest command protocol rejected: {}", reason); break;
+                                            }
+                                            if let Err(reason) = validate_summoner_join_request(&req) {
+                                                warn!("JoinRequest summoner protocol rejected: {}", reason); break;
+                                            }
+                                            if let Err(reason) = validate_ward_join_request(&req) {
+                                                warn!("JoinRequest ward protocol rejected: {}", reason); break;
                                             }
                                             let mut s = lockstep_state.lock().unwrap();
                                             let secure_requested = match validate_join_wire_protocol(&req) {
@@ -1721,6 +2184,7 @@ async fn handle_client(
                                         shop_protocol_agreed = negotiated_shop && secure_binding.is_some()
                                             && matches!(crate::config::server_config::CONFIG.MATCH_GAMEPLAY_MODE,
                                                 crate::config::server_config::MatchGameplayMode::SingleLane | crate::config::server_config::MatchGameplayMode::ThreeLane);
+                                        shop_undo_agreed = negotiated_undo && shop_protocol_agreed;
                                         let mana_protocol_agreed = crate::config::server_config::CONFIG.MATCH_MANA_ENABLED
                                             && secure_binding.is_some() && validate_mana_join_request(&req, true) == Ok(true);
                                         recall_protocol_agreed = validate_recall_join_request(&req) == Ok(true)
@@ -1728,6 +2192,14 @@ async fn handle_client(
                                             && matches!(crate::config::server_config::CONFIG.MATCH_GAMEPLAY_MODE,
                                                 crate::config::server_config::MatchGameplayMode::SingleLane | crate::config::server_config::MatchGameplayMode::ThreeLane);
                                         command_protocol_agreed = validate_command_join_request(&req) == Ok(true)
+                                            && secure_binding.is_some()
+                                            && matches!(crate::config::server_config::CONFIG.MATCH_GAMEPLAY_MODE,
+                                                crate::config::server_config::MatchGameplayMode::SingleLane | crate::config::server_config::MatchGameplayMode::ThreeLane);
+                                        summoner_protocol_agreed = validate_summoner_join_request(&req) == Ok(true)
+                                            && secure_binding.is_some()
+                                            && matches!(crate::config::server_config::CONFIG.MATCH_GAMEPLAY_MODE,
+                                                crate::config::server_config::MatchGameplayMode::SingleLane | crate::config::server_config::MatchGameplayMode::ThreeLane);
+                                        ward_protocol_agreed = validate_ward_join_request(&req) == Ok(true)
                                             && secure_binding.is_some()
                                             && matches!(crate::config::server_config::CONFIG.MATCH_GAMEPLAY_MODE,
                                                 crate::config::server_config::MatchGameplayMode::SingleLane | crate::config::server_config::MatchGameplayMode::ThreeLane);
@@ -1741,10 +2213,11 @@ async fn handle_client(
                                                 .lock()
                                                 .expect("team bootstrap store mutex poisoned")
                                                 .get(&binding.authenticated_team_id)
-                                                .and_then(|start| start.view_epoch.as_ref())
+                                                .and_then(|stored| stored.start.view_epoch.as_ref())
                                                 .map_or(1, |epoch| epoch.value);
                                         }
                                         joined_player_id = Some(player_id);
+                                        let communication_generation = communication_registry.lock().ok().and_then(|mut registry| registry.open_session(&session_id)).map(|life| life.generation).unwrap_or(0);
                                         // 將此會話標記為已加入
                                         // 鎖步流因此未來 TickBatch /
                                         // StateHash 廣播到達它。
@@ -1758,6 +2231,22 @@ async fn handle_client(
                                                     s.current_view_epoch = binding.current_view_epoch;
                                                     s.secure_match_capability = binding.secure_match_capability;
                                                 }
+                                                s.authenticated_player_id = Some(player_id);
+                                                s.ward_protocol_agreed = ward_protocol_agreed;
+                                                s.ward_session = if ward_protocol_agreed {
+                                                    omoba_core::runtime::ward_transport::owner_ward_session_binding(&session_id, player_id)
+                                                } else {
+                                                    0
+                                                };
+                                                s.last_owner_ward_projection.clear();
+                                                s.last_owner_ward_tick = 0;
+                                                s.communication_agreed = false;
+                                                s.communication_room_id = 0;
+                                                s.communication_run_id = 0;
+                                                s.communication_generation = communication_generation;
+                                                s.observer = matches!(role, crate::lockstep::JoinRoleEnum::Observer);
+                                                s.communication_replay_consumed = false;
+                                                s.communication_replay_outstanding = false;
                                                 if s.player_name.is_empty() {
                                                     s.player_name = req.player_name.clone();
                                                 }
@@ -1783,6 +2272,22 @@ async fn handle_client(
                                                         authenticated_team_id: secure_binding.as_ref().map(|binding| binding.authenticated_team_id),
                                                         current_view_epoch: secure_binding.as_ref().map_or(0, |binding| binding.current_view_epoch),
                                                         secure_match_capability: secure_binding.is_some(),
+                                                        authenticated_player_id: Some(player_id),
+                                                        ward_protocol_agreed,
+                                                        ward_session: if ward_protocol_agreed {
+                                                            omoba_core::runtime::ward_transport::owner_ward_session_binding(&session_id, player_id)
+                                                        } else {
+                                                            0
+                                                        },
+                                                        last_owner_ward_projection: Vec::new(),
+                                                        last_owner_ward_tick: 0,
+                                                        communication_agreed: false,
+                                                        communication_room_id: 0,
+                                                        communication_run_id: 0,
+                                                        communication_generation,
+                                                        observer: matches!(role, crate::lockstep::JoinRoleEnum::Observer),
+                                                        communication_replay_consumed: false,
+                                                        communication_replay_outstanding: false,
                                                     },
                                                 );
                                             }
@@ -1800,14 +2305,16 @@ async fn handle_client(
                                         // 相同的每會話 event_tx
                                         // 客戶正在閱讀）。
                                         let frame = if let Some(binding) = secure_binding {
-                                            if let Some(mut current) = lockstep_team_bootstrap_store
-                                                .lock()
-                                                .expect("team bootstrap store mutex poisoned")
-                                                .get(&binding.authenticated_team_id)
-                                                .cloned()
-                                            {
+                                            let stored_boot = {
+                                                let store = lockstep_team_bootstrap_store
+                                                    .lock()
+                                                    .expect("team bootstrap store mutex poisoned");
+                                                store.get(&binding.authenticated_team_id).cloned()
+                                            };
+                                            if let Some(stored_boot) = stored_boot {
+                                                let mut current = stored_boot.start;
                                                 current.player_id = player_id;
-                                                current.shop_protocol_version = if shop_protocol_agreed { omoba_core::runtime::shop_transport::SHOP_PROTOCOL_VERSION } else { 0 };
+                                                current.shop_protocol_version = omoba_core::runtime::shop_transport::echoed_shop_protocol_version(shop_protocol_agreed, shop_undo_agreed);
                                                 current.shop_rules_hash = if shop_protocol_agreed { omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned() } else { String::new() };
                                                 current.recall_protocol_version = if recall_protocol_agreed { omoba_core::runtime::recall_transport::RECALL_PROTOCOL_VERSION } else { 0 };
                                                 current.recall_rules_hash = if recall_protocol_agreed { omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned() } else { String::new() };
@@ -1815,6 +2322,24 @@ async fn handle_client(
                                                 current.mana_rules_hash = if mana_protocol_agreed { omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned() } else { String::new() };
                                                 current.command_protocol_version = if command_protocol_agreed { omoba_core::runtime::command_transport::COMMAND_PROTOCOL_VERSION } else { 0 };
                                                 current.command_rules_hash = if command_protocol_agreed { omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned() } else { String::new() };
+                                                current.summoner_protocol_version = if summoner_protocol_agreed { omoba_core::runtime::summoner_transport::SUMMONER_PROTOCOL_VERSION } else { 0 };
+                                                current.summoner_rules_hash = if summoner_protocol_agreed { omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned() } else { String::new() };
+                                                let owner_projection = if ward_protocol_agreed {
+                                                    omoba_core::runtime::ward_transport::owner_projection_for_session(&stored_boot.owner_wards, player_id)
+                                                } else {
+                                                    Vec::new()
+                                                };
+                                                let owner_session = if ward_protocol_agreed {
+                                                    omoba_core::runtime::ward_transport::owner_ward_session_binding(&session_id, player_id)
+                                                } else {
+                                                    0
+                                                };
+                                                omoba_core::runtime::ward_transport::stamp_owner_ward_admission(
+                                                    &mut current, ward_protocol_agreed, owner_session, &owner_projection,
+                                                );
+                                                if let Some(session) = sessions.lock().await.get_mut(&session_id) {
+                                                    session.last_owner_ward_tick = omoba_core::runtime::ward_transport::owner_ward_bootstrap_tick(&current);
+                                                }
                                                 current.input_allocator_version = 1;
                                                 current.last_seen_input_id = lockstep_input_buffer
                                                     .lock().expect("input buffer mutex poisoned")
@@ -1848,9 +2373,7 @@ async fn handle_client(
                                                     .and_then(omoba_template_ids::moba_map_by_name)
                                                     .map(omoba_core::runtime::moba_map_layout::bootstrap_metadata))
                                                 .unwrap_or_default();
-                                            crate::lockstep::LockstepFrame::TeamGameStartV2 {
-                                                client_session_id: session_id.clone(),
-                                                msg: TeamGameStart {
+                                            let mut fallback = TeamGameStart {
                                                     protocol_version: omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION,
                                                     snapshot_schema_version: 1,
                                                     content_schema_version: 1,
@@ -1891,7 +2414,7 @@ async fn handle_client(
                                                         .expect("input buffer mutex poisoned").last_seen_input_id(player_id),
                                                     shop_catalog_version: if shop_catalog_agreed { omoba_core::runtime::shop_transport::SHOP_CATALOG_VERSION } else { 0 },
                                                     shop_catalog_hash: if shop_catalog_agreed { omoba_template_ids::MOBA_ITEM_CATALOG_HASH.to_owned() } else { String::new() },
-                                                    shop_protocol_version: if shop_protocol_agreed { omoba_core::runtime::shop_transport::SHOP_PROTOCOL_VERSION } else { 0 },
+                                                    shop_protocol_version: omoba_core::runtime::shop_transport::echoed_shop_protocol_version(shop_protocol_agreed, shop_undo_agreed),
                                                     shop_rules_hash: if shop_protocol_agreed { omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned() } else { String::new() },
                                                     recall_protocol_version: if recall_protocol_agreed { omoba_core::runtime::recall_transport::RECALL_PROTOCOL_VERSION } else { 0 },
                                                     recall_rules_hash: if recall_protocol_agreed { omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned() } else { String::new() },
@@ -1899,7 +2422,30 @@ async fn handle_client(
                                                     mana_rules_hash: if mana_protocol_agreed { omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned() } else { String::new() },
                                                     command_protocol_version: if command_protocol_agreed { omoba_core::runtime::command_transport::COMMAND_PROTOCOL_VERSION } else { 0 },
                                                     command_rules_hash: if command_protocol_agreed { omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned() } else { String::new() },
+                                                    summoner_protocol_version: if summoner_protocol_agreed { omoba_core::runtime::summoner_transport::SUMMONER_PROTOCOL_VERSION } else { 0 },
+                                                    summoner_rules_hash: if summoner_protocol_agreed { omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned() } else { String::new() },
+                                                    ward_protocol_version: 0,
+                                                    ward_rules_hash: String::new(),
+                                                    owner_ward_projection: Vec::new(),
+                                                    owner_ward_envelope: None,
+                                                    combat_preferences: None,
+                                                };
+                                            omoba_core::runtime::ward_transport::stamp_owner_ward_admission(
+                                                &mut fallback,
+                                                ward_protocol_agreed,
+                                                if ward_protocol_agreed {
+                                                    omoba_core::runtime::ward_transport::owner_ward_session_binding(&session_id, player_id)
+                                                } else {
+                                                    0
                                                 },
+                                                &[],
+                                            );
+                                            if let Some(session) = sessions.lock().await.get_mut(&session_id) {
+                                                session.last_owner_ward_tick = omoba_core::runtime::ward_transport::owner_ward_bootstrap_tick(&fallback);
+                                            }
+                                            crate::lockstep::LockstepFrame::TeamGameStartV2 {
+                                                client_session_id: session_id.clone(),
+                                                msg: fallback,
                                             }
                                             }
                                         } else {
@@ -2104,6 +2650,196 @@ async fn handle_client(
                                 info!("KCP client requested graceful session close: {}", session_id);
                                 break;
                             }
+                            omoba_core::kcp::framing::TAG_COMMUNICATION_HELLO => {
+                                use omoba_core::game_proto::CommunicationHelloResult;
+                                use omoba_core::runtime::communication_transport::{
+                                    decode_hello, negotiate_hello, COMMUNICATION_SCHEMA_VERSION, REFUSAL_UNAUTHENTICATED,
+                                };
+                                let hello = match decode_hello(&payload) {
+                                    Ok(hello) => hello,
+                                    Err(refusal) => {
+                                        let result = CommunicationHelloResult {
+                                            schema_version: COMMUNICATION_SCHEMA_VERSION,
+                                            refusal,
+                                            ..Default::default()
+                                        };
+                                        let _ = write_framed(&mut writer, omoba_core::kcp::framing::TAG_COMMUNICATION_HELLO_RESULT, &result.encode_to_vec()).await;
+                                        continue;
+                                    }
+                                };
+                                let (bound, scope, view_epoch) = {
+                                    let mut sessions = sessions.lock().await;
+                                    let Some(session) = sessions.get_mut(&session_id) else { continue };
+                                    refresh_communication_view(session, &lockstep_team_bootstrap_store);
+                                    let bound = communication_bound(session);
+                                    let view_epoch = session.current_view_epoch;
+                                    let scope = communication_scope.lock().ok().and_then(|guard| *guard);
+                                    (bound, scope, view_epoch)
+                                };
+                                let mut result = negotiate_hello(&bound, scope, &hello);
+                                let applied = communication_registry.lock().ok().and_then(|mut registry| {
+                                    registry.note_view(&session_id, view_epoch);
+                                    let before = registry.lifetime(&session_id);
+                                    let life = registry.note_hello(&session_id, &result, bound.observer, bound.secure_joined)?;
+                                    if result.agreed {
+                                        result.request_floor = registry.request_floor(result.room_id, result.run_id, result.player_id);
+                                    }
+                                    let binding_changed = before.map(|prior| prior.binding_generation) != Some(life.binding_generation);
+                                    Some((life, registry.replay_consumed(&session_id), binding_changed))
+                                });
+                                if result.agreed {
+                                    if let Some((life, replay_consumed, binding_changed)) = applied {
+                                        if let Some(session) = sessions.lock().await.get_mut(&session_id) {
+                                            session.communication_agreed = true;
+                                            session.communication_room_id = result.room_id;
+                                            session.communication_run_id = result.run_id;
+                                            session.communication_generation = life.generation;
+                                            if binding_changed {
+                                                session.communication_replay_consumed = replay_consumed;
+                                                session.communication_replay_outstanding = false;
+                                            }
+                                        }
+                                    } else {
+                                        result.agreed = false;
+                                        result.protocol_version = 0;
+                                        result.refusal = REFUSAL_UNAUTHENTICATED;
+                                        result.room_id = 0;
+                                        result.run_id = 0;
+                                        result.player_id = 0;
+                                        result.team_id = 0;
+                                        result.view_epoch = 0;
+                                        result.request_floor = 0;
+                                    }
+                                } else if let Some(session) = sessions.lock().await.get_mut(&session_id) {
+                                    session.communication_agreed = false;
+                                }
+                                let _ = write_framed(&mut writer, omoba_core::kcp::framing::TAG_COMMUNICATION_HELLO_RESULT, &result.encode_to_vec()).await;
+                            }
+                            omoba_core::kcp::framing::TAG_COMMUNICATION_SUBMIT => {
+                                use omoba_core::runtime::communication_transport::{
+                                    decode_submit, CommunicationRequestBody, CommunicationRequestMsg,
+                                    REFUSAL_BACKPRESSURE, REFUSAL_NOT_NEGOTIATED,
+                                    REFUSAL_SCOPE_UNAVAILABLE,
+                                };
+                                let submit = match decode_submit(&payload) {
+                                    Ok(submit) => submit,
+                                    Err(refusal) => {
+                                        let bound = bound_fallback();
+                                        let _ = write_framed(&mut writer, omoba_core::kcp::framing::TAG_COMMUNICATION_RECEIPT, &communication_receipt_bytes(0, refusal, &bound)).await;
+                                        continue;
+                                    }
+                                };
+                                let request_id = submit.request_id;
+                                let (bound, view_epoch, refusal) = {
+                                    let mut sessions = sessions.lock().await;
+                                    let Some(session) = sessions.get_mut(&session_id) else { continue };
+                                    refresh_communication_view(session, &lockstep_team_bootstrap_store);
+                                    let scope = communication_scope.lock().ok().and_then(|guard| *guard);
+                                    suspend_communication_agreement(session, scope);
+                                    let bound = communication_bound(session);
+                                    let view_epoch = session.current_view_epoch;
+                                    let refusal = if scope.is_none() {
+                                        Some(REFUSAL_SCOPE_UNAVAILABLE)
+                                    } else if !bound.negotiated {
+                                        Some(REFUSAL_NOT_NEGOTIATED)
+                                    } else {
+                                        None
+                                    };
+                                    (bound, view_epoch, refusal)
+                                };
+                                if let Some(refusal) = refusal {
+                                    let _ = write_framed(&mut writer, omoba_core::kcp::framing::TAG_COMMUNICATION_RECEIPT, &communication_receipt_bytes(request_id, refusal, &bound)).await;
+                                    continue;
+                                }
+                                let lifetime = communication_registry.lock().ok().and_then(|mut registry| {
+                                    registry.note_view(&session_id, view_epoch);
+                                    registry.lifetime(&session_id)
+                                }).unwrap_or(omoba_core::runtime::communication_transport::CommunicationLifetime {
+                                    generation: 0, binding_generation: 0, room_id: 0, run_id: 0,
+                                    player_id: 0, team_id: 0, view_epoch: 0, scope_generation: 0,
+                                });
+                                let request = CommunicationRequestMsg {
+                                    origin_session: session_id.clone(),
+                                    lifetime,
+                                    bound,
+                                    body: CommunicationRequestBody::Submit(submit),
+                                };
+                                if communication_request_tx.try_send(request).is_err() {
+                                    let bound = {
+                                        let sessions = sessions.lock().await;
+                                        sessions.get(&session_id).map(communication_bound).unwrap_or(bound_fallback())
+                                    };
+                                    let _ = write_framed(&mut writer, omoba_core::kcp::framing::TAG_COMMUNICATION_RECEIPT, &communication_receipt_bytes(request_id, REFUSAL_BACKPRESSURE, &bound)).await;
+                                }
+                            }
+                            omoba_core::kcp::framing::TAG_COMMUNICATION_REPLAY_QUERY => {
+                                use omoba_core::runtime::communication_transport::{
+                                    decode_replay_query, CommunicationRequestBody, CommunicationRequestMsg,
+                                    REFUSAL_ALREADY_REPLAYED, REFUSAL_BACKPRESSURE,
+                                    REFUSAL_NOT_NEGOTIATED, REFUSAL_SCOPE_UNAVAILABLE,
+                                };
+                                let (request_id, claimed, claimed_view_epoch) = match decode_replay_query(&payload) {
+                                    Ok(decoded) => decoded,
+                                    Err(refusal) => {
+                                        let bound = bound_fallback();
+                                        let _ = write_framed(&mut writer, omoba_core::kcp::framing::TAG_COMMUNICATION_RECEIPT, &communication_receipt_bytes(0, refusal, &bound)).await;
+                                        continue;
+                                    }
+                                };
+                                if communication_request_tx.is_full() {
+                                    let bound = {
+                                        let sessions = sessions.lock().await;
+                                        sessions.get(&session_id).map(communication_bound).unwrap_or_else(bound_fallback)
+                                    };
+                                    let _ = write_framed(&mut writer, omoba_core::kcp::framing::TAG_COMMUNICATION_RECEIPT, &communication_receipt_bytes(request_id, REFUSAL_BACKPRESSURE, &bound)).await;
+                                    continue;
+                                }
+                                let (bound, view_epoch, refusal) = {
+                                    let mut sessions = sessions.lock().await;
+                                    let Some(session) = sessions.get_mut(&session_id) else { continue };
+                                    refresh_communication_view(session, &lockstep_team_bootstrap_store);
+                                    let scope = communication_scope.lock().ok().and_then(|guard| *guard);
+                                    suspend_communication_agreement(session, scope);
+                                    let bound = communication_bound(session);
+                                    let view_epoch = session.current_view_epoch;
+                                    let refusal = if session.communication_replay_outstanding {
+                                        Some(REFUSAL_BACKPRESSURE)
+                                    } else if session.communication_replay_consumed {
+                                        Some(REFUSAL_ALREADY_REPLAYED)
+                                    } else if scope.is_none() {
+                                        Some(REFUSAL_SCOPE_UNAVAILABLE)
+                                    } else if !session.communication_agreed {
+                                        Some(REFUSAL_NOT_NEGOTIATED)
+                                    } else {
+                                        session.communication_replay_outstanding = true;
+                                        None
+                                    };
+                                    (bound, view_epoch, refusal)
+                                };
+                                if let Some(refusal) = refusal {
+                                    let _ = write_framed(&mut writer, omoba_core::kcp::framing::TAG_COMMUNICATION_RECEIPT, &communication_receipt_bytes(request_id, refusal, &bound)).await;
+                                    continue;
+                                }
+                                let lifetime = communication_registry.lock().ok().and_then(|mut registry| {
+                                    registry.note_view(&session_id, view_epoch);
+                                    registry.lifetime(&session_id)
+                                }).unwrap_or(omoba_core::runtime::communication_transport::CommunicationLifetime {
+                                    generation: 0, binding_generation: 0, room_id: 0, run_id: 0,
+                                    player_id: 0, team_id: 0, view_epoch: 0, scope_generation: 0,
+                                });
+                                let request = CommunicationRequestMsg {
+                                    origin_session: session_id.clone(),
+                                    lifetime,
+                                    bound: bound.clone(),
+                                    body: CommunicationRequestBody::Replay { request_id, claimed, claimed_view_epoch },
+                                };
+                                if communication_request_tx.try_send(request).is_err() {
+                                    if let Some(session) = sessions.lock().await.get_mut(&session_id) {
+                                        session.communication_replay_outstanding = false;
+                                    }
+                                    let _ = write_framed(&mut writer, omoba_core::kcp::framing::TAG_COMMUNICATION_RECEIPT, &communication_receipt_bytes(request_id, REFUSAL_BACKPRESSURE, &bound)).await;
+                                }
+                            }
                             TAG_PING_REQ => {
                                 // 使用相同的 client_send_us 回顯 PingResponse
                                 // 這樣客戶端就可以得到RTT。直接寫——
@@ -2156,6 +2892,9 @@ async fn handle_client(
     }
 
     // 清理會議
+    if let Ok(mut registry) = communication_registry.lock() {
+        registry.close_session(&session_id);
+    }
     {
         let mut sess = sessions.lock().await;
         sess.remove(&session_id);
@@ -2847,7 +3586,7 @@ mod tests {
             let input = PlayerInput { action: Some(action.clone()) };
             assert!(omoba_core::runtime::single_lane_input_action_allowed(&input));
             assert!(!secure_coordinate_input_allowed(&encoded_input(7, action), Some(7)));
-            assert!(rewrite_secure_target(&mut input.clone(), 42).is_none());
+            assert!(rewrite_secure_target(&mut input.clone(), 0, 42).is_none());
         }
     }
 
@@ -2871,7 +3610,7 @@ mod tests {
         let mut attack = PlayerInput { action: Some(player_input::Action::AttackTarget(AttackTarget {
             target_id: 0, queued: false,
         })) };
-        assert!(rewrite_secure_target(&mut attack, 42).is_some());
+        assert!(rewrite_secure_target(&mut attack, 0, 42).is_some());
         assert!(matches!(attack.action, Some(player_input::Action::AttackTarget(value)) if value.target_id == 42));
     }
 
@@ -2881,17 +3620,48 @@ mod tests {
         let mut cast = PlayerInput { action: Some(player_input::Action::CastAbility(CastAbility {
             ability_index: 2, target_pos: None, target_entity: None,
         })) };
-        assert!(rewrite_secure_target(&mut cast, canonical).is_some());
+        assert!(rewrite_secure_target(&mut cast, 0, canonical).is_some());
         assert!(matches!(cast.action, Some(player_input::Action::CastAbility(value)) if value.target_entity == Some(42)));
         let mut attack = PlayerInput { action: Some(player_input::Action::AttackTarget(AttackTarget {
             target_id: 0, queued: false,
         })) };
-        assert!(rewrite_secure_target(&mut attack, canonical).is_some());
+        assert!(rewrite_secure_target(&mut attack, 0, canonical).is_some());
         assert!(matches!(attack.action, Some(player_input::Action::AttackTarget(value)) if value.target_id == 42));
+        let actor = (9_u64 << 32) | 3;
+        let mut item = PlayerInput { action: Some(player_input::Action::ItemUse(ItemUse {
+            item_slot: 0, target_pos: None, target_entity: Some(1), point_explicit: None,
+            target_generation: Some(99), owner_entity: Some(8), owner_generation: Some(4),
+        })) };
+        assert!(rewrite_secure_target(&mut item, actor, canonical).is_some());
+        assert!(matches!(item.action, Some(player_input::Action::ItemUse(value))
+            if value.target_entity == Some(42) && value.target_generation == Some(7)
+                && value.owner_entity == Some(3) && value.owner_generation == Some(9)));
+        let mut rejected = PlayerInput { action: Some(player_input::Action::ItemUse(ItemUse {
+            item_slot: 0, target_pos: None, target_entity: Some(1), point_explicit: None,
+            target_generation: Some(99), owner_entity: Some(8), owner_generation: Some(4),
+        })) };
+        assert!(rewrite_secure_target(&mut rejected, 42, canonical).is_none());
+        assert!(matches!(rejected.action, Some(player_input::Action::ItemUse(value))
+            if value.target_entity == Some(1) && value.target_generation == Some(99)
+                && value.owner_entity == Some(8) && value.owner_generation == Some(4)));
         let mut move_input = PlayerInput { action: Some(player_input::Action::MoveTo(MoveTo {
             target: Some(Vec2I { x: 1, y: 2 }), queued: false,
         })) };
-        assert!(rewrite_secure_target(&mut move_input, canonical).is_none());
+        assert!(rewrite_secure_target(&mut move_input, actor, canonical).is_none());
+    }
+
+    #[test]
+    fn reference_free_item_use_strips_forged_owner_and_target_life() {
+        let action = player_input::Action::ItemUse(ItemUse {
+            item_slot: 0, target_pos: None, target_entity: None, point_explicit: None,
+            target_generation: Some(99), owner_entity: Some(8), owner_generation: Some(4),
+        });
+        assert!(secure_coordinate_input_allowed(&encoded_input(7, action.clone()), Some(7)));
+        let mut input = PlayerInput { action: Some(action) };
+        omoba_core::runtime::clear_untrusted_item_life(&mut input);
+        assert!(matches!(input.action, Some(player_input::Action::ItemUse(value))
+            if value.target_entity.is_none() && value.target_generation.is_none()
+                && value.owner_entity.is_none() && value.owner_generation.is_none()));
     }
 
     #[test]
@@ -2940,7 +3710,7 @@ mod tests {
             match index { 0 => invalid.player_id = 0, 1 => invalid.role = JoinRole::RoleObserver as i32,
                 2 => invalid.role = 999, 3 => invalid.requested_protocol = 1,
                 4 => invalid.supported_protocols.clear(), 5 => invalid.secure_fog_capability = false,
-                6 => invalid.command_rules_hash = "old".into(), _ => invalid.command_protocol_version = 2 }
+                6 => invalid.command_rules_hash = "old".into(), _ => invalid.command_protocol_version = 1 }
             assert!(validate_command_join_request(&invalid).is_err());
         }
         let start = TeamGameStart { command_protocol_version: valid.command_protocol_version,
@@ -2955,6 +3725,44 @@ mod tests {
         assert!(!secure_coordinate_input_with_commands(&hold, None, true, true, true));
         let mut zero = InputSubmit::decode(hold.as_slice()).unwrap(); zero.input_id = 0;
         assert!(!secure_coordinate_input_with_commands(&zero.encode_to_vec(), Some(7), true, true, true));
+    }
+
+    #[test]
+    fn stop_command_requires_v2_owner_and_nonzero_input_id() {
+        let hash = omoba_template_ids::CONTENT_CATALOG_DATA_HASH;
+        let version = omoba_core::runtime::command_transport::COMMAND_PROTOCOL_VERSION;
+        assert_eq!(version, 2);
+        assert!(omoba_core::runtime::command_transport::command_protocol_includes_stop_and_hold(version));
+        assert!(!omoba_core::runtime::command_transport::command_protocol_includes_stop_and_hold(1));
+        let valid = JoinRequest {
+            player_id: 7,
+            role: JoinRole::RolePlayer as i32,
+            requested_protocol: omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION,
+            supported_protocols: vec![omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION],
+            secure_fog_capability: true,
+            command_protocol_version: version,
+            command_rules_hash: hash.into(),
+            ..Default::default()
+        };
+        assert_eq!(validate_command_join_request(&JoinRequest::default()), Ok(false));
+        assert_eq!(validate_command_join_request(&valid), Ok(true));
+        let mut legacy = valid.clone();
+        legacy.command_protocol_version = 1;
+        assert_eq!(validate_command_join_request(&legacy), Err("COMMAND_PROTOCOL_VERSION_MISMATCH"));
+        let mut bad_hash = valid.clone();
+        bad_hash.command_rules_hash = "old".into();
+        assert_eq!(validate_command_join_request(&bad_hash), Err("COMMAND_RULES_HASH_MISMATCH"));
+        let stop = encoded_input(7, player_input::Action::Stop(omoba_core::game_proto::Stop {}));
+        assert!(secure_coordinate_input_with_commands(&stop, Some(7), false, false, true));
+        assert!(!secure_coordinate_input_with_commands(&stop, Some(7), true, true, false));
+        assert!(!secure_coordinate_input_allowed(&stop, Some(7)));
+        assert!(!secure_coordinate_input_with_commands(&stop, Some(8), true, true, true));
+        assert!(!secure_coordinate_input_with_commands(&stop, None, true, true, true));
+        let mut zero = InputSubmit::decode(stop.as_slice()).unwrap();
+        zero.input_id = 0;
+        assert!(!secure_coordinate_input_with_commands(&zero.encode_to_vec(), Some(7), false, false, true));
+        let hold = encoded_input(7, player_input::Action::HoldPosition(omoba_core::game_proto::HoldPosition { queued: false }));
+        assert!(secure_coordinate_input_with_commands(&hold, Some(7), false, false, true));
     }
 
     #[test]
@@ -3027,6 +3835,162 @@ mod tests {
     }
 
     #[test]
+    fn secure_join_rejects_summoner_without_agreement_and_keeps_command_recall_shop() {
+        let hash = omoba_template_ids::CONTENT_CATALOG_DATA_HASH;
+        let version = omoba_core::runtime::summoner_transport::SUMMONER_PROTOCOL_VERSION;
+        assert_eq!(version, 1);
+        assert_eq!(validate_summoner_join_request(&JoinRequest::default()), Ok(false));
+        let mut partial = JoinRequest::default();
+        partial.summoner_protocol_version = version;
+        assert_eq!(validate_summoner_join_request(&partial), Err("SUMMONER_RULES_HASH_MISMATCH"));
+        partial.summoner_rules_hash = hash.into();
+        assert_eq!(validate_summoner_join_request(&partial), Err("SUMMONER_REQUIRES_AUTHENTICATED_SELECTIVE_PLAYER"));
+        partial.requested_protocol = omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION;
+        partial.supported_protocols = vec![omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION];
+        partial.secure_fog_capability = true;
+        partial.role = JoinRole::RolePlayer as i32;
+        partial.player_id = 7;
+        assert_eq!(validate_summoner_join_request(&partial), Ok(true));
+        let cast = encoded_input(7, player_input::Action::SummonerCast(omoba_core::game_proto::SummonerCast { slot: 1, x_raw: None, y_raw: None }));
+        assert!(!secure_coordinate_input_with_commands(&cast, Some(7), true, true, true));
+        assert!(!secure_coordinate_input_with_summoner(&cast, Some(7), true, true, true, false, false));
+        assert!(secure_coordinate_input_with_summoner(&cast, Some(7), false, false, false, true, false));
+        assert!(!secure_coordinate_input_with_summoner(&cast, Some(8), false, false, false, true, false));
+        let mut zero = InputSubmit::decode(cast.as_slice()).unwrap();
+        zero.input_id = 0;
+        assert!(!secure_coordinate_input_with_summoner(&zero.encode_to_vec(), Some(7), false, false, false, true, false));
+        let bad_slot = encoded_input(7, player_input::Action::SummonerCast(omoba_core::game_proto::SummonerCast { slot: 5, x_raw: Some(1), y_raw: Some(1) }));
+        assert!(!secure_coordinate_input_with_summoner(&bad_slot, Some(7), false, false, false, true, false));
+        let stop = encoded_input(7, player_input::Action::Stop(omoba_core::game_proto::Stop {}));
+        let recall = encoded_input(7, player_input::Action::Recall(omoba_core::game_proto::Recall {}));
+        let buy = encoded_input(7, player_input::Action::ItemBuy(omoba_core::game_proto::ItemBuy { item_id: "training_blade".into() }));
+        let undo_newest = encoded_input(7, player_input::Action::ShopUndo(omoba_core::game_proto::ShopUndo { mode: 1, sequence: 0 }));
+        let undo_bad = encoded_input(7, player_input::Action::ShopUndo(omoba_core::game_proto::ShopUndo { mode: 1, sequence: 4 }));
+        assert!(secure_coordinate_input_with_summoner(&stop, Some(7), false, false, true, false, false));
+        assert!(secure_coordinate_input_with_summoner(&recall, Some(7), false, true, false, false, false));
+        assert!(secure_coordinate_input_with_summoner(&buy, Some(7), true, false, false, false, false));
+        assert!(!secure_coordinate_input_with_summoner(&stop, Some(7), false, false, false, true, false));
+        assert!(!secure_coordinate_input_with_summoner(&undo_newest, Some(7), true, false, false, false, false));
+        assert!(secure_coordinate_input_with_summoner(&undo_newest, Some(7), true, false, false, false, true));
+        assert!(!secure_coordinate_input_with_summoner(&undo_bad, Some(7), true, false, false, false, true));
+        assert_eq!(omoba_core::runtime::shop_transport::SHOP_UNDO_PROTOCOL_VERSION, 2);
+        assert_eq!(omoba_core::runtime::command_transport::COMMAND_PROTOCOL_VERSION, 2);
+        assert_eq!(omoba_core::runtime::recall_transport::RECALL_PROTOCOL_VERSION, 2);
+        assert_eq!(omoba_core::runtime::shop_transport::SHOP_PROTOCOL_VERSION, 1);
+    }
+
+    #[test]
+    fn secure_join_rejects_ward_without_agreement_and_keeps_existing_actions() {
+        let hash = omoba_template_ids::CONTENT_CATALOG_DATA_HASH;
+        let version = omoba_core::runtime::ward_transport::WARD_PROTOCOL_VERSION;
+        assert_eq!(version, 3);
+        assert_eq!(omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION, 13);
+        assert_eq!(validate_ward_join_request(&JoinRequest::default()), Ok(false));
+        let mut partial = JoinRequest::default();
+        partial.ward_protocol_version = version;
+        assert_eq!(validate_ward_join_request(&partial), Err("WARD_RULES_HASH_MISMATCH"));
+        partial.ward_rules_hash = "stale".into();
+        assert_eq!(validate_ward_join_request(&partial), Err("WARD_RULES_HASH_MISMATCH"));
+        partial.ward_rules_hash = hash.into();
+        assert_eq!(validate_ward_join_request(&partial), Err("WARD_REQUIRES_AUTHENTICATED_SELECTIVE_PLAYER"));
+        partial.requested_protocol = omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION;
+        partial.supported_protocols = vec![omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION];
+        partial.secure_fog_capability = true;
+        partial.role = JoinRole::RolePlayer as i32;
+        partial.player_id = 7;
+        assert_eq!(validate_ward_join_request(&partial), Ok(true));
+        let mut legacy_ward = partial.clone();
+        legacy_ward.ward_protocol_version = 2;
+        legacy_ward.ward_rules_hash = hash.into();
+        assert_eq!(validate_ward_join_request(&legacy_ward), Ok(false));
+        assert_eq!(legacy_ward.requested_protocol, omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION);
+        partial.ward_protocol_version = 1;
+        assert_eq!(validate_ward_join_request(&partial), Ok(false));
+        let place = encoded_input(7, player_input::Action::WardPlacement(omoba_core::game_proto::WardPlacement {
+            slot: 0, x_raw: Some(1), y_raw: Some(2),
+        }));
+        assert!(!secure_coordinate_input_with_summoner(&place, Some(7), true, true, true, true, true));
+        assert!(!secure_coordinate_input_with_ward(&place, Some(7), true, true, true, true, true, false));
+        assert!(secure_coordinate_input_with_ward(&place, Some(7), false, false, false, false, false, true));
+        assert!(!secure_coordinate_input_with_ward(&place, Some(8), false, false, false, false, false, true));
+        let mut zero = InputSubmit::decode(place.as_slice()).unwrap();
+        zero.input_id = 0;
+        assert!(!secure_coordinate_input_with_ward(&zero.encode_to_vec(), Some(7), false, false, false, false, false, true));
+        let one_side = encoded_input(7, player_input::Action::WardPlacement(omoba_core::game_proto::WardPlacement {
+            slot: 0, x_raw: Some(1), y_raw: None,
+        }));
+        assert!(!secure_coordinate_input_with_ward(&one_side, Some(7), false, false, false, false, false, true));
+        let wrong_slot = encoded_input(7, player_input::Action::WardPlacement(omoba_core::game_proto::WardPlacement {
+            slot: 1, x_raw: Some(1), y_raw: Some(2),
+        }));
+        assert!(!secure_coordinate_input_with_ward(&wrong_slot, Some(7), false, false, false, false, false, true));
+        let stop = encoded_input(7, player_input::Action::Stop(omoba_core::game_proto::Stop {}));
+        let recall = encoded_input(7, player_input::Action::Recall(omoba_core::game_proto::Recall {}));
+        let buy = encoded_input(7, player_input::Action::ItemBuy(omoba_core::game_proto::ItemBuy { item_id: "training_blade".into() }));
+        let cast = encoded_input(7, player_input::Action::SummonerCast(omoba_core::game_proto::SummonerCast { slot: 1, x_raw: None, y_raw: None }));
+        assert!(secure_coordinate_input_with_ward(&stop, Some(7), false, false, true, false, false, false));
+        assert!(secure_coordinate_input_with_ward(&recall, Some(7), false, true, false, false, false, false));
+        assert!(secure_coordinate_input_with_ward(&buy, Some(7), true, false, false, false, false, false));
+        assert!(secure_coordinate_input_with_ward(&cast, Some(7), false, false, false, true, false, false));
+        assert!(!secure_coordinate_input_with_ward(&place, Some(7), true, true, true, true, true, false));
+    }
+
+    #[test]
+    fn combat_wire_secure_input_is_authenticated_versioned_and_bounded() {
+        use omoba_core::game_proto::CombatPreferencesUpdate;
+        let allowed = |payload: &[u8], owner| secure_coordinate_input_with_ward(payload, owner, false, false, false, false, false, false);
+        for acquisition in [0, 1] {
+            let payload = encoded_input(7, player_input::Action::CombatPreferences(CombatPreferencesUpdate {
+                schema_version: 1, acquisition, idle_auto_attack: false,
+            }));
+            assert!(allowed(&payload, Some(7)));
+            assert!(!allowed(&payload, Some(8)));
+            assert!(!allowed(&payload, None));
+        }
+        for (schema_version, acquisition) in [(0, 0), (2, 1), (1, 2), (1, 256), (1, u32::MAX)] {
+            let payload = encoded_input(7, player_input::Action::CombatPreferences(CombatPreferencesUpdate {
+                schema_version, acquisition, idle_auto_attack: true,
+            }));
+            assert!(!allowed(&payload, Some(7)));
+        }
+    }
+
+    #[test]
+    fn input_scheme_wire_secure_input_is_authenticated_and_rejects_numeric_aliases() {
+        use omoba_core::game_proto::InputSchemeUpdate;
+        let allowed=|payload:&[u8],owner|secure_coordinate_input_with_ward(payload,owner,false,false,false,false,false,false);
+        for scheme in [0,1] {
+            let payload=encoded_input(7,player_input::Action::InputScheme(InputSchemeUpdate {schema_version:1,scheme}));
+            assert!(allowed(&payload,Some(7)));assert!(!allowed(&payload,Some(8)));assert!(!allowed(&payload,None));
+            let mut request=InputSubmit::decode(payload.as_slice()).unwrap();request.input_id=0;
+            assert!(!allowed(&request.encode_to_vec(),Some(7)));
+        }
+        for (schema_version,scheme) in [(0,0),(2,1),(1,2),(1,256),(1,u32::MAX)] {
+            assert!(!allowed(&encoded_input(7,player_input::Action::InputScheme(InputSchemeUpdate {schema_version,scheme})),Some(7)));
+        }
+    }
+
+    #[test]
+    fn input_scheme_wire_direction_requires_authenticated_owner_and_unsealed_source() {
+        use omoba_core::game_proto::{HeroDirectionInput,SecureReplicaTarget,ReplicaEntityId,ViewEpoch,DisclosureEpoch};
+        let direction=HeroDirectionInput {schema_version:1,source:Some(SecureReplicaTarget {
+            replica_entity_id:Some(ReplicaEntityId {value:9}),view_epoch:Some(ViewEpoch {value:4}),
+            disclosure_epoch:Some(DisclosureEpoch {value:3}),
+        }),press_id:1,phase:1,x:1,y:0,sealed_source:0};
+        let allowed=|value:HeroDirectionInput,owner|secure_coordinate_input_with_ward(
+            &encoded_input(7,player_input::Action::Direction(value)),owner,false,false,false,false,false,false);
+        assert!(allowed(direction.clone(),Some(7)));
+        assert!(!allowed(direction.clone(),Some(8)));assert!(!allowed(direction.clone(),None));
+        for bad in [HeroDirectionInput {source:None,..direction.clone()},HeroDirectionInput {sealed_source:1<<32,..direction.clone()},
+            HeroDirectionInput {phase:257,..direction.clone()},HeroDirectionInput {x:32768,..direction.clone()},
+            HeroDirectionInput {press_id:0,..direction.clone()},HeroDirectionInput {press_id:u64::MAX,..direction.clone()},
+            HeroDirectionInput {phase:3,..direction.clone()}] {assert!(!allowed(bad,Some(7)));}
+        let mut payload=InputSubmit::decode(encoded_input(7,player_input::Action::Direction(direction)).as_slice()).unwrap();
+        payload.input_id=0;
+        assert!(!secure_coordinate_input_with_ward(&payload.encode_to_vec(),Some(7),false,false,false,false,false,false));
+    }
+
+    #[test]
     fn lockstep_join_request_role_mapping() {
         // ROLE_PLAYER (1) 和 ROLE_OBSERVER (2) 都應該往返；這
         // 伺服器的比賽臂（在handle_client中）將未知的整數視為玩家。
@@ -3048,6 +4012,10 @@ mod tests {
             mana_rules_hash: String::new(),
             command_protocol_version: 0,
             command_rules_hash: String::new(),
+            summoner_protocol_version: 0,
+            summoner_rules_hash: String::new(),
+            ward_protocol_version: 0,
+            ward_rules_hash: String::new(),
         };
         let observer = JoinRequest {
             player_name: "bob".into(),
@@ -3067,6 +4035,10 @@ mod tests {
             mana_rules_hash: String::new(),
             command_protocol_version: 0,
             command_rules_hash: String::new(),
+            summoner_protocol_version: 0,
+            summoner_rules_hash: String::new(),
+            ward_protocol_version: 0,
+            ward_rules_hash: String::new(),
         };
         let p_bytes = player.encode_to_vec();
         let o_bytes = observer.encode_to_vec();

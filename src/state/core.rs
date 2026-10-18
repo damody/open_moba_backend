@@ -33,6 +33,43 @@ fn reliable_send_with_watchdog<T>(
     Ok(started.elapsed())
 }
 
+/// Team bootstrap plus private owner trinket bytes. The shared `start` stays
+/// empty of owner charges. A join stamps only the authenticated player's bytes.
+#[cfg(feature = "kcp")]
+#[derive(Clone, Debug)]
+pub struct StoredTeamBootstrap {
+    pub start: omoba_core::game_proto::TeamGameStart,
+    pub owner_wards: BTreeMap<u32, Vec<u8>>,
+}
+
+#[cfg(feature = "kcp")]
+fn owner_ward_side_map(world: &World, team_id: u32, epoch: u64) -> BTreeMap<u32, Vec<u8>> {
+    let roster = world
+        .try_fetch::<omoba_core::runtime::MobaMatch>()
+        .map(|state| {
+            state
+                .heroes
+                .iter()
+                .filter_map(|slot| {
+                    let team = state.config.teams.get(slot.side).copied()?;
+                    Some((slot.player_id, team))
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let mut owner_wards = BTreeMap::new();
+    for (player, team) in roster {
+        if team != team_id || player == 0 {
+            continue;
+        }
+        let bytes = omoba_core::runtime::project_private_owner_ward(world, player, epoch);
+        if !bytes.is_empty() {
+            owner_wards.insert(player, bytes);
+        }
+    }
+    owner_wards
+}
+
 /// 遊戲核心狀態
 pub struct State {
     /// ECS 世界
@@ -120,7 +157,7 @@ pub struct State {
     team_bootstrap_store: Option<
         std::sync::Arc<
             std::sync::Mutex<
-                std::collections::BTreeMap<u32, omoba_core::game_proto::TeamGameStart>,
+                std::collections::BTreeMap<u32, StoredTeamBootstrap>,
             >,
         >,
     >,
@@ -157,6 +194,31 @@ pub struct State {
     authoritative_input_buffer: Option<Arc<std::sync::Mutex<crate::lockstep::InputBuffer>>>,
     #[cfg(feature = "kcp")]
     authoritative_lockstep_state: Option<Arc<std::sync::Mutex<crate::lockstep::LockstepState>>>,
+    /// Requests already authenticated by the KCP session. Drained on this thread.
+    #[cfg(feature = "kcp")]
+    communication_request_rx: Option<
+        crossbeam_channel::Receiver<omoba_core::runtime::communication_transport::CommunicationRequestMsg>,
+    >,
+    #[cfg(feature = "kcp")]
+    communication_delivery_tx: Option<
+        crossbeam_channel::Sender<omoba_core::runtime::communication_transport::CommunicationDelivery>,
+    >,
+    #[cfg(feature = "kcp")]
+    communication_scope: Option<
+        Arc<std::sync::Mutex<Option<omoba_core::runtime::communication_transport::CommunicationScope>>>,
+    >,
+    #[cfg(feature = "kcp")]
+    communication_authority: omoba_core::runtime::communication_transport::CommunicationAuthority,
+    #[cfg(feature = "kcp")]
+    communication_room: u64,
+    #[cfg(feature = "kcp")]
+    communication_run: u64,
+    #[cfg(feature = "kcp")]
+    communication_registry: Option<
+        Arc<std::sync::Mutex<omoba_core::runtime::communication_transport::CommunicationSessionRegistry>>,
+    >,
+    #[cfg(feature = "kcp")]
+    communication_scope_clock: omoba_core::runtime::communication_transport::CommunicationScopeClock,
 }
 
 // Superseded by omoba-core::runtime::production_guards, which validates the
@@ -433,6 +495,22 @@ impl State {
             authoritative_input_buffer: None,
             #[cfg(feature = "kcp")]
             authoritative_lockstep_state: None,
+            #[cfg(feature = "kcp")]
+            communication_request_rx: None,
+            #[cfg(feature = "kcp")]
+            communication_delivery_tx: None,
+            #[cfg(feature = "kcp")]
+            communication_scope: None,
+            #[cfg(feature = "kcp")]
+            communication_authority: omoba_core::runtime::communication_transport::CommunicationAuthority::default(),
+            #[cfg(feature = "kcp")]
+            communication_room: 0,
+            #[cfg(feature = "kcp")]
+            communication_run: 0,
+            #[cfg(feature = "kcp")]
+            communication_registry: None,
+            #[cfg(feature = "kcp")]
+            communication_scope_clock: omoba_core::runtime::communication_transport::CommunicationScopeClock::default(),
         };
 
         state.load_item_registry();
@@ -801,6 +879,22 @@ impl State {
             authoritative_input_buffer: None,
             #[cfg(feature = "kcp")]
             authoritative_lockstep_state: None,
+            #[cfg(feature = "kcp")]
+            communication_request_rx: None,
+            #[cfg(feature = "kcp")]
+            communication_delivery_tx: None,
+            #[cfg(feature = "kcp")]
+            communication_scope: None,
+            #[cfg(feature = "kcp")]
+            communication_authority: omoba_core::runtime::communication_transport::CommunicationAuthority::default(),
+            #[cfg(feature = "kcp")]
+            communication_room: 0,
+            #[cfg(feature = "kcp")]
+            communication_run: 0,
+            #[cfg(feature = "kcp")]
+            communication_registry: None,
+            #[cfg(feature = "kcp")]
+            communication_scope_clock: omoba_core::runtime::communication_transport::CommunicationScopeClock::default(),
         };
 
         state.load_item_registry();
@@ -889,11 +983,25 @@ impl State {
             if let Some(controllers)=self.ecs.try_fetch::<super::role_bots::ServerRoleBotControllers>() {
                 accumulated=controllers.merge_inputs(&self.ecs,accumulated).map_err(failure::err_msg)?;
             }
+            for (player_id, input, _) in &mut accumulated {
+                omoba_core::runtime::shop_undo_wire::pin_shop_undo_request(&self.ecs, *player_id, input);
+            }
             if !accumulated.is_empty() {
                 if let Some(lane) = self.ecs.try_fetch::<omoba_core::runtime::MobaMatch>() {
                     accumulated.retain(|(player, input, _)| lane.allows_player_input(*player, input));
                 }
+                accumulated.retain_mut(|(player_id, input, _)| {
+                    omoba_core::runtime::seal_item_use_owner(&self.ecs, *player_id, input)
+                });
                 let accepted_projection = self.build_canonical_accepted_inputs(&accumulated);
+                let mut identities = omoba_core::comp::AdmittedCommandIdentities::default();
+                for (player_id, _, correlation) in &accumulated {
+                    identities.rows.push(omoba_core::comp::AdmittedCommandIdentity {
+                        player_id: *player_id,
+                        correlation: *correlation,
+                        actor_generation: omoba_core::runtime::trusted_actor_generation(&self.ecs, *player_id),
+                    });
+                }
                 use crate::comp::PendingPlayerInputs;
                 {
                     let mut pending = self.ecs.write_resource::<PendingPlayerInputs>();
@@ -903,6 +1011,7 @@ impl State {
                         pending.inputs.push((player_id, input));
                     }
                 }
+                *self.ecs.write_resource::<omoba_core::comp::AdmittedCommandIdentities>() = identities;
                 self.ecs
                     .write_resource::<omoba_core::runtime::TeamProjectionRuntime>()
                     .pending_accepted_inputs
@@ -934,8 +1043,9 @@ impl State {
         #[cfg(feature = "kcp")]
         if !gameplay_active {
             self.ecs.write_resource::<crate::comp::PendingPlayerInputs>().inputs.clear();
+            self.ecs.write_resource::<omoba_core::comp::AdmittedCommandIdentities>().rows.clear();
             self.ecs.write_resource::<omoba_core::runtime::TeamProjectionRuntime>()
-                .pending_accepted_inputs.retain(|input| matches!(input.action_kind, 17 | 18));
+                .pending_accepted_inputs.retain(|input| matches!(input.action_kind, 17 | 18 | omoba_core::runtime::shop_undo_wire::SHOP_UNDO_ACTION_KIND));
         }
         omoba_core::runtime::run_deterministic_gameplay_phases(
             &mut |phase| -> Result<(), Error> {
@@ -967,7 +1077,13 @@ impl State {
                     P::AbilityCasts => {
                         omoba_core::runtime::drain_pending_ability_casts(&mut self.ecs)
                     }
-                    P::Moves => omoba_core::runtime::drain_pending_moves(&mut self.ecs),
+                    P::SummonerCasts => {
+                        omoba_core::runtime::drain_pending_summoner_casts(&mut self.ecs)
+                    }
+                    P::Moves => {
+                        omoba_core::runtime::drain_pending_ward_placements(&mut self.ecs);
+                        omoba_core::runtime::drain_pending_moves(&mut self.ecs)
+                    }
                     P::PreScriptOutcomes | P::PostScriptOutcomes => {
                         let t = Instant::now();
                         self.resource_manager.process_outcomes(&mut self.ecs)?;
@@ -1257,6 +1373,11 @@ impl State {
                     .and_then(|state| state.config.map_id.as_deref()
                         .and_then(omoba_template_ids::moba_map_by_name)
                         .map(omoba_core::runtime::moba_map_layout::encode));
+                let summoner_metadata = self.ecs.try_fetch::<omoba_core::runtime::MobaMatch>().map(|state| {
+                    state.config.teams.into_iter().map(|team| {
+                        (team, omoba_core::runtime::summoner_projection_metadata(&state, team))
+                    }).collect::<Vec<_>>()
+                });
                 for start in starts.values_mut() {
                     if let Some(metadata) = &map_metadata { start.public_metadata.push(metadata.clone()); }
                     start
@@ -1267,6 +1388,11 @@ impl State {
                             schema_version: 1,
                             value: encoded.clone(),
                         });
+                    if let Some(rows) = summoner_metadata.as_ref() {
+                        if let Some((_, metadata)) = rows.iter().find(|(team, _)| *team == start.team_id) {
+                            start.team_private_metadata.push(metadata.clone());
+                        }
+                    }
                 }
                 (starts, teams)
             };
@@ -1276,25 +1402,50 @@ impl State {
                 .copied()
                 .filter(|team_id| self.observer_bootstrapped_teams.insert(*team_id))
                 .collect::<BTreeSet<_>>();
+            let mut wrapped = BTreeMap::new();
+            for (team_id, start) in bootstraps {
+                let epoch = start.view_epoch.as_ref().map_or(0, |epoch| epoch.value);
+                let owner_wards = owner_ward_side_map(&self.ecs, team_id, epoch);
+                debug_assert!(start.owner_ward_projection.is_empty());
+                wrapped.insert(team_id, StoredTeamBootstrap { start, owner_wards });
+            }
             if let Some(worker) = &self.observer_validation {
-                for (team_id, start) in &bootstraps {
+                for (team_id, stored_boot) in &wrapped {
                     // Server-owned Team 1／Team 2 replicas must exist before
                     // their first projected frame even when no player has
                     // joined yet. Otherwise an ordinary pre-join frame is
                     // misclassified as a coverage gap and causes a needless
                     // rebase. A real rebase also refreshes the observer from
-                    // the same authoritative filtered baseline.
+                    // the same authoritative filtered baseline. The observer
+                    // encodes `start` only, which carries no owner charges.
                     if initial_observer_teams.contains(team_id)
                         || observer_rebootstrap_teams.contains(team_id)
                     {
                         worker
                             .tap()
-                            .try_bootstrap(Arc::from(prost::Message::encode_to_vec(start)));
+                            .try_bootstrap(Arc::from(prost::Message::encode_to_vec(&stored_boot.start)));
                     }
                 }
             }
-            *stored = bootstraps;
+            let mut rows = Vec::new();
+            for stored_boot in wrapped.values() {
+                let epoch = stored_boot.start.view_epoch.as_ref().map_or(0, |epoch| epoch.value);
+                for player in stored_boot.owner_wards.keys() {
+                    rows.push((*player, epoch));
+                }
+            }
+            omoba_core::runtime::install_ward_admission_epochs(&mut self.ecs, rows);
+            let epochs = self.ecs.read_resource::<omoba_core::comp::WardAdmissionEpoch>().by_player.clone();
+            if let Some(buffer) = &self.authoritative_input_buffer {
+                let mut buffer = buffer.lock().expect("input buffer mutex poisoned");
+                for (player, epoch) in &epochs {
+                    buffer.observe_ward_epoch(*player, *epoch);
+                }
+            }
+            *stored = wrapped;
         }
+        #[cfg(feature = "kcp")]
+        self.drain_authenticated_communication();
         #[cfg(feature = "kcp")]
         let mut rebase_frames = self
             .ecs
@@ -1564,78 +1715,127 @@ impl State {
     ) -> Vec<omoba_core::runtime::CanonicalAcceptedInput> {
         use omoba_core::game_proto::player_input::Action;
         use prost::Message as _;
-        let entities = self.ecs.entities();
-        let heroes = self.ecs.read_storage::<crate::comp::Hero>();
-        let owners = self.ecs.read_storage::<crate::comp::PlayerOwner>();
         inputs
             .iter()
             .filter_map(|(player_id, input, acceptance_correlation)| {
+                // Settings are persistent roster policy, not an actor-life command.
+                // Replicas consume the complete disclosed policy before combat.
                 let team_id = if let Some(controllers)=self.ecs.try_fetch::<super::role_bots::ServerRoleBotControllers>() {
                     controllers.team(*player_id)?
                 } else {
                     *crate::config::server_config::CONFIG.AUTHENTICATED_TEAM_BINDINGS.get(player_id)?
                 };
-                let actor = (&entities, &heroes, &owners)
-                    .join()
-                    .find(|(_, _, owner)| owner.player_id == *player_id)
-                    .map(|(entity, _, _)| omoba_core::runtime::canonical_entity_id(entity))
-                    .or_else(|| matches!(input.action, Some(Action::ItemBuy(_) | Action::ItemSell(_))).then_some(0))?;
                 let mut sanitized = input.clone();
-                let (action_kind, target_index) = match sanitized.action.as_mut()? {
-                    Action::HoldPosition(_) => (20, None),
-                    Action::Recall(_) => (19, None),
-                    Action::NoOp(_) => (1, None),
-                    Action::MoveTo(_) => (2, None),
+                let sealed_owner = match sanitized.action.as_ref() {
+                    Some(Action::Direction(value)) => {
+                        omoba_core::runtime::direction_transport::validate_sealed(value).ok()?;
+                        let entity=specs::world::Entity::new(value.sealed_source as u32,
+                            specs::world::Generation::new((value.sealed_source>>32) as i32));
+                        if !self.ecs.entities().is_alive(entity)
+                            || self.ecs.read_storage::<crate::comp::Hero>().get(entity).is_none()
+                            || !self.ecs.read_storage::<crate::comp::PlayerOwner>().get(entity).is_some_and(|o|o.player_id==*player_id)
+                            || !self.ecs.read_storage::<CProperty>().get(entity).is_some_and(|p|p.hp>omoba_sim::Fixed64::ZERO) {return None;}
+                        Some(value.sealed_source)
+                    }
+                    Some(Action::ItemUse(value)) => {
+                        Some(omoba_core::runtime::canonical_item_owner(&self.ecs, *player_id, value)?)
+                    }
+                    _ => None,
+                };
+                let actor = if matches!(input.action, Some(Action::CombatPreferences(_))|Some(Action::InputScheme(_))) {
+                    0
+                } else if let Some(actor) = sealed_owner {
+                    actor
+                } else {
+                    let entities = self.ecs.entities();
+                    let heroes = self.ecs.read_storage::<crate::comp::Hero>();
+                    let owners = self.ecs.read_storage::<crate::comp::PlayerOwner>();
+                    (&entities, &heroes, &owners)
+                        .join()
+                        .find(|(_, _, owner)| owner.player_id == *player_id)
+                        .map(|(entity, _, _)| omoba_core::runtime::canonical_entity_id(entity))
+                        .or_else(|| matches!(input.action, Some(Action::ItemBuy(_) | Action::ItemSell(_) | Action::ShopUndo(_))).then_some(0))?
+                };
+                let (action_kind, target_index, target_generation) = match sanitized.action.as_mut()? {
+                    Action::Stop(_) => (21, None, None),
+                    Action::HoldPosition(_) => (20, None, None),
+                    Action::Recall(_) => (19, None, None),
+                    Action::NoOp(_) => (1, None, None),
+                    Action::MoveTo(_) => (2, None, None),
                     Action::AttackTarget(value) => {
                         let id = value.target_id;
                         value.target_id = 0;
-                        (3, Some(id))
+                        (3, Some(id), None)
                     }
                     Action::CastAbility(value) => {
                         let id = value.target_entity.take();
-                        (4, id)
+                        (4, id, None)
                     }
-                    Action::TowerPlace(_) => (5, None),
+                    Action::TowerPlace(_) => (5, None, None),
                     Action::TowerUpgrade(value) => {
                         let id = value.tower_entity_id;
                         value.tower_entity_id = 0;
-                        (6, Some(id))
+                        (6, Some(id), None)
                     }
                     Action::TowerSell(value) => {
                         let id = value.tower_entity_id;
                         value.tower_entity_id = 0;
-                        (7, Some(id))
+                        (7, Some(id), None)
                     }
                     Action::ItemUse(value) => {
                         let id = value.target_entity.take();
-                        (8, id)
+                        let generation = value.target_generation.take();
+                        value.owner_entity = None;
+                        value.owner_generation = None;
+                        (8, id, generation)
                     }
-                    Action::StartRound(_) => (9, None),
-                    Action::ItemBuy(_) => (17, None),
-                    Action::ItemSell(_) => (18, None),
-                    Action::UpgradeAbility(_) => (10, None),
-                    Action::AttackMove(_) => (11, None),
+                    Action::StartRound(_) => (9, None, None),
+                    Action::ItemBuy(_) => (17, None, None),
+                    Action::ItemSell(_) => (18, None, None),
+                    Action::ShopUndo(_) => (omoba_core::runtime::shop_undo_wire::SHOP_UNDO_ACTION_KIND, None, None),
+                    Action::UpgradeAbility(_) => (10, None, None),
+                    Action::AttackMove(_) => (11, None, None),
                     Action::SetTowerTargetPriority(value) => {
                         let id = value.tower_entity_id;
                         value.tower_entity_id = 0;
-                        (12, Some(id))
+                        (12, Some(id), None)
                     }
-                    Action::TogglePause(_) => (13, None),
-                    Action::ToggleGameSpeed(_) => (14, None),
-                    Action::DebugSpawnCreep(_) => (15, None),
+                    Action::TogglePause(_) => (13, None, None),
+                    Action::ToggleGameSpeed(_) => (14, None, None),
+                    Action::DebugSpawnCreep(_) => (15, None, None),
                     Action::TowerAbilityCast(value) => {
                         let id = value.tower_entity_id;
                         value.tower_entity_id = 0;
-                        (16, Some(id))
+                        (16, Some(id), None)
+                    }
+                    Action::SummonerCast(_) => (22, None, None),
+                    Action::WardPlacement(_) => (25, None, None),
+                    Action::CombatPreferences(_) => (26, None, None),
+                    Action::InputScheme(_) => (27, None, None),
+                    Action::Direction(value) => {
+                        value.source=None;value.sealed_source=0;
+                        (omoba_core::runtime::direction_transport::ACTION_KIND,None,None)
                     }
                 };
-                let target_canonical_id = target_index.and_then(|id| {
-                    let entity = entities.entity(id);
-                    entities
-                        .is_alive(entity)
-                        .then(|| omoba_core::runtime::canonical_entity_id(entity))
-                });
-                if target_index.is_some() && target_canonical_id.is_none() {
+                // Item generation is the authority local life packed by canonical_entity_id
+                // (generation high, index low). Other actions still use the current index.
+                // A dead exact life is omitted; it is not replaced by the recycled index.
+                // A named ItemUse that does not resolve is dropped whole. Clearing the
+                // fields and keeping the input would invent a no-target point.
+                // (None, None) is the only authoritative no-target rewrite.
+                let entities = self.ecs.entities();
+                let target_canonical_id = match (target_index, target_generation) {
+                    (Some(id), Some(generation)) => i32::try_from(generation).ok().filter(|gen| *gen > 0).and_then(|gen| {
+                        let entity = specs::world::Entity::new(id, specs::world::Generation::new(gen));
+                        entities.is_alive(entity).then(|| omoba_core::runtime::canonical_entity_id(entity))
+                    }),
+                    (Some(id), None) => {
+                        let entity = entities.entity(id);
+                        entities.is_alive(entity).then(|| omoba_core::runtime::canonical_entity_id(entity))
+                    }
+                    (None, _) => None,
+                };
+                if (target_index.is_some() || target_generation.is_some()) && target_canonical_id.is_none() {
                     return None;
                 }
                 Some(
@@ -1772,7 +1972,7 @@ impl State {
         &mut self,
         store: std::sync::Arc<
             std::sync::Mutex<
-                std::collections::BTreeMap<u32, omoba_core::game_proto::TeamGameStart>,
+                std::collections::BTreeMap<u32, StoredTeamBootstrap>,
             >,
         >,
     ) {
@@ -1850,6 +2050,129 @@ impl State {
             .map_err(failure::err_msg)?;
         self.ecs.insert(controllers);
         Ok(())
+    }
+
+    #[cfg(feature = "kcp")]
+    pub fn attach_communication(
+        &mut self,
+        request_rx: crossbeam_channel::Receiver<
+            omoba_core::runtime::communication_transport::CommunicationRequestMsg,
+        >,
+        delivery_tx: crossbeam_channel::Sender<
+            omoba_core::runtime::communication_transport::CommunicationDelivery,
+        >,
+        scope: Arc<std::sync::Mutex<Option<omoba_core::runtime::communication_transport::CommunicationScope>>>,
+        registry: Arc<std::sync::Mutex<omoba_core::runtime::communication_transport::CommunicationSessionRegistry>>,
+    ) {
+        self.communication_request_rx = Some(request_rx);
+        self.communication_delivery_tx = Some(delivery_tx);
+        self.communication_scope = Some(scope);
+        self.communication_registry = Some(registry);
+    }
+
+    /// Explicit in-process match reset. The next observe of the same seed uses the retired run.
+    #[cfg(feature = "kcp")]
+    pub fn retire_communication_run(&mut self) {
+        self.communication_scope_clock.retire();
+        self.publish_communication_scope();
+    }
+
+    #[cfg(feature = "kcp")]
+    fn publish_communication_scope(&mut self) {
+        let scope = self.communication_scope_clock.published();
+        self.communication_room = scope.map(|scope| scope.room_id).unwrap_or(0);
+        self.communication_run = scope.map(|scope| scope.run_id).unwrap_or(0);
+        self.communication_authority.set_scope(scope);
+        if let Some(published) = &self.communication_scope {
+            if let Ok(mut guard) = published.lock() {
+                *guard = scope;
+            }
+        }
+    }
+
+    #[cfg(feature = "kcp")]
+    fn refresh_communication_scope(&mut self) {
+        let seed = self.ecs.try_fetch::<crate::comp::MasterSeed>().map(|seed| seed.0).unwrap_or(0);
+        let has_match = self.ecs.try_fetch::<omoba_core::runtime::MobaMatch>().is_some();
+        let _ = self.communication_scope_clock.observe(seed, has_match);
+        self.publish_communication_scope();
+    }
+
+    /// At most `COMMUNICATION_AUTHORITY_DRAIN_PER_TICK` requests. Scope and clock
+    /// are published on every tick that obtains the registry, including an empty
+    /// request queue or a full delivery queue. The match is cloned only when a
+    /// request can be drained. A contended registry lock skips the tick.
+    #[cfg(feature = "kcp")]
+    fn drain_authenticated_communication(&mut self) {
+        use omoba_core::runtime::communication_transport::{
+            begin_communication_tick, CommunicationTick, COMMUNICATION_AUTHORITY_DRAIN_PER_TICK,
+        };
+        self.refresh_communication_scope();
+        let Some(registry) = self.communication_registry.clone() else { return };
+        let (elapsed_raw, elapsed_known) = match self.ecs.try_fetch::<omoba_core::runtime::MobaMatch>() {
+            Some(state) => {
+                let elapsed = state.elapsed.raw();
+                (elapsed, elapsed >= 0)
+            }
+            None => (0, false),
+        };
+        let Ok(mut registry) = registry.try_lock() else { return };
+        let queue_empty = match self.communication_request_rx.as_ref() {
+            Some(rx) => rx.is_empty(),
+            None => true,
+        };
+        let delivery_full = match self.communication_delivery_tx.as_ref() {
+            Some(tx) => tx.is_full(),
+            None => true,
+        };
+        let proceed = begin_communication_tick(
+            &mut registry,
+            CommunicationTick {
+                scope: self.communication_scope_clock.published(),
+                elapsed_raw,
+                elapsed_known,
+                queue_empty,
+                delivery_full,
+            },
+        );
+        if !proceed {
+            return;
+        }
+        let Some(rx) = self.communication_request_rx.clone() else { return };
+        let Some(tx) = self.communication_delivery_tx.clone() else { return };
+        let match_state = self.ecs.try_fetch::<omoba_core::runtime::MobaMatch>().map(|state| (*state).clone());
+        let disclosures = self.ecs.try_fetch::<omoba_core::runtime::TeamProjectionRuntime>()
+            .map(|projection| projection.communication_disclosures())
+            .unwrap_or_default();
+        for _ in 0..COMMUNICATION_AUTHORITY_DRAIN_PER_TICK {
+            if tx.is_full() {
+                break;
+            }
+            let Ok(request) = rx.try_recv() else { break };
+            let team_id = request.bound.team_id;
+            let epoch = disclosures.iter().find(|(team, _, _)| *team == team_id).map(|(_, epoch, _)| *epoch).unwrap_or(0);
+            let views: Vec<_> = disclosures.iter().map(|(team, view_epoch, identity)| {
+                omoba_core::runtime::communication_transport::TeamViewDisclosure {
+                    team_id: *team,
+                    view_epoch: *view_epoch,
+                    identity: Some(identity),
+                }
+            }).collect();
+            let disclosure = disclosures.iter().find(|(team, _, _)| *team == team_id).map(|(_, _, identity)| identity);
+            let delivery = omoba_core::runtime::communication_transport::admit_authenticated(
+                &mut self.communication_authority,
+                &mut registry,
+                &request,
+                match_state.as_ref(),
+                Some(&self.ecs),
+                disclosure,
+                epoch,
+                &views,
+            );
+            if tx.try_send(delivery).is_err() {
+                break;
+            }
+        }
     }
 
     #[cfg(feature = "kcp")]
@@ -2353,6 +2676,11 @@ mod role_server_tests {
             observer_bootstrapped_teams:BTreeSet::new(),authority_mismatch_rx:None,client_checkpoint_rx:None,
             rebase_failure_rx:None,secure_input_validation:None,selective_security_metrics:None,
             host_input_rx:None,authoritative_input_buffer:None,authoritative_lockstep_state:None,
+            communication_request_rx:None,communication_delivery_tx:None,communication_scope:None,
+            communication_authority:omoba_core::runtime::communication_transport::CommunicationAuthority::default(),
+            communication_room:0,communication_run:0,
+            communication_registry:None,
+            communication_scope_clock:omoba_core::runtime::communication_transport::CommunicationScopeClock::default(),
         },rx)
     }
     fn plan() -> RoleBotMatchPlan {
@@ -2365,7 +2693,8 @@ mod role_server_tests {
             }
         }
         RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:false,players,
-            ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new()}
+            ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),
+            summoner_loadouts:BTreeMap::new()}
     }
     fn movement(x:i32) -> PlayerInput {PlayerInput {action:Some(PlayerInputEnum::MoveTo(MoveTo {
         target:Some(Vec2I {x,y:0}),queued:false,

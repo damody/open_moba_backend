@@ -1,0 +1,3 @@
+# Authored training slot 0. Numeric catalog id, not an id string and not row 0.
+# Omitting slot0_catalog_id leaves the slot unavailable.
+slot0_catalog_id = 1

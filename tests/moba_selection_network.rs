@@ -125,6 +125,7 @@ fn selection_host_two_live_gateways_admission_shared_roster_and_handoff() {
         ability_learning: vec![],
         sustain: None,
         item_builds: vec![],
+        summoner_loadouts: std::collections::BTreeMap::new(),
         players: [(7, 1), (8, 2)]
             .into_iter()
             .map(|(player_id, team_id)| RoleBotPlayerPlan {

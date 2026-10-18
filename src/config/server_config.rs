@@ -7,6 +7,9 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+#[path = "summoner_loadout_config.rs"]
+mod summoner_loadout_config;
+
 fn default_story() -> String {
     "MVP_1".to_string()
 }
@@ -95,6 +98,45 @@ pub struct ServerSetting {
     /// Server-owned pre-match selection; omitted players retain the legacy hero.
     #[serde(default)]
     pub AUTHENTICATED_HERO_BINDINGS: BTreeMap<u32, String>,
+    /// Server-owned summoner slots. Empty means those slots stay unavailable.
+    /// Clients cannot select catalog ids. Validated before any match world exists.
+    #[serde(default, with = "summoner_loadout_config")]
+    pub AUTHENTICATED_SUMMONER_LOADOUTS: BTreeMap<u32, [Option<String>; 2]>,
+    /// Server-owned slot 0 catalog ids. Empty uses the authored training file
+    /// for single-lane and three-lane. A non-empty map replaces that file.
+    /// Clients cannot select the id. Story stays unequipped.
+    #[serde(default)]
+    pub AUTHENTICATED_TRINKET_LOADOUTS: BTreeMap<u32, Option<u16>>,
+}
+
+/// Checked-in training default. Absent key is unavailable. The file that ships
+/// with the server names catalog id 1. This text is not part of the content hash.
+fn authored_training_trinket_catalog() -> Result<Option<u16>, String> {
+    const TEXT: &str = include_str!("authored_training_trinket_loadout.toml");
+    let mut found = None;
+    for (line_no, raw) in TEXT.lines().enumerate() {
+        let line = raw.split('#').next().unwrap_or("").trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            return Err(format!("authored trinket loadout line {} is not key = value", line_no + 1));
+        };
+        if key.trim() != "slot0_catalog_id" {
+            return Err(format!("authored trinket loadout unknown key {}", key.trim()));
+        }
+        if found.is_some() {
+            return Err("authored trinket loadout repeats slot0_catalog_id".into());
+        }
+        let id: u16 = value.trim().parse().map_err(|_| {
+            "authored trinket loadout catalog id is not a u16".to_owned()
+        })?;
+        if id == 0 {
+            return Err("authored trinket loadout catalog id 0 is invalid".into());
+        }
+        found = Some(id);
+    }
+    Ok(found)
 }
 
 /// `[hero_knowledge]` section in `game.toml`.
@@ -191,6 +233,14 @@ fn read_setting() -> Result<Setting, String> {
     toml::from_str(&str_val).map_err(|e| format!("Error Parsing ApplicationConfig: {}", e))
 }
 
+/// Compiled identity only: no configuration mutation, gameplay World, DLL or socket.
+pub fn compiled_moba_catalog_scope() -> serde_json::Value {
+    serde_json::json!({"schema_version":1,"scope":"compiled-moba-catalog",
+        "catalog_identity_hash":omoba_template_ids::CONTENT_CATALOG_IDENTITY_HASH,
+        "content_hash":omoba_template_ids::CONTENT_CATALOG_DATA_HASH,
+        "map_catalog_hash":omoba_template_ids::MOBA_MAP_CATALOG_HASH})
+}
+
 /// Read-only launch preflight, using exactly the production config decoder.
 #[cfg(feature = "kcp")]
 pub fn validate_moba_launch_configuration(text:&str) -> Result<serde_json::Value,String> {
@@ -200,13 +250,17 @@ pub fn validate_moba_launch_configuration(text:&str) -> Result<serde_json::Value
     let config=server.single_lane_config()?.ok_or("launch configuration must be MOBA")?;
     let bots=server.role_bot_config()?.ok_or("launch configuration requires a role plan")?;
     Ok(serde_json::json!({"schema_version":1,"scope":"configuration-only",
+        "catalog_identity_hash":omoba_template_ids::CONTENT_CATALOG_IDENTITY_HASH,
+        "content_hash":omoba_template_ids::CONTENT_CATALOG_DATA_HASH,
+        "map_catalog_hash":omoba_template_ids::MOBA_MAP_CATALOG_HASH,
         "tick_rate_hz":server.STEP_FPS,"story":server.STORY,"map_id":config.map_id,
         "base_recovery_enabled":config.base_recovery_enabled,
         "mana_enabled":config.mana_enabled,
         "player_count":config.additional_players.len()+2,
         "humans":server.AUTHENTICATED_TEAM_BINDINGS.iter().map(|(&player_id,&team_id)|
             serde_json::json!({"player_id":player_id,"team_id":team_id})).collect::<Vec<_>>(),
-        "bot_player_ids":bots.assignments.iter().map(|bot|bot.player_id).collect::<Vec<_>>()
+        "bot_player_ids":bots.assignments.iter().map(|bot|bot.player_id).collect::<Vec<_>>(),
+        "summoner_loadouts":config.summoner_loadouts,
     }))
 }
 
@@ -354,7 +408,7 @@ impl ServerSetting {
             Some(omoba_template_ids::moba_map_by_name(id)
                 .ok_or_else(|| format!("unknown compiled MOBA map '{id}'"))?)
         } else { None };
-        Ok(Some(omoba_core::runtime::SingleLaneConfig {
+        let mut config = omoba_core::runtime::SingleLaneConfig {
             mana_enabled: self.MATCH_MANA_ENABLED,
             map_id: map.map(|map| map.id.to_owned()),
             lane_length: map.map_or(omoba_sim::Fixed64::from_i32(2400), |map| omoba_sim::Fixed64::from_i32(map.lane_length)),
@@ -363,7 +417,46 @@ impl ServerSetting {
             additional_players,
             seed: omoba_core::runtime::MasterSeed::default().0,
             ..Default::default()
-        }))
+        };
+        self.install_authenticated_summoner_loadouts(&mut config)?;
+        self.install_authenticated_trinket_loadouts(&mut config)?;
+        Ok(Some(config))
+    }
+
+    /// Empty operator map installs the authored training catalog id for every
+    /// roster player. A non-empty map replaces that document, including explicit
+    /// `None`. Catalog id 0 and unknown ids fail before match setup.
+    fn install_authenticated_trinket_loadouts(
+        &self,
+        config: &mut omoba_core::runtime::SingleLaneConfig,
+    ) -> Result<(), String> {
+        let players: Vec<u32> = config
+            .players
+            .into_iter()
+            .chain(config.additional_players.iter().map(|player| player.player_id))
+            .collect();
+        if self.AUTHENTICATED_TRINKET_LOADOUTS.is_empty() {
+            if let Some(catalog_id) = authored_training_trinket_catalog()? {
+                for player in &players {
+                    config.trinket_loadouts.insert(*player, Some(catalog_id));
+                }
+            }
+        } else {
+            config.trinket_loadouts = self.AUTHENTICATED_TRINKET_LOADOUTS.clone();
+        }
+        omoba_core::runtime::validate_trinket_loadouts(players, &config.trinket_loadouts)
+            .map_err(|error| format!("authenticated trinket loadout rejected before match setup: {error:?}"))
+    }
+
+    fn install_authenticated_summoner_loadouts(
+        &self,
+        config: &mut omoba_core::runtime::SingleLaneConfig,
+    ) -> Result<(), String> {
+        config.summoner_loadouts = self.AUTHENTICATED_SUMMONER_LOADOUTS.clone();
+        let players = config.players.into_iter()
+            .chain(config.additional_players.iter().map(|player| player.player_id));
+        omoba_core::runtime::validate_server_loadouts(players, &config.summoner_loadouts)
+            .map_err(|error| format!("authenticated summoner loadout rejected before match setup: {error:?}"))
     }
 
     pub fn lockstep_timing(&self) -> LockstepTiming {
@@ -398,7 +491,33 @@ impl ServerSetting {
             return Err("authenticated teams must match exactly the role plan's human controllers (never bots)".into());
         }
         plan.compile_with_tick_rate(omoba_core::runtime::MasterSeed::default().0,self.STEP_FPS)
-            .map(|(mut config, bots)| { config.mana_enabled = self.MATCH_MANA_ENABLED; Some((config,bots)) })
+            .and_then(|(mut config, bots)| {
+                config.mana_enabled = self.MATCH_MANA_ENABLED;
+                self.reconcile_role_plan_loadouts(&plan, &mut config)?;
+                self.install_authenticated_trinket_loadouts(&mut config)?;
+                Ok(Some((config, bots)))
+            })
+    }
+
+    /// Empty plans keep the explicit authenticated field. A plan that names slots
+    /// must match that field exactly, so neither side can strip or replace the other.
+    #[cfg(feature = "kcp")]
+    fn reconcile_role_plan_loadouts(
+        &self,
+        plan: &omoba_core::runtime::native::moba_match::bots::RoleBotMatchPlan,
+        config: &mut omoba_core::runtime::SingleLaneConfig,
+    ) -> Result<(), String> {
+        if plan.summoner_loadouts.is_empty() {
+            return self.install_authenticated_summoner_loadouts(config);
+        }
+        if self.AUTHENTICATED_SUMMONER_LOADOUTS != plan.summoner_loadouts {
+            return Err("role plan summoner_loadouts must exactly match AUTHENTICATED_SUMMONER_LOADOUTS".into());
+        }
+        config.summoner_loadouts = plan.summoner_loadouts.clone();
+        let players = config.players.into_iter()
+            .chain(config.additional_players.iter().map(|player| player.player_id));
+        omoba_core::runtime::validate_server_loadouts(players, &config.summoner_loadouts)
+            .map_err(|error| format!("authenticated summoner loadout rejected before match setup: {error:?}"))
     }
 
     #[cfg(feature = "kcp")]
@@ -494,7 +613,8 @@ STEP_FPS = {step_fps}
             }
         }
         let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:5,mana_enabled:false,players,
-            ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new()};
+            ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),
+            summoner_loadouts:BTreeMap::new()};
         let mut setting=parse_with_step_fps(60);
         setting.MATCH_GAMEPLAY_MODE=MatchGameplayMode::ThreeLane;
         setting.MATCH_ROLE_PLAN_JSON=Some(serde_json::to_string(&plan).unwrap());
@@ -531,6 +651,185 @@ STEP_FPS = {step_fps}
         assert_eq!(setting.role_bot_config().unwrap().unwrap().think_interval_ticks,18);
         setting.MATCH_ROLE_PLAN_JSON=Some("{".into());assert!(setting.validate().is_err());
         setting.MATCH_ROLE_PLAN_JSON=Some(" ".repeat(64*1024+1));assert!(setting.validate().is_err());
+    }
+
+    #[test]
+    fn authenticated_summoner_toml_reaches_pre_world_validation() {
+        let base = r#"
+SERVER_IP = "localhost"
+SERVER_PORT = "50061"
+CLIENT_ID = "omobab"
+PLAYER_NAME = "player1"
+MAP = "map.json"
+MAX_PLAYER = 10000
+RENDER_DELAY_MS = 100
+STEP_FPS = 60
+MATCH_GAMEPLAY_MODE = "single_lane"
+AUTHENTICATED_TEAM_BINDINGS = { "1" = 1, "2" = 2 }
+"#;
+        for (fragment, expected_error) in [
+            (r#"loadouts = { "1" = { slot1 = "training_self_heal_v1" } }"#, None),
+            (r#"loadouts = { "1" = {} }"#, None),
+            (r#"loadouts = { "99" = {} }"#, Some("WrongOwner")),
+            (r#"loadouts = { "1" = { slot0 = "missing" } }"#, Some("UnknownSpell")),
+            (r#"loadouts = { "1" = { slot0 = "training_self_heal_v1", slot1 = "training_self_heal_v1" } }"#, Some("DuplicateSpell")),
+        ] {
+            let document = format!("{base}\nAUTHENTICATED_SUMMONER_LOADOUTS = {}\n", fragment.strip_prefix("loadouts = ").unwrap());
+            let decoded: ServerSetting = toml::from_str(&document).unwrap();
+            match expected_error {
+                Some(error) => assert!(decoded.single_lane_config().unwrap_err().contains(error)),
+                None => {
+                    let config = decoded.single_lane_config().unwrap().unwrap();
+                    assert_eq!(config.summoner_loadouts, decoded.AUTHENTICATED_SUMMONER_LOADOUTS);
+                    assert_eq!(config.summoner_loadouts[&1][0], None);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn authenticated_summoner_loadouts_fail_before_match_setup() {
+        let mut setting = parse_with_step_fps(60);
+        setting.MATCH_LOCKSTEP_MODE = MatchLockstepMode::SecureV2Required;
+        setting.MATCH_GAMEPLAY_MODE = MatchGameplayMode::SingleLane;
+        setting.AUTHENTICATED_TEAM_BINDINGS = BTreeMap::from([(1, 1), (2, 2)]);
+        assert!(setting.single_lane_config().unwrap().unwrap().summoner_loadouts.is_empty());
+        setting.AUTHENTICATED_SUMMONER_LOADOUTS.insert(99, [Some("training_self_heal_v1".into()), None]);
+        let unknown = setting.single_lane_config().unwrap_err();
+        assert!(unknown.contains("before match setup") && unknown.contains("WrongOwner"));
+        setting.AUTHENTICATED_SUMMONER_LOADOUTS.clear();
+        setting.AUTHENTICATED_SUMMONER_LOADOUTS.insert(1, [Some("training_self_heal_v1".into()), Some("training_self_heal_v1".into())]);
+        assert!(setting.single_lane_config().unwrap_err().contains("DuplicateSpell"));
+        setting.AUTHENTICATED_SUMMONER_LOADOUTS.insert(1, [Some("no-such-spell".into()), None]);
+        assert!(setting.single_lane_config().unwrap_err().contains("UnknownSpell"));
+        setting.AUTHENTICATED_SUMMONER_LOADOUTS.insert(1, [Some("training_point_blink_v1".into()), Some("training_self_heal_v1".into())]);
+        let ready = setting.single_lane_config().unwrap().unwrap();
+        assert_eq!(ready.summoner_loadouts[&1][0].as_deref(), Some("training_point_blink_v1"));
+        assert!(!ready.summoner_loadouts.contains_key(&2));
+    }
+
+    #[test]
+    fn authored_training_trinket_loadout_equips_catalog_id_not_a_string_or_first_row_fallback() {
+        let named = omoba_template_ids::trinket_by_name("training_scout_lantern_v1").unwrap();
+        assert_eq!(authored_training_trinket_catalog().unwrap(), Some(named.catalog_id));
+        assert_ne!(named.catalog_id, 0);
+        let mut setting = parse_with_step_fps(60);
+        setting.MATCH_LOCKSTEP_MODE = MatchLockstepMode::SecureV2Required;
+        setting.MATCH_GAMEPLAY_MODE = MatchGameplayMode::SingleLane;
+        setting.AUTHENTICATED_TEAM_BINDINGS = BTreeMap::from([(1, 1), (2, 2)]);
+        let equipped = setting.single_lane_config().unwrap().unwrap();
+        assert_eq!(equipped.trinket_loadouts.get(&1), Some(&Some(named.catalog_id)));
+        assert_eq!(equipped.trinket_loadouts.get(&2), Some(&Some(named.catalog_id)));
+        setting.AUTHENTICATED_TRINKET_LOADOUTS.insert(1, None);
+        let cleared = setting.single_lane_config().unwrap().unwrap();
+        assert_eq!(cleared.trinket_loadouts.get(&1), Some(&None));
+        assert!(!cleared.trinket_loadouts.contains_key(&2));
+        setting.AUTHENTICATED_TRINKET_LOADOUTS.insert(1, Some(0));
+        assert!(setting.single_lane_config().unwrap_err().contains("UnknownCatalog"));
+        setting.AUTHENTICATED_TRINKET_LOADOUTS.insert(1, Some(u16::MAX));
+        assert!(setting.single_lane_config().unwrap_err().contains("UnknownCatalog"));
+        setting.AUTHENTICATED_TRINKET_LOADOUTS.clear();
+        setting.AUTHENTICATED_TRINKET_LOADOUTS.insert(99, Some(named.catalog_id));
+        assert!(setting.single_lane_config().unwrap_err().contains("WrongOwner"));
+        setting.MATCH_GAMEPLAY_MODE = MatchGameplayMode::Story;
+        setting.AUTHENTICATED_TRINKET_LOADOUTS.clear();
+        assert!(setting.single_lane_config().unwrap().is_none());
+    }
+
+    #[test]
+    #[cfg(feature = "kcp")]
+    fn role_plan_summoner_loadouts_reject_unknown_players_before_config() {
+        use omoba_core::runtime::native::moba_match::bots::*;
+        let plan = RoleBotMatchPlan {
+            schema_version: 1, map_id: "three_lane_training".into(), think_hz: 5, mana_enabled: false,
+            ability_policies: Vec::new(), ability_learning: Vec::new(), sustain: None, item_builds: Vec::new(),
+            summoner_loadouts: BTreeMap::new(),
+            players: vec![
+                RoleBotPlayerPlan { player_id: 1, team_id: 1, hero: "training_luminary".into(), role: BotRole::Top, lane: "top".into(), bot: false },
+                RoleBotPlayerPlan { player_id: 2, team_id: 2, hero: "training_luminary".into(), role: BotRole::Top, lane: "top".into(), bot: false },
+            ],
+        };
+        let mut setting = parse_with_step_fps(60);
+        setting.MATCH_GAMEPLAY_MODE = MatchGameplayMode::ThreeLane;
+        setting.MATCH_LOCKSTEP_MODE = MatchLockstepMode::SecureV2Required;
+        setting.MATCH_ROLE_PLAN_JSON = Some(serde_json::to_string(&plan).unwrap());
+        setting.AUTHENTICATED_TEAM_BINDINGS = BTreeMap::from([(1, 1), (2, 2)]);
+        assert!(setting.single_lane_config().unwrap().unwrap().summoner_loadouts.is_empty());
+        setting.AUTHENTICATED_SUMMONER_LOADOUTS.insert(99, [None, None]);
+        assert!(setting.single_lane_config().unwrap_err().contains("WrongOwner"));
+    }
+
+    #[test]
+    #[cfg(feature = "kcp")]
+    fn role_plan_loadouts_must_match_authenticated_field_before_preflight() {
+        use omoba_core::runtime::native::moba_match::bots::*;
+        use omoba_core::runtime::native::moba_match::selection::{HeroSelectionAction, HeroSelectionRequest, HeroSelectionSession};
+        let players = vec![
+            RoleBotPlayerPlan { player_id: 1, team_id: 1, hero: "training_luminary".into(), role: BotRole::Top, lane: "top".into(), bot: false },
+            RoleBotPlayerPlan { player_id: 2, team_id: 2, hero: "training_luminary".into(), role: BotRole::Top, lane: "top".into(), bot: true },
+        ];
+        let base = RoleBotMatchPlan {
+            schema_version: 1, map_id: "three_lane_training".into(), think_hz: 5, mana_enabled: false,
+            ability_policies: Vec::new(), ability_learning: Vec::new(), sustain: None, item_builds: Vec::new(),
+            summoner_loadouts: BTreeMap::new(), players,
+        };
+        let mut setting = parse_with_step_fps(60);
+        setting.MATCH_GAMEPLAY_MODE = MatchGameplayMode::ThreeLane;
+        setting.MATCH_LOCKSTEP_MODE = MatchLockstepMode::SecureV2Required;
+        setting.AUTHENTICATED_TEAM_BINDINGS = BTreeMap::from([(1, 1)]);
+        setting.MATCH_ROLE_PLAN_JSON = Some(serde_json::to_string(&base).unwrap());
+        setting.AUTHENTICATED_SUMMONER_LOADOUTS.insert(1, [Some("training_self_heal_v1".into()), None]);
+        assert_eq!(setting.single_lane_config().unwrap().unwrap().summoner_loadouts[&1][1], None);
+        let equipped = [
+            BTreeMap::new(),
+            BTreeMap::from([(1, [Some("training_point_blink_v1".into()), None])]),
+            BTreeMap::from([(1, [None, Some("training_self_heal_v1".into())])]),
+            BTreeMap::from([(1, [Some("training_point_blink_v1".into()), Some("training_self_heal_v1".into())])]),
+        ];
+        for loadouts in equipped {
+            let mut plan = base.clone();
+            plan.summoner_loadouts = loadouts.clone();
+            let mut session = HeroSelectionSession::new(plan.clone(), 0, 60).unwrap();
+            let revision = session.snapshot().revision;
+            session.apply(1, HeroSelectionRequest { expected_revision: revision, action: HeroSelectionAction::Lock }).unwrap();
+            let finalized = session.finalize(revision + 1).unwrap();
+            assert_eq!(finalized.summoner_loadouts, loadouts);
+            assert_eq!(session.snapshot().summoner_loadouts, loadouts);
+            let encoded = serde_json::to_string(&finalized).unwrap();
+            let mut second = HeroSelectionSession::new(serde_json::from_str(&encoded).unwrap(), 0, 60).unwrap();
+            second.apply(1, HeroSelectionRequest { expected_revision: 0, action: HeroSelectionAction::Lock }).unwrap();
+            assert_eq!(second.finalize(1).unwrap().summoner_loadouts, loadouts);
+            setting.MATCH_ROLE_PLAN_JSON = Some(encoded);
+            setting.AUTHENTICATED_SUMMONER_LOADOUTS = loadouts.clone();
+            let config = setting.single_lane_config().unwrap().unwrap();
+            assert_eq!(config.summoner_loadouts, loadouts);
+            let document = toml::to_string(&Setting {
+                server: setting.clone(), content: ContentSetting::default(),
+                hero_knowledge: HeroKnowledgeSetting::default(),
+            }).unwrap();
+            let report = validate_moba_launch_configuration(&document).unwrap();
+            assert_eq!(report["scope"], "configuration-only");
+            let scope = compiled_moba_catalog_scope();
+            assert_eq!(scope["scope"], "compiled-moba-catalog");
+            for field in ["catalog_identity_hash", "content_hash", "map_catalog_hash"] {
+                let hash = scope[field].as_str().unwrap();
+                assert_eq!(hash.len(), 16);
+                assert!(hash.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)));
+                assert_eq!(report[field], scope[field]);
+            }
+            assert_eq!(report["summoner_loadouts"], serde_json::to_value(&loadouts).unwrap());
+            if !loadouts.is_empty() {
+                let decoded: toml::Value = toml::from_str(&document).unwrap();
+                let named = decoded["server"]["AUTHENTICATED_SUMMONER_LOADOUTS"]["1"].as_table().unwrap();
+                for (index, slot) in loadouts[&1].iter().enumerate() {
+                    let key = format!("slot{index}");
+                    assert_eq!(named.get(&key).and_then(toml::Value::as_str), slot.as_deref());
+                }
+                setting.AUTHENTICATED_SUMMONER_LOADOUTS.clear();
+                assert!(setting.single_lane_config().unwrap_err().contains("exactly match"));
+                setting.AUTHENTICATED_SUMMONER_LOADOUTS = loadouts;
+            }
+        }
     }
 
     #[test]

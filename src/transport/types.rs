@@ -471,6 +471,25 @@ pub struct TransportHandle {
     pub secure_input_validation: omoba_core::runtime::SharedSecureInputValidationSnapshot,
     #[cfg(feature = "kcp")]
     pub selective_security_metrics: Arc<omoba_core::runtime::SelectiveSecurityMetrics>,
+    /// Decoded communication requests. The KCP thread never touches the ECS world.
+    #[cfg(feature = "kcp")]
+    pub communication_request_rx: crossbeam_channel::Receiver<
+        omoba_core::runtime::communication_transport::CommunicationRequestMsg,
+    >,
+    #[cfg(feature = "kcp")]
+    pub communication_delivery_tx: crossbeam_channel::Sender<
+        omoba_core::runtime::communication_transport::CommunicationDelivery,
+    >,
+    /// Published by the authority tick. Hello reads it without borrowing World.
+    #[cfg(feature = "kcp")]
+    pub communication_scope: std::sync::Arc<
+        std::sync::Mutex<Option<omoba_core::runtime::communication_transport::CommunicationScope>>,
+    >,
+    /// Current authenticated communication lifetimes. The authority tick `try_lock`s it.
+    #[cfg(feature = "kcp")]
+    pub communication_registry: std::sync::Arc<
+        std::sync::Mutex<omoba_core::runtime::communication_transport::CommunicationSessionRegistry>,
+    >,
 }
 
 #[cfg(test)]

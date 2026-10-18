@@ -4,6 +4,10 @@ mod selection_network;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
+    if args.len() == 1 && args[0] == "--catalog-scope" {
+        println!("{}", omobab::config::server_config::compiled_moba_catalog_scope());
+        return Ok(());
+    }
     if (args.len() == 3 || args.len() == 4) && args[0] == "--selection-host" {
         let address = if args.len() == 4 {
             args[2]

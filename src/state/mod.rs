@@ -12,6 +12,8 @@ pub mod resource_management;
 pub mod time_management;
 
 pub use core::State;
+#[cfg(feature = "kcp")]
+pub use core::StoredTeamBootstrap;
 pub use omoba_core::runtime::{StateInitializer, SystemDispatcher};
 pub use resource_management::ResourceManager;
 pub use time_management::TimeManager;

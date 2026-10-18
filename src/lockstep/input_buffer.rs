@@ -20,6 +20,12 @@ pub enum InputSubmitResult {
     },
     /// Same ID with changed payload/tick, zero ID, or an evicted old ID.
     RejectedShopReplay,
+    /// A previously queued ward command; never enqueue or settle it again.
+    DuplicateWard {
+        effective_tick: u32,
+    },
+    /// Same ward ID with changed payload/tick, zero ID, or an ID retired with its epoch.
+    RejectedWardReplay,
     Accepted {
         effective_tick: u32,
     },
@@ -56,10 +62,12 @@ pub struct InputBuffer {
     /// 在 TickBatch 組合中。
     by_tick: BTreeMap<u32, BTreeMap<u32, Vec<BufferedPlayerInput>>>,
     shop_requests: BTreeMap<u32, ShopRequestHistory>,
+    ward_requests: BTreeMap<u32, WardRequestHistory>,
     last_seen_input_ids: BTreeMap<u32, u32>,
 }
 
 const SHOP_REQUEST_HISTORY_LIMIT: usize = 1024;
+const WARD_COMMAND_HISTORY_LIMIT: usize = 256;
 
 #[derive(Default)]
 struct ShopRequestHistory {
@@ -73,6 +81,20 @@ struct ShopRequestRecord {
     input: PlayerInput,
     result: InputSubmitResult,
     receipt: Option<omoba_core::runtime::shop_receipt::ShopReceipt>,
+    undo_receipt: Option<Vec<u8>>,
+}
+
+#[derive(Default)]
+struct WardRequestHistory {
+    epoch: u64,
+    expired_through: u32,
+    records: BTreeMap<u32, WardRequestRecord>,
+}
+
+struct WardRequestRecord {
+    original_tick: u32,
+    input: PlayerInput,
+    result: InputSubmitResult,
 }
 
 impl ShopRequestHistory {
@@ -87,6 +109,7 @@ impl ShopRequestHistory {
         if self.records.len() > SHOP_REQUEST_HISTORY_LIMIT {
             let (expired_id, expired) = self.records.pop_first().expect("overfull shop history");
             if expired.receipt.is_none()
+                && expired.undo_receipt.is_none()
                 && matches!(
                     expired.result,
                     InputSubmitResult::Accepted { .. } | InputSubmitResult::Retargeted { .. }
@@ -156,6 +179,31 @@ impl InputBuffer {
         true
     }
 
+    pub fn remember_shop_undo_receipt(&mut self, bytes: &[u8]) -> bool {
+        use crate::lockstep::PlayerInputEnum;
+        use omoba_core::runtime::shop_undo_wire::{pinned_undo_request, ShopUndoReceipt, SHOP_UNDO_MODE_SEQUENCE};
+        let Some(receipt) = ShopUndoReceipt::decode(bytes) else { return false };
+        if ShopUndoReceipt::decode(&receipt.encode()).as_ref() != Some(&receipt) { return false; }
+        let Ok(id) = u32::try_from(receipt.input_id) else { return false };
+        let Some(history) = self.shop_requests.get_mut(&receipt.player_id) else { return false };
+        let Some(record) = history.records.get_mut(&id) else { return false };
+        let tick = match record.result {
+            InputSubmitResult::Accepted { effective_tick } | InputSubmitResult::Retargeted { effective_tick, .. } => effective_tick,
+            _ => return false,
+        };
+        if receipt.tick != u64::from(tick) { return false; }
+        let Some(PlayerInputEnum::ShopUndo(undo)) = record.input.action.as_ref() else { return false };
+        if undo.mode == SHOP_UNDO_MODE_SEQUENCE && pinned_undo_request(&record.input) != Some(omoba_core::runtime::shop::ShopUndoRequest::Sequence(receipt.sequence)) {
+            return false;
+        }
+        if let Some(original) = &record.undo_receipt {
+            return original.as_slice() == bytes;
+        }
+        record.undo_receipt = Some(bytes.to_vec());
+        history.pending_receipts -= 1;
+        true
+    }
+
     pub fn shop_receipt_replay(
         &self,
         player_id: u32,
@@ -181,6 +229,11 @@ impl InputBuffer {
             return reply;
         }
         if let Some(record) = history.records.get(&input_id) {
+            if matches!(record.input.action, Some(crate::lockstep::PlayerInputEnum::ShopUndo(_))) {
+                reply.status = 0;
+                reply.receipt.clear();
+                return reply;
+            }
             if let Some(receipt) = &record.receipt {
                 reply.status = 2;
                 reply.receipt = receipt.encode();
@@ -195,6 +248,40 @@ impl InputBuffer {
         reply
     }
 
+    /// Version-2 replay for an admitted undo. Buy/sell ids stay on [`Self::shop_receipt_replay`].
+    pub fn shop_undo_receipt_replay(&self, player_id: u32, request_id: u64, input_id: u32) -> omoba_core::game_proto::ShopReceiptReplay {
+        let mut reply = omoba_core::game_proto::ShopReceiptReplay {
+            schema_version: 2, request_id, player_id, input_id, status: 0, receipt: Vec::new(),
+        };
+        if player_id == 0 || request_id == 0 || input_id == 0 { return reply; }
+        let Some(history) = self.shop_requests.get(&player_id) else { return reply };
+        if input_id <= history.expired_through {
+            reply.status = 3;
+            return reply;
+        }
+        let Some(record) = history.records.get(&input_id) else { return reply };
+        if !matches!(record.input.action, Some(crate::lockstep::PlayerInputEnum::ShopUndo(_))) {
+            return reply;
+        }
+        if let Some(bytes) = &record.undo_receipt {
+            reply.status = 2;
+            reply.receipt = bytes.clone();
+        } else {
+            reply.status = if matches!(record.result, InputSubmitResult::RejectedLate { .. }) { 4 } else { 1 };
+        }
+        reply
+    }
+
+    pub fn shop_command_replay(&self, player_id: u32, request_id: u64, input_id: u32, undo_capable: bool) -> omoba_core::game_proto::ShopReceiptReplay {
+        let undo = undo_capable && self.shop_requests.get(&player_id).and_then(|history| history.records.get(&input_id))
+            .is_some_and(|record| matches!(record.input.action, Some(crate::lockstep::PlayerInputEnum::ShopUndo(_))));
+        if undo {
+            self.shop_undo_receipt_replay(player_id, request_id, input_id)
+        } else {
+            self.shop_receipt_replay(player_id, request_id, input_id)
+        }
+    }
+
     /// Match-lifetime wire admission floor, independent of gameplay and drain.
     pub fn last_seen_input_id(&self, player_id: u32) -> u32 {
         self.last_seen_input_ids
@@ -207,7 +294,43 @@ impl InputBuffer {
         Self {
             by_tick: BTreeMap::new(),
             shop_requests: BTreeMap::new(),
+            ward_requests: BTreeMap::new(),
             last_seen_input_ids: BTreeMap::new(),
+        }
+    }
+
+    /// Drop one owner's ward admission journal when the view epoch changes.
+    /// Retired IDs cannot re-enter. A later ID above the previous floor still can.
+    pub fn observe_ward_epoch(&mut self, player_id: u32, epoch: u64) {
+        let floor = self.last_seen_input_ids.get(&player_id).copied().unwrap_or(0);
+        let history = self.ward_requests.entry(player_id).or_default();
+        if history.epoch != epoch {
+            history.records.clear();
+            history.expired_through = history.expired_through.max(floor);
+            history.epoch = epoch;
+        }
+    }
+
+    fn remember_ward(
+        &mut self,
+        player_id: u32,
+        input_id: u32,
+        original_tick: u32,
+        input: PlayerInput,
+        result: InputSubmitResult,
+    ) {
+        let history = self.ward_requests.entry(player_id).or_default();
+        history.records.insert(
+            input_id,
+            WardRequestRecord {
+                original_tick,
+                input,
+                result,
+            },
+        );
+        if history.records.len() > WARD_COMMAND_HISTORY_LIMIT {
+            let (expired_id, _) = history.records.pop_first().expect("overfull ward history");
+            history.expired_through = history.expired_through.max(expired_id);
         }
     }
 
@@ -239,7 +362,16 @@ impl InputBuffer {
         input_id: u32,
         late_grace_ticks: u32,
     ) -> InputSubmitResult {
-        let is_shop = matches!(
+        let is_undo = matches!(input.action, Some(crate::lockstep::PlayerInputEnum::ShopUndo(_)));
+        if is_undo {
+            let shape_ok = matches!(input.action.as_ref(), Some(crate::lockstep::PlayerInputEnum::ShopUndo(value))
+                if (value.mode == omoba_core::runtime::shop_undo_wire::SHOP_UNDO_MODE_NEWEST && value.sequence == 0)
+                    || (value.mode == omoba_core::runtime::shop_undo_wire::SHOP_UNDO_MODE_SEQUENCE && value.sequence != 0));
+            if !shape_ok || player_id == 0 || input_id == 0 {
+                return InputSubmitResult::RejectedShopReplay;
+            }
+        }
+        let is_shop = is_undo || matches!(
             input.action,
             Some(crate::lockstep::PlayerInputEnum::ItemBuy(_))
                 | Some(crate::lockstep::PlayerInputEnum::ItemSell(_))
@@ -270,6 +402,31 @@ impl InputBuffer {
                 };
             }
         }
+        let is_ward = matches!(
+            input.action,
+            Some(crate::lockstep::PlayerInputEnum::WardPlacement(_))
+        );
+        if is_ward {
+            if player_id == 0 || input_id == 0 {
+                return InputSubmitResult::RejectedWardReplay;
+            }
+            let history = self.ward_requests.entry(player_id).or_default();
+            if input_id <= history.expired_through {
+                return InputSubmitResult::RejectedWardReplay;
+            }
+            if let Some(record) = history.records.get(&input_id) {
+                if record.original_tick != target_tick || record.input != input {
+                    return InputSubmitResult::RejectedWardReplay;
+                }
+                return match record.result {
+                    InputSubmitResult::Accepted { effective_tick }
+                    | InputSubmitResult::Retargeted { effective_tick, .. } => {
+                        InputSubmitResult::DuplicateWard { effective_tick }
+                    }
+                    other => other,
+                };
+            }
+        }
         if player_id != 0 && input_id != 0 {
             let floor = self.last_seen_input_ids.entry(player_id).or_default();
             *floor = (*floor).max(input_id);
@@ -291,8 +448,11 @@ impl InputBuffer {
                             input,
                             result,
                             receipt: None,
+                            undo_receipt: None,
                         },
                     );
+                } else if is_ward {
+                    self.remember_ward(player_id, input_id, target_tick, input, result);
                 }
                 return result;
             }
@@ -314,8 +474,12 @@ impl InputBuffer {
                     input: input.clone(),
                     result,
                     receipt: None,
+                    undo_receipt: None,
                 },
             );
+        }
+        if is_ward {
+            self.remember_ward(player_id, input_id, target_tick, input.clone(), result);
         }
         self.by_tick
             .entry(effective_tick)
@@ -757,5 +921,141 @@ mod tests {
         assert!(b.drain_for_tick(1).is_empty());
         assert_eq!(b.drain_for_tick(2).len(), 1);
         assert_eq!(b.drain_for_tick(3).len(), 1);
+    }
+
+    fn undo_newest() -> PlayerInput {
+        PlayerInput {
+            action: Some(PlayerInputEnum::ShopUndo(omoba_core::game_proto::ShopUndo {
+                mode: omoba_core::runtime::shop_undo_wire::SHOP_UNDO_MODE_NEWEST,
+                sequence: 0,
+            })),
+        }
+    }
+
+    #[test]
+    fn shop_undo_protocol_duplicate_newest_is_not_requeued() {
+        let mut buffer = InputBuffer::new();
+        let input = undo_newest();
+        assert!(buffer.submit(0, 7, 5, input.clone(), 11));
+        assert_eq!(
+            buffer.submit_with_late_grace(1, 7, 5, input.clone(), 11, 2),
+            InputSubmitResult::DuplicateShop { effective_tick: 5 }
+        );
+        assert_eq!(buffer.pending_count(), 1);
+        assert_eq!(buffer.drain_for_tick(5).len(), 1);
+        assert_eq!(
+            buffer.submit_with_late_grace(20, 7, 5, input, 11, 0),
+            InputSubmitResult::DuplicateShop { effective_tick: 5 }
+        );
+        assert_eq!(buffer.pending_count(), 0);
+        let replay = buffer.shop_receipt_replay(7, 1, 11);
+        assert_eq!(replay.schema_version, 1);
+        assert_eq!(replay.status, 0);
+        assert!(replay.receipt.is_empty());
+        assert_eq!(
+            buffer.submit_with_late_grace(20, 7, 6, PlayerInput {
+                action: Some(PlayerInputEnum::ShopUndo(omoba_core::game_proto::ShopUndo { mode: 1, sequence: 4 })),
+            }, 12, 0),
+            InputSubmitResult::RejectedShopReplay
+        );
+        assert_eq!(buffer.submit_with_late_grace(20, 7, 6, undo_newest(), 0, 0), InputSubmitResult::RejectedShopReplay);
+        assert_eq!(buffer.pending_count(), 0);
+        assert!(buffer.submit(20, 7, 21, buy("moba_sword"), 30));
+        assert_eq!(buffer.pending_count(), 1);
+        assert_eq!(buffer.shop_receipt_replay(7, 1, 30).status, 1);
+        assert_eq!(buffer.shop_command_replay(7, 1, 11, true).status, 1);
+        assert_eq!(buffer.shop_command_replay(7, 1, 11, false).status, 0);
+    }
+
+    #[test]
+    fn shop_undo_protocol_schema2_replay_keeps_canonical_economy() {
+        use omoba_core::runtime::shop_undo_wire::ShopUndoReceipt;
+        let mut buffer = InputBuffer::new();
+        assert!(buffer.submit(0, 7, 5, undo_newest(), 11));
+        let receipt = ShopUndoReceipt {
+            player_id: 7,
+            input_id: 11,
+            tick: 5,
+            sequence: 1,
+            result_code: 0,
+            gold: 650,
+            catalogs: [0; 6],
+            cooldowns: [0; 6],
+        };
+        let bytes = receipt.encode();
+        assert!(buffer.remember_shop_undo_receipt(&bytes));
+        assert!(buffer.remember_shop_undo_receipt(&bytes));
+        let mut changed = receipt.clone();
+        changed.gold = 651;
+        assert!(!buffer.remember_shop_undo_receipt(&changed.encode()));
+        let replay = buffer.shop_command_replay(7, 4, 11, true);
+        assert_eq!(replay.schema_version, 2);
+        assert_eq!(replay.status, 2);
+        assert_eq!(ShopUndoReceipt::decode(&replay.receipt).unwrap().gold, 650);
+        assert_eq!(ShopUndoReceipt::decode(&replay.receipt).unwrap().result_code, 0);
+        let hidden = buffer.shop_command_replay(7, 4, 11, false);
+        assert_eq!(hidden.schema_version, 1);
+        assert_eq!(hidden.status, 0);
+        assert!(hidden.receipt.is_empty());
+        assert_eq!(buffer.shop_receipt_replay(7, 4, 11).status, 0);
+    }
+
+    #[test]
+    fn ward_submit_reuses_authenticated_identity_and_rejects_duplicate_conflict_and_expired() {
+        use crate::lockstep::PlayerInputEnum;
+        let place = |x: i64| PlayerInput {
+            action: Some(PlayerInputEnum::WardPlacement(omoba_core::game_proto::WardPlacement {
+                slot: 0,
+                x_raw: Some(x),
+                y_raw: Some(1),
+            })),
+        };
+        let mut buffer = InputBuffer::new();
+        assert_eq!(
+            buffer.submit_with_late_grace(0, 0, 3, place(1), 81, 0),
+            InputSubmitResult::RejectedWardReplay
+        );
+        assert_eq!(
+            buffer.submit_with_late_grace(0, 7, 3, place(1), 0, 0),
+            InputSubmitResult::RejectedWardReplay
+        );
+        assert_eq!(buffer.pending_count(), 0);
+        assert!(matches!(
+            buffer.submit_with_late_grace(0, 7, 3, place(4), 1, 0),
+            InputSubmitResult::Accepted { effective_tick: 3 }
+        ));
+        assert_eq!(buffer.pending_count(), 1);
+        assert_eq!(buffer.drain_for_tick(3)[0].1.acceptance_correlation(), 1);
+        assert_eq!(
+            buffer.submit_with_late_grace(4, 7, 3, place(4), 1, 0),
+            InputSubmitResult::DuplicateWard { effective_tick: 3 }
+        );
+        assert_eq!(
+            buffer.submit_with_late_grace(4, 7, 3, place(9), 1, 0),
+            InputSubmitResult::RejectedWardReplay
+        );
+        assert_eq!(buffer.pending_count(), 0);
+        for id in 2..=(WARD_COMMAND_HISTORY_LIMIT as u32 + 1) {
+            assert!(buffer.submit(4, 7, 8, place(i64::from(id)), id));
+        }
+        assert_eq!(
+            buffer.submit_with_late_grace(9, 7, 8, place(4), 1, 0),
+            InputSubmitResult::RejectedWardReplay
+        );
+        buffer.drain_for_tick(8);
+        assert_eq!(buffer.pending_count(), 0);
+        let retired = WARD_COMMAND_HISTORY_LIMIT as u32 + 1;
+        buffer.observe_ward_epoch(7, 2);
+        buffer.observe_ward_epoch(7, 2);
+        assert_eq!(
+            buffer.submit_with_late_grace(9, 7, 10, place(4), retired, 0),
+            InputSubmitResult::RejectedWardReplay
+        );
+        let fresh = retired + 1;
+        assert!(matches!(
+            buffer.submit_with_late_grace(9, 7, 10, place(4), fresh, 0),
+            InputSubmitResult::Accepted { effective_tick: 10 }
+        ));
+        assert_eq!(buffer.pending_count(), 1);
     }
 }

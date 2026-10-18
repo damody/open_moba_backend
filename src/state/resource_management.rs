@@ -1306,7 +1306,7 @@ impl ResourceManager {
         };
         // Legacy names are not authentication. This adapter is only for non-MOBA
         // compatibility; all actual effects, admission and cooldown live in core.
-        omoba_core::runtime::handle_item_use_from_input(world, slot, None, None, owner)
+        omoba_core::runtime::handle_item_use_from_input(world, slot, None, None, owner, false)
     }
 
     fn get_screen_area_data(

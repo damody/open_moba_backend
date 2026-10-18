@@ -88,14 +88,23 @@ pub fn compute_state_hash(world: &World) -> u64 {
         .collect();
 
     let entity_hash = hash_sorted_by_id(&items, |i| i.id);
-    let Some(economy) = world.try_fetch::<PlayerEconomy>() else {
-        return entity_hash;
+    let mixed = if let Some(economy) = world.try_fetch::<PlayerEconomy>() {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        "omoba-player-economy-v1".hash(&mut hasher);
+        entity_hash.hash(&mut hasher);
+        economy.balances().hash(&mut hasher);
+        hasher.finish()
+    } else {
+        entity_hash
     };
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    "omoba-player-economy-v1".hash(&mut hasher);
-    entity_hash.hash(&mut hasher);
-    economy.balances().hash(&mut hasher);
-    hasher.finish()
+    // Protocol 7 installs `LockstepHashContract`. MobaMatch alone is not that
+    // negotiation: without the contract the historical digest is returned.
+    // This u64 is not the selective team SHA-256, and neither digest is a save.
+    if !omoba_core::runtime::shop_undo_wire::undo_hash_contract_active(world) {
+        return mixed;
+    }
+    let material = omoba_core::runtime::moba_match::lockstep_economy_v2_material(world);
+    omoba_core::runtime::shop_undo_wire::mix_lockstep_economy_v2(mixed, &material)
 }
 
 #[cfg(test)]
@@ -323,5 +332,32 @@ mod tests {
         w2.insert(economy2);
 
         assert_eq!(compute_state_hash(&w1), compute_state_hash(&w2));
+    }
+
+    #[test]
+    fn lockstep_economy_v2_without_moba_match_matches_historical_formula() {
+        use std::hash::{Hash, Hasher};
+        let mut world = make_world();
+        let entity = world.create_entity().with(pos_xy(4, 5)).with(cprop(9, 12)).build();
+        let item = HashItem {
+            id: entity.id(),
+            pos_x_raw: Fixed64::from_i32(4).raw(),
+            pos_y_raw: Fixed64::from_i32(5).raw(),
+            vel_x_raw: 0,
+            vel_y_raw: 0,
+            facing_ticks: 0,
+            hp_raw: Fixed64::from_i32(9).raw(),
+        };
+        let entity_hash = omoba_sim::state_hash::hash_sorted_by_id(std::slice::from_ref(&item), |row| row.id);
+        assert!(world.try_fetch::<omoba_core::runtime::MobaMatch>().is_none());
+        assert_eq!(compute_state_hash(&world), entity_hash);
+        let mut economy = PlayerEconomy::default();
+        economy.initialize(3, 80);
+        world.insert(economy);
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        "omoba-player-economy-v1".hash(&mut hasher);
+        entity_hash.hash(&mut hasher);
+        world.read_resource::<PlayerEconomy>().balances().hash(&mut hasher);
+        assert_eq!(compute_state_hash(&world), hasher.finish());
     }
 }
