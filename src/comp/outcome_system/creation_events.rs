@@ -195,6 +195,7 @@ impl CreationEventHandler {
             .create_entity()
             .with(Pos(source_pos))
             .with(Projectile {
+                damage_stage: omoba_core::runtime::comp::DamageStage::Raw,
                 time_left: Fixed64::from_i32(2), // 彈道存活時間
                 owner: source,                   // 擁有者
                 target: Some(target),            // 目標實體
@@ -210,7 +211,7 @@ impl CreationEventHandler {
                 stun_duration: Fixed64::ZERO,
                 kind_id: 0,
                 generation: 0,
-                damage_profile: 0,
+                damage_profile: if real_damage > Fixed64::ZERO { omb_script_abi::types::DamageProfile::TRUE.bits() } else { omb_script_abi::types::DamageProfile::NORMAL.bits() },
             })
             .build();
 

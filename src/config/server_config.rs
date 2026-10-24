@@ -408,15 +408,26 @@ impl ServerSetting {
             Some(omoba_template_ids::moba_map_by_name(id)
                 .ok_or_else(|| format!("unknown compiled MOBA map '{id}'"))?)
         } else { None };
+        let defaults = omoba_core::runtime::SingleLaneConfig::default();
         let mut config = omoba_core::runtime::SingleLaneConfig {
+            building_reward_rules: omoba_core::runtime::BuildingRewardRules::training(),
+            tower_plating_rules: Some(omoba_core::runtime::TowerPlatingRules::training()),
+            kill_bounty_rules: omoba_core::runtime::KillBountyRules::training(),
+            objective_comeback_rules: serde_json::from_str(omoba_template_ids::MOBA_OBJECTIVE_COMEBACK_JSON).expect("validated compiled comeback rules"),
+            death_streak_rules: omoba_core::runtime::DeathStreakRules::training(),
+            first_kill_bonus_gold: omoba_template_ids::MOBA_FIRST_KILL_BONUS_GOLD,
+            minion_growth_rules: omoba_core::runtime::MinionGrowthRules::training(),
             mana_enabled: self.MATCH_MANA_ENABLED,
             map_id: map.map(|map| map.id.to_owned()),
+            authored_minion_waves: map.is_some_and(|map| !map.minion_wave.is_empty()),
+            wave_interval: map.map_or(defaults.wave_interval,
+                |map| omoba_sim::Fixed64::from_i32(map.wave_interval_seconds as i32)),
             lane_length: map.map_or(omoba_sim::Fixed64::from_i32(2400), |map| omoba_sim::Fixed64::from_i32(map.lane_length)),
             players,
             heroes: players.map(selected),
             additional_players,
             seed: omoba_core::runtime::MasterSeed::default().0,
-            ..Default::default()
+            ..defaults
         };
         self.install_authenticated_summoner_loadouts(&mut config)?;
         self.install_authenticated_trinket_loadouts(&mut config)?;
@@ -966,7 +977,8 @@ AUTHENTICATED_TEAM_BINDINGS = { "1" = 1, "2" = 2 }
         assert!(setting.validate().is_ok());
         let config = setting.single_lane_config().unwrap().unwrap();
         assert_eq!(config.map_id.as_deref(),Some("three_lane_layered_training"));
-        assert_eq!(config.lane_length,omoba_sim::Fixed64::from_i32(2400));
+        assert_eq!(config.lane_length,omoba_sim::Fixed64::from_i32(
+            omoba_template_ids::moba_map_by_name("three_lane_layered_training").unwrap().lane_length));
         for id in ["", "unknown_map", "three_lane_training "] {
             setting.MATCH_MAP_ID = Some(id.into());
             assert!(setting.validate().unwrap_err().contains("unknown compiled MOBA map"));
@@ -976,6 +988,33 @@ AUTHENTICATED_TEAM_BINDINGS = { "1" = 1, "2" = 2 }
             setting.MATCH_GAMEPLAY_MODE = mode;
             assert!(setting.validate().unwrap_err().contains("requires three_lane"));
         }
+    }
+
+    #[test]
+    fn human_three_lane_uses_authored_waves_without_a_role_plan() {
+        let mut setting=parse_with_step_fps(60);
+        setting.MATCH_GAMEPLAY_MODE=MatchGameplayMode::ThreeLane;
+        setting.AUTHENTICATED_TEAM_BINDINGS=BTreeMap::from([(1,1),(2,2)]);
+        assert!(setting.MATCH_ROLE_PLAN_JSON.is_none(),"exercise the non-role production entry");
+        for map in omoba_template_ids::MOBA_MAPS {
+            setting.MATCH_MAP_ID=Some(map.id.into());
+            let config=setting.single_lane_config().unwrap().unwrap();
+            assert_eq!(config.authored_minion_waves,!map.minion_wave.is_empty(),"{}",map.id);
+            assert_eq!(config.building_reward_rules,omoba_core::runtime::BuildingRewardRules::training());
+            assert_eq!(config.tower_plating_rules,Some(omoba_core::runtime::TowerPlatingRules::training()));
+            assert_eq!(config.kill_bounty_rules,omoba_core::runtime::KillBountyRules::training());
+            assert_eq!(config.objective_comeback_rules,serde_json::from_str::<omoba_core::runtime::ObjectiveComebackRules>(omoba_template_ids::MOBA_OBJECTIVE_COMEBACK_JSON).unwrap());
+            assert_eq!(config.death_streak_rules,omoba_core::runtime::DeathStreakRules::training());
+            assert_eq!(config.first_kill_bonus_gold,omoba_template_ids::MOBA_FIRST_KILL_BONUS_GOLD);
+            assert_eq!(config.minion_growth_rules,omoba_core::runtime::MinionGrowthRules::training());
+            assert_eq!(config.wave_interval,omoba_sim::Fixed64::from_i32(map.wave_interval_seconds as i32));
+            assert_eq!(config.lane_length,omoba_sim::Fixed64::from_i32(map.lane_length));
+        }
+        setting.MATCH_MAP_ID=None;setting.MATCH_GAMEPLAY_MODE=MatchGameplayMode::SingleLane;
+        let legacy=setting.single_lane_config().unwrap().unwrap();
+        let defaults=omoba_core::runtime::SingleLaneConfig::default();
+        assert!(!legacy.authored_minion_waves);
+        assert_eq!(legacy.wave_interval,defaults.wave_interval,"legacy single lane keeps its own wave policy");
     }
 
     #[test]
