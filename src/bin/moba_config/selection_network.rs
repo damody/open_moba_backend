@@ -41,6 +41,15 @@ fn invalid(message: &'static str) -> io::Error {
 fn authority(message: String) -> io::Error {
     io::Error::other(message)
 }
+// A completed peer may already have closed before our local EOF/cleanup.
+// Windows reports that normal double close as NotConnected. Other shutdown
+// failures, and all preceding protocol/read/write failures, remain errors.
+fn close_completed_stream(socket: &TcpStream) -> io::Result<()> {
+    match socket.shutdown(Shutdown::Both) {
+        Err(error) if error.kind() == io::ErrorKind::NotConnected => Ok(()),
+        result => result,
+    }
+}
 fn valid_token(token: &str) -> bool {
     token.len() == 64
         && token
@@ -317,7 +326,7 @@ pub fn proxy(text: &str, player: u32) -> io::Result<()> {
         output.write_all(b"\n")?;
         output.flush()?;
         let Some(command) = frame(&mut input, MAX_SELECTION_LINE_BYTES)? else {
-            socket.shutdown(Shutdown::Both)?;
+            close_completed_stream(&socket)?;
             return Ok(());
         };
         socket.write_all(&command)?;
@@ -421,7 +430,7 @@ mod tests {
             self.reply()
         }
         fn finish(mut self) -> io::Result<()> {
-            self.input.get_ref().shutdown(Shutdown::Both).unwrap();
+            close_completed_stream(self.input.get_ref())?;
             self.worker
                 .take()
                 .unwrap()

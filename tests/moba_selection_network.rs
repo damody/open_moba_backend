@@ -209,7 +209,9 @@ fn selection_host_two_live_gateways_admission_shared_roster_and_handoff() {
     let follower = second.request(3, 3, json!({"kind":"read"}));
     assert!(follower["error"].is_string()); // Stale request still carries final authoritative state.
     assert_eq!(follower["selection"]["finalized"], true);
-    assert!(follower["plan"].is_null());
+    assert!(follower["plan"].is_object());
+    assert_eq!(follower["plan"], final_reply["plan"],
+        "authenticated followers receive the same finalized recipe without another handoff");
     first.finish();
     second.finish();
     wait_file(&output.join("finalized-plan.json"), &mut host);
