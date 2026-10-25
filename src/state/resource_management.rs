@@ -25,7 +25,7 @@ mod item_adapter_tests {
         w.register::<Inventory>(); w.register::<HeroCommandQueue>(); w.register::<MoveTarget>();
         w.register::<TAttack>();
         w.insert(BuffStore::default()); w.insert(ScriptEventQueue::default());
-        w.insert(ItemRegistry::from_configs(vec![ItemConfig { id: "fixture".into(), name: "Fixture".into(),
+        w.insert(ItemRegistry::from_configs(vec![ItemConfig { purchase_group: None, id: "fixture".into(), name: "Fixture".into(),
             cost: 100, bonus: ItemBonus::default(), active: Some(active), cooldown: 5.0, recipe: vec![] }]));
         let mut inventory = Inventory::default();
         inventory.slots[0] = Some(ItemInstance { item_id: "fixture".into(), cooldown_remaining: 0.0 });
