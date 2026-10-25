@@ -1727,6 +1727,15 @@ impl State {
                 };
                 let mut sanitized = input.clone();
                 let sealed_owner = match sanitized.action.as_ref() {
+                    Some(Action::OwnedSummonOrder(value)) => {
+                        let (owner,_)=omoba_core::runtime::summon_transport::validate_authority(value).ok()?;
+                        let entity=specs::world::Entity::new(owner as u32,specs::world::Generation::new((owner>>32)as i32));
+                        if !self.ecs.entities().is_alive(entity)
+                            || self.ecs.read_storage::<crate::comp::Hero>().get(entity).is_none()
+                            || !self.ecs.read_storage::<crate::comp::PlayerOwner>().get(entity).is_some_and(|o|o.player_id==*player_id)
+                            || !self.ecs.read_storage::<CProperty>().get(entity).is_some_and(|p|p.hp>omoba_sim::Fixed64::ZERO) {return None;}
+                        Some(owner)
+                    }
                     Some(Action::Direction(value)) => {
                         omoba_core::runtime::direction_transport::validate_sealed(value).ok()?;
                         let entity=specs::world::Entity::new(value.sealed_source as u32,
@@ -1757,6 +1766,13 @@ impl State {
                         .or_else(|| matches!(input.action, Some(Action::ItemBuy(_) | Action::ItemSell(_) | Action::ShopUndo(_))).then_some(0))?
                 };
                 let (action_kind, target_index, target_generation) = match sanitized.action.as_mut()? {
+                    Action::SummonCommand(_) => return None, // unsealed client payload
+                    Action::OwnedSummonOrder(value) => {
+                        let (_,summon)=omoba_core::runtime::summon_transport::validate_authority(value).ok()?;
+                        let id=summon as u32;let generation=(summon>>32)as u32;
+                        omoba_core::runtime::summon_transport::redact(value).ok()?;
+                        (omoba_core::runtime::summon_transport::ACTION_KIND,Some(id),Some(generation))
+                    }
                     Action::Stop(_) => (21, None, None),
                     Action::HoldPosition(_) => (20, None, None),
                     Action::Recall(_) => (19, None, None),

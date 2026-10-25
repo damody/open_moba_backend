@@ -192,6 +192,10 @@ fn secure_coordinate_input_with_ward(payload: &[u8], joined_player_id: Option<u3
             && omoba_core::runtime::input_scheme_transport::validate_update(&value).is_ok(),
         Some(player_input::Action::Direction(value)) => request.input_id!=0
             && omoba_core::runtime::direction_transport::validate_client(&value).is_ok(),
+        // Raw canonical actor references are not a scoped renderer capability.
+        Some(player_input::Action::OwnedSummonOrder(_)) => false,
+        Some(player_input::Action::SummonCommand(value)) => commands && request.input_id!=0
+            && omoba_core::runtime::summon_transport::validate_client(&value).is_ok(),
         _ => false,
     }
 }
@@ -2051,6 +2055,21 @@ async fn handle_client(
                                         let target_tick = req.target_tick;
                                         let input_id = req.input_id;
                                         let mut input = req.input.unwrap_or_default();
+                                        if let Some(player_input::Action::SummonCommand(value))=input.action.as_ref() {
+                                            if !secure_v2_session || joined_player_id!=Some(player_id) || input_id==0 {continue;}
+                                            let binding={let sessions=sessions.lock().await;
+                                                sessions.get(&session_id).and_then(|session| {
+                                                    (session.authenticated_player_id==Some(player_id))
+                                                        .then_some((session.authenticated_team_id,session.current_view_epoch))
+                                                })};
+                                            let Some((Some(team),epoch))=binding else {continue;};
+                                            let resolved=secure_input_validation.lock().ok().and_then(|snapshot|
+                                                omoba_core::runtime::summon_transport::seal_client(value,&snapshot,team,epoch,u64::from(target_tick)).ok());
+                                            let Some(order)=resolved else {
+                                                invalid_reference_limiter.admit(&session_id,u64::from(current_tick));continue;
+                                            };
+                                            input.action=Some(player_input::Action::OwnedSummonOrder(order));
+                                        }
                                         if let Some(player_input::Action::Direction(value))=input.action.as_mut() {
                                             if !secure_v2_session || joined_player_id!=Some(player_id) || input_id==0
                                                 || omoba_core::runtime::direction_transport::validate_client(value).is_err() {continue;}
@@ -3556,6 +3575,36 @@ mod tests {
     }
 
     #[test]
+    fn secure_owned_summon_order_stays_closed_without_scoped_transport() {
+        for operation in [1, 2] {
+            let bytes = encoded_input(7, player_input::Action::OwnedSummonOrder(
+                omoba_core::game_proto::OwnedSummonOrder {
+                    owner_entity: 0, owner_generation: 1, summon_entity: 9,
+                    summon_generation: 2, operation,
+                    point: (operation == 1).then_some(Vec2I { x: 120, y: 40 }),
+                },
+            ));
+            assert!(!secure_coordinate_input_with_ward(
+                &bytes, Some(7), true, true, true, true, true, true,
+            ));
+        }
+    }
+
+    #[test]
+    fn summon_wire_edge_admits_opaque_shape_only_for_joined_command_session() {
+        use omoba_core::game_proto::{SecureReplicaTarget,ReplicaEntityId,ViewEpoch,DisclosureEpoch};
+        let reference=|id|SecureReplicaTarget{replica_entity_id:Some(ReplicaEntityId{value:id}),view_epoch:Some(ViewEpoch{value:4}),disclosure_epoch:Some(DisclosureEpoch{value:3})};
+        let value=omoba_core::runtime::summon_transport::client_from_references(reference(9),reference(12),2,None).unwrap();
+        let bytes=encoded_input(7,player_input::Action::SummonCommand(value.clone()));
+        assert!(secure_coordinate_input_with_ward(&bytes,Some(7),false,false,true,false,false,false));
+        assert!(!secure_coordinate_input_with_ward(&bytes,Some(8),false,false,true,false,false,false));
+        assert!(!secure_coordinate_input_with_ward(&bytes,Some(7),false,false,false,false,false,false));
+        let mut malformed=value;malformed.operation=1;
+        let bytes=encoded_input(7,player_input::Action::SummonCommand(malformed));
+        assert!(!secure_coordinate_input_with_ward(&bytes,Some(7),false,false,true,false,false,false));
+    }
+
+    #[test]
     fn secure_coordinate_input_accepts_joined_players_move_commands() {
         let move_to = encoded_input(
             7,
@@ -3884,7 +3933,7 @@ mod tests {
         let hash = omoba_template_ids::CONTENT_CATALOG_DATA_HASH;
         let version = omoba_core::runtime::ward_transport::WARD_PROTOCOL_VERSION;
         assert_eq!(version, 3);
-        assert_eq!(omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION, 13);
+        assert_eq!(omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION, 15);
         assert_eq!(validate_ward_join_request(&JoinRequest::default()), Ok(false));
         let mut partial = JoinRequest::default();
         partial.ward_protocol_version = version;
