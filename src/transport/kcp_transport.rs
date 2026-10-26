@@ -51,6 +51,7 @@ const TAG_SECURE_TARGET_INPUT_V2: u8 = 0x27;
 const TAG_SECURE_TARGET_INPUT_RESULT_V2: u8 = 0x28;
 const TAG_CLIENT_REPLICA_CHECKPOINT_V2: u8 = 0x29;
 const TAG_SESSION_CLOSE: u8 = 0x2A;
+const TAG_MATCH_TERMINATED: u8 = omoba_core::wire_tags::TAG_MATCH_TERMINATED;
 const LATE_INPUT_GRACE_MS: u32 = 1_000;
 
 /// 標籤的高位元 — 當幀有效負載經過 LZ4 壓縮時設定。
@@ -76,6 +77,24 @@ fn validate_join_wire_protocol(request: &JoinRequest) -> Result<bool, &'static s
     negotiation.resolve(None)
         .map(|mode| mode == omoba_core::transport::MatchProtocol::SelectiveV2)
         .map_err(|_| "UNSUPPORTED_WIRE_PROTOCOL")
+}
+
+/// Disconnect hold: one server Stop for the departed player's hero, with the
+/// next id of that player's input allocator (a rejoining client resumes above it
+/// from `last_seen_input_id`). Applied next tick through the ordinary input path.
+fn hold_departed_hero(
+    lockstep_state: &std::sync::Mutex<crate::lockstep::LockstepState>,
+    lockstep_input_buffer: &std::sync::Mutex<crate::lockstep::InputBuffer>,
+    player_id: u32,
+) {
+    let input = crate::lockstep::PlayerInput { action: Some(crate::lockstep::PlayerInputEnum::Stop(omoba_core::game_proto::Stop {})) };
+    if !secure_gameplay_input_allowed(&input, crate::config::server_config::CONFIG.MATCH_GAMEPLAY_MODE) { return; }
+    let current_tick = lockstep_state.lock().unwrap().current_tick;
+    let mut buffer = lockstep_input_buffer.lock().unwrap();
+    let Some(input_id) = buffer.last_seen_input_id(player_id).checked_add(1) else { return; };
+    let grace_ticks = late_input_grace_ticks(crate::config::server_config::CONFIG.STEP_FPS);
+    let result = buffer.submit_with_late_grace(current_tick, player_id, current_tick.saturating_add(1), input, input_id, grace_ticks);
+    info!("KCP player disconnected; hero held player={} tick={} input_id={} result={:?}", player_id, current_tick, input_id, result);
 }
 
 fn log_input_submit_result(
@@ -426,10 +445,6 @@ struct ClientSession {
     ward_protocol_agreed: bool,
     ward_session: u64,
     last_owner_ward_projection: Vec<u8>,
-    /// Tick of the last owner envelope this session successfully sent, or the
-    /// bootstrap tick stamped at join. Recovery reseals at this tick so a
-    /// paused client can restore the same order without trusting a query field.
-    last_owner_ward_tick: u64,
     /// Communication channel agreement. Independent of lockstep protocol version.
     communication_agreed: bool,
     communication_room_id: u64,
@@ -441,9 +456,11 @@ struct ClientSession {
     communication_replay_outstanding: bool,
 }
 
+/// One stored team bootstrap. `tick` is the tick its owner bytes were projected at.
 struct OwnerWardDispatchRow {
     team_id: u32,
     view_epoch: u64,
+    tick: u64,
     owner_wards: std::collections::BTreeMap<u32, Vec<u8>>,
 }
 
@@ -457,6 +474,7 @@ fn owner_ward_dispatch_rows(
         .map(|(team, stored)| OwnerWardDispatchRow {
             team_id: *team,
             view_epoch: stored.start.view_epoch.as_ref().map_or(0, |epoch| epoch.value),
+            tick: omoba_core::runtime::ward_transport::owner_ward_bootstrap_tick(&stored.start),
             owner_wards: stored.owner_wards.clone(),
         })
         .collect()
@@ -465,7 +483,6 @@ fn owner_ward_dispatch_rows(
 fn dispatch_owner_ward_envelopes(
     sessions: &mut HashMap<String, ClientSession>,
     rows: &[OwnerWardDispatchRow],
-    authoritative_tick: u64,
     force: bool,
 ) {
     for session in sessions.values_mut() {
@@ -486,16 +503,17 @@ fn dispatch_owner_ward_envelopes(
         let Some(row) = rows.iter().find(|row| row.team_id == team_id) else {
             continue;
         };
-        let view_epoch = row.view_epoch;
         let projection = row.owner_wards.get(&player_id).cloned().unwrap_or_default();
         if !force && projection == session.last_owner_ward_projection {
             continue;
         }
+        // Sealed at the store tick, not the team frame tick that triggered this
+        // dispatch: frames lag and repeat while the projected clock moves.
         let envelope = omoba_core::runtime::ward_transport::seal_owner_ward_envelope(
             player_id,
             session.ward_session,
-            view_epoch,
-            authoritative_tick,
+            row.view_epoch,
+            row.tick,
             &projection,
         );
         let framed: Arc<[u8]> = Arc::from(
@@ -507,7 +525,6 @@ fn dispatch_owner_ward_envelopes(
         );
         if session.event_tx.try_send(framed).is_ok() {
             session.last_owner_ward_projection = projection;
-            session.last_owner_ward_tick = authoritative_tick;
         }
     }
 }
@@ -1058,7 +1075,16 @@ pub async fn start(
                                     owner_ward_dispatch_rows(&stored, Some(team_id))
                                 };
                                 let mut sessions = sessions_broadcast.lock().await;
-                                dispatch_owner_ward_envelopes(&mut sessions, &rows, replica_tick, false);
+                                dispatch_owner_ward_envelopes(&mut sessions, &rows, false);
+                            }
+                            crate::lockstep::LockstepFrame::MatchTerminated { reason_class, last_safe_sequence } => {
+                                // Team-opaque: reason class and sequence only, to every session.
+                                let payload = omoba_core::wire_tags::encode_match_terminated(&reason_class, last_safe_sequence);
+                                let framed: Arc<[u8]> = Arc::from(build_framed_bytes(TAG_MATCH_TERMINATED, &payload).into_boxed_slice());
+                                let sessions = sessions_broadcast.lock().await;
+                                for session in sessions.values() {
+                                    let _ = session.event_tx.try_send(Arc::clone(&framed));
+                                }
                             }
                             crate::lockstep::LockstepFrame::TeamRebaseChunkV2 { team_id, encoded } => {
                                 let targets = team_stream_router_broadcast.lock().await.session_ids_for_team(team_id);
@@ -1071,9 +1097,7 @@ pub async fn start(
                                 }
                             }
                             crate::lockstep::LockstepFrame::TeamRebaseManifestV2 { team_id, encoded } => {
-                                let recovery_tick = TeamViewRebase::decode(encoded.as_ref())
-                                    .ok()
-                                    .map(|manifest| manifest.authoritative_tick);
+                                let rebased = TeamViewRebase::decode(encoded.as_ref()).is_ok();
                                 let targets = team_stream_router_broadcast.lock().await.session_ids_for_team(team_id);
                                 let framed: Arc<[u8]> = Arc::from(build_framed_bytes(TAG_TEAM_REBASE_MANIFEST_V2, &encoded).into_boxed_slice());
                                 let sessions = sessions_broadcast.lock().await;
@@ -1083,7 +1107,7 @@ pub async fn start(
                                     }
                                 }
                                 drop(sessions);
-                                if let Some(tick) = recovery_tick {
+                                if rebased {
                                     let rows = {
                                         let stored = owner_ward_bootstrap_broadcast
                                             .lock()
@@ -1091,7 +1115,7 @@ pub async fn start(
                                         owner_ward_dispatch_rows(&stored, Some(team_id))
                                     };
                                     let mut sessions = sessions_broadcast.lock().await;
-                                    dispatch_owner_ward_envelopes(&mut sessions, &rows, tick, true);
+                                    dispatch_owner_ward_envelopes(&mut sessions, &rows, true);
                                 }
                             }
                             crate::lockstep::LockstepFrame::TickBatch(batch_msg) => {
@@ -1401,7 +1425,7 @@ pub async fn start(
     let communication_registry_accept = Arc::clone(&communication_registry);
 
     // 同步綁定，因此如果連接埠被過時的實例佔用，啟動會快速失敗。
-    let mut listener = KcpListener::bind(config, addr)
+    let mut listener = bind_kcp_listener(config, addr)
         .await
         .map_err(|e| failure::err_msg(format!("Failed to bind KCP listener on {}: {}", addr, e)))?;
 
@@ -1713,6 +1737,8 @@ async fn handle_client(
     // 追蹤訂閱的player_name，以便我們可以在斷開連接時發送刪除
     let mut player_name: Option<String> = None;
     let mut joined_player_id: Option<u32> = None;
+    // A secure player (not an observer) whose hero is held after a disconnect.
+    let mut joined_secure_player = false;
     let mut shop_protocol_agreed = false;
     let mut shop_undo_agreed = false;
     let mut recall_protocol_agreed = false;
@@ -1723,6 +1749,10 @@ async fn handle_client(
     let mut shop_query_budget = omoba_core::runtime::shop_transport::ShopQueryBudget::default();
     let mut invalid_reference_limiter =
         omoba_core::runtime::InvalidReferenceRateLimiter::new(16, 120);
+    // Clients ping every second; silence past the shared tolerance is an
+    // explicit link-lost verdict (the client gives the same verdict).
+    let mut last_client_activity = std::time::Instant::now();
+    let link_lost_after = omoba_core::lockstep_timing::LINK_LOST_AFTER;
 
     // 主循環：從客戶端讀取，可選擇寫入出站事件
     loop {
@@ -1730,6 +1760,7 @@ async fn handle_client(
             result = read_framed(&mut reader) => {
                 match result {
                     Ok(Some((tag, payload, _wire_bytes))) => {
+                        last_client_activity = std::time::Instant::now();
                         let secure_v2_session = {
                             let sessions = sessions.lock().await;
                             sessions.get(&session_id).is_some_and(|session| {
@@ -1762,7 +1793,7 @@ async fn handle_client(
                                 let Some(player) = joined_player_id.filter(|player| *player != 0) else { continue; };
                                 let Ok(query) = OwnerWardRecoveryQuery::decode(payload.as_slice()) else { continue; };
                                 if query.request_id == 0 { continue; }
-                                let (team_id, ward_session, sealed_tick) = {
+                                let (team_id, ward_session) = {
                                     let sessions = sessions.lock().await;
                                     let Some(session) = sessions.get(&session_id) else { continue; };
                                     if !session.ward_protocol_agreed
@@ -1771,7 +1802,7 @@ async fn handle_client(
                                     {
                                         continue;
                                     }
-                                    (session.authenticated_team_id, session.ward_session, session.last_owner_ward_tick)
+                                    (session.authenticated_team_id, session.ward_session)
                                 };
                                 let Some(team_id) = team_id else { continue; };
                                 let prepared = {
@@ -1780,9 +1811,10 @@ async fn handle_client(
                                     let view_epoch = stored.start.view_epoch.as_ref().map_or(0, |epoch| epoch.value);
                                     if query.view_epoch != view_epoch { continue; }
                                     let projection = stored.owner_wards.get(&player).cloned().unwrap_or_default();
-                                    let tick = omoba_core::runtime::ward_transport::owner_ward_bootstrap_tick(&stored.start).max(sealed_tick);
-                                    let envelope = omoba_core::runtime::ward_transport::seal_owner_ward_envelope(
-                                        player, ward_session, view_epoch, tick, &projection,
+                                    // Same store refresh, same tick: a recovery answer can never be a
+                                    // second byte string under a tick the client already verified.
+                                    let envelope = omoba_core::runtime::ward_transport::seal_stored_owner_ward_envelope(
+                                        &stored.start, player, ward_session, &projection,
                                     );
                                     (envelope, projection)
                                 };
@@ -1912,7 +1944,6 @@ async fn handle_client(
                                             ward_protocol_agreed: false,
                                             ward_session: 0,
                                             last_owner_ward_projection: Vec::new(),
-                                            last_owner_ward_tick: 0,
                                             communication_agreed: false,
                                             communication_room_id: 0,
                                             communication_run_id: 0,
@@ -2161,6 +2192,18 @@ async fn handle_client(
                                                 Ok(secure) => secure,
                                                 Err(reason) => { warn!("JoinRequest wire protocol rejected: {}", reason); break; }
                                             };
+                                            // Rejoin identity: a secure player that joined before must
+                                            // present its latest resume token (checked before any state change).
+                                            let identity = if secure_requested && role == crate::lockstep::JoinRoleEnum::Player {
+                                                match s.verify_join_identity(declared_player_id, &req.resume_token) {
+                                                    Ok(identity) => Some(identity),
+                                                    Err(reason) => {
+                                                        warn!("KCP lockstep JoinRequest rejected declared_player_id={} session={}: {}",
+                                                            declared_player_id, session_id, reason);
+                                                        break;
+                                                    }
+                                                }
+                                            } else { None };
                                             let result = if secure_requested {
                                                 s.register_secure_player(
                                                     declared_player_id,
@@ -2184,9 +2227,12 @@ async fn handle_client(
                                                     role,
                                                 ).map(|pid| (pid, None))
                                             };
-                                            result.map(|(pid, binding)| (pid, s.master_seed, s.current_tick, binding))
+                                            result.map(|(pid, binding)| {
+                                                let token = identity.map(|_| s.issue_resume_token(pid, &req.resume_token));
+                                                (pid, s.master_seed, s.current_tick, binding, identity, token)
+                                            })
                                         };
-                                        let (player_id, master_seed, start_tick, mut secure_binding) = match registered {
+                                        let (player_id, master_seed, start_tick, mut secure_binding, join_identity, resume_token) = match registered {
                                             Ok(v) => v,
                                             Err(reason) => {
                                                 warn!(
@@ -2236,6 +2282,7 @@ async fn handle_client(
                                                 .map_or(1, |epoch| epoch.value);
                                         }
                                         joined_player_id = Some(player_id);
+                                        joined_secure_player = secure_binding.is_some() && role == crate::lockstep::JoinRoleEnum::Player;
                                         let communication_generation = communication_registry.lock().ok().and_then(|mut registry| registry.open_session(&session_id)).map(|life| life.generation).unwrap_or(0);
                                         // 將此會話標記為已加入
                                         // 鎖步流因此未來 TickBatch /
@@ -2258,7 +2305,6 @@ async fn handle_client(
                                                     0
                                                 };
                                                 s.last_owner_ward_projection.clear();
-                                                s.last_owner_ward_tick = 0;
                                                 s.communication_agreed = false;
                                                 s.communication_room_id = 0;
                                                 s.communication_run_id = 0;
@@ -2299,7 +2345,6 @@ async fn handle_client(
                                                             0
                                                         },
                                                         last_owner_ward_projection: Vec::new(),
-                                                        last_owner_ward_tick: 0,
                                                         communication_agreed: false,
                                                         communication_room_id: 0,
                                                         communication_run_id: 0,
@@ -2319,6 +2364,10 @@ async fn handle_client(
                                             "🎮 KCP lockstep JoinRequest player='{}' role={:?} accepted player_id={} (session={})",
                                             req.player_name, role, player_id, session_id
                                         );
+                                        if join_identity == Some(crate::lockstep::state::JoinIdentity::Rejoin) {
+                                            info!("KCP player rejoined player={} team={:?} tick={} session={}",
+                                                player_id, secure_binding.as_ref().map(|binding| binding.authenticated_team_id), start_tick, session_id);
+                                        }
                                         // 透過單播方式傳送 GameStart
                                         // 廣播線程（所以它通過
                                         // 相同的每會話 event_tx
@@ -2356,9 +2405,7 @@ async fn handle_client(
                                                 omoba_core::runtime::ward_transport::stamp_owner_ward_admission(
                                                     &mut current, ward_protocol_agreed, owner_session, &owner_projection,
                                                 );
-                                                if let Some(session) = sessions.lock().await.get_mut(&session_id) {
-                                                    session.last_owner_ward_tick = omoba_core::runtime::ward_transport::owner_ward_bootstrap_tick(&current);
-                                                }
+                                                current.resume_token = resume_token.clone().unwrap_or_default();
                                                 current.input_allocator_version = 1;
                                                 current.last_seen_input_id = lockstep_input_buffer
                                                     .lock().expect("input buffer mutex poisoned")
@@ -2448,6 +2495,7 @@ async fn handle_client(
                                                     owner_ward_projection: Vec::new(),
                                                     owner_ward_envelope: None,
                                                     combat_preferences: None,
+                                                    resume_token: resume_token.clone().unwrap_or_default(),
                                                 };
                                             omoba_core::runtime::ward_transport::stamp_owner_ward_admission(
                                                 &mut fallback,
@@ -2459,9 +2507,6 @@ async fn handle_client(
                                                 },
                                                 &[],
                                             );
-                                            if let Some(session) = sessions.lock().await.get_mut(&session_id) {
-                                                session.last_owner_ward_tick = omoba_core::runtime::ward_transport::owner_ward_bootstrap_tick(&fallback);
-                                            }
                                             crate::lockstep::LockstepFrame::TeamGameStartV2 {
                                                 client_session_id: session_id.clone(),
                                                 msg: fallback,
@@ -2902,8 +2947,21 @@ async fn handle_client(
                 // 複製到 KCP 套接字緩衝區，但遊戲端
                 // 分配被重新計數－在最後一個會話時被刪除
                 // 臉紅。
-                if writer.write_all(&frame).await.is_err() {
+                if last_client_activity.elapsed() >= link_lost_after {
+                    warn!("KCP link lost session={} player={:?}: no client traffic for {} ms (tolerance {} ms)",
+                        session_id, joined_player_id, last_client_activity.elapsed().as_millis(), link_lost_after.as_millis());
                     break;
+                }
+                // A dead path fills the KCP send window and parks this write;
+                // bound it so the session ends instead of hanging forever.
+                match tokio::time::timeout(link_lost_after, writer.write_all(&frame)).await {
+                    Ok(Ok(())) => {}
+                    Ok(Err(_)) => break,
+                    Err(_) => {
+                        warn!("KCP link lost session={} player={:?}: outbound blocked for {} ms",
+                            session_id, joined_player_id, link_lost_after.as_millis());
+                        break;
+                    }
                 }
                 let _ = writer.flush().await;
             }
@@ -2924,6 +2982,13 @@ async fn handle_client(
         let _ = viewport_tx.send(ViewportMsg::Remove { player_name: name });
     }
     if let Some(player_id) = joined_player_id {
+        // The hero stays in the match, held: a server Stop clears its movement,
+        // attack intent and queue (idle autoattack unchanged) until the player
+        // rejoins with its resume token. It flows through the normal input path,
+        // so every team replica applies it on the same tick.
+        if joined_secure_player {
+            hold_departed_hero(&lockstep_state, &lockstep_input_buffer, player_id);
+        }
         lockstep_state.lock().unwrap().unregister_player(player_id);
     }
     info!("KCP session cleaned up: {}", session_id);
@@ -3933,7 +3998,7 @@ mod tests {
         let hash = omoba_template_ids::CONTENT_CATALOG_DATA_HASH;
         let version = omoba_core::runtime::ward_transport::WARD_PROTOCOL_VERSION;
         assert_eq!(version, 3);
-        assert_eq!(omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION, 15);
+        assert_eq!(omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION, 18);
         assert_eq!(validate_ward_join_request(&JoinRequest::default()), Ok(false));
         let mut partial = JoinRequest::default();
         partial.ward_protocol_version = version;
@@ -4065,6 +4130,7 @@ mod tests {
             summoner_rules_hash: String::new(),
             ward_protocol_version: 0,
             ward_rules_hash: String::new(),
+            resume_token: Vec::new(),
         };
         let observer = JoinRequest {
             player_name: "bob".into(),
@@ -4088,6 +4154,7 @@ mod tests {
             summoner_rules_hash: String::new(),
             ward_protocol_version: 0,
             ward_rules_hash: String::new(),
+            resume_token: Vec::new(),
         };
         let p_bytes = player.encode_to_vec();
         let o_bytes = observer.encode_to_vec();
@@ -4125,5 +4192,70 @@ mod tests {
             "expected compressed frame < 500B, got {}",
             frame.len()
         );
+    }
+}
+
+/// One UDP socket serves every KCP session. On Windows an ICMP "port unreachable"
+/// for a peer that went away (a finished query client, a closed renderer) makes the
+/// next `recv_from` on the shared socket fail with WSAECONNRESET (10054); tokio_kcp
+/// then sleeps one second, stalling every live session. Disabling SIO_UDP_CONNRESET
+/// keeps one departed peer from affecting the others.
+async fn bind_kcp_listener(config: tokio_kcp::KcpConfig, addr: std::net::SocketAddr) -> std::io::Result<KcpListener> {
+    let socket = std::net::UdpSocket::bind(addr)?;
+    #[cfg(windows)]
+    disable_udp_connreset(&socket)?;
+    socket.set_nonblocking(true)?;
+    let socket = tokio::net::UdpSocket::from_std(socket)?;
+    KcpListener::from_socket(config, socket)
+        .await
+        .map_err(std::io::Error::other)
+}
+
+#[cfg(windows)]
+fn disable_udp_connreset(socket: &std::net::UdpSocket) -> std::io::Result<()> {
+    use std::os::windows::io::AsRawSocket;
+    use windows_sys::Win32::Networking::WinSock::{WSAGetLastError, WSAIoctl, SIO_UDP_CONNRESET};
+    let enable: u32 = 0;
+    let mut returned: u32 = 0;
+    // SAFETY: valid socket handle owned by `socket`; input buffer is a live u32; no overlapped I/O.
+    let status = unsafe {
+        WSAIoctl(
+            socket.as_raw_socket() as usize,
+            SIO_UDP_CONNRESET,
+            &enable as *const u32 as *const core::ffi::c_void,
+            std::mem::size_of::<u32>() as u32,
+            std::ptr::null_mut(),
+            0,
+            &mut returned,
+            std::ptr::null_mut(),
+            None,
+        )
+    };
+    if status != 0 {
+        return Err(std::io::Error::from_raw_os_error(unsafe { WSAGetLastError() }));
+    }
+    Ok(())
+}
+
+#[cfg(all(test, windows))]
+mod udp_connreset_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn departed_peer_does_not_fail_shared_socket_receive() {
+        let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        disable_udp_connreset(&socket).unwrap();
+        socket.set_read_timeout(Some(std::time::Duration::from_millis(300))).unwrap();
+        // A peer that has gone away: send to it, provoking ICMP port unreachable.
+        let gone = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let gone_addr = gone.local_addr().unwrap();
+        drop(gone);
+        socket.send_to(b"ping", gone_addr).unwrap();
+        let live = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        live.send_to(b"live", socket.local_addr().unwrap()).unwrap();
+        let mut buffer = [0u8; 16];
+        let (n, from) = socket.recv_from(&mut buffer).expect("receive is not poisoned by the departed peer");
+        assert_eq!(&buffer[..n], b"live");
+        assert_eq!(from, live.local_addr().unwrap());
     }
 }

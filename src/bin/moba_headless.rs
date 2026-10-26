@@ -119,6 +119,9 @@ where
                 let map = omoba_template_ids::moba_map_by_name(value)
                     .ok_or_else(|| err_msg(format!("unknown compiled MOBA map: {value}")))?;
                 config.lane_length = omoba_sim::Fixed64::from_i32(map.lane_length);
+                config.tower_hp = omoba_sim::Fixed64::from_i32(map.tower_hp);
+                config.base_hp = omoba_sim::Fixed64::from_i32(map.base_hp);
+                config.hero_xp_scale_permille = map.hero_xp_scale_permille();
                 config.map_id = Some(value.to_string());
             }
             "--defender" => {
@@ -901,6 +904,11 @@ mod diagnostic_tests {
         assert!(format!("{}", checked_game_ticks(u64::MAX, 60).unwrap_err()).contains("overflow"));
         assert!(checked_game_ticks(u64::MAX / 60 + 1, 60).is_err());
 
+        // E096: --map carries the map's hero XP multiplier like its tower and base hp.
+        for map in omoba_template_ids::MOBA_MAPS {
+            let parsed = parse_headless_args(["--map", map.id]).unwrap();
+            assert_eq!(parsed.config.hero_xp_scale_permille, map.hero_xp_scale_permille(), "{}", map.id);
+        }
         let defaults = parse_headless_args(Vec::<&str>::new()).unwrap();
         assert_eq!(defaults.max_game_seconds, 600);
         assert_eq!(defaults.stall_game_seconds, 300);

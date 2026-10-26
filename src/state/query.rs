@@ -241,3 +241,114 @@ pub fn query_inspect_player_view(world: &World, player_name: &str) -> QueryRespo
         data_json: serde_json::to_vec(&data).unwrap_or_default(),
     }
 }
+
+/// Whole-match authority status for local debugging tools (omb-mcp `match_status`).
+/// This is the unfiltered authority view: it must never reach a player, so every
+/// state query is refused unless the server runs with `OMB_DEBUG_QUERY=1`.
+pub fn query_match_status(world: &World) -> QueryResponse {
+    use omoba_core::runtime::{MobaMatch, MobaMatchPhase};
+    let Some(state) = world.try_fetch::<MobaMatch>() else {
+        return QueryResponse {
+            success: false,
+            error: "no MOBA match is running".into(),
+            data_json: Vec::new(),
+        };
+    };
+    let entities = world.entities();
+    let positions = world.read_storage::<Pos>();
+    let properties = world.read_storage::<CProperty>();
+    let vitals = |entity: Option<Entity>| -> serde_json::Value {
+        match entity.filter(|e| entities.is_alive(*e)) {
+            Some(e) => {
+                let prop = properties.get(e);
+                let pos = positions.get(e);
+                json!({
+                    "alive": true,
+                    "hp": prop.map(|p| p.hp.to_f32_for_render()),
+                    "max_hp": prop.map(|p| p.mhp.to_f32_for_render()),
+                    "position": pos.map(|p| [p.0.x.to_f32_for_render(), p.0.y.to_f32_for_render()]),
+                })
+            }
+            None => json!({ "alive": false }),
+        }
+    };
+    let (phase, winner, finished_tick) = match state.phase {
+        MobaMatchPhase::Warmup => ("warmup", None, None),
+        MobaMatchPhase::Playing => ("playing", None, None),
+        MobaMatchPhase::Finished { winner, tick } => ("finished", winner, Some(tick)),
+    };
+    let heroes: Vec<serde_json::Value> = state
+        .heroes
+        .iter()
+        .map(|slot| {
+            json!({
+                "player_id": slot.player_id,
+                "side": slot.side,
+                "kills": slot.kills,
+                "deaths": slot.deaths,
+                "assists": slot.assists,
+                "respawns": slot.respawns,
+                "respawn_at_seconds": slot.respawn_at.map(|t| t.to_f32_for_render()),
+                "hero": vitals(slot.entity),
+            })
+        })
+        .collect();
+    let mut standing = [0u32; 2];
+    let lanes: Vec<serde_json::Value> = state
+        .lane_tower_layers
+        .iter()
+        .enumerate()
+        .map(|(lane, layers)| {
+            let layers: Vec<serde_json::Value> = layers
+                .iter()
+                .enumerate()
+                .map(|(layer, sides)| {
+                    let side_status: Vec<serde_json::Value> = sides
+                        .iter()
+                        .enumerate()
+                        .map(|(side, tower)| {
+                            let status = vitals(*tower);
+                            if status["alive"] == true { standing[side] += 1; }
+                            status
+                        })
+                        .collect();
+                    json!({ "layer": layer, "sides": side_status })
+                })
+                .collect();
+            json!({ "lane": lane, "layers": layers })
+        })
+        .collect();
+    let data = json!({
+        "schema_version": 1,
+        "scope": "authority-debug-unfiltered",
+        "phase": phase,
+        "winner_side": winner,
+        "finished_tick": finished_tick,
+        "elapsed_seconds": state.elapsed.to_f32_for_render(),
+        "waves": state.waves,
+        "towers_standing_by_side": standing,
+        "bases": state.bases.iter().map(|base| vitals(*base)).collect::<Vec<_>>(),
+        "base_unlocked_by_side": [state.base_unlocked(0), state.base_unlocked(1)],
+        "base_structures": state.base_structure_rows().into_iter().map(|(team, lane, role, entity, respawn_at, unlocked)| {
+            let mut row = vitals(entity);
+            row["side"] = json!(team);
+            row["lane"] = json!(lane);
+            row["role"] = json!(format!("{role:?}"));
+            row["attackable"] = json!(unlocked);
+            row["respawn_at_seconds"] = json!(respawn_at.map(|t| t.to_f32_for_render()));
+            row
+        }).collect::<Vec<_>>(),
+        "heroes": heroes,
+        "lanes": lanes,
+    });
+    QueryResponse {
+        success: true,
+        error: String::new(),
+        data_json: serde_json::to_vec(&data).unwrap_or_default(),
+    }
+}
+
+/// Debug state queries are opt-in per server process (`OMB_DEBUG_QUERY=1`).
+pub fn debug_queries_enabled() -> bool {
+    std::env::var("OMB_DEBUG_QUERY").map(|value| value == "1").unwrap_or(false)
+}

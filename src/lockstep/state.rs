@@ -35,6 +35,38 @@ pub struct LockstepState {
     pub secure_fog_required: bool,
     pub match_protocol: Option<omoba_core::transport::MatchProtocol>,
     authenticated_team_bindings: BTreeMap<u32, u32>,
+    /// Rejoin secret per player: issued (and rotated) on every accepted join,
+    /// sent only in that player's unicast TeamGameStart, never logged.
+    resume_tokens: BTreeMap<u32, ResumeTokens>,
+}
+
+/// Two-phase rotation (E077): a newly issued token stays `pending` until the
+/// client proves it received it by presenting it on a later join. Until then
+/// the last proven token (`confirmed`) keeps working, so a join that the
+/// server accepted but whose TeamGameStart never reached the client (the
+/// attempt timed out on a dead link) cannot lock the player out.
+#[derive(Debug, Clone, Default)]
+struct ResumeTokens {
+    confirmed: Option<[u8; 32]>,
+    pending: Option<[u8; 32]>,
+}
+
+/// Length and content compared without an early exit.
+fn token_matches(expected: &[u8; 32], presented: &[u8]) -> bool {
+    let mut difference = (presented.len() ^ expected.len()) as u8;
+    for (index, byte) in expected.iter().enumerate() {
+        difference |= byte ^ presented.get(index).copied().unwrap_or(0);
+    }
+    difference == 0
+}
+
+/// Outcome of the rejoin identity check for one JoinRequest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JoinIdentity {
+    /// The player never joined this match; no token is required.
+    FirstJoin,
+    /// The player joined before and presented its latest resume token.
+    Rejoin,
 }
 
 impl LockstepState {
@@ -46,7 +78,48 @@ impl LockstepState {
             secure_fog_required: false,
             match_protocol: None,
             authenticated_team_bindings: BTreeMap::new(),
+            resume_tokens: BTreeMap::new(),
         }
+    }
+
+    /// Identity check before registration. A player that has joined before can
+    /// come back only with a token the server issued to it and that is still
+    /// live: the last one the client proved it holds, or the newest one issued
+    /// since. A missing or other token is refused, so nobody can take over a
+    /// held hero. Until the first issued token is proven, an empty token still
+    /// counts as a first join (that client never learned any token). Leaves all
+    /// state unchanged.
+    pub fn verify_join_identity(&self, player_id: u32, presented: &[u8]) -> Result<JoinIdentity, String> {
+        let Some(tokens) = self.resume_tokens.get(&player_id) else {
+            return if presented.is_empty() { Ok(JoinIdentity::FirstJoin) }
+                else { Err(format!("player_id {player_id} presented a resume token before any join")) };
+        };
+        if tokens.confirmed.is_none() && presented.is_empty() {
+            return Ok(JoinIdentity::FirstJoin);
+        }
+        // Both candidates are always compared, without an early exit.
+        let confirmed = tokens.confirmed.as_ref().is_some_and(|t| token_matches(t, presented));
+        let pending = tokens.pending.as_ref().is_some_and(|t| token_matches(t, presented));
+        if !(confirmed | pending) {
+            return Err(format!("player_id {player_id} rejoin refused: missing or stale resume token"));
+        }
+        Ok(JoinIdentity::Rejoin)
+    }
+
+    /// Called once the join that presented `presented` is accepted: a pending
+    /// token presented here is now proven received and becomes the confirmed
+    /// one (older tokens die). Returns a fresh pending secret for the next
+    /// rejoin; it replaces any earlier unproven one.
+    pub fn issue_resume_token(&mut self, player_id: u32, presented: &[u8]) -> Vec<u8> {
+        let tokens = self.resume_tokens.entry(player_id).or_default();
+        if let Some(pending) = tokens.pending {
+            if token_matches(&pending, presented) {
+                tokens.confirmed = Some(pending);
+            }
+        }
+        let token: [u8; 32] = rand::random();
+        tokens.pending = Some(token);
+        token.to_vec()
     }
 
     /// Populated only by the server authentication boundary, never from a
@@ -192,5 +265,65 @@ mod tests {
         assert_eq!(second.authenticated_team_id, 1);
         assert_eq!(opponent.authenticated_team_id, 2);
         assert_eq!(state.players.len(), 3);
+    }
+
+    #[test]
+    fn rejoin_requires_the_latest_resume_token_of_that_player() {
+        let mut state = LockstepState::new(0x1234);
+        assert_eq!(state.verify_join_identity(7, &[]), Ok(JoinIdentity::FirstJoin));
+        assert!(state.verify_join_identity(7, &[1; 32]).is_err(), "no token exists before a first join");
+        state.register_player(7, "p7".into(), JoinRoleEnum::Player).unwrap();
+        let first = state.issue_resume_token(7, &[]);
+        assert_eq!(first.len(), 32);
+        // Disconnect: the session ends and the player is unregistered.
+        state.unregister_player(7);
+        // The first token is proven by its first use; once a token is proven,
+        // an empty one no longer counts as a first join.
+        assert_eq!(state.verify_join_identity(7, &first), Ok(JoinIdentity::Rejoin));
+        state.register_player(7, "p7".into(), JoinRoleEnum::Player).unwrap();
+        let second = state.issue_resume_token(7, &first);
+        assert_ne!(first, second, "every join rotates the token");
+        state.unregister_player(7);
+        for wrong in [Vec::new(), vec![0; 32], first[..31].to_vec(), [first.clone(), vec![0]].concat()] {
+            assert!(state.verify_join_identity(7, &wrong).is_err(), "refused {wrong:?}");
+        }
+        assert!(state.verify_join_identity(8, &first).is_err(), "a token belongs to its own player");
+        assert_eq!(state.verify_join_identity(7, &second), Ok(JoinIdentity::Rejoin));
+        state.register_player(7, "p7".into(), JoinRoleEnum::Player).unwrap();
+        let third = state.issue_resume_token(7, &second);
+        state.unregister_player(7);
+        assert!(state.verify_join_identity(7, &first).is_err(), "a token older than the proven one is stale");
+        assert_eq!(state.verify_join_identity(7, &third), Ok(JoinIdentity::Rejoin));
+    }
+
+    /// E077: the server accepted a rejoin and issued a new token, but the
+    /// TeamGameStart carrying it never reached the client (the attempt timed
+    /// out on the dead link). The client retries with the token it still holds
+    /// and must get in; the token it never saw is replaced.
+    #[test]
+    fn rejoin_whose_new_token_was_lost_can_retry_with_the_previous_token() {
+        let mut state = LockstepState::new(0x1234);
+        state.register_player(7, "p7".into(), JoinRoleEnum::Player).unwrap();
+        // First join's TeamGameStart was lost too: an empty token still works.
+        let lost_first = state.issue_resume_token(7, &[]);
+        state.unregister_player(7);
+        assert_eq!(state.verify_join_identity(7, &[]), Ok(JoinIdentity::FirstJoin));
+        state.register_player(7, "p7".into(), JoinRoleEnum::Player).unwrap();
+        let held = state.issue_resume_token(7, &[]);
+        state.unregister_player(7);
+        assert!(state.verify_join_identity(7, &lost_first).is_err(), "a replaced unproven token is dead");
+        // Rejoin with `held` is accepted; its reply (with `lost`) never arrives.
+        assert_eq!(state.verify_join_identity(7, &held), Ok(JoinIdentity::Rejoin));
+        state.register_player(7, "p7".into(), JoinRoleEnum::Player).unwrap();
+        let lost = state.issue_resume_token(7, &held);
+        state.unregister_player(7);
+        // Retry with the held token.
+        assert_eq!(state.verify_join_identity(7, &held), Ok(JoinIdentity::Rejoin));
+        state.register_player(7, "p7".into(), JoinRoleEnum::Player).unwrap();
+        let received = state.issue_resume_token(7, &held);
+        state.unregister_player(7);
+        assert!(state.verify_join_identity(7, &lost).is_err(), "the never-delivered token was replaced");
+        assert!(state.verify_join_identity(7, &[]).is_err(), "a proven player needs a token");
+        assert_eq!(state.verify_join_identity(7, &received), Ok(JoinIdentity::Rejoin));
     }
 }

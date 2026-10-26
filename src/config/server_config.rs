@@ -423,6 +423,9 @@ impl ServerSetting {
             wave_interval: map.map_or(defaults.wave_interval,
                 |map| omoba_sim::Fixed64::from_i32(map.wave_interval_seconds as i32)),
             lane_length: map.map_or(omoba_sim::Fixed64::from_i32(2400), |map| omoba_sim::Fixed64::from_i32(map.lane_length)),
+            tower_hp: map.map_or(defaults.tower_hp, |map| omoba_sim::Fixed64::from_i32(map.tower_hp)),
+            base_hp: map.map_or(defaults.base_hp, |map| omoba_sim::Fixed64::from_i32(map.base_hp)),
+            hero_xp_scale_permille: map.map_or(defaults.hero_xp_scale_permille, |map| map.hero_xp_scale_permille()),
             players,
             heroes: players.map(selected),
             additional_players,
@@ -625,7 +628,7 @@ STEP_FPS = {step_fps}
         }
         let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:5,mana_enabled:false,players,
             ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),
-            summoner_loadouts:BTreeMap::new()};
+            summoner_loadouts:BTreeMap::new(), showcase: None};
         let mut setting=parse_with_step_fps(60);
         setting.MATCH_GAMEPLAY_MODE=MatchGameplayMode::ThreeLane;
         setting.MATCH_ROLE_PLAN_JSON=Some(serde_json::to_string(&plan).unwrap());
@@ -758,7 +761,7 @@ AUTHENTICATED_TEAM_BINDINGS = { "1" = 1, "2" = 2 }
             players: vec![
                 RoleBotPlayerPlan { player_id: 1, team_id: 1, hero: "training_luminary".into(), role: BotRole::Top, lane: "top".into(), bot: false },
                 RoleBotPlayerPlan { player_id: 2, team_id: 2, hero: "training_luminary".into(), role: BotRole::Top, lane: "top".into(), bot: false },
-            ],
+            ], showcase: None
         };
         let mut setting = parse_with_step_fps(60);
         setting.MATCH_GAMEPLAY_MODE = MatchGameplayMode::ThreeLane;
@@ -782,7 +785,7 @@ AUTHENTICATED_TEAM_BINDINGS = { "1" = 1, "2" = 2 }
         let base = RoleBotMatchPlan {
             schema_version: 1, map_id: "three_lane_training".into(), think_hz: 5, mana_enabled: false,
             ability_policies: Vec::new(), ability_learning: Vec::new(), sustain: None, item_builds: Vec::new(),
-            summoner_loadouts: BTreeMap::new(), players,
+            summoner_loadouts: BTreeMap::new(), players, showcase: None
         };
         let mut setting = parse_with_step_fps(60);
         setting.MATCH_GAMEPLAY_MODE = MatchGameplayMode::ThreeLane;
@@ -1009,6 +1012,7 @@ AUTHENTICATED_TEAM_BINDINGS = { "1" = 1, "2" = 2 }
             assert_eq!(config.minion_growth_rules,omoba_core::runtime::MinionGrowthRules::training());
             assert_eq!(config.wave_interval,omoba_sim::Fixed64::from_i32(map.wave_interval_seconds as i32));
             assert_eq!(config.lane_length,omoba_sim::Fixed64::from_i32(map.lane_length));
+            assert_eq!(config.hero_xp_scale_permille,map.hero_xp_scale_permille(),"{}",map.id);
         }
         setting.MATCH_MAP_ID=None;setting.MATCH_GAMEPLAY_MODE=MatchGameplayMode::SingleLane;
         let legacy=setting.single_lane_config().unwrap().unwrap();

@@ -42,7 +42,7 @@ fn selection_binary_live_stdio_flush_and_explicit_finalization() {
                 lane: "top".into(),
                 bot: true,
             },
-        ],
+        ], showcase: None
     };
     let root = std::env::temp_dir().join(format!(
         "omoba-selection-{}-{}",

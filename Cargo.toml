@@ -108,6 +108,10 @@ erps-client = { path = "../erps/client" }
 tonic-build = { version = "0.12", optional = true }
 prost-build = { version = "0.13", optional = true }
 
+[target.'cfg(windows)'.dependencies]
+# KCP listener socket: disable SIO_UDP_CONNRESET (see transport::kcp_transport).
+windows-sys = { version = "0.61", features = ["Win32_Networking_WinSock", "Win32_System_IO"] }
+
 [features]
 default = ["kcp"]
 mqtt = ["rumqttc"]

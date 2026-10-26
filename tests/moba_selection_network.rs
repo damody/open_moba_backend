@@ -136,7 +136,7 @@ fn selection_host_two_live_gateways_admission_shared_roster_and_handoff() {
                 lane: "top".into(),
                 bot: false,
             })
-            .collect(),
+            .collect(), showcase: None
     };
     let candidate = root.join("candidate.json");
     fs::write(&candidate, serde_json::to_vec(&plan).unwrap()).unwrap();

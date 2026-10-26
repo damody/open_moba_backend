@@ -997,7 +997,7 @@ impl ResourceManager {
                 );
                 return Ok(());
             }
-            if h.is_on_cooldown(&ability_id) {
+            if !h.cast_ready(&ability_id) {
                 log::warn!(
                     "[cast_ability] hero '{}' slot {} ability '{}' still on cooldown ({:.2}s remaining)",
                     pd.name, slot, ability_id, h.get_cooldown(&ability_id).to_f32_for_render()

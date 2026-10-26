@@ -35,6 +35,8 @@ fn reliable_send_with_watchdog<T>(
 
 /// Team bootstrap plus private owner trinket bytes. The shared `start` stays
 /// empty of owner charges. A join stamps only the authenticated player's bytes.
+/// `owner_wards` is projected from the same world as `start`, so every owner
+/// envelope seals it at `start`'s tick (one byte string per tick and revision).
 #[cfg(feature = "kcp")]
 #[derive(Clone, Debug)]
 pub struct StoredTeamBootstrap {
@@ -163,6 +165,11 @@ pub struct State {
     >,
     #[cfg(feature = "kcp")]
     observer_validation: Option<omoba_core::runtime::ObserverValidationWorker>,
+    /// Replayable accepted-input record (`OMOBA_ACCEPTED_INPUTS`); resolved on the first tick.
+    #[cfg(feature = "kcp")]
+    accepted_inputs: Option<Option<super::accepted_input_log::AcceptedInputLog>>,
+    /// The terminal notice to clients is sent once per match.
+    match_terminated_notified: bool,
     /// 固定 Team 1／Team 2 observer 是否已在第一個 frame 前取得 bootstrap。
     /// 玩家可以稍後加入，但 server replica 不得先把正常 frame 誤判為 coverage gap。
     #[cfg(feature = "kcp")]
@@ -480,6 +487,9 @@ impl State {
             team_bootstrap_store: None,
             #[cfg(feature = "kcp")]
             observer_validation: None,
+            #[cfg(feature = "kcp")]
+            accepted_inputs: None,
+            match_terminated_notified: false,
             #[cfg(feature = "kcp")]
             observer_bootstrapped_teams: BTreeSet::new(),
             #[cfg(feature = "kcp")]
@@ -865,6 +875,9 @@ impl State {
             #[cfg(feature = "kcp")]
             observer_validation: None,
             #[cfg(feature = "kcp")]
+            accepted_inputs: None,
+            match_terminated_notified: false,
+            #[cfg(feature = "kcp")]
             observer_bootstrapped_teams: BTreeSet::new(),
             #[cfg(feature = "kcp")]
             authority_mismatch_rx: None,
@@ -922,6 +935,8 @@ impl State {
         // send_timeout elapsed is subtracted below so a blocked outbound queue is
         // not reported as simulation compute. The sample is not a hash input.
         let tick_started = Instant::now();
+        // Formal per-phase laps (wall clock only, never a simulation input).
+        let mut phases = omoba_core::comp::perf_window::PhaseClock::start();
         #[cfg_attr(not(feature = "kcp"), allow(unused_mut))]
         let mut transport_wait = Duration::ZERO;
         self.local_tick = self.local_tick.wrapping_add(1);
@@ -957,6 +972,7 @@ impl State {
         // PendingPlayerInputs 以便player_input_tick::Sys 可以路由 StartRound
         // （以及未來的命令）。排出此刻度中的所有可用批次
         // 如果主機短暫落後於 broadcaster，則可以趕上。
+        phases.lap("tick_setup");
         #[cfg(feature = "kcp")]
         {
             let mut accumulated: Vec<(u32, crate::lockstep::PlayerInput, u32)> = self
@@ -981,7 +997,9 @@ impl State {
                 }
             }
             if let Some(controllers)=self.ecs.try_fetch::<super::role_bots::ServerRoleBotControllers>() {
+                phases.lap("inputs");
                 accumulated=controllers.merge_inputs(&self.ecs,accumulated).map_err(failure::err_msg)?;
+                phases.lap("bots");
             }
             for (player_id, input, _) in &mut accumulated {
                 omoba_core::runtime::shop_undo_wire::pin_shop_undo_request(&self.ecs, *player_id, input);
@@ -993,7 +1011,13 @@ impl State {
                 accumulated.retain_mut(|(player_id, input, _)| {
                     omoba_core::runtime::seal_item_use_owner(&self.ecs, *player_id, input)
                 });
-                let accepted_projection = self.build_canonical_accepted_inputs(&accumulated);
+                let mut fogged = Vec::new();
+                let accepted_projection = self.build_canonical_accepted_inputs_with_fog(&accumulated, &mut fogged);
+                if !fogged.is_empty() {
+                    log::debug!("dropped {} input(s) naming entities hidden from their team", fogged.len());
+                    let mut index = 0usize;
+                    accumulated.retain(|_| { let keep = !fogged.contains(&index); index += 1; keep });
+                }
                 let mut identities = omoba_core::comp::AdmittedCommandIdentities::default();
                 for (player_id, _, correlation) in &accumulated {
                     identities.rows.push(omoba_core::comp::AdmittedCommandIdentity {
@@ -1010,6 +1034,14 @@ impl State {
                     for (player_id, input, _) in accumulated {
                         pending.inputs.push((player_id, input));
                     }
+                }
+                // Exactly what the gameplay phases consume this tick (E086 replay record).
+                let log = self.accepted_inputs.get_or_insert_with(|| super::accepted_input_log::AcceptedInputLog::from_env(
+                    self.lockstep_timing.ticks_for_seconds(1), omoba_core::runtime::MasterSeed::default().0));
+                if let Some(log) = log.as_mut() {
+                    let tick = self.ecs.read_resource::<omoba_core::runtime::Tick>().0;
+                    let elapsed = self.ecs.try_fetch::<omoba_core::runtime::MobaMatch>().map(|state| state.elapsed.raw());
+                    log.record(tick, self.local_tick, elapsed, &self.ecs.read_resource::<PendingPlayerInputs>().inputs);
                 }
                 *self.ecs.write_resource::<omoba_core::comp::AdmittedCommandIdentities>() = identities;
                 self.ecs
@@ -1030,6 +1062,7 @@ impl State {
             }
         }
 
+        phases.lap("inputs");
         // All production runtimes consume the same shared ordering table.
         let mut run_systems_ns = 0u128;
         let mut process_outcomes_ns = 0u128;
@@ -1047,6 +1080,7 @@ impl State {
             self.ecs.write_resource::<omoba_core::runtime::TeamProjectionRuntime>()
                 .pending_accepted_inputs.retain(|input| matches!(input.action_kind, 17 | 18 | omoba_core::runtime::shop_undo_wire::SHOP_UNDO_ACTION_KIND));
         }
+        phases.lap("match_begin");
         omoba_core::runtime::run_deterministic_gameplay_phases(
             &mut |phase| -> Result<(), Error> {
                 use omoba_core::runtime::DeterministicGameplayPhase as P;
@@ -1124,11 +1158,20 @@ impl State {
                 if matches!(phase, P::PreScriptOutcomes | P::PostScriptOutcomes) {
                     self.ecs.maintain();
                 }
+                phases.lap(match phase {
+                    P::Dispatcher => "dispatcher",
+                    P::ScriptDispatch => "script_dispatch",
+                    P::PreScriptOutcomes | P::PostScriptOutcomes => "outcomes",
+                    P::CreepWave => "creep_wave",
+                    P::RuntimeEventBoundary => "runtime_events",
+                    _ => "drains",
+                });
                 Ok(())
             },
         )?;
         omoba_core::runtime::finish_moba_match_tick(&mut self.ecs);
         self.flush_runtime_events();
+        phases.lap("match_finish");
 
         // Wave A：outcome 與 fact 已在同一 Specs tick 中完成並穩定 reduce。
         // 只有 barrier 完成後，Wave B 才能讀取 committed State[T+1]；各 team
@@ -1158,14 +1201,45 @@ impl State {
             batch.facts = committed.ordered_facts;
             batch.barrier_reached = committed.barrier_reached;
         }
+        phases.lap("wave_a_commit");
         self.system_dispatcher
             .run_post_commit_visibility(&mut self.ecs, self.local_tick, 1);
+        phases.lap("visibility_wave_b");
         #[cfg(feature = "kcp")]
         if let Some(worker) = &self.observer_validation {
             let mut coordinator = self
                 .ecs
                 .write_resource::<omoba_core::runtime::AuthorityRepairCoordinator>();
             while let Some(mismatch) = worker.try_recv_mismatch() {
+                // Name the diverging (entity, schema) pairs from the team's own
+                // disclosed view; digests only, bounded, before recovery acts.
+                let projection = self.ecs.read_resource::<omoba_core::runtime::TeamProjectionRuntime>();
+                let label = |replica_id: u64, schema_id: u32| {
+                    let Some(canonical) = projection.canonical_for_replica(mismatch.team_id, replica_id) else {
+                        return " canonical=undisclosed".to_owned();
+                    };
+                    let entity = specs::world::Entity::new(canonical as u32, specs::world::Generation::new((canonical >> 32) as i32));
+                    let kind = if !self.ecs.entities().is_alive(entity) { "dead" }
+                        else if self.ecs.read_storage::<crate::comp::Hero>().get(entity).is_some() { "hero" }
+                        else if self.ecs.read_storage::<omoba_core::comp::SummonedUnit>().get(entity).is_some() { "summon" }
+                        else if self.ecs.read_storage::<crate::comp::Creep>().get(entity).is_some() { "creep" }
+                        else if self.ecs.read_storage::<crate::comp::Tower>().get(entity).is_some() { "tower" }
+                        else { "other" };
+                    let show = |bytes: Option<&[u8]>| bytes.map(|bytes| String::from_utf8_lossy(&bytes[..bytes.len().min(320)]).into_owned())
+                        .unwrap_or_else(|| "absent".into());
+                    // Exact authority bytes at the checkpoint when retained, else the latest.
+                    let expected = projection.expected_checkpoint_bytes(mismatch.team_id, mismatch.replica_tick, replica_id, schema_id)
+                        .map(|bytes| show(Some(bytes)))
+                        .unwrap_or_else(|| format!("(latest) {}", show(projection.expected_component_bytes(mismatch.team_id, replica_id, schema_id))));
+                    let observed = show(mismatch.observed_bytes.get(&(replica_id, schema_id)).map(Vec::as_slice));
+                    format!(" canonical={canonical:#x} kind={kind} authority={expected} replica={observed}")
+                };
+                let detail = omoba_core::runtime::team_projector::describe_component_divergence_with(
+                    projection.expected_component_digests(mismatch.team_id, mismatch.replica_tick),
+                    &mismatch.observed_components, 16, &label);
+                drop(projection);
+                log::error!("observer mismatch team={} replica_tick={} sequence={} revision={}: {}",
+                    mismatch.team_id, mismatch.replica_tick, mismatch.frame_sequence, mismatch.authority_revision, detail);
                 coordinator.report_observer_mismatch(mismatch);
             }
             while let Some(report) = worker.try_recv_checkpoint() {
@@ -1178,6 +1252,7 @@ impl State {
                 coordinator.report_coverage_gap(team_id, 0);
             }
         }
+        phases.lap("observer_drain");
         #[cfg(feature = "kcp")]
         if let Some(rx) = &self.authority_mismatch_rx {
             let mut coordinator = self
@@ -1220,6 +1295,7 @@ impl State {
                 }
             }
         }
+        phases.lap("repair_channels");
         if crate::config::server_config::CONFIG.selective_generation_enabled() {
             omoba_core::runtime::run_team_projection_after_wave_b(&mut self.ecs, self.local_tick)
                 .map_err(|error| failure::err_msg(format!("team projection failed: {error:?}")))?;
@@ -1229,6 +1305,11 @@ impl State {
                 .write_resource::<omoba_core::runtime::TeamProjectionRuntime>();
             projection.latest_frames.clear();
             projection.latest_rebases.clear();
+        }
+        phases.lap("team_projection");
+        // Per-team detail rows (dotted names are breakdowns, not extra phases).
+        for (team, ns) in self.ecs.read_resource::<omoba_core::runtime::TeamProjectionRuntime>().last_projection_ns.iter() {
+            match team { 1 => phases.add("team_projection.team1", *ns), 2 => phases.add("team_projection.team2", *ns), _ => {} }
         }
         record_canonical_timeline(self.local_tick, (&self.ecs.entities()).join().count());
         #[cfg(feature = "kcp")]
@@ -1341,6 +1422,21 @@ impl State {
                     .to_be_bytes(),
                 diagnostic.team_id,
             );
+            if !self.match_terminated_notified {
+                self.match_terminated_notified = true;
+                // Tell every client explicitly; otherwise they wait silently for frames.
+                let notice = OutboundMsg::lockstep_frame(crate::lockstep::LockstepFrame::MatchTerminated {
+                    reason_class: diagnostic.reason_class.clone(),
+                    last_safe_sequence: diagnostic.last_safe_sequence,
+                });
+                #[cfg(feature = "kcp")]
+                let tx = self.reliable_team_tx.as_ref().unwrap_or(&self.mqtx);
+                #[cfg(not(feature = "kcp"))]
+                let tx = &self.mqtx;
+                if let Err(error) = reliable_send_with_watchdog(tx, notice, Duration::from_secs(1)) {
+                    log::warn!("match terminated notice could not be queued: {error:?}");
+                }
+            }
             return Err(failure::err_msg(format!(
                 "secure match terminated opaque_team={} last_safe_sequence={} reason={} protocol_fallback_allowed={}",
                 opaque_team,
@@ -1349,6 +1445,7 @@ impl State {
                 diagnostic.protocol_fallback_allowed,
             )));
         }
+        phases.lap("security_metrics");
         #[cfg(feature = "kcp")]
         if let Some(store) = &self.team_bootstrap_store {
             let global_seed = self.ecs.read_resource::<crate::comp::MasterSeed>().0;
@@ -1444,6 +1541,7 @@ impl State {
             }
             *stored = wrapped;
         }
+        phases.lap("bootstrap_store");
         #[cfg(feature = "kcp")]
         self.drain_authenticated_communication();
         #[cfg(feature = "kcp")]
@@ -1586,6 +1684,8 @@ impl State {
                 .send(outbound)
                 .map_err(|_| failure::err_msg("outbound queue disconnected"))?;
         }
+        phases.lap("frame_send");
+        phases.subtract("frame_send", transport_wait.as_nanos());
         {
             use crate::comp::{TickPhase, TickProfile};
             let mut profile = self.ecs.write_resource::<TickProfile>();
@@ -1664,6 +1764,7 @@ impl State {
             log::info!("[snapshot] saved tick={} bytes={}", tick_u32, byte_len);
         }
 
+        phases.lap("post_tick");
         if sample_formal_tick {
             let compute_ns = tick_started
                 .elapsed()
@@ -1677,6 +1778,13 @@ impl State {
                 log::info!("{line}");
             }
             if let Some(line) = emit.summary {
+                log::info!("{line}");
+            }
+            for line in self
+                .ecs
+                .write_resource::<crate::comp::TickProfile>()
+                .record_formal_tick_phases(phases.rows())
+            {
                 log::info!("{line}");
             }
         }
@@ -1713,11 +1821,23 @@ impl State {
         &self,
         inputs: &[(u32, crate::lockstep::PlayerInput, u32)],
     ) -> Vec<omoba_core::runtime::CanonicalAcceptedInput> {
+        self.build_canonical_accepted_inputs_with_fog(inputs, &mut Vec::new())
+    }
+
+    /// `fogged` receives the indices of inputs naming an entity their team's
+    /// replica cannot resolve. The caller must not execute those either: the
+    /// replica never sees them, so authority execution would diverge.
+    fn build_canonical_accepted_inputs_with_fog(
+        &self,
+        inputs: &[(u32, crate::lockstep::PlayerInput, u32)],
+        fogged: &mut Vec<usize>,
+    ) -> Vec<omoba_core::runtime::CanonicalAcceptedInput> {
         use omoba_core::game_proto::player_input::Action;
         use prost::Message as _;
         inputs
             .iter()
-            .filter_map(|(player_id, input, acceptance_correlation)| {
+            .enumerate()
+            .filter_map(|(index, (player_id, input, acceptance_correlation))| {
                 // Settings are persistent roster policy, not an actor-life command.
                 // Replicas consume the complete disclosed policy before combat.
                 let team_id = if let Some(controllers)=self.ecs.try_fetch::<super::role_bots::ServerRoleBotControllers>() {
@@ -1765,93 +1885,19 @@ impl State {
                         .map(|(entity, _, _)| omoba_core::runtime::canonical_entity_id(entity))
                         .or_else(|| matches!(input.action, Some(Action::ItemBuy(_) | Action::ItemSell(_) | Action::ShopUndo(_))).then_some(0))?
                 };
-                let (action_kind, target_index, target_generation) = match sanitized.action.as_mut()? {
-                    Action::SummonCommand(_) => return None, // unsealed client payload
-                    Action::OwnedSummonOrder(value) => {
-                        let (_,summon)=omoba_core::runtime::summon_transport::validate_authority(value).ok()?;
-                        let id=summon as u32;let generation=(summon>>32)as u32;
-                        omoba_core::runtime::summon_transport::redact(value).ok()?;
-                        (omoba_core::runtime::summon_transport::ACTION_KIND,Some(id),Some(generation))
-                    }
-                    Action::Stop(_) => (21, None, None),
-                    Action::HoldPosition(_) => (20, None, None),
-                    Action::Recall(_) => (19, None, None),
-                    Action::NoOp(_) => (1, None, None),
-                    Action::MoveTo(_) => (2, None, None),
-                    Action::AttackTarget(value) => {
-                        let id = value.target_id;
-                        value.target_id = 0;
-                        (3, Some(id), None)
-                    }
-                    Action::CastAbility(value) => {
-                        let id = value.target_entity.take();
-                        (4, id, None)
-                    }
-                    Action::TowerPlace(_) => (5, None, None),
-                    Action::TowerUpgrade(value) => {
-                        let id = value.tower_entity_id;
-                        value.tower_entity_id = 0;
-                        (6, Some(id), None)
-                    }
-                    Action::TowerSell(value) => {
-                        let id = value.tower_entity_id;
-                        value.tower_entity_id = 0;
-                        (7, Some(id), None)
-                    }
-                    Action::ItemUse(value) => {
-                        let id = value.target_entity.take();
-                        let generation = value.target_generation.take();
-                        value.owner_entity = None;
-                        value.owner_generation = None;
-                        (8, id, generation)
-                    }
-                    Action::StartRound(_) => (9, None, None),
-                    Action::ItemBuy(_) => (17, None, None),
-                    Action::ItemSell(_) => (18, None, None),
-                    Action::ShopUndo(_) => (omoba_core::runtime::shop_undo_wire::SHOP_UNDO_ACTION_KIND, None, None),
-                    Action::UpgradeAbility(_) => (10, None, None),
-                    Action::AttackMove(_) => (11, None, None),
-                    Action::SetTowerTargetPriority(value) => {
-                        let id = value.tower_entity_id;
-                        value.tower_entity_id = 0;
-                        (12, Some(id), None)
-                    }
-                    Action::TogglePause(_) => (13, None, None),
-                    Action::ToggleGameSpeed(_) => (14, None, None),
-                    Action::DebugSpawnCreep(_) => (15, None, None),
-                    Action::TowerAbilityCast(value) => {
-                        let id = value.tower_entity_id;
-                        value.tower_entity_id = 0;
-                        (16, Some(id), None)
-                    }
-                    Action::SummonerCast(_) => (22, None, None),
-                    Action::WardPlacement(_) => (25, None, None),
-                    Action::CombatPreferences(_) => (26, None, None),
-                    Action::InputScheme(_) => (27, None, None),
-                    Action::Direction(value) => {
-                        value.source=None;value.sealed_source=0;
-                        (omoba_core::runtime::direction_transport::ACTION_KIND,None,None)
-                    }
-                };
+                let (action_kind, target_index, target_generation) =
+                    omoba_core::runtime::sanitize_accepted_action(sanitized.action.as_mut()?)?;
                 // Item generation is the authority local life packed by canonical_entity_id
                 // (generation high, index low). Other actions still use the current index.
                 // A dead exact life is omitted; it is not replaced by the recycled index.
                 // A named ItemUse that does not resolve is dropped whole. Clearing the
                 // fields and keeping the input would invent a no-target point.
                 // (None, None) is the only authoritative no-target rewrite.
-                let entities = self.ecs.entities();
-                let target_canonical_id = match (target_index, target_generation) {
-                    (Some(id), Some(generation)) => i32::try_from(generation).ok().filter(|gen| *gen > 0).and_then(|gen| {
-                        let entity = specs::world::Entity::new(id, specs::world::Generation::new(gen));
-                        entities.is_alive(entity).then(|| omoba_core::runtime::canonical_entity_id(entity))
-                    }),
-                    (Some(id), None) => {
-                        let entity = entities.entity(id);
-                        entities.is_alive(entity).then(|| omoba_core::runtime::canonical_entity_id(entity))
-                    }
-                    (None, _) => None,
-                };
-                if (target_index.is_some() || target_generation.is_some()) && target_canonical_id.is_none() {
+                let target_canonical_id = omoba_core::runtime::resolve_accepted_target(&self.ecs, target_index, target_generation)?;
+                if target_canonical_id.is_some_and(|target| !self.ecs
+                    .read_resource::<omoba_core::runtime::TeamProjectionRuntime>().input_target_admissible(
+                        &self.ecs.read_resource::<omoba_core::runtime::TeamVisibilityRuntime>(), team_id, target)) {
+                    fogged.push(index);
                     return None;
                 }
                 Some(
@@ -1929,7 +1975,18 @@ impl State {
     fn process_queries(&self) {
         use super::query;
         while let Ok(req) = self.query_rx.try_recv() {
+            // These are unfiltered authority views. A player connection on the same
+            // KCP port must never read hidden state, so they are opt-in per process.
+            if !query::debug_queries_enabled() {
+                let _ = req.response_tx.send(crate::transport::QueryResponse {
+                    success: false,
+                    error: "debug state queries are disabled (start the server with OMB_DEBUG_QUERY=1)".into(),
+                    data_json: Vec::new(),
+                });
+                continue;
+            }
             let response = match req.query_type.as_str() {
+                "match_status" => query::query_match_status(&self.ecs),
                 "list_players" => query::query_list_players(&self.ecs),
                 "inspect_player_view" => {
                     query::query_inspect_player_view(&self.ecs, &req.player_name)
@@ -2688,7 +2745,7 @@ mod role_server_tests {
             script_registry:ScriptRegistry::new(),
             #[cfg(feature = "runtime-lua-content")]
             dev_lua_hot_reload:None,
-            aoi_grid:None,state_hash_tx:None,snapshot_store:None,team_bootstrap_store:None,observer_validation:None,
+            aoi_grid:None,state_hash_tx:None,snapshot_store:None,team_bootstrap_store:None,observer_validation:None,accepted_inputs:None,match_terminated_notified:false,
             observer_bootstrapped_teams:BTreeSet::new(),authority_mismatch_rx:None,client_checkpoint_rx:None,
             rebase_failure_rx:None,secure_input_validation:None,selective_security_metrics:None,
             host_input_rx:None,authoritative_input_buffer:None,authoritative_lockstep_state:None,
@@ -2710,7 +2767,7 @@ mod role_server_tests {
         }
         RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:false,players,
             ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),
-            summoner_loadouts:BTreeMap::new()}
+            summoner_loadouts:BTreeMap::new(), showcase: None}
     }
     fn movement(x:i32) -> PlayerInput {PlayerInput {action:Some(PlayerInputEnum::MoveTo(MoveTo {
         target:Some(Vec2I {x,y:0}),queued:false,

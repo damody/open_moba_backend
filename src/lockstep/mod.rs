@@ -91,4 +91,7 @@ pub enum LockstepFrame {
         client_session_id: String,
         msg: SnapshotResp,
     },
+    /// Terminal: the authority ended the secure match. Sent once to every
+    /// session so clients stop explicitly instead of waiting for frames.
+    MatchTerminated { reason_class: String, last_safe_sequence: u64 },
 }

@@ -368,6 +368,9 @@ async fn main() -> std::result::Result<(), Error> {
             }
         }
     });
+    // The same tick error (e.g. a terminated secure match) is logged once, then
+    // summarized at 2, 4, 8, ... repeats and once more when it ends or changes.
+    let mut repeated_tick_error: Option<(String, u64)> = None;
     loop {
         for msg in rx.try_iter().take(10) {
             // 攔截 `:speed N` 指令，不轉發到 chat
@@ -387,8 +390,30 @@ async fn main() -> std::result::Result<(), Error> {
         // 跑 N 個 sub-tick；speed=1 時每迴圈推進一個 configured sim tick。
         let dt = fixed_dt;
         for _ in 0..speed_mult {
-            if let Err(e) = state.tick(dt) {
-                log::error!("Tick error: {:?}", e);
+            match state.tick(dt) {
+                Err(e) => {
+                    let text = format!("{e:?}");
+                    match repeated_tick_error.as_mut() {
+                        Some((last, count)) if *last == text => {
+                            *count += 1;
+                            if count.is_power_of_two() {
+                                log::error!("Tick error repeated {count} times: {text}");
+                            }
+                        }
+                        _ => {
+                            if let Some((last, count)) = repeated_tick_error.take().filter(|(_, count)| *count > 1) {
+                                log::error!("Tick error ended after {count} ticks: {last}");
+                            }
+                            log::error!("Tick error: {text}");
+                            repeated_tick_error = Some((text, 1));
+                        }
+                    }
+                }
+                Ok(_) => {
+                    if let Some((last, count)) = repeated_tick_error.take().filter(|(_, count)| *count > 1) {
+                        log::error!("Tick error ended after {count} ticks: {last}");
+                    }
+                }
             }
         }
 
