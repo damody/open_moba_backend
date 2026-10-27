@@ -1428,6 +1428,9 @@ pub async fn start(
     let mut listener = bind_kcp_listener(config, addr)
         .await
         .map_err(|e| failure::err_msg(format!("Failed to bind KCP listener on {}: {}", addr, e)))?;
+    // Launchers wait for this line before starting clients: a failed bind (another server on
+    // the same port) exits instead, and clients must never reach that other server (E145).
+    info!("KCP listener bound on {}", addr);
 
     tokio::spawn(async move {
         loop {

@@ -72,6 +72,8 @@ async fn main() -> std::result::Result<(), Error> {
     }
 
     log4rs::init_file("log4rs.yml", Default::default()).unwrap();
+    // Keeps the content marker in the binary for the launch preflight (E125).
+    log::info!("{}", std::hint::black_box(omoba_template_ids::CONTENT_CATALOG_MARKER));
 
     crate::config::server_config::apply_runtime_env_from_game_toml();
     initialize_fog_evidence_sentinels()?;
