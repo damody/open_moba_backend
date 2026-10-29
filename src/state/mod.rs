@@ -6,6 +6,7 @@ pub mod core;
 pub(crate) mod role_bots;
 #[cfg(feature = "kcp")]
 pub(crate) mod accepted_input_log;
+pub(crate) mod script_hot_reload;
 #[cfg(feature = "runtime-lua-content")]
 pub mod dev_lua_hot_reload;
 #[cfg(any(feature = "grpc", feature = "kcp"))]

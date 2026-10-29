@@ -559,6 +559,48 @@ impl State {
         self.ecs.insert(item_reg);
     }
 
+    /// M3' ② (script_hot_reload.rs): swaps requested script DLLs before this tick steps and
+    /// announces them in this tick's team frames; clears last tick's announcement otherwise.
+    fn poll_script_hot_reload(&mut self) {
+        use super::script_hot_reload::{answer, ScriptHotReload, ScriptHotReloadState, POLL_TICKS};
+        use omoba_core::scripting::loader::ScriptSwapsThisTick;
+        if !self.ecs.has_value::<ScriptHotReloadState>() {
+            self.ecs.insert(ScriptHotReloadState(ScriptHotReload::from_env()));
+        }
+        self.ecs.insert(ScriptSwapsThisTick::default());
+        if self.local_tick % POLL_TICKS != 0 {
+            return;
+        }
+        let requests = match self.ecs.write_resource::<ScriptHotReloadState>().0.as_mut() {
+            Some(reload) => reload.pending(),
+            None => return,
+        };
+        let tick = self.ecs.read_resource::<omoba_core::runtime::Tick>().0;
+        let mut swapped = Vec::new();
+        for (result_path, request) in requests {
+            let result = request.and_then(|swap| {
+                omoba_core::scripting::loader::apply_hot_swap(&mut self.script_registry, &mut self.ecs, &swap)?;
+                swapped.push(swap);
+                Ok(tick)
+            });
+            if let Err(error) = &result {
+                log::warn!("[script-hot-reload] refused: {error}");
+            }
+            answer(&result_path, &result);
+        }
+        if swapped.is_empty() {
+            return;
+        }
+        let log = self.accepted_inputs.get_or_insert_with(|| super::accepted_input_log::AcceptedInputLog::from_env(
+            self.lockstep_timing.ticks_for_seconds(1), omoba_core::runtime::MasterSeed::default().0));
+        if let Some(log) = log.as_mut() {
+            for swap in &swapped {
+                log.record_script_swap(tick, self.local_tick, swap);
+            }
+        }
+        self.ecs.insert(ScriptSwapsThisTick(swapped));
+    }
+
     #[cfg(feature = "runtime-lua-content")]
     fn initialize_dev_lua_hot_reload(&mut self) {
         let manager = super::dev_lua_hot_reload::DevLuaHotReload::from_env();
@@ -963,6 +1005,8 @@ impl State {
 
         #[cfg(feature = "runtime-lua-content")]
         self.poll_dev_lua_hot_reload();
+        // M3' ② dev hot reload of script DLLs, between two ticks (off without OMB_SCRIPT_HOT_DIR).
+        self.poll_script_hot_reload();
 
         // 吸收 transport 傳進來的 viewport 更新
         #[cfg(any(feature = "grpc", feature = "kcp"))]
@@ -1120,7 +1164,11 @@ impl State {
                     }
                     P::PreScriptOutcomes | P::PostScriptOutcomes => {
                         let t = Instant::now();
-                        self.resource_manager.process_outcomes(&mut self.ecs)?;
+                        // The damage pipeline reaches on_damage_pre hooks through the registry (omoba-core damage_pre).
+                        self.ecs.insert(std::mem::take(&mut self.script_registry));
+                        let settled = self.resource_manager.process_outcomes(&mut self.ecs);
+                        self.script_registry = self.ecs.remove::<ScriptRegistry>().unwrap_or_default();
+                        settled?;
                         process_outcomes_ns += t.elapsed().as_nanos();
                     }
                     P::TowerUpgrades => {

@@ -76,6 +76,34 @@ struct HeadlessArgs {
     plan_only: bool,
     max_game_seconds: u64,
     stall_game_seconds: u64,
+    /// M3' ② acceptance: before stepping tick index TICK (run and replay alike), swap a script
+    /// DLL as a dev hot reload does (`--hot-swap TICK=MODULE=PATH`).
+    hot_swap: Option<(usize, omoba_core::game_proto::ScriptModuleSwap)>,
+}
+
+/// `TICK=MODULE=PATH`: the swap omoba-core's dev hot reload would apply before that tick.
+fn parse_hot_swap(value: &str) -> Result<(usize, omoba_core::game_proto::ScriptModuleSwap), Error> {
+    let mut parts = value.splitn(3, '=');
+    let (Some(tick), Some(module), Some(file)) = (parts.next(), parts.next(), parts.next()) else {
+        return Err(err_msg("--hot-swap requires TICK=MODULE=PATH"));
+    };
+    let tick: usize = tick.parse().map_err(|_| err_msg("--hot-swap TICK must be a tick index"))?;
+    let sha256 = omoba_core::scripting::loader::file_sha256(std::path::Path::new(file)).map_err(err_msg)?;
+    Ok((tick, omoba_core::game_proto::ScriptModuleSwap { module: module.into(), file: file.into(), sha256, generation: 1 }))
+}
+
+fn apply_hot_swap_at(
+    index: usize,
+    hot_swap: &Option<(usize, omoba_core::game_proto::ScriptModuleSwap)>,
+    driver: &mut SimulationDriver,
+    world: &mut specs::World,
+) -> Result<(), Error> {
+    if let Some((tick, swap)) = hot_swap {
+        if *tick == index {
+            omoba_core::scripting::loader::apply_hot_swap(driver.scripts_mut(), world, swap).map_err(err_msg)?;
+        }
+    }
+    Ok(())
 }
 
 fn parse_budget_seconds(value: &str, name: &str) -> Result<u64, Error> {
@@ -123,6 +151,7 @@ where
     let mut seen_role = false;
     let mut seen_max = false;
     let mut seen_stall = false;
+    let mut hot_swap = None;
     let mut args = args.into_iter();
     while let Some(arg) = args.next() {
         let arg = arg.as_ref();
@@ -132,6 +161,7 @@ where
         let value = value.as_ref();
         match arg {
             "--scripts-dir" => scripts_dir = PathBuf::from(value),
+            "--hot-swap" => hot_swap = Some(parse_hot_swap(value)?),
             "--report" => {
                 if seen_report {
                     return Err(err_msg("duplicate report option"));
@@ -213,6 +243,7 @@ where
         plan_only,
         max_game_seconds,
         stall_game_seconds,
+        hot_swap,
     })
 }
 
@@ -268,6 +299,7 @@ fn run() -> Result<(), Error> {
     let withdraw_defender = parsed.withdraw_defender;
     let max_game_seconds = parsed.max_game_seconds;
     let stall_game_seconds = parsed.stall_game_seconds;
+    let hot_swap = parsed.hot_swap;
     let mut world = make_world(config.clone(), &scripts_dir)?;
     if let Some(bots) = &bots {
         bots.validate(&world.read_resource::<MobaMatch>()).map_err(err_msg)?;
@@ -282,7 +314,8 @@ fn run() -> Result<(), Error> {
     let mut monitor = ObjectiveMonitor::baseline(collect_objective_slots(&world));
     let mut samples = Vec::new();
     let mut last_tick = 0u64;
-    for _ in 0..max_ticks {
+    for index in 0..max_ticks as usize {
+        apply_hot_swap_at(index, &hot_swap, &mut driver, &mut world)?;
         let mut inputs = if let Some(bots) = &bots {
             role_bot_inputs(&world, bots).map_err(err_msg)?
         } else {
@@ -362,6 +395,29 @@ fn run() -> Result<(), Error> {
                 ),
             );
         }
+    }
+    if let Some((tick, swap)) = &hot_swap {
+        // M3' ② acceptance: the run's per-tick digests, verified by a replay that swaps at the same
+        // tick, written whether or not the match finished inside the budget.
+        let mut replay = make_world(config.clone(), &scripts_dir)?;
+        let mut replay_driver = SimulationDriver::from_world(&mut replay, profile)?;
+        for (index, (inputs, expected)) in inputs_recorded.iter().zip(&digests).enumerate() {
+            apply_hot_swap_at(index, &hot_swap, &mut replay_driver, &mut replay)?;
+            step_tick(&mut replay_driver, &mut replay, inputs.clone(), bots.is_some())?;
+            let actual = single_lane_replay_digest(&replay);
+            if &actual != expected {
+                return Err(err_msg(format!("hot-swap replay diverged at tick {}: {expected} != {actual}", index + 1)));
+            }
+        }
+        let path = report_path.with_extension("digests.json");
+        write_new_output(&path, &serde_json::to_vec_pretty(&json!({
+            "hot_swap": {"tick": tick, "module": swap.module, "file": swap.file, "sha256": swap.sha256},
+            "script_modules": omoba_core::scripting::loader::script_modules().iter()
+                .map(|m| json!({"module": m.module, "sha256": m.sha256})).collect::<Vec<_>>(),
+            "replay_verified_ticks": digests.len(),
+            "tick_digests": digests,
+        }))?)?;
+        println!("hot-swap digests ({} ticks, replay verified): {}", digests.len(), path.display());
     }
     let state = world.read_resource::<MobaMatch>().clone();
     let (winner_side, winner_team, finish_tick) = match state.phase {

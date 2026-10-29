@@ -245,6 +245,15 @@ fn rewrite_secure_target(input: &mut PlayerInput, canonical_actor: u64, canonica
     Some(())
 }
 
+/// M3': a player runs the same script DLL set as the authority (fail closed). OWN is the
+/// authority's set hash; empty only when it loaded no DLL (in-process tests).
+fn validate_script_modules_join_request(request: &JoinRequest, own: &str) -> Result<(), &'static str> {
+    if request.script_modules_hash != own {
+        return Err("SCRIPT_MODULES_HASH_MISMATCH");
+    }
+    Ok(())
+}
+
 fn validate_shop_join_request(request: &JoinRequest) -> Result<bool, &'static str> {
     let agreed = omoba_core::runtime::shop_transport::negotiate_shop_catalog(
         request.shop_catalog_version, &request.shop_catalog_hash)?;
@@ -2157,6 +2166,12 @@ async fn handle_client(
                                             _ => crate::lockstep::JoinRoleEnum::Player,
                                         };
                                         let declared_player_id = req.player_id;
+                                        if role == crate::lockstep::JoinRoleEnum::Player {
+                                            if let Err(reason) = validate_script_modules_join_request(&req,
+                                                &omoba_core::scripting::loader::script_modules_hash()) {
+                                                warn!("JoinRequest script modules rejected: {} (client {:?})", reason, req.script_modules_hash); break;
+                                            }
+                                        }
                                         let shop_catalog_agreed = match validate_shop_join_request(&req) {
                                             Ok(agreed) => agreed,
                                             Err(reason) => { warn!("JoinRequest shop catalog rejected: {}", reason); break; }
@@ -3815,6 +3830,20 @@ mod tests {
     }
 
     #[test]
+    fn script_modules_must_match_the_authority_set() {
+        let set = "a".repeat(64);
+        let mut request = JoinRequest { player_id: 7, role: JoinRole::RolePlayer as i32, ..Default::default() };
+        assert_eq!(validate_script_modules_join_request(&request, ""), Ok(()));
+        assert_eq!(validate_script_modules_join_request(&request, &set), Err("SCRIPT_MODULES_HASH_MISMATCH"));
+        request.script_modules_hash = "b".repeat(64);
+        assert_eq!(validate_script_modules_join_request(&request, &set), Err("SCRIPT_MODULES_HASH_MISMATCH"));
+        assert_eq!(validate_script_modules_join_request(&request, ""), Err("SCRIPT_MODULES_HASH_MISMATCH"));
+        request.script_modules_hash = set.clone();
+        let decoded = JoinRequest::decode(request.encode_to_vec().as_slice()).unwrap();
+        assert_eq!(validate_script_modules_join_request(&decoded, &set), Ok(()));
+    }
+
+    #[test]
     fn command_capability_requires_secure_join_and_bound_nonzero_hold_input() {
         let valid = JoinRequest { player_id: 7, role: JoinRole::RolePlayer as i32,
             requested_protocol: omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION, supported_protocols: vec![omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION], secure_fog_capability: true,
@@ -4134,6 +4163,7 @@ mod tests {
             ward_protocol_version: 0,
             ward_rules_hash: String::new(),
             resume_token: Vec::new(),
+            script_modules_hash: String::new(),
         };
         let observer = JoinRequest {
             player_name: "bob".into(),
@@ -4158,6 +4188,7 @@ mod tests {
             ward_protocol_version: 0,
             ward_rules_hash: String::new(),
             resume_token: Vec::new(),
+            script_modules_hash: String::new(),
         };
         let p_bytes = player.encode_to_vec();
         let o_bytes = observer.encode_to_vec();

@@ -26,7 +26,11 @@ impl AcceptedInputLog {
             }
         };
         let mut log = Self { out: std::io::BufWriter::new(file) };
-        log.write_line(&serde_json::json!({"kind": "header", "version": 1, "step_fps": step_fps, "seed": seed}));
+        // M3': the script DLL set this match runs; a replay with another set is not this match.
+        let modules = omoba_core::scripting::loader::script_modules();
+        log.write_line(&serde_json::json!({"kind": "header", "version": 1, "step_fps": step_fps, "seed": seed,
+            "script_modules": modules.iter().map(|m| serde_json::json!({"module": m.module, "sha256": m.sha256})).collect::<Vec<_>>(),
+            "script_modules_hash": omoba_core::scripting::loader::modules_hash(&modules)}));
         log::info!("accepted input log: {:?}", path);
         Some(log)
     }
@@ -39,6 +43,13 @@ impl AcceptedInputLog {
             .map(|(player, input)| serde_json::json!([player, hex::encode(prost::Message::encode_to_vec(input))]))
             .collect();
         self.write_line(&serde_json::json!({"tick": tick, "local_tick": local_tick, "elapsed_raw": elapsed_raw, "inputs": rows}));
+    }
+
+    /// M3' ② dev hot reload: from this tick on, `module` runs the DLL with this digest. A
+    /// replay that does not swap at the same tick only matches the ticks before it.
+    pub(crate) fn record_script_swap(&mut self, tick: u64, local_tick: u64, swap: &omoba_core::game_proto::ScriptModuleSwap) {
+        self.write_line(&serde_json::json!({"kind": "script_swap", "tick": tick, "local_tick": local_tick,
+            "module": swap.module, "sha256": swap.sha256, "generation": swap.generation, "file": swap.file}));
     }
 
     /// One line, flushed: a killed server still leaves every completed tick.

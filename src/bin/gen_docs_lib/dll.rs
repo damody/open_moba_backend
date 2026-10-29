@@ -4,7 +4,6 @@
 use crate::lib::model::{
     AbilityEntry, TowerActiveAbilityInfo, TowerStats, TowerUpgradeInfo, UnitKind,
 };
-use abi_stable::library::RootModule;
 use anyhow::{Context, Result};
 use omb_script_abi::manifest::Manifest_Ref;
 use std::path::Path;
@@ -27,9 +26,34 @@ pub struct DllUnit {
 /// 在 process lifetime 內保持 mapped，所以丟掉 `Manifest_Ref` 無害。
 /// 若未來加入 `UnitScript_TO` / `AbilityScript_TO` 欄位到 `DllUnit`，
 /// 必須改成保留 `Manifest_Ref` 才安全。
+/// M3'：base_content 之外，同目錄的 `hero_*.dll`（每位英雄一個 DLL）也一起讀。每個 DLL 用
+/// `omoba_core::scripting::loader::load_module` 逐檔載入（`load_from_file` 依型別快取第一個）。
 pub fn load(dll_path: &Path) -> Result<DllData> {
-    let m = Manifest_Ref::load_from_file(dll_path)
-        .with_context(|| format!("loading manifest from {}", dll_path.display()))?;
+    let mut paths = vec![dll_path.to_path_buf()];
+    if let Some(dir) = dll_path.parent().and_then(|dir| std::fs::read_dir(dir).ok()) {
+        let mut heroes: Vec<_> = dir
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| {
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                name.starts_with("hero_") && name.ends_with(".dll") && name.matches('.').count() == 1
+            })
+            .collect();
+        heroes.sort();
+        paths.extend(heroes);
+    }
+    let mut data = DllData { units: Vec::new(), abilities: Vec::new() };
+    for path in paths {
+        let m = omoba_core::scripting::loader::load_module(&path)
+            .map_err(|error| anyhow::anyhow!("loading manifest from {}: {error}", path.display()))?;
+        let one = load_manifest(m)?;
+        data.units.extend(one.units);
+        data.abilities.extend(one.abilities);
+    }
+    Ok(data)
+}
+
+fn load_manifest(m: Manifest_Ref) -> Result<DllData> {
     let units_fn = m.units();
     let abilities_fn = m.abilities();
 
