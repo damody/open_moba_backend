@@ -23,6 +23,44 @@ const STALL_SCOPE: &str = "continuous absence of public tower or base real HP de
 const PLAN_ONLY_SCOPE: &str = "configuration only; no simulation or match acceptance";
 const FAILURE_SCOPE: &str = "bounded failure diagnostic; not a match result or acceptance";
 
+/// One formal tick: the driver step and, with role bots, the committed visibility wave that
+/// follows it. The run and its replay both step through here, so a replay never skips work
+/// the run did (E161: the replay skipped the wave and diverged at tick 362).
+fn step_tick(
+    driver: &mut SimulationDriver,
+    world: &mut specs::World,
+    inputs: Vec<(u32, PlayerInput)>,
+    with_bots: bool,
+) -> Result<SimulationTickResult, Error> {
+    let started = std::time::Instant::now();
+    let result = driver.step(world, inputs)?;
+    if with_bots {
+        let wave = std::time::Instant::now();
+        run_committed_visibility_wave_b(world, result.tick, 0);
+        VISIBILITY_WALL_NANOS.fetch_add(wave.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
+    }
+    // Wall time of the formal ticks (E187 §5.6 / §5.8: per-tick cost of a map), run and replay.
+    STEP_WALL_NANOS.fetch_add(started.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
+    STEP_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    Ok(result)
+}
+
+static STEP_WALL_NANOS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static STEP_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// The bots' committed visibility wave part of [`STEP_WALL_NANOS`].
+static VISIBILITY_WALL_NANOS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn visibility_wall_ms_mean() -> f64 {
+    let count = STEP_COUNT.load(std::sync::atomic::Ordering::Relaxed).max(1);
+    VISIBILITY_WALL_NANOS.load(std::sync::atomic::Ordering::Relaxed) as f64 / count as f64 / 1e6
+}
+
+/// Mean wall milliseconds per formal tick (driver step plus the bots' visibility wave) so far.
+fn step_wall_ms_mean() -> f64 {
+    let count = STEP_COUNT.load(std::sync::atomic::Ordering::Relaxed).max(1);
+    STEP_WALL_NANOS.load(std::sync::atomic::Ordering::Relaxed) as f64 / count as f64 / 1e6
+}
+
 fn make_world(config: SingleLaneConfig, scripts_dir: &Path) -> Result<specs::World, Error> {
     let scripts = omoba_core::scripting::loader::load_scripts_dir(scripts_dir);
     create_single_lane_world(config, scripts)
@@ -188,7 +226,9 @@ fn run() -> Result<(), Error> {
     let stall_ticks = checked_game_ticks(parsed.stall_game_seconds, hz)?;
     let mut config = parsed.config;
     let role_plan = parsed.role_plan_path.as_ref().map(|path| -> Result<RoleBotMatchPlan, Error> {
-        Ok(serde_json::from_slice(&std::fs::read(path)?)?)
+        let mut plan: RoleBotMatchPlan = serde_json::from_slice(&std::fs::read(path)?)?;
+        plan.resolve_bot_hero_conflicts();
+        Ok(plan)
     }).transpose()?;
     let bots = if let Some(plan) = &role_plan {
         let (planned, bots) = plan.compile(config.seed, profile).map_err(err_msg)?;
@@ -272,10 +312,7 @@ fn run() -> Result<(), Error> {
                 }
             }
         }
-        let result = driver.step(&mut world, inputs.clone())?;
-        if bots.is_some() {
-            run_committed_visibility_wave_b(&mut world, result.tick, 0);
-        }
+        let result = step_tick(&mut driver, &mut world, inputs.clone(), bots.is_some())?;
         combat_facts += result
             .facts
             .iter()
@@ -373,7 +410,7 @@ fn run() -> Result<(), Error> {
     let mut replay = make_world(config.clone(), &scripts_dir)?;
     let mut replay_driver = SimulationDriver::from_world(&mut replay, profile)?;
     for (index, (inputs, expected)) in inputs_recorded.into_iter().zip(&digests).enumerate() {
-        replay_driver.step(&mut replay, inputs)?;
+        step_tick(&mut replay_driver, &mut replay, inputs, bots.is_some())?;
         let actual = single_lane_replay_digest(&replay);
         if &actual != expected {
             return Err(err_msg(format!(
@@ -382,6 +419,12 @@ fn run() -> Result<(), Error> {
             )));
         }
     }
+    // Lane towers still standing per side over every layer (E187: both sides' pushes, not only the winner's).
+    // Paired towers (nobu, E187 §5.2) count both towers of a layer.
+    let towers_standing = [0usize, 1].map(|side| state.lane_tower_layers.iter().chain(&state.lane_tower_partners).flatten()
+        .filter(|layer| layer[side].is_some_and(|tower| world.entities().is_alive(tower))).count());
+    let towers_total = state.lane_tower_layers.iter().map(Vec::len).sum::<usize>()
+        * if state.lane_tower_partners.is_empty() { 1 } else { 2 };
     let report = json!({
         "success": true,
         "match_played": true,
@@ -395,6 +438,11 @@ fn run() -> Result<(), Error> {
         "defender_policy": if withdraw_defender { "withdraw" } else { "guard" },
         "remaining_lane_towers": state.lane_towers.iter().map(|lane|
             lane.map(|tower| tower.is_some())).collect::<Vec<_>>(),
+        "lane_towers_standing_by_side": towers_standing,
+        "lane_towers_total_per_side": towers_total,
+        "step_wall_ms_mean": step_wall_ms_mean(),
+        "visibility_wave_ms_mean": visibility_wall_ms_mean(),
+        "step_count": STEP_COUNT.load(std::sync::atomic::Ordering::Relaxed),
         "script_dll": scripts_dir.join("base_content.dll"),
         "winner_side": winner_side,
         "winner_team": winner_team,
@@ -434,6 +482,8 @@ enum ObjectiveKind {
     Base = 1,
     TowerFront = 2,
     TowerLayer = 3,
+    /// Soldier camps (inhibitors) and general towers (E187): a push grinding the base structures is progress.
+    BaseStructure = 4,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -587,6 +637,10 @@ fn collect_objective_slots(world: &specs::World) -> Vec<ObjectiveSlot> {
             }
         }
     }
+    for (team, lane, role, entity, _, _) in state.base_structure_rows() {
+        let layer = if role == LaneRole::Inhibitor { 0 } else { 1 };
+        push(ObjectiveKind::BaseStructure, lane, layer, state.config.teams[team], entity);
+    }
     bound_objective_slots(slots)
 }
 
@@ -622,6 +676,8 @@ fn failure_document(
         "match_played": false,
         "failure_kind": kind,
         "scope": FAILURE_SCOPE,
+        "step_wall_ms_mean": step_wall_ms_mean(),
+        "visibility_wave_ms_mean": visibility_wall_ms_mean(),
         "error": message,
         "budget_scope": BUDGET_SCOPE,
         "stall_scope": STALL_SCOPE,
@@ -689,7 +745,7 @@ fn bounded_match_snapshot(world: &specs::World, bots: Option<&RoleBotConfig>, ti
     let commands = world.read_storage::<HeroCommandQueue>();
     let alive = world.entities();
     let map_lanes = state.config.map_id.as_deref().and_then(omoba_template_ids::moba_map_by_name)
-        .map(|map| map.lanes.iter().map(|lane| lane.id.to_string()).collect::<Vec<_>>())
+        .map(|map| (0..map.lane_count()).filter_map(|lane| map.lane_id(lane)).map(str::to_string).collect::<Vec<_>>())
         .unwrap_or_default();
     let lane_name = |lane: usize| map_lanes.get(lane).cloned().unwrap_or_else(|| lane.to_string());
     let vitals = |entity: specs::Entity| properties.get(entity).map(|prop| json!({
@@ -750,6 +806,19 @@ fn bounded_match_snapshot(world: &specs::World, bots: Option<&RoleBotConfig>, ti
             lanes.push(json!({"lane": lane_name(lane), "team_id": team_id, "living_creeps": count}));
         }
     }
+    // Soldier camps and general towers (E187): what still guards each base.
+    let base_structures: Vec<_> = state.base_structure_rows().into_iter().map(|(team, lane, role, entity, respawn_at, unlocked)| {
+        let entity = entity.filter(|entity| alive.is_alive(*entity));
+        json!({
+            "team_id": state.config.teams[team],
+            "lane": lane_name(lane),
+            "role": format!("{role:?}"),
+            "alive": entity.is_some(),
+            "attackable": unlocked,
+            "respawn_at_raw": respawn_at.map(|at| at.raw()),
+            "vitals": entity.and_then(vitals),
+        })
+    }).collect();
     let camps: Vec<_> = state.jungle_camps.iter().map(|camp| {
         let entity = camp.entity.filter(|entity| alive.is_alive(*entity));
         json!({
@@ -768,6 +837,7 @@ fn bounded_match_snapshot(world: &specs::World, bots: Option<&RoleBotConfig>, ti
         "towers": towers,
         "bases": bases,
         "lanes": lanes,
+        "base_structures": base_structures,
         "camps": camps,
     })
 }
@@ -848,7 +918,24 @@ fn write_failure(report: &Path, document: &Value) -> Result<(), Error> {
     Err(err_msg(message))
 }
 
+// Gameplay log lines (for example the "[match]" structure, death and result lines) on stderr when
+// RUST_LOG is set; the batch runner keeps stderr as each match's log (E154). Off by default.
+fn init_logging() {
+    let Ok(level) = std::env::var("RUST_LOG") else { return };
+    use log4rs::append::console::{ConsoleAppender, Target};
+    use log4rs::config::{Appender, Config, Root};
+    let level = level.parse().unwrap_or(log::LevelFilter::Info);
+    let stderr = ConsoleAppender::builder().target(Target::Stderr).build();
+    if let Ok(config) = Config::builder()
+        .appender(Appender::builder().build("stderr", Box::new(stderr)))
+        .build(Root::builder().appender("stderr").build(level))
+    {
+        let _ = log4rs::init_config(config);
+    }
+}
+
 fn main() {
+    init_logging();
     if let Err(error) = run() {
         eprintln!("MOBA headless FAILED: {error}");
         std::process::exit(1);
@@ -946,6 +1033,13 @@ mod diagnostic_tests {
         let mut base_hp = observation(before.objectives.clone());
         base_hp.objectives[3].hp_raw = 999;
         assert!(objective_progressed(&before, &base_hp));
+        // E187: soldier camps and general towers are objectives too (damage and retirement).
+        let structures = observation(vec![slot(ObjectiveKind::BaseStructure, 0, 30, 3_000)]);
+        let mut camp_hp = observation(structures.objectives.clone());
+        camp_hp.objectives[0].hp_raw = 2_999;
+        assert!(objective_progressed(&structures, &camp_hp));
+        let camp_down = observation(vec![slot(ObjectiveKind::BaseStructure, 0, 0, 0)]);
+        assert!(objective_progressed(&structures, &camp_down));
 
         let mut retired = observation(before.objectives.clone());
         retired.objectives[0] = slot(ObjectiveKind::TowerLayer, 0, 0, 0);

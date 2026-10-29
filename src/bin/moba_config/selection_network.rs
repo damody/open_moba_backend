@@ -181,7 +181,8 @@ pub fn host(plan_file: &OsStr, address: SocketAddr, output: &OsStr) -> io::Resul
     if address.ip().is_unspecified() || address.ip().is_multicast() {
         return Err(invalid("selection host requires a concrete bind address"));
     }
-    let plan: RoleBotMatchPlan = serde_json::from_str(&fs::read_to_string(plan_file)?)?;
+    let mut plan: RoleBotMatchPlan = serde_json::from_str(&fs::read_to_string(plan_file)?)?;
+    plan.resolve_bot_hero_conflicts();
     let humans: Vec<_> = plan
         .players
         .iter()
@@ -453,9 +454,9 @@ mod tests {
             "schema_version":1,"map_id":"three_lane_training","think_hz":5,
             "mana_enabled":false,"ability_policies":[],"ability_learning":[],
             "sustain":null,"item_builds":[],"players":[
-                {"player_id":7,"team_id":1,"hero":"training_luminary","role":"top","lane":"top","bot":false},
-                {"player_id":8,"team_id":2,"hero":"training_luminary","role":"top","lane":"top","bot":false},
-                {"player_id":9,"team_id":2,"hero":"training_luminary","role":"mid","lane":"mid","bot":true}
+                {"player_id":7,"team_id":1,"hero":"murakami_yoshikiyo","role":"top","lane":"top","bot":false},
+                {"player_id":8,"team_id":2,"hero":"murakami_yoshikiyo","role":"top","lane":"top","bot":false},
+                {"player_id":9,"team_id":2,"hero":"murakami_yoshikiyo","role":"mid","lane":"mid","bot":true}
             ]
         })).unwrap();
         let room = SelectionRoom::new(HeroSelectionSession::new(plan, 0, 60).unwrap());

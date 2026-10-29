@@ -46,7 +46,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             bots::RoleBotMatchPlan,
             selection::{HeroSelectionAction, HeroSelectionRequest, HeroSelectionSession},
         };
-        let plan: RoleBotMatchPlan = serde_json::from_str(&text)?;
+        let mut plan: RoleBotMatchPlan = serde_json::from_str(&text)?;
+        plan.resolve_bot_hero_conflicts();
         let humans: Vec<_> = plan
             .players
             .iter()

@@ -2762,7 +2762,7 @@ mod role_server_tests {
             for (index,(role,lane)) in [(BotRole::Top,"top"),(BotRole::Mid,"mid"),(BotRole::Carry,"bottom"),
                 (BotRole::Support,"bottom"),(BotRole::Jungle,"mid")].into_iter().enumerate() {
                 let player_id=(team-1)*5+index as u32+1;
-                players.push(RoleBotPlayerPlan {player_id,team_id:team,hero:"training_luminary".into(),role,lane:lane.into(),bot:player_id!=1});
+                players.push(RoleBotPlayerPlan {player_id,team_id:team,hero:"murakami_yoshikiyo".into(),role,lane:lane.into(),bot:player_id!=1});
             }
         }
         RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:false,players,

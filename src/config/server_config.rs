@@ -98,6 +98,10 @@ pub struct ServerSetting {
     /// Server-owned pre-match selection; omitted players retain the legacy hero.
     #[serde(default)]
     pub AUTHENTICATED_HERO_BINDINGS: BTreeMap<u32, String>,
+    /// Automated fixtures only (first-learning smokes): admit test-only heroes in hero bindings
+    /// and role plans. Every real match leaves it off and seats source heroes only.
+    #[serde(default)]
+    pub MATCH_TEST_FIXTURE_HEROES: bool,
     /// Server-owned summoner slots. Empty means those slots stay unavailable.
     /// Clients cannot select catalog ids. Validated before any match world exists.
     #[serde(default, with = "summoner_loadout_config")]
@@ -373,13 +377,17 @@ impl ServerSetting {
             return Err("single_lane requires secure_v2_required (no legacy gameplay input)".into());
         }
         for (player, hero) in &self.AUTHENTICATED_HERO_BINDINGS {
-            if !self.AUTHENTICATED_TEAM_BINDINGS.contains_key(player)
-                || omoba_template_ids::hero_by_name(hero).and_then(omoba_template_ids::hero_stats).is_none() {
+            let id = omoba_template_ids::hero_by_name(hero).filter(|id| omoba_template_ids::hero_stats(*id).is_some());
+            if !self.AUTHENTICATED_TEAM_BINDINGS.contains_key(player) || id.is_none() {
                 return Err("single_lane hero binding requires a roster player and active compiled hero".into());
             }
+            if !self.MATCH_TEST_FIXTURE_HEROES && !id.is_some_and(omoba_template_ids::hero_playable) {
+                return Err(format!("hero binding '{hero}' is test-only: a match seats only source heroes"));
+            }
         }
-        let selected = |player| self.AUTHENTICATED_HERO_BINDINGS.get(&player)
-            .cloned().unwrap_or_else(|| "training_luminary".into());
+        // An unbound seat gets a playable source hero, never a test-only fixture.
+        let selected = |player: u32| self.AUTHENTICATED_HERO_BINDINGS.get(&player).cloned()
+            .unwrap_or_else(|| omoba_core::runtime::native::moba_match::selection::default_playable_hero(player as usize).into());
         let mut players = [0; 2];
         let mut additional_players = Vec::new();
         let mut counts = [0; 2];
@@ -410,18 +418,25 @@ impl ServerSetting {
         } else { None };
         let defaults = omoba_core::runtime::SingleLaneConfig::default();
         let mut config = omoba_core::runtime::SingleLaneConfig {
+            // A formal match plays by the original game's rules (templates/game_rules.lua). With
+            // them the runtime pays the original rewards (E187); the training reward rules below
+            // (building bounty, plating, kill streak, death streak, first kill) apply only without.
+            game_rules: omoba_template_ids::GAME_RULES,
             building_reward_rules: omoba_core::runtime::BuildingRewardRules::training(),
             tower_plating_rules: Some(omoba_core::runtime::TowerPlatingRules::training()),
             kill_bounty_rules: omoba_core::runtime::KillBountyRules::training(),
             objective_comeback_rules: serde_json::from_str(omoba_template_ids::MOBA_OBJECTIVE_COMEBACK_JSON).expect("validated compiled comeback rules"),
             death_streak_rules: omoba_core::runtime::DeathStreakRules::training(),
             first_kill_bonus_gold: omoba_template_ids::MOBA_FIRST_KILL_BONUS_GOLD,
-            minion_growth_rules: omoba_core::runtime::MinionGrowthRules::training(),
+            minion_growth_rules: map.map_or_else(omoba_core::runtime::MinionGrowthRules::training,
+                omoba_core::runtime::MinionGrowthRules::for_map),
             mana_enabled: self.MATCH_MANA_ENABLED,
             map_id: map.map(|map| map.id.to_owned()),
             authored_minion_waves: map.is_some_and(|map| !map.minion_wave.is_empty()),
             wave_interval: map.map_or(defaults.wave_interval,
                 |map| omoba_sim::Fixed64::from_i32(map.wave_interval_seconds as i32)),
+            first_wave_delay: map.map_or(defaults.first_wave_delay,
+                |map| omoba_sim::Fixed64::from_i32(map.first_wave_seconds() as i32)),
             lane_length: map.map_or(omoba_sim::Fixed64::from_i32(2400), |map| omoba_sim::Fixed64::from_i32(map.lane_length)),
             tower_hp: map.map_or(defaults.tower_hp, |map| omoba_sim::Fixed64::from_i32(map.tower_hp)),
             base_hp: map.map_or(defaults.base_hp, |map| omoba_sim::Fixed64::from_i32(map.base_hp)),
@@ -491,8 +506,9 @@ impl ServerSetting {
         if !self.AUTHENTICATED_HERO_BINDINGS.is_empty() {
             return Err("role plan owns hero selection; do not mix hero bindings".into());
         }
-        let plan:omoba_core::runtime::native::moba_match::bots::RoleBotMatchPlan=
+        let mut plan:omoba_core::runtime::native::moba_match::bots::RoleBotMatchPlan=
             serde_json::from_str(json).map_err(|error|format!("invalid role plan JSON: {error}"))?;
+        plan.resolve_bot_hero_conflicts();
         if self.MATCH_MAP_ID.as_deref().is_some_and(|id|id!=plan.map_id) {
             return Err("role plan map conflicts with MATCH_MAP_ID".into());
         }
@@ -504,7 +520,9 @@ impl ServerSetting {
         if human_teams!=self.AUTHENTICATED_TEAM_BINDINGS {
             return Err("authenticated teams must match exactly the role plan's human controllers (never bots)".into());
         }
-        plan.compile_with_tick_rate(omoba_core::runtime::MasterSeed::default().0,self.STEP_FPS)
+        let admission = if self.MATCH_TEST_FIXTURE_HEROES { omoba_core::runtime::native::moba_match::bots::HeroAdmission::Fixture }
+            else { omoba_core::runtime::native::moba_match::bots::HeroAdmission::Playable };
+        plan.compile_with_admission(omoba_core::runtime::MasterSeed::default().0,self.STEP_FPS,admission)
             .and_then(|(mut config, bots)| {
                 config.mana_enabled = self.MATCH_MANA_ENABLED;
                 self.reconcile_role_plan_loadouts(&plan, &mut config)?;
@@ -623,7 +641,7 @@ STEP_FPS = {step_fps}
             for (index,(role,lane)) in [(BotRole::Top,"top"),(BotRole::Mid,"mid"),(BotRole::Carry,"bottom"),
                 (BotRole::Support,"bottom"),(BotRole::Jungle,"mid")].into_iter().enumerate() {
                 let player_id=(team-1)*5+index as u32+1;
-                players.push(RoleBotPlayerPlan {player_id,team_id:team,hero:"training_luminary".into(),role,lane:lane.into(),bot:player_id!=1});
+                players.push(RoleBotPlayerPlan {player_id,team_id:team,hero:"murakami_yoshikiyo".into(),role,lane:lane.into(),bot:player_id!=1});
             }
         }
         let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:5,mana_enabled:false,players,
@@ -656,7 +674,7 @@ STEP_FPS = {step_fps}
                 2=>{bad.AUTHENTICATED_TEAM_BINDINGS.clear();},
                 3=>{bad.MATCH_GAMEPLAY_MODE=MatchGameplayMode::Story;},
                 4=>{bad.MATCH_LOCKSTEP_MODE=MatchLockstepMode::SecureV2OptIn;},
-                5=>{bad.AUTHENTICATED_HERO_BINDINGS.insert(1,"training_luminary".into());},
+                5=>{bad.AUTHENTICATED_HERO_BINDINGS.insert(1,"murakami_yoshikiyo".into());},
                 _=>{bad.MATCH_MAP_ID=Some("three_lane_layered_training".into());},
             }
             assert!(bad.validate().is_err());
@@ -759,8 +777,8 @@ AUTHENTICATED_TEAM_BINDINGS = { "1" = 1, "2" = 2 }
             ability_policies: Vec::new(), ability_learning: Vec::new(), sustain: None, item_builds: Vec::new(),
             summoner_loadouts: BTreeMap::new(),
             players: vec![
-                RoleBotPlayerPlan { player_id: 1, team_id: 1, hero: "training_luminary".into(), role: BotRole::Top, lane: "top".into(), bot: false },
-                RoleBotPlayerPlan { player_id: 2, team_id: 2, hero: "training_luminary".into(), role: BotRole::Top, lane: "top".into(), bot: false },
+                RoleBotPlayerPlan { player_id: 1, team_id: 1, hero: "murakami_yoshikiyo".into(), role: BotRole::Top, lane: "top".into(), bot: false },
+                RoleBotPlayerPlan { player_id: 2, team_id: 2, hero: "murakami_yoshikiyo".into(), role: BotRole::Top, lane: "top".into(), bot: false },
             ], showcase: None
         };
         let mut setting = parse_with_step_fps(60);
@@ -779,8 +797,8 @@ AUTHENTICATED_TEAM_BINDINGS = { "1" = 1, "2" = 2 }
         use omoba_core::runtime::native::moba_match::bots::*;
         use omoba_core::runtime::native::moba_match::selection::{HeroSelectionAction, HeroSelectionRequest, HeroSelectionSession};
         let players = vec![
-            RoleBotPlayerPlan { player_id: 1, team_id: 1, hero: "training_luminary".into(), role: BotRole::Top, lane: "top".into(), bot: false },
-            RoleBotPlayerPlan { player_id: 2, team_id: 2, hero: "training_luminary".into(), role: BotRole::Top, lane: "top".into(), bot: true },
+            RoleBotPlayerPlan { player_id: 1, team_id: 1, hero: "murakami_yoshikiyo".into(), role: BotRole::Top, lane: "top".into(), bot: false },
+            RoleBotPlayerPlan { player_id: 2, team_id: 2, hero: "murakami_yoshikiyo".into(), role: BotRole::Top, lane: "top".into(), bot: true },
         ];
         let base = RoleBotMatchPlan {
             schema_version: 1, map_id: "three_lane_training".into(), think_hz: 5, mana_enabled: false,
@@ -853,8 +871,8 @@ AUTHENTICATED_TEAM_BINDINGS = { "1" = 1, "2" = 2 }
         setting.MATCH_GAMEPLAY_MODE=MatchGameplayMode::ThreeLane;
         setting.AUTHENTICATED_TEAM_BINDINGS=BTreeMap::from([(1,1),(2,2)]);
         let mut plan=serde_json::json!({"schema_version":1,"map_id":"three_lane_training","think_hz":5,"mana_enabled":true,
-            "players":[{"player_id":1,"team_id":1,"hero":"training_ranger","role":"carry","lane":"bottom","bot":false},
-                {"player_id":2,"team_id":2,"hero":"training_luminary","role":"mid","lane":"mid","bot":false}],
+            "players":[{"player_id":1,"team_id":1,"hero":"tamako","role":"carry","lane":"bottom","bot":false},
+                {"player_id":2,"team_id":2,"hero":"murakami_yoshikiyo","role":"mid","lane":"mid","bot":false}],
             "sustain":{"recall_below_hp_per_mille":350,"leave_base_at_hp_per_mille":850,"threat_radius":1000,
                 "mana":{"recall_below_per_mille":200,"leave_base_at_per_mille":850}}});
         setting.MATCH_ROLE_PLAN_JSON=Some(plan.to_string());
@@ -889,7 +907,15 @@ AUTHENTICATED_TEAM_BINDINGS = { "1" = 1, "2" = 2 }
         setting.validate().unwrap();
         assert_eq!(setting.AUTHENTICATED_TEAM_BINDINGS,humans);
         assert_eq!(setting.role_bot_config().unwrap().unwrap().assignments.len(),bots);
-        assert_eq!(setting.role_bot_config().unwrap().unwrap().ability_learning.len(),16);
+        // Source-hero bots learn their own kits ("*" expanded) and cast the source policies.
+        let bots_config=setting.role_bot_config().unwrap().unwrap();
+        assert!(bots_config.ability_learning.iter().any(|step|step.ability=="c17_light_chain"));
+        assert!(!bots_config.ability_learning.iter().any(|step|step.ability=="*"));
+        assert!(bots_config.ability_policies.iter().any(|policy|policy.ability=="a34_frost_bolt"));
+        let lane=setting.single_lane_config().unwrap().unwrap();
+        for hero in lane.heroes.iter().chain(lane.additional_players.iter().map(|player|&player.hero)) {
+            assert!(omoba_template_ids::hero_playable(omoba_template_ids::hero_by_name(hero).unwrap()),"{recipe}: {hero}");
+        }
         }
     }
 
@@ -898,15 +924,22 @@ AUTHENTICATED_TEAM_BINDINGS = { "1" = 1, "2" = 2 }
         let mut setting = parse_with_step_fps(60);
         setting.MATCH_GAMEPLAY_MODE = MatchGameplayMode::SingleLane;
         setting.AUTHENTICATED_TEAM_BINDINGS = BTreeMap::from([(1,1),(2,2),(3,1)]);
-        setting.AUTHENTICATED_HERO_BINDINGS = BTreeMap::from([(1,"training_apprentice".into()),(3,"date_masamune".into())]);
+        setting.AUTHENTICATED_HERO_BINDINGS = BTreeMap::from([(1,"tamako".into()),(3,"date_masamune".into())]);
         let config = setting.single_lane_config().unwrap().unwrap();
-        assert_eq!(config.heroes,["training_apprentice","training_luminary"]);
+        // An unbound seat gets a playable source hero, never a test-only fixture.
+        let unbound = omoba_core::runtime::native::moba_match::selection::default_playable_hero(2);
+        assert_eq!(config.heroes,["tamako",unbound]);
+        assert!(omoba_template_ids::hero_playable(omoba_template_ids::hero_by_name(unbound).unwrap()));
         assert_eq!(config.additional_players[0].hero,"date_masamune");
-        for (player,hero) in [(4,"training_apprentice"),(2,"missing_hero")] {
+        for (player,hero) in [(4,"tamako"),(2,"missing_hero"),(2,"training_apprentice")] {
             setting.AUTHENTICATED_HERO_BINDINGS.insert(player,hero.into());
-            assert!(setting.single_lane_config().is_err());
+            assert!(setting.single_lane_config().is_err(),"{player}={hero}");
             setting.AUTHENTICATED_HERO_BINDINGS.remove(&player);
         }
+        // Only an automated fixture run may bind a test-only hero, and only by saying so.
+        setting.AUTHENTICATED_HERO_BINDINGS.insert(2,"training_apprentice".into());
+        setting.MATCH_TEST_FIXTURE_HEROES = true;
+        assert_eq!(setting.single_lane_config().unwrap().unwrap().heroes,["tamako","training_apprentice"]);
     }
 
     #[test]
@@ -1009,8 +1042,9 @@ AUTHENTICATED_TEAM_BINDINGS = { "1" = 1, "2" = 2 }
             assert_eq!(config.objective_comeback_rules,serde_json::from_str::<omoba_core::runtime::ObjectiveComebackRules>(omoba_template_ids::MOBA_OBJECTIVE_COMEBACK_JSON).unwrap());
             assert_eq!(config.death_streak_rules,omoba_core::runtime::DeathStreakRules::training());
             assert_eq!(config.first_kill_bonus_gold,omoba_template_ids::MOBA_FIRST_KILL_BONUS_GOLD);
-            assert_eq!(config.minion_growth_rules,omoba_core::runtime::MinionGrowthRules::training());
+            assert_eq!(config.minion_growth_rules,omoba_core::runtime::MinionGrowthRules::for_map(map));
             assert_eq!(config.wave_interval,omoba_sim::Fixed64::from_i32(map.wave_interval_seconds as i32));
+            assert_eq!(config.first_wave_delay,omoba_sim::Fixed64::from_i32(map.first_wave_seconds() as i32));
             assert_eq!(config.lane_length,omoba_sim::Fixed64::from_i32(map.lane_length));
             assert_eq!(config.hero_xp_scale_permille,map.hero_xp_scale_permille(),"{}",map.id);
         }

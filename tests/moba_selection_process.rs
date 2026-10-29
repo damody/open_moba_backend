@@ -29,7 +29,7 @@ fn selection_binary_live_stdio_flush_and_explicit_finalization() {
             RoleBotPlayerPlan {
                 player_id: 7,
                 team_id: 1,
-                hero: "training_luminary".into(),
+                hero: "murakami_yoshikiyo".into(),
                 role: BotRole::Top,
                 lane: "top".into(),
                 bot: false,
@@ -37,7 +37,7 @@ fn selection_binary_live_stdio_flush_and_explicit_finalization() {
             RoleBotPlayerPlan {
                 player_id: 8,
                 team_id: 2,
-                hero: "training_luminary".into(),
+                hero: "murakami_yoshikiyo".into(),
                 role: BotRole::Top,
                 lane: "top".into(),
                 bot: true,
@@ -89,7 +89,7 @@ fn selection_binary_live_stdio_flush_and_explicit_finalization() {
     let hash = initial["selection"]["catalog_data_hash"].as_str().unwrap();
     let mut input = child.0.stdin.take().unwrap();
     for (request_id, revision, action) in [
-        (1, 0, json!({"kind":"select","hero":"training_ranger"})),
+        (1, 0, json!({"kind":"select","hero":"tamako"})),
         (2, 1, json!({"kind":"lock"})),
         (3, 2, json!({"kind":"finalize"})),
     ] {
@@ -106,7 +106,7 @@ fn selection_binary_live_stdio_flush_and_explicit_finalization() {
         assert_eq!(reply["request_id_token"], request_id.to_string());
         if request_id == 3 {
             assert_eq!(reply["selection"]["finalized"], true);
-            assert_eq!(reply["plan"]["players"][0]["hero"], "training_ranger");
+            assert_eq!(reply["plan"]["players"][0]["hero"], "tamako");
         } else {
             assert!(reply["plan"].is_null());
         }

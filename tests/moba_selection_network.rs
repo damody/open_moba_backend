@@ -131,7 +131,7 @@ fn selection_host_two_live_gateways_admission_shared_roster_and_handoff() {
             .map(|(player_id, team_id)| RoleBotPlayerPlan {
                 player_id,
                 team_id,
-                hero: "training_luminary".into(),
+                hero: "murakami_yoshikiyo".into(),
                 role: BotRole::Top,
                 lane: "top".into(),
                 bot: false,
@@ -190,13 +190,13 @@ fn selection_host_two_live_gateways_admission_shared_roster_and_handoff() {
             .is_err(),
         "invitation changed bound identity"
     );
-    let reply = first.request(1, 0, json!({"kind":"select","hero":"training_ranger"}));
+    let reply = first.request(1, 0, json!({"kind":"select","hero":"tamako"}));
     assert!(reply["error"].is_null());
     let stale = second.request(1, 0, json!({"kind":"read"}));
     assert!(stale["error"].is_string());
     assert_eq!(
         stale["selection"]["seats"][0]["player"]["hero"],
-        "training_ranger"
+        "tamako"
     );
     assert!(first.request(2, 1, json!({"kind":"lock"}))["error"].is_null());
     assert!(
