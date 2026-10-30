@@ -308,6 +308,10 @@ fn run() -> Result<(), Error> {
     let mut inputs_recorded = Vec::new();
     let mut digests = Vec::new();
     let mut casts = [0u32; 4];
+    // Per-hero, per-ability statistics for batch acceptance (E265): bot cast inputs by slot,
+    // accepted casts (Ability facts), the cast trace's results, summons and K/D/A.
+    let mut hero_stats = std::env::var("OMB_HEADLESS_HERO_STATS").is_ok_and(|v| v == "1").then(HeroStats::default);
+    if hero_stats.is_some() { world.insert(omoba_core::runtime::native::cast_trace::CastTrace::default()); }
     let mut end_events = 0usize;
     let mut combat_facts = 0usize;
     // Objective slots are a bounded public read. Full snapshots stay on the sample interval.
@@ -346,6 +350,7 @@ fn run() -> Result<(), Error> {
             }
         }
         let result = step_tick(&mut driver, &mut world, inputs.clone(), bots.is_some())?;
+        if let Some(stats) = &mut hero_stats { stats.observe(&world, &inputs, &result.facts); }
         combat_facts += result
             .facts
             .iter()
@@ -508,6 +513,7 @@ fn run() -> Result<(), Error> {
         "deaths": state.heroes.iter().map(|hero| hero.deaths).collect::<Vec<_>>(),
         "respawns": state.heroes.iter().map(|hero| hero.respawns).collect::<Vec<_>>(),
         "cast_inputs_by_slot": casts,
+        "hero_stats": hero_stats.as_ref().map(|stats| stats.report(&world)),
         "end_events": end_events,
         "committed_combat_facts": combat_facts,
         "replay_verified_ticks": digests.len(),
@@ -1331,5 +1337,79 @@ mod diagnostic_tests {
             std::fs::remove_file(path).unwrap();
         }
         std::fs::remove_dir(&dir).unwrap();
+    }
+}
+
+/// Per-hero, per-ability headless statistics (E265; `OMB_HEADLESS_HERO_STATS=1`), keyed by player.
+#[derive(Default)]
+struct HeroStats {
+    inputs: std::collections::BTreeMap<(u32, u32), u32>,
+    accepted: std::collections::BTreeMap<(u32, u64), u32>,
+    summons: std::collections::BTreeMap<u32, std::collections::BTreeSet<u64>>,
+    heroes: std::collections::BTreeMap<u32, (String, Vec<String>)>,
+}
+
+impl HeroStats {
+    fn observe(&mut self, world: &specs::World, inputs: &[(u32, PlayerInput)], facts: &[omoba_core::runtime::OrderedFact]) {
+        use specs::Join;
+        for (player, input) in inputs {
+            if let Some(PlayerInputEnum::CastAbility(cast)) = &input.action {
+                *self.inputs.entry((*player, cast.ability_index)).or_default() += 1;
+            }
+        }
+        let state = world.read_resource::<MobaMatch>();
+        let heroes = world.read_storage::<omoba_core::runtime::Hero>();
+        let mut owners = std::collections::BTreeMap::new();
+        for slot in &state.heroes {
+            if let Some(entity) = slot.entity {
+                owners.insert(omoba_core::runtime::canonical_entity_id(entity), slot.player_id);
+                if let Some(hero) = heroes.get(entity) {
+                    self.heroes.insert(slot.player_id, (hero.id.clone(), hero.abilities.clone()));
+                }
+            }
+        }
+        let summoned = world.read_storage::<omoba_core::runtime::SummonedUnit>();
+        for (entity, summon) in (&world.entities(), &summoned).join() {
+            if let Some(slot) = state.heroes.iter().find(|slot| slot.entity == Some(summon.summoner)) {
+                self.summons.entry(slot.player_id).or_default().insert(omoba_core::runtime::canonical_entity_id(entity));
+            }
+        }
+        for fact in facts {
+            if let ObservableFact::Ability { source, ability_id, .. } = &fact.fact {
+                if let Some(player) = owners.get(source) { *self.accepted.entry((*player, *ability_id)).or_default() += 1; }
+            }
+        }
+    }
+
+    fn report(&self, world: &specs::World) -> serde_json::Value {
+        use omoba_core::runtime::native::cast_trace::{CastTrace, CastTraceResult};
+        let state = world.read_resource::<MobaMatch>();
+        let mut results: std::collections::BTreeMap<(u32, String), std::collections::BTreeMap<String, u32>> = Default::default();
+        if let Some(trace) = world.try_fetch::<CastTrace>() {
+            for row in &trace.0 {
+                let Some(player) = state.heroes.iter().find(|slot| slot.entity == Some(row.caster)).map(|slot| slot.player_id) else { continue };
+                let result = match &row.result {
+                    CastTraceResult::Accepted => "accepted".to_string(),
+                    CastTraceResult::WindupStarted => "windup".to_string(),
+                    CastTraceResult::Rejected(code) => format!("rejected:{code}"),
+                    CastTraceResult::ScriptError { code, .. } => format!("script_error:{code}"),
+                };
+                *results.entry((player, row.ability.clone())).or_default().entry(result).or_default() += 1;
+            }
+        }
+        serde_json::Value::Array(state.heroes.iter().map(|slot| {
+            let (hero, abilities) = self.heroes.get(&slot.player_id).cloned().unwrap_or_default();
+            let casts: serde_json::Map<String, serde_json::Value> = abilities.iter().enumerate().map(|(index, ability)| {
+                let stable = omoba_core::runtime::presentation_cue::stable_content_fact_id(ability);
+                (ability.clone(), serde_json::json!({
+                    "slot": index,
+                    "inputs": self.inputs.get(&(slot.player_id, index as u32)).copied().unwrap_or(0),
+                    "accepted": self.accepted.get(&(slot.player_id, stable)).copied().unwrap_or(0),
+                    "results": results.get(&(slot.player_id, ability.clone())).cloned().unwrap_or_default(),
+                }))
+            }).collect();
+            serde_json::json!({"player": slot.player_id, "hero": hero, "kills": slot.kills, "deaths": slot.deaths,
+                "assists": slot.assists, "summons": self.summons.get(&slot.player_id).map_or(0, |s| s.len()), "casts": casts})
+        }).collect())
     }
 }
