@@ -1350,6 +1350,10 @@ struct HeroStats {
     /// Every hero entity each player had, all lives: a cast trace row names the life that cast it,
     /// which a respawn replaces (the slot holds only the current one).
     lives: std::collections::BTreeMap<specs::Entity, u32>,
+    /// Shop items (E336): each player's inventory counts at the last observation, and how many of
+    /// each item it obtained (a count that grew: bought, or assembled from its recipe).
+    held: std::collections::BTreeMap<u32, std::collections::BTreeMap<String, u32>>,
+    obtained: std::collections::BTreeMap<(u32, String), u32>,
 }
 
 impl HeroStats {
@@ -1371,6 +1375,18 @@ impl HeroStats {
                     self.heroes.insert(slot.player_id, (hero.id.clone(), hero.abilities.clone()));
                 }
             }
+        }
+        let inventories = world.read_storage::<omoba_core::runtime::native::comp::Inventory>();
+        for slot in &state.heroes {
+            let Some(inventory) = slot.entity.and_then(|entity| inventories.get(entity)) else { continue };
+            let mut counts = std::collections::BTreeMap::<String, u32>::new();
+            for (_, item) in inventory.items() { *counts.entry(item.item_id.clone()).or_default() += 1; }
+            let before = self.held.entry(slot.player_id).or_default();
+            for (id, count) in &counts {
+                let grew = count.saturating_sub(before.get(id).copied().unwrap_or(0));
+                if grew > 0 { *self.obtained.entry((slot.player_id, id.clone())).or_default() += grew; }
+            }
+            *before = counts;
         }
         let summoned = world.read_storage::<omoba_core::runtime::SummonedUnit>();
         for (entity, summon) in (&world.entities(), &summoned).join() {
@@ -1415,8 +1431,19 @@ impl HeroStats {
                     "results": results.get(&(slot.player_id, ability.clone())).cloned().unwrap_or_default(),
                 }))
             }).collect();
+            // Committed item uses publish an `item:<id>` cast fact (publish_item_use); obtained counts above.
+            let items: serde_json::Map<String, serde_json::Value> = omoba_template_ids::MOBA_ITEM_CATALOG.iter()
+                .filter(|item| item.in_shop())
+                .filter_map(|item| {
+                    let stable = omoba_core::runtime::presentation_cue::stable_content_fact_id(
+                        &format!("{}{}", omoba_core::runtime::presentation_cue::ITEM_CAST_PREFIX, item.id));
+                    let used = self.accepted.get(&(slot.player_id, stable)).copied().unwrap_or(0);
+                    let obtained = self.obtained.get(&(slot.player_id, item.id.to_string())).copied().unwrap_or(0);
+                    (used > 0 || obtained > 0).then(|| (item.id.to_string(), serde_json::json!({"obtained": obtained, "used": used})))
+                }).collect();
             serde_json::json!({"player": slot.player_id, "hero": hero, "kills": slot.kills, "deaths": slot.deaths,
-                "assists": slot.assists, "summons": self.summons.get(&slot.player_id).map_or(0, |s| s.len()), "casts": casts})
+                "assists": slot.assists, "summons": self.summons.get(&slot.player_id).map_or(0, |s| s.len()), "casts": casts,
+                "items": items})
         }).collect())
     }
 }
