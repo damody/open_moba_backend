@@ -1102,7 +1102,8 @@ impl ResourceManager {
                     log::info!("upgrade_skill: 無可用技能點 (slot {})", slot);
                     return Ok(());
                 }
-                let ability_id = match hero.abilities.get(idx) {
+                // An empty slot ("", F without D) has nothing to learn.
+                let ability_id = match hero.abilities.get(idx).filter(|a| !a.is_empty()) {
                     Some(a) => a.clone(),
                     None => {
                         log::warn!("upgrade_skill: 英雄無 slot {} 技能", slot);
