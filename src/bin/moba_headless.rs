@@ -1347,6 +1347,9 @@ struct HeroStats {
     accepted: std::collections::BTreeMap<(u32, u64), u32>,
     summons: std::collections::BTreeMap<u32, std::collections::BTreeSet<u64>>,
     heroes: std::collections::BTreeMap<u32, (String, Vec<String>)>,
+    /// Every hero entity each player had, all lives: a cast trace row names the life that cast it,
+    /// which a respawn replaces (the slot holds only the current one).
+    lives: std::collections::BTreeMap<specs::Entity, u32>,
 }
 
 impl HeroStats {
@@ -1363,6 +1366,7 @@ impl HeroStats {
         for slot in &state.heroes {
             if let Some(entity) = slot.entity {
                 owners.insert(omoba_core::runtime::canonical_entity_id(entity), slot.player_id);
+                self.lives.insert(entity, slot.player_id);
                 if let Some(hero) = heroes.get(entity) {
                     self.heroes.insert(slot.player_id, (hero.id.clone(), hero.abilities.clone()));
                 }
@@ -1387,7 +1391,9 @@ impl HeroStats {
         let mut results: std::collections::BTreeMap<(u32, String), std::collections::BTreeMap<String, u32>> = Default::default();
         if let Some(trace) = world.try_fetch::<CastTrace>() {
             for row in &trace.0 {
-                let Some(player) = state.heroes.iter().find(|slot| slot.entity == Some(row.caster)).map(|slot| slot.player_id) else { continue };
+                // The life that cast (E318): earlier lives' rows count too.
+                let Some(player) = self.lives.get(&row.caster).copied()
+                    .or_else(|| state.heroes.iter().find(|slot| slot.entity == Some(row.caster)).map(|slot| slot.player_id)) else { continue };
                 let result = match &row.result {
                     CastTraceResult::Accepted => "accepted".to_string(),
                     CastTraceResult::WindupStarted => "windup".to_string(),
