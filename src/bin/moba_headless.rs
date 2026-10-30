@@ -1399,6 +1399,7 @@ impl HeroStats {
                     CastTraceResult::WindupStarted => "windup".to_string(),
                     CastTraceResult::Rejected(code) => format!("rejected:{code}"),
                     CastTraceResult::ScriptError { code, .. } => format!("script_error:{code}"),
+                    CastTraceResult::Interrupted(reason) => format!("interrupted:{reason}"),
                 };
                 *results.entry((player, row.ability.clone())).or_default().entry(result).or_default() += 1;
             }
