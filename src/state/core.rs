@@ -1276,10 +1276,17 @@ impl State {
                     let show = |bytes: Option<&[u8]>| bytes.map(|bytes| String::from_utf8_lossy(&bytes[..bytes.len().min(320)]).into_owned())
                         .unwrap_or_else(|| "absent".into());
                     // Exact authority bytes at the checkpoint when retained, else the latest.
-                    let expected = projection.expected_checkpoint_bytes(mismatch.team_id, mismatch.replica_tick, replica_id, schema_id)
-                        .map(|bytes| show(Some(bytes)))
-                        .unwrap_or_else(|| format!("(latest) {}", show(projection.expected_component_bytes(mismatch.team_id, replica_id, schema_id))));
-                    let observed = show(mismatch.observed_bytes.get(&(replica_id, schema_id)).map(Vec::as_slice));
+                    let checkpoint = projection.expected_checkpoint_bytes(mismatch.team_id, mismatch.replica_tick, replica_id, schema_id);
+                    let authority_bytes = checkpoint.or_else(|| projection.expected_component_bytes(mismatch.team_id, replica_id, schema_id));
+                    let replica_bytes = mismatch.observed_bytes.get(&(replica_id, schema_id)).map(Vec::as_slice);
+                    // JSON components: the top-level fields that differ, whole (a truncated prefix hid them).
+                    if let Some(fields) = json_field_diff(authority_bytes, replica_bytes) {
+                        let latest = if checkpoint.is_none() { " (latest authority)" } else { "" };
+                        return format!(" canonical={canonical:#x} kind={kind}{latest} differs={fields}");
+                    }
+                    let expected = checkpoint.map(|bytes| show(Some(bytes)))
+                        .unwrap_or_else(|| format!("(latest) {}", show(authority_bytes)));
+                    let observed = show(replica_bytes);
                     format!(" canonical={canonical:#x} kind={kind} authority={expected} replica={observed}")
                 };
                 let detail = omoba_core::runtime::team_projector::describe_component_divergence_with(
@@ -2976,4 +2983,18 @@ impl Default for StateConfig {
             campaign_mode: false,
         }
     }
+}
+
+/// The top-level fields two JSON objects disagree on, as `{"field":[authority, replica], ...}`
+/// (each side whole, at most 1 KiB per field); None unless both sides are JSON objects.
+fn json_field_diff(authority: Option<&[u8]>, replica: Option<&[u8]>) -> Option<String> {
+    let parse = |bytes: Option<&[u8]>| bytes.and_then(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
+        .and_then(|value| match value { serde_json::Value::Object(map) => Some(map), _ => None });
+    let (authority, replica) = (parse(authority)?, parse(replica)?);
+    let keys: std::collections::BTreeSet<&String> = authority.keys().chain(replica.keys()).collect();
+    let clip = |value: Option<&serde_json::Value>| { let text = value.map_or_else(|| "absent".to_owned(), |v| v.to_string());
+        if text.len() > 1024 { format!("{}…", &text[..text.floor_char_boundary(1024)]) } else { text } };
+    let rows: Vec<String> = keys.into_iter().filter(|key| authority.get(*key) != replica.get(*key))
+        .map(|key| format!("{key:?}:[{},{}]", clip(authority.get(key)), clip(replica.get(key)))).collect();
+    Some(format!("{{{}}}", rows.join(",")))
 }
