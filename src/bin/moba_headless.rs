@@ -312,6 +312,7 @@ fn run() -> Result<(), Error> {
     // accepted casts (Ability facts), the cast trace's results, summons and K/D/A.
     let mut hero_stats = std::env::var("OMB_HEADLESS_HERO_STATS").is_ok_and(|v| v == "1").then(HeroStats::default);
     if hero_stats.is_some() { world.insert(omoba_core::runtime::native::cast_trace::CastTrace::default()); }
+    if hero_stats.is_some() { world.insert(omoba_core::runtime::native::damage_tally::DamageTally::default()); }
     let mut end_events = 0usize;
     let mut combat_facts = 0usize;
     // Objective slots are a bounded public read. Full snapshots stay on the sample interval.
@@ -1354,6 +1355,10 @@ struct HeroStats {
     /// each item it obtained (a count that grew: bought, or assembled from its recipe).
     held: std::collections::BTreeMap<u32, std::collections::BTreeMap<String, u32>>,
     obtained: std::collections::BTreeMap<(u32, String), u32>,
+    /// Health each player's hero removed (DamageTally, E352; E342 balance checks): from anything,
+    /// and from heroes.
+    damage: std::collections::BTreeMap<u32, i64>,
+    hero_damage: std::collections::BTreeMap<u32, i64>,
 }
 
 impl HeroStats {
@@ -1394,9 +1399,21 @@ impl HeroStats {
                 self.summons.entry(slot.player_id).or_default().insert(omoba_core::runtime::canonical_entity_id(entity));
             }
         }
+        // Settled damage of this tick (DamageTally, E352): a hero's credited packets by its life.
+        if let Some(mut tally) = world.try_fetch_mut::<omoba_core::runtime::native::damage_tally::DamageTally>() {
+            for (source, target, removed) in tally.0.drain(..) {
+                if let Some(player) = self.lives.get(&source) {
+                    *self.damage.entry(*player).or_default() += removed.raw();
+                    if self.lives.contains_key(&target) { *self.hero_damage.entry(*player).or_default() += removed.raw(); }
+                }
+            }
+        }
         for fact in facts {
-            if let ObservableFact::Ability { source, ability_id, .. } = &fact.fact {
-                if let Some(player) = owners.get(source) { *self.accepted.entry((*player, *ability_id)).or_default() += 1; }
+            match &fact.fact {
+                ObservableFact::Ability { source, ability_id, .. } => {
+                    if let Some(player) = owners.get(source) { *self.accepted.entry((*player, *ability_id)).or_default() += 1; }
+                }
+                _ => {}
             }
         }
     }
@@ -1443,7 +1460,9 @@ impl HeroStats {
                 }).collect();
             serde_json::json!({"player": slot.player_id, "hero": hero, "kills": slot.kills, "deaths": slot.deaths,
                 "assists": slot.assists, "summons": self.summons.get(&slot.player_id).map_or(0, |s| s.len()), "casts": casts,
-                "items": items})
+                "items": items, "team": state.config.teams.get(slot.side).copied().unwrap_or(0),
+                "damage": omoba_sim::Fixed64::from_raw(self.damage.get(&slot.player_id).copied().unwrap_or(0)).to_f32_for_render().round() as i64,
+                "hero_damage": omoba_sim::Fixed64::from_raw(self.hero_damage.get(&slot.player_id).copied().unwrap_or(0)).to_f32_for_render().round() as i64})
         }).collect())
     }
 }
