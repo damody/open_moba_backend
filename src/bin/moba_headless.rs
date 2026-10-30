@@ -1344,7 +1344,11 @@ mod diagnostic_tests {
 /// Per-hero, per-ability headless statistics (E265; `OMB_HEADLESS_HERO_STATS=1`), keyed by player.
 #[derive(Default)]
 struct HeroStats {
-    inputs: std::collections::BTreeMap<(u32, u32), u32>,
+    /// Cast inputs by the ability the slot held when the bot chose it (E400: a swapped slot, e.g.
+    /// C14 龍化 putting c14_fire_breath_dragon in c14_fire_breath's slot, credits each to its own).
+    inputs: std::collections::BTreeMap<(u32, String), u32>,
+    /// The slot each ability a player's hero held was last seen in (swapped-out ones included).
+    slots: std::collections::BTreeMap<(u32, String), usize>,
     accepted: std::collections::BTreeMap<(u32, u64), u32>,
     summons: std::collections::BTreeMap<u32, std::collections::BTreeSet<u64>>,
     heroes: std::collections::BTreeMap<u32, (String, Vec<String>)>,
@@ -1364,19 +1368,28 @@ struct HeroStats {
 impl HeroStats {
     fn observe(&mut self, world: &specs::World, inputs: &[(u32, PlayerInput)], facts: &[omoba_core::runtime::OrderedFact]) {
         use specs::Join;
-        for (player, input) in inputs {
-            if let Some(PlayerInputEnum::CastAbility(cast)) = &input.action {
-                *self.inputs.entry((*player, cast.ability_index)).or_default() += 1;
-            }
-        }
         let state = world.read_resource::<MobaMatch>();
         let heroes = world.read_storage::<omoba_core::runtime::Hero>();
+        // The slot as the bot saw it: the last observation, else the hero now.
+        for (player, input) in inputs {
+            if let Some(PlayerInputEnum::CastAbility(cast)) = &input.action {
+                let index = cast.ability_index as usize;
+                let name = self.heroes.get(player).and_then(|(_, abilities)| abilities.get(index).cloned())
+                    .or_else(|| state.heroes.iter().find(|slot| slot.player_id == *player).and_then(|slot| slot.entity)
+                        .and_then(|entity| heroes.get(entity)).and_then(|hero| hero.abilities.get(index).cloned()))
+                    .unwrap_or_else(|| format!("slot{index}"));
+                *self.inputs.entry((*player, name)).or_default() += 1;
+            }
+        }
         let mut owners = std::collections::BTreeMap::new();
         for slot in &state.heroes {
             if let Some(entity) = slot.entity {
                 owners.insert(omoba_core::runtime::canonical_entity_id(entity), slot.player_id);
                 self.lives.insert(entity, slot.player_id);
                 if let Some(hero) = heroes.get(entity) {
+                    for (index, ability) in hero.abilities.iter().enumerate() {
+                        self.slots.insert((slot.player_id, ability.clone()), index);
+                    }
                     self.heroes.insert(slot.player_id, (hero.id.clone(), hero.abilities.clone()));
                 }
             }
@@ -1440,12 +1453,15 @@ impl HeroStats {
             }
         }
         serde_json::Value::Array(state.heroes.iter().map(|slot| {
-            let (hero, abilities) = self.heroes.get(&slot.player_id).cloned().unwrap_or_default();
-            let casts: serde_json::Map<String, serde_json::Value> = abilities.iter().enumerate().map(|(index, ability)| {
-                let stable = omoba_core::runtime::presentation_cue::stable_content_fact_id(ability);
+            let (hero, _) = self.heroes.get(&slot.player_id).cloned().unwrap_or_default();
+            // Every ability the hero held in a slot, swapped-out ones included (E400).
+            let abilities = self.slots.iter().filter(|((player, _), _)| *player == slot.player_id)
+                .map(|((_, ability), index)| (*index, ability.clone()));
+            let casts: serde_json::Map<String, serde_json::Value> = abilities.map(|(index, ability)| {
+                let stable = omoba_core::runtime::presentation_cue::stable_content_fact_id(&ability);
                 (ability.clone(), serde_json::json!({
                     "slot": index,
-                    "inputs": self.inputs.get(&(slot.player_id, index as u32)).copied().unwrap_or(0),
+                    "inputs": self.inputs.get(&(slot.player_id, ability.clone())).copied().unwrap_or(0),
                     "accepted": self.accepted.get(&(slot.player_id, stable)).copied().unwrap_or(0),
                     "results": results.get(&(slot.player_id, ability.clone())).cloned().unwrap_or_default(),
                 }))
