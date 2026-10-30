@@ -1282,7 +1282,9 @@ impl State {
                     // JSON components: the top-level fields that differ, whole (a truncated prefix hid them).
                     if let Some(fields) = json_field_diff(authority_bytes, replica_bytes) {
                         let latest = if checkpoint.is_none() { " (latest authority)" } else { "" };
-                        return format!(" canonical={canonical:#x} kind={kind}{latest} differs={fields}");
+                        // A hero's derived stats: what the authority derives them from now.
+                        let inputs = if kind == "hero" { format!(" authority_inputs={}", hero_inputs(&self.ecs, entity)) } else { String::new() };
+                        return format!(" canonical={canonical:#x} kind={kind}{latest} differs={fields}{inputs}");
                     }
                     let expected = checkpoint.map(|bytes| show(Some(bytes)))
                         .unwrap_or_else(|| format!("(latest) {}", show(authority_bytes)));
@@ -2983,6 +2985,22 @@ impl Default for StateConfig {
             campaign_mode: false,
         }
     }
+}
+
+/// What a hero's derived stats (attribute_hp, max HP) come from on the authority: level, base
+/// strength with growth, the inventory and its `__item_passives` row, every BuffStore key it holds.
+fn hero_inputs(world: &World, entity: specs::world::Entity) -> String {
+    let heroes = world.read_storage::<crate::comp::Hero>();
+    let Some(hero) = heroes.get(entity) else { return "null".into() };
+    let buffs = world.read_resource::<omoba_core::runtime::BuffStore>();
+    let items: Vec<String> = world.read_storage::<omoba_core::runtime::comp::Inventory>().get(entity)
+        .map(|inventory| inventory.slots.iter().flatten().map(|item| item.item_id.clone()).collect()).unwrap_or_default();
+    let passives = buffs.get(entity, omoba_core::runtime::native::item::ITEM_PASSIVES_KEY).map(|entry| entry.payload.clone());
+    let keys: Vec<String> = buffs.iter_for(entity).map(|(id, _)| id.to_owned()).collect();
+    serde_json::json!({
+        "level": hero.level, "strength": hero.strength, "strength_total_raw": hero.get_total_strength().raw(),
+        "items": items, "item_passives": passives, "buff_keys": keys,
+    }).to_string()
 }
 
 /// The top-level fields two JSON objects disagree on, as `{"field":[authority, replica], ...}`
