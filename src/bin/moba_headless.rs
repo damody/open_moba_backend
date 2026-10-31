@@ -311,6 +311,7 @@ fn run() -> Result<(), Error> {
     // Per-hero, per-ability statistics for batch acceptance (E265): bot cast inputs by slot,
     // accepted casts (Ability facts), the cast trace's results, summons and K/D/A.
     let mut hero_stats = std::env::var("OMB_HEADLESS_HERO_STATS").is_ok_and(|v| v == "1").then(HeroStats::default);
+    let mut tick_perf = TickPerf::new(hz);
     if hero_stats.is_some() { insert_stat_traces(&mut world); }
     let mut end_events = 0usize;
     let mut combat_facts = 0usize;
@@ -349,7 +350,9 @@ fn run() -> Result<(), Error> {
                 }
             }
         }
+        let step_started = std::time::Instant::now();
         let result = step_tick(&mut driver, &mut world, inputs.clone(), bots.is_some())?;
+        tick_perf.record(&world, result.tick, step_started.elapsed().as_nanos() as u64);
         if let Some(stats) = &mut hero_stats { stats.observe(&world, &inputs, &result.facts); }
         combat_facts += result
             .facts
@@ -508,6 +511,7 @@ fn run() -> Result<(), Error> {
         "step_wall_ms_mean": step_wall_ms_mean(),
         "visibility_wave_ms_mean": visibility_wall_ms_mean(),
         "step_count": STEP_COUNT.load(std::sync::atomic::Ordering::Relaxed),
+        "performance": tick_perf.report(),
         "script_dll": scripts_dir.join("base_content.dll"),
         "winner_side": winner_side,
         "winner_team": winner_team,
@@ -1360,6 +1364,71 @@ fn clear_stat_traces(world: &specs::World) {
     world.write_resource::<omoba_core::runtime::native::cast_trace::CastTrace>().0.clear();
     world.write_resource::<omoba_core::runtime::native::damage_tally::DamageTally>().0.clear();
     world.write_resource::<omoba_core::runtime::native::damage_trace::DamageTrace>().0.clear();
+}
+
+/// Per-tick cost of the run (E512): every formal tick's wall time (driver step plus the bots'
+/// visibility wave), its distribution against the tick budget (1/hz), and for the slowest ticks
+/// the systems and phases that took the time, from the world's TickProfile counters.
+struct TickPerf {
+    budget_ns: u64,
+    started: std::time::Instant,
+    samples: Vec<u64>,
+    previous: std::collections::BTreeMap<&'static str, u128>,
+    /// (ns, tick, heaviest parts), the TICK_PERF_SLOWEST slowest.
+    slowest: Vec<(u64, u64, Vec<(&'static str, u64)>)>,
+}
+
+const TICK_PERF_SLOWEST: usize = 10;
+const TICK_PERF_PARTS: usize = 4;
+
+impl TickPerf {
+    fn new(hz: u32) -> Self {
+        Self { budget_ns: 1_000_000_000 / u64::from(hz.max(1)), started: std::time::Instant::now(), samples: Vec::new(),
+            previous: Default::default(), slowest: Vec::new() }
+    }
+
+    /// The TickProfile counters, cumulative: every system, and the dispatch phases.
+    fn counters(world: &specs::World) -> std::collections::BTreeMap<&'static str, u128> {
+        let Some(profile) = world.try_fetch::<omoba_core::comp::TickProfile>() else { return Default::default() };
+        let mut out: std::collections::BTreeMap<&'static str, u128> = profile.system_stats.lock()
+            .map(|stats| stats.iter().map(|(name, stat)| (*name, stat.ns)).collect()).unwrap_or_default();
+        out.insert("phase:script_dispatch", profile.script_dispatch_ns);
+        out.insert("phase:process_outcomes", profile.process_outcomes_ns);
+        out
+    }
+
+    fn record(&mut self, world: &specs::World, tick: u64, ns: u64) {
+        self.samples.push(ns);
+        let current = Self::counters(world);
+        let slow = self.slowest.len() < TICK_PERF_SLOWEST || self.slowest.last().is_some_and(|(least, _, _)| ns > *least);
+        if slow {
+            // A counter that went down was reset by its log window: this tick's part is all of it.
+            let mut parts: Vec<(&'static str, u64)> = current.iter().map(|(name, now)| {
+                let before = self.previous.get(name).copied().unwrap_or(0);
+                (*name, (if *now >= before { now - before } else { *now }) as u64)
+            }).filter(|(_, part)| *part > 0).collect();
+            parts.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+            parts.truncate(TICK_PERF_PARTS);
+            self.slowest.push((ns, tick, parts));
+            self.slowest.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+            self.slowest.truncate(TICK_PERF_SLOWEST);
+        }
+        self.previous = current;
+    }
+
+    fn report(&self) -> serde_json::Value {
+        let mut sorted = self.samples.clone();
+        sorted.sort_unstable();
+        let ms = |ns: u64| (ns as f64 / 1e4).round() / 100.0;
+        let at = |q: f64| sorted.get(((sorted.len() as f64 - 1.0) * q).round() as usize).copied().map_or(0.0, ms);
+        serde_json::json!({"ticks": sorted.len(), "budget_ms": ms(self.budget_ns), "p50_ms": at(0.5), "p90_ms": at(0.9),
+            "p99_ms": at(0.99), "max_ms": sorted.last().copied().map_or(0.0, ms),
+            "over_budget": sorted.iter().filter(|ns| **ns > self.budget_ns).count(),
+            "run_wall_seconds": (self.started.elapsed().as_secs_f64() * 10.0).round() / 10.0,
+            "slowest": self.slowest.iter().map(|(ns, tick, parts)| serde_json::json!({"tick": tick, "ms": ms(*ns),
+                "parts": parts.iter().map(|(name, part)| serde_json::json!({"name": name, "ms": ms(*part)})).collect::<Vec<_>>()}))
+                .collect::<Vec<_>>()})
+    }
 }
 
 /// Per-hero, per-ability headless statistics (E265; `OMB_HEADLESS_HERO_STATS=1`), keyed by player.
