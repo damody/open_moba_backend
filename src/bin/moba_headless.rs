@@ -315,6 +315,10 @@ fn run() -> Result<(), Error> {
         return Ok(());
     }
     let scripts_dir = parsed.scripts_dir;
+    // The in-process observer's team replicas load their scripts from OMB_SCRIPTS_DIR (default
+    // ./scripts, the shared staging directory other sessions write): point it at this run's own
+    // copy, the set the authority loads (E559).
+    std::env::set_var("OMB_SCRIPTS_DIR", std::path::absolute(&scripts_dir).unwrap_or_else(|_| scripts_dir.clone()));
     let report_path = parsed.report_path;
     let withdraw_defender = parsed.withdraw_defender;
     let max_game_seconds = parsed.max_game_seconds;
