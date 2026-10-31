@@ -1482,6 +1482,12 @@ struct CreepFacing {
     last: std::collections::BTreeMap<specs::Entity, (u64, omoba_sim::Vec2)>,
     /// Every creep's position on the previous tick.
     previous: std::collections::BTreeMap<specs::Entity, omoba_sim::Vec2>,
+    /// Creeps off on a sample tick, rechecked on the next tick in the same mode (E518): the lane
+    /// step faces the target where it stood when the tick began, and a hero that blinks or dashes
+    /// later in that tick is only faced on the next one.
+    pending: std::collections::BTreeMap<specs::Entity, &'static str>,
+    /// Sample-tick deviations gone by the next tick.
+    transient: u64,
     walk_checks: u64,
     attack_checks: u64,
     violations: u64,
@@ -1513,7 +1519,9 @@ impl CreepFacing {
         let previous = std::mem::take(&mut self.previous);
         self.previous = (&world.entities(), &world.read_storage::<omoba_core::runtime::Creep>(), &world.read_storage::<Pos>()).join()
             .map(|(entity, _, pos)| (entity, pos.0)).collect();
-        if tick % CREEP_FACING_INTERVAL != 0 { return; }
+        let due = tick % CREEP_FACING_INTERVAL == 0;
+        let recheck = std::mem::take(&mut self.pending);
+        if !due && recheck.is_empty() { return; }
         let degrees = |v: omoba_sim::Vec2| v.y.to_f32_for_render().atan2(v.x.to_f32_for_render()).to_degrees();
         let attacks = world.try_fetch::<omoba_core::runtime::native::rules::attack::AttackRecords>();
         let state = world.try_fetch::<MobaMatch>();
@@ -1526,14 +1534,19 @@ impl CreepFacing {
         let mut seen = std::collections::BTreeMap::new();
         for (entity, creep, pos, facing) in (&world.entities(), &creeps,
             &positions, &world.read_storage::<omoba_core::runtime::Facing>()).join() {
+            let pending = recheck.get(&entity).copied();
+            if !due && pending.is_none() { continue; }
             if properties.get(entity).is_none_or(|p| p.hp <= omoba_sim::Fixed64::ZERO) { continue; }
-            seen.insert(entity, (tick, pos.0));
-            let Some(&(before, from)) = self.last.get(&entity) else { continue };
+            if due { seen.insert(entity, (tick, pos.0)); }
+            let window = self.last.get(&entity).copied();
+            if pending.is_none() && window.is_none() { continue; }
             // A stunned creep neither moves nor turns, and forced motion moves it without turning
             // (E510): neither is the creep's own facing.
             if buffs.is_stunned(entity) || buffs.has(entity, omoba_core::runtime::native::forced_motion::BUFF) { continue; }
-            let step = pos.0 - from;
-            let walked = step.length().to_f32_for_render() >= CREEP_FACING_MIN_STEP;
+            let walked = match pending {
+                Some(mode) => mode == "walk",
+                None => window.is_some_and(|(_, from)| (pos.0 - from).length().to_f32_for_render() >= CREEP_FACING_MIN_STEP),
+            };
             let last_step = previous.get(&entity).map(|from| pos.0 - *from)
                 .filter(|step| step.length() > omoba_sim::Fixed64::ZERO);
             // Attacking (E491): the creep's current lane target, alive and within its attack range (a
@@ -1555,10 +1568,15 @@ impl CreepFacing {
                     .map(|(target, at, _)| ("attack", degrees(at - pos.0), Some((target, at))))
             };
             let Some((mode, expected, target)) = expected else { continue };
-            if mode == "walk" { self.walk_checks += 1 } else { self.attack_checks += 1 }
+            if pending.is_none() { if mode == "walk" { self.walk_checks += 1 } else { self.attack_checks += 1 } }
             let facing = facing.rad_f32().to_degrees();
             let off = ((facing - expected).rem_euclid(360.0) + 180.0).rem_euclid(360.0) - 180.0;
-            if off.abs() > CREEP_FACING_MAX_DEGREES {
+            if off.abs() <= CREEP_FACING_MAX_DEGREES {
+                if pending.is_some() { self.transient += 1; }
+                continue;
+            }
+            if pending.is_none() { self.pending.insert(entity, mode); continue; }
+            {
                 self.violations += 1;
                 if self.samples.len() < CREEP_FACING_SAMPLES {
                     self.samples.push(serde_json::json!({"tick": tick, "creep": creep.name, "entity": entity.id(), "mode": mode,
@@ -1572,11 +1590,13 @@ impl CreepFacing {
                 }
             }
         }
-        self.last = seen;
+        // A pending creep that died, lost its target or stopped is not a violation either.
+        if due { self.last = seen; }
     }
 
     fn report(&self) -> serde_json::Value {
         serde_json::json!({"walk_checks": self.walk_checks, "attack_checks": self.attack_checks, "violations": self.violations,
+            "transient": self.transient,
             "max_degrees": CREEP_FACING_MAX_DEGREES, "samples": self.samples})
     }
 }
