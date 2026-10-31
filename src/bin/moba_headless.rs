@@ -1432,6 +1432,7 @@ fn unit_kind(world: &specs::World, entity: specs::Entity) -> &'static str {
 }
 
 const CREEP_FACING_INTERVAL: u64 = 30;
+const CREEP_STACK_DISTANCE: i32 = 24;
 const CREEP_FACING_MIN_STEP: f32 = 20.0;
 const CREEP_FACING_MAX_DEGREES: f32 = 30.0;
 const CREEP_FACING_SAMPLES: usize = 10;
@@ -1449,14 +1450,19 @@ impl CreepFacing {
         let state = world.try_fetch::<MobaMatch>();
         let radii = world.read_storage::<omoba_core::runtime::CollisionRadius>();
         let radius = |unit: specs::Entity| radii.get(unit).map_or(omoba_sim::Fixed64::ZERO, |r| r.0);
+        let buffs = world.read_resource::<omoba_core::runtime::BuffStore>();
+        let creeps = world.read_storage::<omoba_core::runtime::Creep>();
         let positions = world.read_storage::<Pos>();
         let properties = world.read_storage::<CProperty>();
         let mut seen = std::collections::BTreeMap::new();
-        for (entity, creep, pos, facing) in (&world.entities(), &world.read_storage::<omoba_core::runtime::Creep>(),
+        for (entity, creep, pos, facing) in (&world.entities(), &creeps,
             &positions, &world.read_storage::<omoba_core::runtime::Facing>()).join() {
             if properties.get(entity).is_none_or(|p| p.hp <= omoba_sim::Fixed64::ZERO) { continue; }
             seen.insert(entity, (tick, pos.0));
             let Some(&(before, from)) = self.last.get(&entity) else { continue };
+            // A stunned creep neither moves nor turns, and forced motion moves it without turning
+            // (E510): neither is the creep's own facing.
+            if buffs.is_stunned(entity) || buffs.has(entity, omoba_core::runtime::native::forced_motion::BUFF) { continue; }
             let step = pos.0 - from;
             let walked = step.length().to_f32_for_render() >= CREEP_FACING_MIN_STEP;
             let last_step = previous.get(&entity).map(|from| pos.0 - *from)
@@ -1472,7 +1478,10 @@ impl CreepFacing {
                     .and_then(|(target, range)| positions.get(target).map(|at| (target, at.0, range)))
                     .filter(|(target, at, range)| {
                         let distance = (*at - pos.0).length();
-                        distance <= *range && distance >= radius(entity) + radius(*target)
+                        // lane creeps have no body radius and stack: two creeps within one tick of
+                        // movement (about 11 each) have no stable direction (E510)
+                        let stacked = creeps.get(*target).is_some() && distance < omoba_sim::Fixed64::from_i32(CREEP_STACK_DISTANCE);
+                        distance <= *range && distance >= radius(entity) + radius(*target) && !stacked
                     })
                     .map(|(target, at, _)| ("attack", degrees(at - pos.0), Some((target, at))))
             };
@@ -1486,6 +1495,7 @@ impl CreepFacing {
                     self.samples.push(serde_json::json!({"tick": tick, "creep": creep.name, "entity": entity.id(), "mode": mode,
                         "facing": facing.round(), "expected": expected.round(), "off": off.round(),
                         "x": pos.0.x.to_f32_for_render().round(), "y": pos.0.y.to_f32_for_render().round(),
+                        "statuses": buffs.iter_for(entity).map(|(key, _)| key.to_string()).collect::<Vec<_>>(),
                         "target": target.map(|(target, at)| serde_json::json!({"entity": target.id(), "self": target == entity,
                             "kind": unit_kind(world, target), "last_attack": attacks.as_ref()
                                 .and_then(|records| records.0.get(&entity)).and_then(|record| record.target).map(|last| last.id()), "x": at.x.to_f32_for_render().round(), "y": at.y.to_f32_for_render().round(),
