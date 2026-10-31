@@ -31,10 +31,19 @@ fn step_tick(
     world: &mut specs::World,
     inputs: Vec<(u32, PlayerInput)>,
     with_bots: bool,
+    observed: bool,
 ) -> Result<SimulationTickResult, Error> {
     let started = std::time::Instant::now();
+    // The observer (E545): the server's committed projection of the tick, with its accepted
+    // inputs; the visibility wave is part of it. Run and replay alike, so the replay steps the same.
+    let accepted = observed.then(|| omoba_core::runtime::inprocess_observer::accepted_inputs(world, driver.tick() + 1, &inputs));
     let result = driver.step(world, inputs)?;
-    if with_bots {
+    if let Some(accepted) = accepted {
+        let wave = std::time::Instant::now();
+        world.write_resource::<omoba_core::runtime::TeamProjectionRuntime>().pending_accepted_inputs.extend(accepted);
+        omoba_core::runtime::inprocess_observer::project_tick(world, &result).map_err(err_msg)?;
+        VISIBILITY_WALL_NANOS.fetch_add(wave.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
+    } else if with_bots {
         let wave = std::time::Instant::now();
         run_committed_visibility_wave_b(world, result.tick, 0);
         VISIBILITY_WALL_NANOS.fetch_add(wave.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
@@ -79,7 +88,14 @@ struct HeadlessArgs {
     /// M3' ② acceptance: before stepping tick index TICK (run and replay alike), swap a script
     /// DLL as a dev hot reload does (`--hot-swap TICK=MODULE=PATH`).
     hot_swap: Option<(usize, omoba_core::game_proto::ScriptModuleSwap)>,
+    /// The in-process observer (E545, `--observer on|off`, on by default): every team's replica
+    /// follows the projected frames and is compared with the authority's view; a mismatch ends
+    /// the run like the server's. Off only for performance measurement.
+    observer: bool,
 }
+
+/// Ticks between observer comparisons (one second at 60 Hz).
+const OBSERVER_INTERVAL_TICKS: u64 = 60;
 
 /// `TICK=MODULE=PATH`: the swap omoba-core's dev hot reload would apply before that tick.
 fn parse_hot_swap(value: &str) -> Result<(usize, omoba_core::game_proto::ScriptModuleSwap), Error> {
@@ -152,6 +168,7 @@ where
     let mut seen_max = false;
     let mut seen_stall = false;
     let mut hot_swap = None;
+    let mut observer = true;
     let mut args = args.into_iter();
     while let Some(arg) = args.next() {
         let arg = arg.as_ref();
@@ -162,6 +179,8 @@ where
         match arg {
             "--scripts-dir" => scripts_dir = PathBuf::from(value),
             "--hot-swap" => hot_swap = Some(parse_hot_swap(value)?),
+            "--observer" => observer = match value { "on" => true, "off" => false,
+                _ => return Err(err_msg("--observer takes on or off")) },
             "--report" => {
                 if seen_report {
                     return Err(err_msg("duplicate report option"));
@@ -244,6 +263,7 @@ where
         max_game_seconds,
         stall_game_seconds,
         hot_swap,
+        observer,
     })
 }
 
@@ -300,6 +320,9 @@ fn run() -> Result<(), Error> {
     let max_game_seconds = parsed.max_game_seconds;
     let stall_game_seconds = parsed.stall_game_seconds;
     let hot_swap = parsed.hot_swap;
+    let observed = parsed.observer;
+    let mut observer: Option<omoba_core::runtime::inprocess_observer::InProcessObserver> = None;
+    let mut observer_ns = 0u128;
     let mut world = make_world(config.clone(), &scripts_dir)?;
     if let Some(bots) = &bots {
         bots.validate(&world.read_resource::<MobaMatch>()).map_err(err_msg)?;
@@ -351,8 +374,29 @@ fn run() -> Result<(), Error> {
             }
         }
         let step_started = std::time::Instant::now();
-        let result = step_tick(&mut driver, &mut world, inputs.clone(), bots.is_some())?;
+        let result = step_tick(&mut driver, &mut world, inputs.clone(), bots.is_some(), observed)?;
         tick_perf.record(&world, result.tick, step_started.elapsed().as_nanos() as u64, &driver.last_step_phases());
+        if observed {
+            let started = std::time::Instant::now();
+            let found = match &mut observer {
+                None => {
+                    observer = Some(omoba_core::runtime::inprocess_observer::InProcessObserver::start(&mut world, driver.tick() + 1,
+                        config.seed, OBSERVER_INTERVAL_TICKS, hz as u32).map_err(err_msg)?);
+                    None
+                }
+                Some(observer) => observer.after_projection(&mut world, result.tick).map_err(err_msg)?,
+            };
+            observer_ns += started.elapsed().as_nanos();
+            if let Some(found) = found {
+                let waves = world.read_resource::<MobaMatch>().waves;
+                let message = format!("observer mismatch team={} tick={} entity={} schema={:#x} authority={} replica={}",
+                    found.team, found.tick, found.entity, found.schema, found.authority, found.replica);
+                let mut document = failure_document("observer_mismatch", &message, hz, config.seed, &config.map_id, waves,
+                    max_game_seconds, stall_game_seconds, max_ticks, stall_ticks, monitor.last_progress_tick, result.tick, &samples);
+                document["observer"] = observer_report(observed, observer.as_ref(), observer_ns);
+                return write_failure(&report_path, &document);
+            }
+        }
         if let Some(stats) = &mut hero_stats { stats.observe(&world, &inputs, &result.facts); }
         combat_facts += result
             .facts
@@ -413,7 +457,7 @@ fn run() -> Result<(), Error> {
         for (index, (inputs, expected)) in inputs_recorded.iter().zip(&digests).enumerate() {
             if hero_stats.is_some() { clear_stat_traces(&replay); }
             apply_hot_swap_at(index, &hot_swap, &mut replay_driver, &mut replay)?;
-            step_tick(&mut replay_driver, &mut replay, inputs.clone(), bots.is_some())?;
+            step_tick(&mut replay_driver, &mut replay, inputs.clone(), bots.is_some(), observed)?;
             let actual = single_lane_replay_digest(&replay);
             if &actual != expected {
                 return Err(err_msg(format!("hot-swap replay diverged at tick {}: {expected} != {actual}", index + 1)));
@@ -478,7 +522,7 @@ fn run() -> Result<(), Error> {
     let mut replay_driver = SimulationDriver::from_world(&mut replay, profile)?;
     for (index, (inputs, expected)) in inputs_recorded.into_iter().zip(&digests).enumerate() {
         if hero_stats.is_some() { clear_stat_traces(&replay); }
-        step_tick(&mut replay_driver, &mut replay, inputs, bots.is_some())?;
+        step_tick(&mut replay_driver, &mut replay, inputs, bots.is_some(), observed)?;
         let actual = single_lane_replay_digest(&replay);
         if &actual != expected {
             return Err(err_msg(format!(
@@ -540,6 +584,7 @@ fn run() -> Result<(), Error> {
     // The driver's serial stages and the ECS systems, mean per step (E513); added here, the json!
     // above is at the macro's recursion limit.
     report["tick_profile"] = driver.phase_report(&world);
+    report["observer"] = observer_report(observed, observer.as_ref(), observer_ns);
     write_new_output(&report_path, &serde_json::to_vec_pretty(&report)?)?;
     println!(
         "MOBA headless PASS: winner_side={winner_side:?}, winner_team={winner_team:?}, tick={finish_tick}, waves={}, casts={casts:?}, replay={} ticks; report={}",
@@ -978,6 +1023,22 @@ fn write_new_output(path: &Path, bytes: &[u8]) -> Result<(), Error> {
         })?;
     file.write_all(bytes)?;
     Ok(())
+}
+
+/// The report's `observer` (E545): whether it ran, the compared ticks, the first mismatch and
+/// its wall time.
+fn observer_report(enabled: bool, observer: Option<&omoba_core::runtime::inprocess_observer::InProcessObserver>, ns: u128) -> Value {
+    let first = observer.and_then(|o| o.divergence.as_ref()).map(|d| json!({
+        "tick": d.tick, "team": d.team, "entity": d.entity, "schema": format!("{:#x}", d.schema),
+        "authority": d.authority, "replica": d.replica,
+        "authority_bytes": format!("{:02x?}", d.authority_bytes), "replica_bytes": format!("{:02x?}", d.replica_bytes), "subject": d.subject }));
+    json!({
+        "enabled": enabled,
+        "mismatches": usize::from(first.is_some()),
+        "checked_ticks": observer.map_or(0, |o| o.checked_ticks),
+        "first": first,
+        "wall_ms": ns as f64 / 1e6,
+    })
 }
 
 fn write_failure(report: &Path, document: &Value) -> Result<(), Error> {
