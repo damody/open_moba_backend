@@ -1389,9 +1389,42 @@ struct HeroStats {
     /// Script damage by (player, ability) from the DamageTrace (E436): applied damage, the part on
     /// heroes, and packets cancelled or skipped because the source had died.
     ability_damage: std::collections::BTreeMap<(u32, String), [i64; 4]>,
+    /// The last unit target (entity index) each (player, ability) cast input named.
+    cast_targets: std::collections::BTreeMap<(u32, String), u32>,
+    /// CastTrace rows already sampled.
+    trace_seen: usize,
+    /// INVALID_TARGET casts with the target's state on that tick (E454), INVALID_TARGET_SAMPLES
+    /// per (player, ability): the executor can tell what made the target invalid.
+    invalid_targets: std::collections::BTreeMap<(u32, String), Vec<serde_json::Value>>,
 }
 
+const INVALID_TARGET_SAMPLES: usize = 5;
+
 impl HeroStats {
+    /// The target state of an INVALID_TARGET cast: the unit the last cast input of this ability named.
+    fn invalid_target_sample(&self, world: &specs::World, tick: u64, caster: specs::Entity, player: u32, ability: &str) -> serde_json::Value {
+        use omoba_core::runtime::native::{magic_immunity, rules::vocab};
+        let Some(&index) = self.cast_targets.get(&(player, ability.to_string())) else {
+            return serde_json::json!({"tick": tick, "target": null});
+        };
+        let entity = world.entities().entity(index);
+        let alive = world.entities().is_alive(entity);
+        let factions = world.read_storage::<Faction>();
+        let buffs = world.read_resource::<omoba_core::runtime::BuffStore>();
+        let positions = world.read_storage::<Pos>();
+        let distance = positions.get(caster).zip(positions.get(entity)).map(|(a, b)| (a.0 - b.0).length().to_f32_for_render().round());
+        let sighted = factions.get(caster).and_then(|own| world.try_fetch::<omoba_core::runtime::TeamVisibilityRuntime>()
+            .map(|vision| vision.teams.get(&(own.team_id as u32)).is_some_and(|team| team.sighted.contains(&omoba_core::runtime::canonical_entity_id(entity)))));
+        serde_json::json!({"tick": tick, "target": index, "alive": alive,
+            "hp": world.read_storage::<CProperty>().get(entity).map(|p| p.hp.to_f32_for_render().round()),
+            "hero": world.read_storage::<omoba_core::runtime::Hero>().get(entity).is_some(),
+            "hostile": factions.get(caster).zip(factions.get(entity)).map(|(a, b)| a.is_hostile_to(b)),
+            "distance": distance, "sighted": sighted,
+            "magic_immune_blocks": !magic_immunity::admits_target(&buffs, factions.get(caster), factions.get(entity), entity, magic_immunity::ability_pierces(ability)),
+            "unselectable": vocab::unselectable(&buffs, entity), "invulnerable": vocab::invulnerable(&buffs, entity),
+            "statuses": buffs.iter_for(entity).map(|(key, _)| key.to_string()).collect::<Vec<_>>()})
+    }
+
     fn observe(&mut self, world: &specs::World, inputs: &[(u32, PlayerInput)], facts: &[omoba_core::runtime::OrderedFact]) {
         use specs::Join;
         let state = world.read_resource::<MobaMatch>();
@@ -1404,8 +1437,23 @@ impl HeroStats {
                     .or_else(|| state.heroes.iter().find(|slot| slot.player_id == *player).and_then(|slot| slot.entity)
                         .and_then(|entity| heroes.get(entity)).and_then(|hero| hero.abilities.get(index).cloned()))
                     .unwrap_or_else(|| format!("slot{index}"));
+                if let Some(target) = cast.target_entity { self.cast_targets.insert((*player, name.clone()), target); }
                 *self.inputs.entry((*player, name)).or_default() += 1;
             }
+        }
+        // INVALID_TARGET rows of this tick, sampled with their target's state (E454).
+        let rejected: Vec<(u64, specs::Entity, String)> = world.try_fetch::<omoba_core::runtime::native::cast_trace::CastTrace>()
+            .map(|trace| trace.0[self.trace_seen.min(trace.0.len())..].iter()
+                .filter(|row| row.result == omoba_core::runtime::native::cast_trace::CastTraceResult::Rejected("INVALID_TARGET"))
+                .map(|row| (row.tick, row.caster, row.ability.clone())).collect())
+            .unwrap_or_default();
+        self.trace_seen = world.try_fetch::<omoba_core::runtime::native::cast_trace::CastTrace>().map_or(0, |trace| trace.0.len());
+        for (tick, caster, ability) in rejected {
+            let Some(player) = self.lives.get(&caster).copied()
+                .or_else(|| state.heroes.iter().find(|slot| slot.entity == Some(caster)).map(|slot| slot.player_id)) else { continue };
+            if self.invalid_targets.get(&(player, ability.clone())).is_some_and(|rows| rows.len() >= INVALID_TARGET_SAMPLES) { continue; }
+            let sample = self.invalid_target_sample(world, tick, caster, player, &ability);
+            self.invalid_targets.entry((player, ability)).or_default().push(sample);
         }
         let mut owners = std::collections::BTreeMap::new();
         for slot in &state.heroes {
@@ -1532,6 +1580,10 @@ impl HeroStats {
                         "damage": omoba_sim::Fixed64::from_raw(*damage).to_f32_for_render().round() as i64,
                         "hero_damage": omoba_sim::Fixed64::from_raw(*hero).to_f32_for_render().round() as i64,
                         "cancelled": cancelled, "skipped_source_dead": skipped})))
+                    .collect::<serde_json::Map<String, serde_json::Value>>(),
+                "invalid_targets": self.invalid_targets.range((slot.player_id, String::new())..)
+                    .take_while(|((player, _), _)| *player == slot.player_id)
+                    .map(|((_, ability), rows)| (ability.clone(), serde_json::Value::from(rows.clone())))
                     .collect::<serde_json::Map<String, serde_json::Value>>()})
         }).collect())
     }
