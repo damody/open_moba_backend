@@ -311,10 +311,7 @@ fn run() -> Result<(), Error> {
     // Per-hero, per-ability statistics for batch acceptance (E265): bot cast inputs by slot,
     // accepted casts (Ability facts), the cast trace's results, summons and K/D/A.
     let mut hero_stats = std::env::var("OMB_HEADLESS_HERO_STATS").is_ok_and(|v| v == "1").then(HeroStats::default);
-    if hero_stats.is_some() { world.insert(omoba_core::runtime::native::cast_trace::CastTrace::default()); }
-    if hero_stats.is_some() { world.insert(omoba_core::runtime::native::damage_tally::DamageTally::default()); }
-    // Script damage by ability (E436): the generated code tags each packet with its ability.
-    if hero_stats.is_some() { world.insert(omoba_core::runtime::native::damage_trace::DamageTrace::default()); }
+    if hero_stats.is_some() { insert_stat_traces(&mut world); }
     let mut end_events = 0usize;
     let mut combat_facts = 0usize;
     // Objective slots are a bounded public read. Full snapshots stay on the sample interval.
@@ -408,8 +405,10 @@ fn run() -> Result<(), Error> {
         // M3' ② acceptance: the run's per-tick digests, verified by a replay that swaps at the same
         // tick, written whether or not the match finished inside the budget.
         let mut replay = make_world(config.clone(), &scripts_dir)?;
+        if hero_stats.is_some() { insert_stat_traces(&mut replay); }
         let mut replay_driver = SimulationDriver::from_world(&mut replay, profile)?;
         for (index, (inputs, expected)) in inputs_recorded.iter().zip(&digests).enumerate() {
+            if hero_stats.is_some() { clear_stat_traces(&replay); }
             apply_hot_swap_at(index, &hot_swap, &mut replay_driver, &mut replay)?;
             step_tick(&mut replay_driver, &mut replay, inputs.clone(), bots.is_some())?;
             let actual = single_lane_replay_digest(&replay);
@@ -472,8 +471,10 @@ fn run() -> Result<(), Error> {
         )));
     }
     let mut replay = make_world(config.clone(), &scripts_dir)?;
+    if hero_stats.is_some() { insert_stat_traces(&mut replay); }
     let mut replay_driver = SimulationDriver::from_world(&mut replay, profile)?;
     for (index, (inputs, expected)) in inputs_recorded.into_iter().zip(&digests).enumerate() {
+        if hero_stats.is_some() { clear_stat_traces(&replay); }
         step_tick(&mut replay_driver, &mut replay, inputs, bots.is_some())?;
         let actual = single_lane_replay_digest(&replay);
         if &actual != expected {
@@ -1341,6 +1342,23 @@ mod diagnostic_tests {
         }
         std::fs::remove_dir(&dir).unwrap();
     }
+}
+
+/// The trace resources the statistics read: casts (CastTrace), settled damage (DamageTally) and
+/// script damage by ability (DamageTrace, E436: the generated code then tags each packet). The
+/// replay world gets them too (E446): with a DamageTrace the scripts emit tags, and a replay
+/// without one diverged from the recorded run (every quick_swap of M6 batch 3 at tick 1077).
+fn insert_stat_traces(world: &mut specs::World) {
+    world.insert(omoba_core::runtime::native::cast_trace::CastTrace::default());
+    world.insert(omoba_core::runtime::native::damage_tally::DamageTally::default());
+    world.insert(omoba_core::runtime::native::damage_trace::DamageTrace::default());
+}
+
+/// A replay keeps no statistics: its traces are emptied every tick.
+fn clear_stat_traces(world: &specs::World) {
+    world.write_resource::<omoba_core::runtime::native::cast_trace::CastTrace>().0.clear();
+    world.write_resource::<omoba_core::runtime::native::damage_tally::DamageTally>().0.clear();
+    world.write_resource::<omoba_core::runtime::native::damage_trace::DamageTrace>().0.clear();
 }
 
 /// Per-hero, per-ability headless statistics (E265; `OMB_HEADLESS_HERO_STATS=1`), keyed by player.
