@@ -1264,7 +1264,12 @@ impl State {
                 let projection = self.ecs.read_resource::<omoba_core::runtime::TeamProjectionRuntime>();
                 let label = |replica_id: u64, schema_id: u32| {
                     let Some(canonical) = projection.canonical_for_replica(mismatch.team_id, replica_id) else {
-                        return " canonical=undisclosed".to_owned();
+                        // Hidden or gone by now (a unit that died at the checkpoint): the retained
+                        // checkpoint bytes still name the fields that differed.
+                        let checkpoint = projection.expected_checkpoint_bytes(mismatch.team_id, mismatch.replica_tick, replica_id, schema_id);
+                        let replica_bytes = mismatch.observed_bytes.get(&(replica_id, schema_id)).map(Vec::as_slice);
+                        return json_field_diff(checkpoint, replica_bytes)
+                            .map_or_else(|| " canonical=undisclosed".to_owned(), |fields| format!(" canonical=undisclosed differs={fields}"));
                     };
                     let entity = specs::world::Entity::new(canonical as u32, specs::world::Generation::new((canonical >> 32) as i32));
                     let kind = if !self.ecs.entities().is_alive(entity) { "dead" }
