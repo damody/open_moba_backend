@@ -352,7 +352,7 @@ fn run() -> Result<(), Error> {
         }
         let step_started = std::time::Instant::now();
         let result = step_tick(&mut driver, &mut world, inputs.clone(), bots.is_some())?;
-        tick_perf.record(&world, result.tick, step_started.elapsed().as_nanos() as u64);
+        tick_perf.record(&world, result.tick, step_started.elapsed().as_nanos() as u64, &driver.last_step_phases());
         if let Some(stats) = &mut hero_stats { stats.observe(&world, &inputs, &result.facts); }
         combat_facts += result
             .facts
@@ -493,7 +493,7 @@ fn run() -> Result<(), Error> {
         .filter(|layer| layer[side].is_some_and(|tower| world.entities().is_alive(tower))).count());
     let towers_total = state.lane_tower_layers.iter().map(Vec::len).sum::<usize>()
         * if state.lane_tower_partners.is_empty() { 1 } else { 2 };
-    let report = json!({
+    let mut report = json!({
         "success": true,
         "match_played": true,
         "profile_hz": hz,
@@ -537,6 +537,9 @@ fn run() -> Result<(), Error> {
         "stall_scope": STALL_SCOPE,
         "scope": "authoritative headless ECS; not Unreal, filtered replica, LAN, or full game acceptance"
     });
+    // The driver's serial stages and the ECS systems, mean per step (E513); added here, the json!
+    // above is at the macro's recursion limit.
+    report["tick_profile"] = driver.phase_report(&world);
     write_new_output(&report_path, &serde_json::to_vec_pretty(&report)?)?;
     println!(
         "MOBA headless PASS: winner_side={winner_side:?}, winner_team={winner_team:?}, tick={finish_tick}, waves={}, casts={casts:?}, replay={} ticks; report={}",
@@ -1379,7 +1382,14 @@ struct TickPerf {
 }
 
 const TICK_PERF_SLOWEST: usize = 10;
-const TICK_PERF_PARTS: usize = 4;
+const TICK_PERF_PARTS: usize = 6;
+
+/// `stage:<name>` for a driver stage (E520): the names are static, so the labels are leaked once each.
+fn stage_name(name: &'static str) -> &'static str {
+    static NAMES: std::sync::OnceLock<std::sync::Mutex<std::collections::BTreeMap<&'static str, &'static str>>> = std::sync::OnceLock::new();
+    let mut names = NAMES.get_or_init(Default::default).lock().unwrap_or_else(|poison| poison.into_inner());
+    *names.entry(name).or_insert_with(|| Box::leak(format!("stage:{name}").into_boxed_str()))
+}
 
 impl TickPerf {
     fn new(hz: u32) -> Self {
@@ -1397,7 +1407,9 @@ impl TickPerf {
         out
     }
 
-    fn record(&mut self, world: &specs::World, tick: u64, ns: u64) {
+    /// STAGES: the driver's serial stages of this step (E513 `last_step_phases`), reported as
+    /// `stage:<name>` beside the systems (E520).
+    fn record(&mut self, world: &specs::World, tick: u64, ns: u64, stages: &[(&'static str, u128)]) {
         self.samples.push(ns);
         let current = Self::counters(world);
         let slow = self.slowest.len() < TICK_PERF_SLOWEST || self.slowest.last().is_some_and(|(least, _, _)| ns > *least);
@@ -1407,6 +1419,7 @@ impl TickPerf {
                 let before = self.previous.get(name).copied().unwrap_or(0);
                 (*name, (if *now >= before { now - before } else { *now }) as u64)
             }).filter(|(_, part)| *part > 0).collect();
+            parts.extend(stages.iter().filter(|(_, part)| *part > 0).map(|(name, part)| (stage_name(name), *part as u64)));
             parts.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
             parts.truncate(TICK_PERF_PARTS);
             self.slowest.push((ns, tick, parts));
