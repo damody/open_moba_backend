@@ -1425,6 +1425,9 @@ fn unit_kind(world: &specs::World, entity: specs::Entity) -> &'static str {
     else if world.read_storage::<omoba_core::runtime::Tower>().get(entity).is_some() { "structure" }
     else if world.read_storage::<omoba_core::runtime::SummonedUnit>().get(entity).is_some() { "summon" }
     else if world.read_storage::<omoba_core::runtime::Creep>().get(entity).is_some() { "creep" }
+    // a lane structure without a Tower component, e.g. the base (E491)
+    else if world.try_fetch::<MobaMatch>().and_then(|state| state.lane_role(entity))
+        .is_some_and(|role| role != omoba_core::runtime::LaneRole::Creep) { "structure" }
     else { "other" }
 }
 
@@ -1443,6 +1446,9 @@ impl CreepFacing {
         if tick % CREEP_FACING_INTERVAL != 0 { return; }
         let degrees = |v: omoba_sim::Vec2| v.y.to_f32_for_render().atan2(v.x.to_f32_for_render()).to_degrees();
         let attacks = world.try_fetch::<omoba_core::runtime::native::rules::attack::AttackRecords>();
+        let state = world.try_fetch::<MobaMatch>();
+        let radii = world.read_storage::<omoba_core::runtime::CollisionRadius>();
+        let radius = |unit: specs::Entity| radii.get(unit).map_or(omoba_sim::Fixed64::ZERO, |r| r.0);
         let positions = world.read_storage::<Pos>();
         let properties = world.read_storage::<CProperty>();
         let mut seen = std::collections::BTreeMap::new();
@@ -1455,12 +1461,20 @@ impl CreepFacing {
             let walked = step.length().to_f32_for_render() >= CREEP_FACING_MIN_STEP;
             let last_step = previous.get(&entity).map(|from| pos.0 - *from)
                 .filter(|step| step.length() > omoba_sim::Fixed64::ZERO);
-            // An attack target on the creep's own spot has no direction (E476): atan2(0, 0) read as 0°.
+            // Attacking (E491): the creep's current lane target, alive and within its attack range (a
+            // farther one is chased, which is walking), not the last attack record's target, which the
+            // creep may already have left. Overlapping bodies (within both collision radii) have no
+            // comparable direction (E476: atan2(0, 0) read as 0°).
             let expected = if walked { last_step.map(|step| ("walk", degrees(step), None)) } else {
-                attacks.as_ref().and_then(|records| records.0.get(&entity)).filter(|record| record.windup_tick > before)
-                    .and_then(|record| record.target).and_then(|target| positions.get(target).map(|at| (target, at.0)))
-                    .filter(|(_, at)| (*at - pos.0).length() >= omoba_sim::Fixed64::ONE)
-                    .map(|(target, at)| ("attack", degrees(at - pos.0), Some((target, at))))
+                state.as_ref().and_then(|state| state.lane_attack(world, entity))
+                    .filter(|(target, _)| world.entities().is_alive(*target)
+                        && properties.get(*target).is_some_and(|p| p.hp > omoba_sim::Fixed64::ZERO))
+                    .and_then(|(target, range)| positions.get(target).map(|at| (target, at.0, range)))
+                    .filter(|(target, at, range)| {
+                        let distance = (*at - pos.0).length();
+                        distance <= *range && distance >= radius(entity) + radius(*target)
+                    })
+                    .map(|(target, at, _)| ("attack", degrees(at - pos.0), Some((target, at))))
             };
             let Some((mode, expected, target)) = expected else { continue };
             if mode == "walk" { self.walk_checks += 1 } else { self.attack_checks += 1 }
@@ -1473,7 +1487,8 @@ impl CreepFacing {
                         "facing": facing.round(), "expected": expected.round(), "off": off.round(),
                         "x": pos.0.x.to_f32_for_render().round(), "y": pos.0.y.to_f32_for_render().round(),
                         "target": target.map(|(target, at)| serde_json::json!({"entity": target.id(), "self": target == entity,
-                            "kind": unit_kind(world, target), "x": at.x.to_f32_for_render().round(), "y": at.y.to_f32_for_render().round(),
+                            "kind": unit_kind(world, target), "last_attack": attacks.as_ref()
+                                .and_then(|records| records.0.get(&entity)).and_then(|record| record.target).map(|last| last.id()), "x": at.x.to_f32_for_render().round(), "y": at.y.to_f32_for_render().round(),
                             "distance": (at - pos.0).length().to_f32_for_render().round()}))}));
                 }
             }
