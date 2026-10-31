@@ -518,6 +518,7 @@ fn run() -> Result<(), Error> {
         "respawns": state.heroes.iter().map(|hero| hero.respawns).collect::<Vec<_>>(),
         "cast_inputs_by_slot": casts,
         "hero_stats": hero_stats.as_ref().map(|stats| stats.report(&world)),
+        "creep_facing": hero_stats.as_ref().map(|stats| stats.creep_facing.report()),
         "end_events": end_events,
         "committed_combat_facts": combat_facts,
         "replay_verified_ticks": digests.len(),
@@ -1396,6 +1397,71 @@ struct HeroStats {
     /// INVALID_TARGET casts with the target's state on that tick (E454), INVALID_TARGET_SAMPLES
     /// per (player, ability): the executor can tell what made the target invalid.
     invalid_targets: std::collections::BTreeMap<(u32, String), Vec<serde_json::Value>>,
+    /// Lane creeps facing where they walk or attack (E461).
+    creep_facing: CreepFacing,
+}
+
+/// Creep facing from the simulation data (E461): every CREEP_FACING_INTERVAL ticks a walking creep
+/// (moved at least CREEP_FACING_MIN_STEP since the last sample) must face its movement, and a
+/// standing creep whose attack wound up since then must face its target, both within
+/// CREEP_FACING_MAX_DEGREES. Screenshots cannot show this reliably; the batch and split accept on
+/// 0 violations.
+#[derive(Default)]
+struct CreepFacing {
+    last: std::collections::BTreeMap<specs::Entity, (u64, omoba_sim::Vec2)>,
+    walk_checks: u64,
+    attack_checks: u64,
+    violations: u64,
+    samples: Vec<serde_json::Value>,
+}
+
+const CREEP_FACING_INTERVAL: u64 = 30;
+const CREEP_FACING_MIN_STEP: f32 = 20.0;
+const CREEP_FACING_MAX_DEGREES: f32 = 30.0;
+const CREEP_FACING_SAMPLES: usize = 10;
+
+impl CreepFacing {
+    fn observe(&mut self, world: &specs::World) {
+        use specs::Join;
+        let tick = world.read_resource::<omoba_core::runtime::Tick>().0;
+        if tick % CREEP_FACING_INTERVAL != 0 { return; }
+        let degrees = |v: omoba_sim::Vec2| v.y.to_f32_for_render().atan2(v.x.to_f32_for_render()).to_degrees();
+        let attacks = world.try_fetch::<omoba_core::runtime::native::rules::attack::AttackRecords>();
+        let positions = world.read_storage::<Pos>();
+        let properties = world.read_storage::<CProperty>();
+        let mut seen = std::collections::BTreeMap::new();
+        for (entity, creep, pos, facing) in (&world.entities(), &world.read_storage::<omoba_core::runtime::Creep>(),
+            &positions, &world.read_storage::<omoba_core::runtime::Facing>()).join() {
+            if properties.get(entity).is_none_or(|p| p.hp <= omoba_sim::Fixed64::ZERO) { continue; }
+            seen.insert(entity, (tick, pos.0));
+            let Some(&(before, from)) = self.last.get(&entity) else { continue };
+            let step = pos.0 - from;
+            let walked = step.length().to_f32_for_render() >= CREEP_FACING_MIN_STEP;
+            let expected = if walked { Some(("walk", degrees(step))) } else {
+                attacks.as_ref().and_then(|records| records.0.get(&entity)).filter(|record| record.windup_tick > before)
+                    .and_then(|record| record.target).and_then(|target| positions.get(target))
+                    .map(|target| ("attack", degrees(target.0 - pos.0)))
+            };
+            let Some((mode, expected)) = expected else { continue };
+            if mode == "walk" { self.walk_checks += 1 } else { self.attack_checks += 1 }
+            let facing = facing.rad_f32().to_degrees();
+            let off = ((facing - expected).rem_euclid(360.0) + 180.0).rem_euclid(360.0) - 180.0;
+            if off.abs() > CREEP_FACING_MAX_DEGREES {
+                self.violations += 1;
+                if self.samples.len() < CREEP_FACING_SAMPLES {
+                    self.samples.push(serde_json::json!({"tick": tick, "creep": creep.name, "entity": entity.id(), "mode": mode,
+                        "facing": facing.round(), "expected": expected.round(), "off": off.round(),
+                        "x": pos.0.x.to_f32_for_render().round(), "y": pos.0.y.to_f32_for_render().round()}));
+                }
+            }
+        }
+        self.last = seen;
+    }
+
+    fn report(&self) -> serde_json::Value {
+        serde_json::json!({"walk_checks": self.walk_checks, "attack_checks": self.attack_checks, "violations": self.violations,
+            "max_degrees": CREEP_FACING_MAX_DEGREES, "samples": self.samples})
+    }
 }
 
 const INVALID_TARGET_SAMPLES: usize = 5;
@@ -1455,6 +1521,7 @@ impl HeroStats {
             let sample = self.invalid_target_sample(world, tick, caster, player, &ability);
             self.invalid_targets.entry((player, ability)).or_default().push(sample);
         }
+        self.creep_facing.observe(world);
         let mut owners = std::collections::BTreeMap::new();
         for slot in &state.heroes {
             if let Some(entity) = slot.entity {
