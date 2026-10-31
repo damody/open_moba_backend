@@ -313,6 +313,8 @@ fn run() -> Result<(), Error> {
     let mut hero_stats = std::env::var("OMB_HEADLESS_HERO_STATS").is_ok_and(|v| v == "1").then(HeroStats::default);
     if hero_stats.is_some() { world.insert(omoba_core::runtime::native::cast_trace::CastTrace::default()); }
     if hero_stats.is_some() { world.insert(omoba_core::runtime::native::damage_tally::DamageTally::default()); }
+    // Script damage by ability (E436): the generated code tags each packet with its ability.
+    if hero_stats.is_some() { world.insert(omoba_core::runtime::native::damage_trace::DamageTrace::default()); }
     let mut end_events = 0usize;
     let mut combat_facts = 0usize;
     // Objective slots are a bounded public read. Full snapshots stay on the sample interval.
@@ -1363,6 +1365,12 @@ struct HeroStats {
     /// and from heroes.
     damage: std::collections::BTreeMap<u32, i64>,
     hero_damage: std::collections::BTreeMap<u32, i64>,
+    /// Units a player's hero summoned or copied (SummonedUnit.summoner, E436): their damage is
+    /// credited to the summoner's player, as a packet's credit names the unit that dealt it.
+    owned: std::collections::BTreeMap<specs::Entity, u32>,
+    /// Script damage by (player, ability) from the DamageTrace (E436): applied damage, the part on
+    /// heroes, and packets cancelled or skipped because the source had died.
+    ability_damage: std::collections::BTreeMap<(u32, String), [i64; 4]>,
 }
 
 impl HeroStats {
@@ -1411,13 +1419,32 @@ impl HeroStats {
             if let Some(slot) = state.heroes.iter().find(|slot| slot.entity == Some(summon.summoner)) {
                 self.summons.entry(slot.player_id).or_default().insert(omoba_core::runtime::canonical_entity_id(entity));
             }
+            if let Some(player) = self.lives.get(&summon.summoner).copied() { self.owned.insert(entity, player); }
         }
         // Settled damage of this tick (DamageTally, E352): a hero's credited packets by its life.
         if let Some(mut tally) = world.try_fetch_mut::<omoba_core::runtime::native::damage_tally::DamageTally>() {
             for (source, target, removed) in tally.0.drain(..) {
-                if let Some(player) = self.lives.get(&source) {
+                if let Some(player) = self.lives.get(&source).or_else(|| self.owned.get(&source)) {
                     *self.damage.entry(*player).or_default() += removed.raw();
                     if self.lives.contains_key(&target) { *self.hero_damage.entry(*player).or_default() += removed.raw(); }
+                }
+            }
+        }
+        if let Some(mut trace) = world.try_fetch_mut::<omoba_core::runtime::native::damage_trace::DamageTrace>() {
+            use omoba_core::runtime::native::damage_trace::DamageTraceResult;
+            for row in trace.0.drain(..) {
+                let Some(player) = self.lives.get(&row.source).or_else(|| self.owned.get(&row.source)).copied() else { continue };
+                let ability = if row.ability.is_empty() { "(untagged)".to_string() } else { row.ability };
+                let entry = self.ability_damage.entry((player, ability)).or_default();
+                match row.result {
+                    DamageTraceResult::Applied => {
+                        let (physical, magical, pure) = row.after.unwrap_or((omoba_sim::Fixed64::ZERO, omoba_sim::Fixed64::ZERO, omoba_sim::Fixed64::ZERO));
+                        let total = physical.raw() + magical.raw() + pure.raw();
+                        entry[0] += total;
+                        if self.lives.contains_key(&row.target) { entry[1] += total; }
+                    }
+                    DamageTraceResult::Cancelled => entry[2] += 1,
+                    DamageTraceResult::SkippedSourceDead => entry[3] += 1,
                 }
             }
         }
@@ -1480,7 +1507,14 @@ impl HeroStats {
                 "assists": slot.assists, "summons": self.summons.get(&slot.player_id).map_or(0, |s| s.len()), "casts": casts,
                 "items": items, "team": state.config.teams.get(slot.side).copied().unwrap_or(0),
                 "damage": omoba_sim::Fixed64::from_raw(self.damage.get(&slot.player_id).copied().unwrap_or(0)).to_f32_for_render().round() as i64,
-                "hero_damage": omoba_sim::Fixed64::from_raw(self.hero_damage.get(&slot.player_id).copied().unwrap_or(0)).to_f32_for_render().round() as i64})
+                "hero_damage": omoba_sim::Fixed64::from_raw(self.hero_damage.get(&slot.player_id).copied().unwrap_or(0)).to_f32_for_render().round() as i64,
+                "ability_damage": self.ability_damage.range((slot.player_id, String::new())..)
+                    .take_while(|((player, _), _)| *player == slot.player_id)
+                    .map(|((_, ability), [damage, hero, cancelled, skipped])| (ability.clone(), serde_json::json!({
+                        "damage": omoba_sim::Fixed64::from_raw(*damage).to_f32_for_render().round() as i64,
+                        "hero_damage": omoba_sim::Fixed64::from_raw(*hero).to_f32_for_render().round() as i64,
+                        "cancelled": cancelled, "skipped_source_dead": skipped})))
+                    .collect::<serde_json::Map<String, serde_json::Value>>()})
         }).collect())
     }
 }
