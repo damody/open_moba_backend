@@ -1402,13 +1402,17 @@ struct HeroStats {
 }
 
 /// Creep facing from the simulation data (E461): every CREEP_FACING_INTERVAL ticks a walking creep
-/// (moved at least CREEP_FACING_MIN_STEP since the last sample) must face its movement, and a
+/// (moved at least CREEP_FACING_MIN_STEP since the last sample) must face its last tick's step, and a
 /// standing creep whose attack wound up since then must face its target, both within
 /// CREEP_FACING_MAX_DEGREES. Screenshots cannot show this reliably; the batch and split accept on
 /// 0 violations.
+/// The expected walking direction is the last tick's step, not the window's (E471): a creep turning
+/// at a corner faces its new heading at once while the window still averages the old one.
 #[derive(Default)]
 struct CreepFacing {
     last: std::collections::BTreeMap<specs::Entity, (u64, omoba_sim::Vec2)>,
+    /// Every creep's position on the previous tick.
+    previous: std::collections::BTreeMap<specs::Entity, omoba_sim::Vec2>,
     walk_checks: u64,
     attack_checks: u64,
     violations: u64,
@@ -1424,6 +1428,9 @@ impl CreepFacing {
     fn observe(&mut self, world: &specs::World) {
         use specs::Join;
         let tick = world.read_resource::<omoba_core::runtime::Tick>().0;
+        let previous = std::mem::take(&mut self.previous);
+        self.previous = (&world.entities(), &world.read_storage::<omoba_core::runtime::Creep>(), &world.read_storage::<Pos>()).join()
+            .map(|(entity, _, pos)| (entity, pos.0)).collect();
         if tick % CREEP_FACING_INTERVAL != 0 { return; }
         let degrees = |v: omoba_sim::Vec2| v.y.to_f32_for_render().atan2(v.x.to_f32_for_render()).to_degrees();
         let attacks = world.try_fetch::<omoba_core::runtime::native::rules::attack::AttackRecords>();
@@ -1437,7 +1444,9 @@ impl CreepFacing {
             let Some(&(before, from)) = self.last.get(&entity) else { continue };
             let step = pos.0 - from;
             let walked = step.length().to_f32_for_render() >= CREEP_FACING_MIN_STEP;
-            let expected = if walked { Some(("walk", degrees(step))) } else {
+            let last_step = previous.get(&entity).map(|from| pos.0 - *from)
+                .filter(|step| step.length() > omoba_sim::Fixed64::ZERO);
+            let expected = if walked { last_step.map(|step| ("walk", degrees(step))) } else {
                 attacks.as_ref().and_then(|records| records.0.get(&entity)).filter(|record| record.windup_tick > before)
                     .and_then(|record| record.target).and_then(|target| positions.get(target))
                     .map(|target| ("attack", degrees(target.0 - pos.0)))
