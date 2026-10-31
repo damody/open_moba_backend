@@ -1560,6 +1560,9 @@ struct CreepFacing {
     /// step faces the target where it stood when the tick began, and a hero that blinks or dashes
     /// later in that tick is only faced on the next one.
     pending: std::collections::BTreeMap<specs::Entity, &'static str>,
+    /// The last tick each creep held an impulse (E550): the push moves it without turning it,
+    /// during the impulse and in the window around it.
+    pushed: std::collections::BTreeMap<specs::Entity, u64>,
     /// Sample-tick deviations gone by the next tick.
     transient: u64,
     walk_checks: u64,
@@ -1593,6 +1596,9 @@ impl CreepFacing {
         let previous = std::mem::take(&mut self.previous);
         self.previous = (&world.entities(), &world.read_storage::<omoba_core::runtime::Creep>(), &world.read_storage::<Pos>()).join()
             .map(|(entity, _, pos)| (entity, pos.0)).collect();
+        if let Some(impulses) = world.try_fetch::<omoba_core::runtime::native::impulse::Impulses>() {
+            for entity in impulses.units() { self.pushed.insert(entity, tick); }
+        }
         let due = tick % CREEP_FACING_INTERVAL == 0;
         let recheck = std::mem::take(&mut self.pending);
         if !due && recheck.is_empty() { return; }
@@ -1617,6 +1623,10 @@ impl CreepFacing {
             // A stunned creep neither moves nor turns, and forced motion moves it without turning
             // (E510): neither is the creep's own facing.
             if buffs.is_stunned(entity) || buffs.has(entity, omoba_core::runtime::native::forced_motion::BUFF) { continue; }
+            // An impulse (E550, e.g. B25 Asura Hell's pull) displaces the creep without turning it:
+            // skip a creep pushed since its window began (or since the last tick, for a recheck).
+            let since = window.map_or(tick.saturating_sub(1), |(start, _)| start);
+            if self.pushed.get(&entity).is_some_and(|&at| at >= since) { continue; }
             let walked = match pending {
                 Some(mode) => mode == "walk",
                 None => window.is_some_and(|(_, from)| (pos.0 - from).length().to_f32_for_render() >= CREEP_FACING_MIN_STEP),
