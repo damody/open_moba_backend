@@ -1419,6 +1419,15 @@ struct CreepFacing {
     samples: Vec<serde_json::Value>,
 }
 
+/// What an attack target is, for the creep facing samples (E476).
+fn unit_kind(world: &specs::World, entity: specs::Entity) -> &'static str {
+    if world.read_storage::<omoba_core::runtime::Hero>().get(entity).is_some() { "hero" }
+    else if world.read_storage::<omoba_core::runtime::Tower>().get(entity).is_some() { "structure" }
+    else if world.read_storage::<omoba_core::runtime::SummonedUnit>().get(entity).is_some() { "summon" }
+    else if world.read_storage::<omoba_core::runtime::Creep>().get(entity).is_some() { "creep" }
+    else { "other" }
+}
+
 const CREEP_FACING_INTERVAL: u64 = 30;
 const CREEP_FACING_MIN_STEP: f32 = 20.0;
 const CREEP_FACING_MAX_DEGREES: f32 = 30.0;
@@ -1446,12 +1455,14 @@ impl CreepFacing {
             let walked = step.length().to_f32_for_render() >= CREEP_FACING_MIN_STEP;
             let last_step = previous.get(&entity).map(|from| pos.0 - *from)
                 .filter(|step| step.length() > omoba_sim::Fixed64::ZERO);
-            let expected = if walked { last_step.map(|step| ("walk", degrees(step))) } else {
+            // An attack target on the creep's own spot has no direction (E476): atan2(0, 0) read as 0°.
+            let expected = if walked { last_step.map(|step| ("walk", degrees(step), None)) } else {
                 attacks.as_ref().and_then(|records| records.0.get(&entity)).filter(|record| record.windup_tick > before)
-                    .and_then(|record| record.target).and_then(|target| positions.get(target))
-                    .map(|target| ("attack", degrees(target.0 - pos.0)))
+                    .and_then(|record| record.target).and_then(|target| positions.get(target).map(|at| (target, at.0)))
+                    .filter(|(_, at)| (*at - pos.0).length() >= omoba_sim::Fixed64::ONE)
+                    .map(|(target, at)| ("attack", degrees(at - pos.0), Some((target, at))))
             };
-            let Some((mode, expected)) = expected else { continue };
+            let Some((mode, expected, target)) = expected else { continue };
             if mode == "walk" { self.walk_checks += 1 } else { self.attack_checks += 1 }
             let facing = facing.rad_f32().to_degrees();
             let off = ((facing - expected).rem_euclid(360.0) + 180.0).rem_euclid(360.0) - 180.0;
@@ -1460,7 +1471,10 @@ impl CreepFacing {
                 if self.samples.len() < CREEP_FACING_SAMPLES {
                     self.samples.push(serde_json::json!({"tick": tick, "creep": creep.name, "entity": entity.id(), "mode": mode,
                         "facing": facing.round(), "expected": expected.round(), "off": off.round(),
-                        "x": pos.0.x.to_f32_for_render().round(), "y": pos.0.y.to_f32_for_render().round()}));
+                        "x": pos.0.x.to_f32_for_render().round(), "y": pos.0.y.to_f32_for_render().round(),
+                        "target": target.map(|(target, at)| serde_json::json!({"entity": target.id(), "self": target == entity,
+                            "kind": unit_kind(world, target), "x": at.x.to_f32_for_render().round(), "y": at.y.to_f32_for_render().round(),
+                            "distance": (at - pos.0).length().to_f32_for_render().round()}))}));
                 }
             }
         }
