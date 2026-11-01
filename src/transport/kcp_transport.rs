@@ -2106,11 +2106,13 @@ async fn handle_client(
                                                         .then_some((session.authenticated_team_id,session.current_view_epoch))
                                                 })};
                                             let Some((Some(team),epoch))=binding else {continue;};
-                                            let resolved=secure_input_validation.lock().ok().and_then(|snapshot|
-                                                omoba_core::runtime::summon_transport::seal_client(value,&snapshot,team,epoch,u64::from(target_tick)).ok());
-                                            let Some(order)=resolved else {
+                                            let resolved=secure_input_validation.lock().map_err(|_|"SUMMON_VALIDATION_UNAVAILABLE").and_then(|snapshot|
+                                                omoba_core::runtime::summon_transport::seal_client(value,&snapshot,team,epoch,u64::from(target_tick)));
+                                            let order=match resolved {Ok(order)=>order,Err(reason)=>{
+                                                // The refusal names its check (E614): SUMMON_SHAPE, SUMMON_REFERENCE...
+                                                log::info!("SummonCommand refused pid={} input={} operation={} reason={}",player_id,input_id,value.operation,reason);
                                                 invalid_reference_limiter.admit(&session_id,u64::from(current_tick));continue;
-                                            };
+                                            }};
                                             input.action=Some(player_input::Action::OwnedSummonOrder(order));
                                         }
                                         if let Some(player_input::Action::Direction(value))=input.action.as_mut() {
