@@ -398,6 +398,7 @@ fn run() -> Result<(), Error> {
                 let mut document = failure_document("observer_mismatch", &message, hz, config.seed, &config.map_id, waves,
                     max_game_seconds, stall_game_seconds, max_ticks, stall_ticks, monitor.last_progress_tick, result.tick, &samples);
                 document["observer"] = observer_report(observed, observer.as_ref(), observer_ns);
+                attach_performance(&mut document, "observer_mismatch", &tick_perf, &driver, &world);
                 return write_failure(&report_path, &document);
             }
         }
@@ -432,9 +433,7 @@ fn run() -> Result<(), Error> {
             }
             let waves = world.read_resource::<MobaMatch>().waves;
             let message = stall_message(stall_game_seconds, monitor.last_progress_tick, tick);
-            return write_failure(
-                &report_path,
-                &failure_document(
+            let mut document = failure_document(
                     "objective_stall",
                     &message,
                     hz,
@@ -448,8 +447,10 @@ fn run() -> Result<(), Error> {
                     monitor.last_progress_tick,
                     tick,
                     &samples,
-                ),
-            );
+                );
+            document["observer"] = observer_report(observed, observer.as_ref(), observer_ns);
+            attach_performance(&mut document, "objective_stall", &tick_perf, &driver, &world);
+            return write_failure(&report_path, &document);
         }
     }
     if let Some((tick, swap)) = &hot_swap {
@@ -496,9 +497,7 @@ fn run() -> Result<(), Error> {
                 monitor.last_progress_tick,
                 &format!("{phase:?}"),
             );
-            return write_failure(
-                &report_path,
-                &failure_document(
+            let mut document = failure_document(
                     "execution_budget",
                     &message,
                     hz,
@@ -512,8 +511,10 @@ fn run() -> Result<(), Error> {
                     monitor.last_progress_tick,
                     last_tick,
                     &samples,
-                ),
-            );
+                );
+            document["observer"] = observer_report(observed, observer.as_ref(), observer_ns);
+            attach_performance(&mut document, "execution_budget", &tick_perf, &driver, &world);
+            return write_failure(&report_path, &document);
         }
     };
     if end_events != 1 || (bots.is_none() && casts.contains(&0)) || combat_facts == 0 {
@@ -588,6 +589,7 @@ fn run() -> Result<(), Error> {
     // The driver's serial stages and the ECS systems, mean per step (E513); added here, the json!
     // above is at the macro's recursion limit.
     report["tick_profile"] = driver.phase_report(&world);
+    report["performance"]["end_reason"] = "finished".into();
     report["observer"] = observer_report(observed, observer.as_ref(), observer_ns);
     write_new_output(&report_path, &serde_json::to_vec_pretty(&report)?)?;
     println!(
@@ -1043,6 +1045,14 @@ fn observer_report(enabled: bool, observer: Option<&omoba_core::runtime::inproce
         "first": first,
         "wall_ms": ns as f64 / 1e6,
     })
+}
+
+/// The tick cost and the driver's stages up to the tick the run ended on, whatever ended it
+/// (E588): a stalled, over-budget or observer-failed match is still a performance sample.
+fn attach_performance(document: &mut Value, end_reason: &str, perf: &TickPerf, driver: &SimulationDriver, world: &specs::World) {
+    document["performance"] = perf.report();
+    document["performance"]["end_reason"] = end_reason.into();
+    document["tick_profile"] = driver.phase_report(world);
 }
 
 fn write_failure(report: &Path, document: &Value) -> Result<(), Error> {
