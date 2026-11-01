@@ -1401,9 +1401,10 @@ pub async fn start(
         });
     });
 
-    // 解析綁定位址
+    // 解析綁定位址：本機位址只綁 loopback，不開放到其他網路介面，Windows 防火牆就不會詢問（E639）。
+    // 要讓區網連入，明確設定 0.0.0.0 或區網 IP。
     let bind_ip = match server_addr.as_str() {
-        "localhost" | "127.0.0.1" => "0.0.0.0".to_string(),
+        "localhost" => "127.0.0.1".to_string(),
         other => other.to_string(),
     };
     let addr = format!("{}:{}", bind_ip, server_port);

@@ -194,9 +194,10 @@ pub async fn start(server_addr: String, server_port: String) -> Result<Transport
         query_tx,
     };
 
-    // 將主機名稱解析為可綁定的 SocketAddr（例如“localhost”→“0.0.0.0”）
+    // 將主機名稱解析為可綁定的 SocketAddr：本機位址只綁 loopback（E639，不觸發 Windows 防火牆）；
+    // 要讓區網連入，明確設定 0.0.0.0 或區網 IP。
     let bind_ip = match server_addr.as_str() {
-        "localhost" | "127.0.0.1" => "0.0.0.0".to_string(),
+        "localhost" => "127.0.0.1".to_string(),
         other => other.to_string(),
     };
     let addr = format!("{}:{}", bind_ip, server_port);
