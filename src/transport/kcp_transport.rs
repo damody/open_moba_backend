@@ -2099,7 +2099,10 @@ async fn handle_client(
                                         let input_id = req.input_id;
                                         let mut input = req.input.unwrap_or_default();
                                         if let Some(player_input::Action::SummonCommand(value))=input.action.as_ref() {
-                                            if !secure_v2_session || joined_player_id!=Some(player_id) || input_id==0 {continue;}
+                                            if !secure_v2_session || joined_player_id!=Some(player_id) || input_id==0 {
+                                                log::info!("SummonCommand refused pid={} input={} reason=SUMMON_SESSION",player_id,input_id);
+                                                continue;
+                                            }
                                             let binding={let sessions=sessions.lock().await;
                                                 sessions.get(&session_id).and_then(|session| {
                                                     (session.authenticated_player_id==Some(player_id))
