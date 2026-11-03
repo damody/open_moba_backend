@@ -199,7 +199,7 @@ fn secure_coordinate_input_with_ward(payload: &[u8], joined_player_id: Option<u3
             || (value.mode == omoba_core::runtime::shop_undo_wire::SHOP_UNDO_MODE_SEQUENCE && value.sequence != 0)
         ),
         Some(player_input::Action::Recall(_)) => recall && request.input_id != 0,
-        Some(player_input::Action::HoldPosition(_)) | Some(player_input::Action::Stop(_)) =>
+        Some(player_input::Action::HoldPosition(_)) | Some(player_input::Action::Stop(_)) | Some(player_input::Action::ShowcaseResetHero(_)) =>
             commands && request.input_id != 0,
         Some(player_input::Action::SummonerCast(value)) => summoner && request.input_id != 0
             && omoba_core::runtime::summoner_transport::admit_summoner_cast(value.slot, value.x_raw, value.y_raw).is_ok(),
