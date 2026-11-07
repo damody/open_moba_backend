@@ -3670,7 +3670,7 @@ mod tests {
                 omoba_core::game_proto::OwnedSummonOrder {
                     owner_entity: 0, owner_generation: 1, summon_entity: 9,
                     summon_generation: 2, operation,
-                    point: (operation == 1).then_some(Vec2I { x: 120, y: 40 }), ability: String::new(),
+                    point: (operation == 1).then_some(Vec2I { x: 120, y: 40 }), ability: String::new(), target: None,
                 },
             ));
             assert!(!secure_coordinate_input_with_ward(
