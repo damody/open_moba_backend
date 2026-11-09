@@ -120,7 +120,7 @@ fn selection_host_two_live_gateways_admission_shared_roster_and_handoff() {
         schema_version: 1,
         map_id: "three_lane_training".into(),
         think_hz: 5,
-        mana_enabled: false,
+        mana_enabled: false, shop_range_rule: false,
         ability_policies: vec![],
         ability_learning: vec![],
         sustain: None,

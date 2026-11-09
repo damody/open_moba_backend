@@ -2827,7 +2827,7 @@ mod role_server_tests {
                 players.push(RoleBotPlayerPlan {player_id,team_id:team,hero:"murakami_yoshikiyo".into(),role,lane:lane.into(),bot:player_id!=1});
             }
         }
-        RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:false,players,
+        RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:false,shop_range_rule:false,players,
             ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),
             summoner_loadouts:BTreeMap::new(), showcase: None}
     }

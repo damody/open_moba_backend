@@ -72,6 +72,10 @@ pub struct ServerSetting {
     /// Match-scoped opt-in. Every player must agree before registration.
     #[serde(default)]
     pub MATCH_MANA_ENABLED: bool,
+    /// Original shop rules (courier-spec §0): stash purchases outside shop reach and a courier per
+    /// player. Off (the default) keeps the purchase radius check. A role plan must agree.
+    #[serde(default)]
+    pub MATCH_SHOP_RANGE_RULE: bool,
     /// Compiled Lua map selection for three-lane matches; absent keeps the legacy training map.
     #[serde(default)]
     pub MATCH_MAP_ID: Option<String>,
@@ -260,6 +264,7 @@ pub fn validate_moba_launch_configuration(text:&str) -> Result<serde_json::Value
         "tick_rate_hz":server.STEP_FPS,"story":server.STORY,"map_id":config.map_id,
         "base_recovery_enabled":config.base_recovery_enabled,
         "mana_enabled":config.mana_enabled,
+        "shop_range_rule":config.shop_range_rule,
         "player_count":config.additional_players.len()+2,
         "humans":server.AUTHENTICATED_TEAM_BINDINGS.iter().map(|(&player_id,&team_id)|
             serde_json::json!({"player_id":player_id,"team_id":team_id})).collect::<Vec<_>>(),
@@ -431,6 +436,7 @@ impl ServerSetting {
             minion_growth_rules: map.map_or_else(omoba_core::runtime::MinionGrowthRules::training,
                 omoba_core::runtime::MinionGrowthRules::for_map),
             mana_enabled: self.MATCH_MANA_ENABLED,
+            shop_range_rule: self.MATCH_SHOP_RANGE_RULE,
             map_id: map.map(|map| map.id.to_owned()),
             authored_minion_waves: map.is_some_and(|map| !map.minion_wave.is_empty()),
             wave_interval: map.map_or(defaults.wave_interval,
@@ -515,6 +521,9 @@ impl ServerSetting {
         if plan.mana_enabled != self.MATCH_MANA_ENABLED {
             return Err("role plan mana_enabled conflicts with MATCH_MANA_ENABLED".into());
         }
+        if plan.shop_range_rule != self.MATCH_SHOP_RANGE_RULE {
+            return Err("role plan shop_range_rule conflicts with MATCH_SHOP_RANGE_RULE".into());
+        }
         let human_teams:BTreeMap<_,_>=plan.players.iter().filter(|p|!p.bot)
             .map(|p|(p.player_id,p.team_id)).collect();
         if human_teams!=self.AUTHENTICATED_TEAM_BINDINGS {
@@ -525,6 +534,7 @@ impl ServerSetting {
         plan.compile_with_admission(omoba_core::runtime::MasterSeed::default().0,self.STEP_FPS,admission)
             .and_then(|(mut config, bots)| {
                 config.mana_enabled = self.MATCH_MANA_ENABLED;
+                config.shop_range_rule = self.MATCH_SHOP_RANGE_RULE;
                 self.reconcile_role_plan_loadouts(&plan, &mut config)?;
                 self.install_authenticated_trinket_loadouts(&mut config)?;
                 Ok(Some((config, bots)))
@@ -644,7 +654,7 @@ STEP_FPS = {step_fps}
                 players.push(RoleBotPlayerPlan {player_id,team_id:team,hero:"murakami_yoshikiyo".into(),role,lane:lane.into(),bot:player_id!=1});
             }
         }
-        let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:5,mana_enabled:false,players,
+        let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:5,mana_enabled:false,shop_range_rule:false,players,
             ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),
             summoner_loadouts:BTreeMap::new(), showcase: None};
         let mut setting=parse_with_step_fps(60);
@@ -773,7 +783,7 @@ AUTHENTICATED_TEAM_BINDINGS = { "1" = 1, "2" = 2 }
     fn role_plan_summoner_loadouts_reject_unknown_players_before_config() {
         use omoba_core::runtime::native::moba_match::bots::*;
         let plan = RoleBotMatchPlan {
-            schema_version: 1, map_id: "three_lane_training".into(), think_hz: 5, mana_enabled: false,
+            schema_version: 1, map_id: "three_lane_training".into(), think_hz: 5, mana_enabled: false, shop_range_rule: false,
             ability_policies: Vec::new(), ability_learning: Vec::new(), sustain: None, item_builds: Vec::new(),
             summoner_loadouts: BTreeMap::new(),
             players: vec![
@@ -801,7 +811,7 @@ AUTHENTICATED_TEAM_BINDINGS = { "1" = 1, "2" = 2 }
             RoleBotPlayerPlan { player_id: 2, team_id: 2, hero: "murakami_yoshikiyo".into(), role: BotRole::Top, lane: "top".into(), bot: true },
         ];
         let base = RoleBotMatchPlan {
-            schema_version: 1, map_id: "three_lane_training".into(), think_hz: 5, mana_enabled: false,
+            schema_version: 1, map_id: "three_lane_training".into(), think_hz: 5, mana_enabled: false, shop_range_rule: false,
             ability_policies: Vec::new(), ability_learning: Vec::new(), sustain: None, item_builds: Vec::new(),
             summoner_loadouts: BTreeMap::new(), players, showcase: None
         };
@@ -884,6 +894,27 @@ AUTHENTICATED_TEAM_BINDINGS = { "1" = 1, "2" = 2 }
         plan["mana_enabled"]=serde_json::json!(false);
         setting.MATCH_ROLE_PLAN_JSON=Some(plan.to_string());
         assert!(setting.role_bot_config().unwrap_err().contains("mana_enabled conflicts"));
+    }
+
+    #[test]
+    #[cfg(feature = "kcp")]
+    fn shop_range_rule_server_and_role_plan_must_agree() {
+        let mut setting=parse_with_step_fps(60);
+        setting.MATCH_GAMEPLAY_MODE=MatchGameplayMode::ThreeLane;
+        setting.AUTHENTICATED_TEAM_BINDINGS=BTreeMap::from([(1,1),(2,2)]);
+        assert!(!setting.MATCH_SHOP_RANGE_RULE);
+        let mut plan=serde_json::json!({"schema_version":1,"map_id":"three_lane_training","think_hz":5,"shop_range_rule":true,
+            "players":[{"player_id":1,"team_id":1,"hero":"tamako","role":"carry","lane":"bottom","bot":false},
+                {"player_id":2,"team_id":2,"hero":"murakami_yoshikiyo","role":"mid","lane":"mid","bot":false}]});
+        setting.MATCH_ROLE_PLAN_JSON=Some(plan.to_string());
+        assert!(setting.role_bot_config().unwrap_err().contains("shop_range_rule conflicts"));
+        setting.MATCH_SHOP_RANGE_RULE=true;
+        assert!(setting.single_lane_config().unwrap().unwrap().shop_range_rule);
+        plan.as_object_mut().unwrap().remove("shop_range_rule");
+        setting.MATCH_ROLE_PLAN_JSON=Some(plan.to_string());
+        assert!(setting.role_bot_config().unwrap_err().contains("shop_range_rule conflicts"));
+        setting.MATCH_SHOP_RANGE_RULE=false;
+        assert!(!setting.single_lane_config().unwrap().unwrap().shop_range_rule);
     }
 
     #[test]

@@ -19,7 +19,7 @@ fn selection_binary_live_stdio_flush_and_explicit_finalization() {
         schema_version: 1,
         map_id: "three_lane_training".into(),
         think_hz: 5,
-        mana_enabled: false,
+        mana_enabled: false, shop_range_rule: false,
         ability_policies: vec![],
         ability_learning: vec![],
         sustain: None,
